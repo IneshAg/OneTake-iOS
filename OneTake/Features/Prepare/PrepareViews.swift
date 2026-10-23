@@ -146,6 +146,9 @@ struct RunLinesView: View {
     @State private var follower = SpeechFollower()
     /// Plays the reader lines you recorded yourself (Record Maya). No synthetic or second-device voices.
     @State private var readerPlayer = ReaderTrackPlayer()
+    /// The pending auto-advance after a reader line. Kept so a manual skip, pause or leaving the
+    /// screen cancels it instead of letting it fire later and skip an extra line.
+    @State private var readerAdvance: Task<Void, Never>?
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
@@ -160,7 +163,7 @@ struct RunLinesView: View {
                 Text("Line \(index + 1) of \(lines.count)").font(.otFootnote).foregroundStyle(OT.labelTertiary)
 
                 if finished {
-                    RunFinishedView(lines: lines) { index = 0; finished = false } onClose: { dismiss() }
+                    RunFinishedView(lines: lines) { index = 0; finished = false; speakIfReader(lines) } onClose: { dismiss() }
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
@@ -181,7 +184,7 @@ struct RunLinesView: View {
                     }
                     Spacer()
                     HStack(spacing: 12) {
-                        Button { finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
+                        Button { stopReader(); finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
                         Button(prompted ? "Whole line" : "Line?") { prompted.toggle(); Haptics.tick() }.buttonStyle(.otPrimary)
                         Button { advance(lines) } label: { Image(systemName: "forward.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
                     }
@@ -196,11 +199,12 @@ struct RunLinesView: View {
                 if lines[index].isMine, count >= lines[index].text.split(separator: " ").count { advance(lines) }
             }
             .task { if await SpeechFollower.requestAccess() { follower.start() } }
-            .onDisappear { follower.stop(); readerPlayer.stop() }
+            .onDisappear { follower.stop(); stopReader() }
         }
     }
 
     private func advance(_ lines: [ScriptLine]) {
+        stopReader()
         prompted = false
         follower.reset()
         if index + 1 < lines.count { index += 1; speakIfReader(lines) } else { finished = true; Haptics.success() }
@@ -210,9 +214,19 @@ struct RunLinesView: View {
         guard !lines[index].isMine else { return }
         let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
         readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(lines[index].text.count) * 0.06 + 0.8) {
-            if !lines[index].isMine { advance(lines) }
+        readerAdvance?.cancel()
+        let delay = Double(lines[index].text.count) * 0.06 + 0.8
+        readerAdvance = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            advance(lines)
         }
+    }
+
+    private func stopReader() {
+        readerAdvance?.cancel()
+        readerAdvance = nil
+        readerPlayer.stop()
     }
 
     private func firstWords(_ text: String) -> String { text.split(separator: " ").prefix(3).joined(separator: " ") + "…" }
