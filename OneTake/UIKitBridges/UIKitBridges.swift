@@ -115,34 +115,102 @@ final class SpeechFollower {
     private var firedThroughWord = 0
     private var pendingCommand: Task<Void, Never>?
 
+    /// Speech recognition *and* the microphone — the follower can't hear anything without both.
     static func requestAccess() async -> Bool {
-        await withCheckedContinuation { cont in
+        let speech = await withCheckedContinuation { cont in
             SFSpeechRecognizer.requestAuthorization { cont.resume(returning: $0 == .authorized) }
         }
+        guard speech else { return false }
+        return await AVAudioApplication.requestRecordPermission()
     }
+
+    /// Bumped on every restart/stop, so a callback from a recognition task that was replaced (its
+    /// cancellation reports an error) can't trigger yet another restart.
+    private var generation = 0
+    private var configurationObserver: NSObjectProtocol?
 
     func start() {
         guard !isListening, let recognizer, recognizer.isAvailable else { return }
+        // The input node only has a usable format once the audio session allows recording. On a
+        // fresh session (Run Lines, drills — no camera has configured it) installing the tap with
+        // that empty format raises an exception.
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setActive(true)
+        } catch { return }
+        guard startEngine() else { return }
+        isListening = true
+
+        // The camera reconfiguring the shared audio session stops the engine; pick it back up.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isListening else { return }
+            self.engine.inputNode.removeTap(onBus: 0)
+            _ = self.startEngine()
+        }
+        beginRecognition()
+    }
+
+    private func startEngine() -> Bool {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return false }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.request?.append(buffer)
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            return true
+        } catch {
+            input.removeTap(onBus: 0)
+            return false
+        }
+    }
+
+    private func beginRecognition() {
+        guard let recognizer else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         self.request = request
+        let generation = self.generation
 
-        let input = engine.inputNode
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
-            request.append(buffer)
-        }
-        engine.prepare()
-        try? engine.start()
-        isListening = true
-
-        task = recognizer.recognitionTask(with: request) { [weak self] result, _ in
-            guard let self, let result else { return }
-            let words = result.bestTranscription.segments.map {
-                $0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+            if let result {
+                let words = result.bestTranscription.segments.map {
+                    $0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
+                }
+                Task { @MainActor in self.handle(words) }
             }
-            Task { @MainActor in self.handle(words) }
+            // Recognition ends on its own — a final result, a long silence, the system's time limit.
+            // While still meant to be listening, start a fresh one so commands keep working all shoot.
+            if error != nil || result?.isFinal == true {
+                Task { @MainActor in await self.restartRecognition(from: generation) }
+            }
         }
+    }
+
+    @MainActor
+    private func restartRecognition(from ended: Int) async {
+        guard isListening, ended == generation else { return }
+        generation += 1
+        request?.endAudio()
+        task?.cancel()
+        // A new recognition counts words from zero again.
+        totalWords = 0
+        wordOffset = 0
+        latestWords = []
+        firedThroughWord = 0
+        pendingCommand?.cancel()
+        pendingCommand = nil
+        // Brief pause so an immediately-failing recognizer can't spin.
+        try? await Task.sleep(for: .milliseconds(300))
+        guard isListening else { return }
+        beginRecognition()
     }
 
     @MainActor
@@ -171,11 +239,15 @@ final class SpeechFollower {
     }
 
     func stop() {
+        // Before cancelling, so the cancelled task's callback doesn't restart recognition.
+        isListening = false
+        generation += 1
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         task?.cancel()
-        isListening = false
         totalWords = 0
         wordOffset = 0
         latestWords = []
