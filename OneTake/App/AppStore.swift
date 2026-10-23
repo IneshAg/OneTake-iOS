@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import AVFoundation
 
 /// Every pushed screen in the app. One enum keeps the flow testable and mirrors the Figma prototype keys.
 enum Route: Hashable {
@@ -259,6 +260,28 @@ final class AppStore {
             take.isCircled = true
         }
         takes.append(take)
+    }
+
+    /// Swaps a take's file for its trimmed version. The new file gets a new name, so thumbnails and
+    /// Tape Check (which key off the URL) pick up the change.
+    func replaceTakeFile(_ id: Take.ID, with edited: URL) {
+        guard let i = takes.firstIndex(where: { $0.id == id }), let old = takes[i].fileURL else { return }
+        let dest = old.deletingLastPathComponent().appendingPathComponent("take-\(takes[i].number)-\(UUID().uuidString).mov")
+        do { try FileManager.default.moveItem(at: edited, to: dest) } catch { return }
+        try? FileManager.default.removeItem(at: old)
+        takes[i].fileURL = dest
+        Task { @MainActor in
+            guard let seconds = try? await AVURLAsset(url: dest).load(.duration).seconds,
+                  let j = self.takes.firstIndex(where: { $0.id == id }) else { return }
+            self.takes[j].duration = seconds
+        }
+    }
+
+    /// A private note on a take — never sent, just for the actor.
+    func addNote(_ note: String, to id: Take.ID) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let i = takes.firstIndex(where: { $0.id == id }) else { return }
+        takes[i].notes.append(trimmed)
     }
 
     func incrementPracticeTakes(for id: PracticePiece.ID) {

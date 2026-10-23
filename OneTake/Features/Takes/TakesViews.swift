@@ -38,6 +38,8 @@ struct TakesView: View {
     @State private var selected: Take.ID?
     @State private var showOneMore = false
     @State private var notesOpen = false
+    @State private var trimming: Take?
+    @State private var newNote = ""
 
     var body: some View {
         let takes = store.takes.filter { $0.auditionID == auditionID }
@@ -45,7 +47,6 @@ struct TakesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PlayerCard(url: current?.fileURL)
-                PlaybackBar()
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -66,12 +67,21 @@ struct TakesView: View {
                 }
 
                 DisclosureGroup(isExpanded: $notesOpen) {
-                    VStack(alignment: .leading, spacing: 6) { ForEach(current?.notes ?? [], id: \.self) { Text("• \($0)").font(.otCallout) } }
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(current?.notes ?? [], id: \.self) { Text("• \($0)").font(.otCallout) }
+                        if let c = current {
+                            TextField("Add a note to take \(c.number)", text: $newNote)
+                                .submitLabel(.done)
+                                .onSubmit { store.addNote(newNote, to: c.id); newNote = "" }
+                                .padding(10).background(OT.fillField, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 } label: {
                     VStack(alignment: .leading) {
                         Label("Notes to self", systemImage: "square.and.pencil").font(.otBody)
-                        Text("Never sent · " + (current?.notes.joined(separator: " · ") ?? "")).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        Text((current?.notes.isEmpty ?? true) ? "Never sent · nothing yet" : "Never sent · " + (current?.notes.joined(separator: " · ") ?? ""))
+                            .font(.otFootnote).foregroundStyle(OT.labelTertiary).lineLimit(1)
                     }
                 }
                 .tint(OT.labelPrimary)
@@ -85,7 +95,9 @@ struct TakesView: View {
             // Compare Takes is cut from MVP — the loop stays record → check → keep/retake/edit, no
             // side-by-side comparison step.
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { } label: { Image(systemName: "scissors") }.accessibilityLabel("Trim")
+                Button { trimming = current } label: { Image(systemName: "scissors") }
+                    .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
+                    .accessibilityLabel("Trim")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -94,6 +106,15 @@ struct TakesView: View {
                 Button("Send take \(takes.first(where: \.isCircled)?.number ?? 0)") { store.push(.tapeCheck(auditionID)) }.buttonStyle(.otPrimary)
             }
             .padding(.horizontal, OT.gutter).padding(.vertical, 8).background(OT.bgCanvas)
+        }
+        .sheet(item: $trimming) { take in
+            if let url = take.fileURL {
+                VideoTrimmer(url: url) { edited in
+                    trimming = nil
+                    if let edited { store.replaceTakeFile(take.id, with: edited); Haptics.success() }
+                }
+                .ignoresSafeArea()
+            }
         }
         .sheet(isPresented: $showOneMore) {
             VStack(spacing: 14) {
@@ -123,19 +144,6 @@ struct PlayerCard: View {
         }
         .frame(height: 210)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
-// MARK: - v2/Playback Bar
-
-struct PlaybackBar: View {
-    @State private var position = 0.35
-    var body: some View {
-        VStack(spacing: 4) {
-            Slider(value: $position)
-            HStack { Text("0:00"); Spacer(); Text("your lines · tap to jump").foregroundStyle(OT.accent); Spacer(); Text("1:30") }
-                .font(.otCaption).foregroundStyle(OT.labelTertiary)
-        }
     }
 }
 

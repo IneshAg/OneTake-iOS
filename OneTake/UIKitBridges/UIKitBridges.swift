@@ -32,6 +32,46 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
+// MARK: - Trim (UIVideoEditorController, UIKit-only)
+
+/// The system trimmer: drag the ends, tap Save. Reports the trimmed file (in a temporary location),
+/// or nil if the person cancelled or it failed.
+struct VideoTrimmer: UIViewControllerRepresentable {
+    let url: URL
+    var onFinish: (URL?) -> Void
+
+    static func canTrim(_ url: URL) -> Bool { UIVideoEditorController.canEditVideo(atPath: url.path) }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> UIVideoEditorController {
+        let editor = UIVideoEditorController()
+        editor.videoPath = url.path
+        editor.videoQuality = .typeHigh
+        editor.delegate = context.coordinator
+        return editor
+    }
+    func updateUIViewController(_ editor: UIVideoEditorController, context: Context) {}
+
+    final class Coordinator: NSObject, UIVideoEditorControllerDelegate, UINavigationControllerDelegate {
+        let onFinish: (URL?) -> Void
+        /// UIVideoEditorController can call its save callback twice; only the first counts.
+        private var finished = false
+        init(onFinish: @escaping (URL?) -> Void) { self.onFinish = onFinish }
+
+        private func finish(_ url: URL?) {
+            guard !finished else { return }
+            finished = true
+            onFinish(url)
+        }
+        func videoEditorController(_ editor: UIVideoEditorController, didSaveEditedVideoToPath editedVideoPath: String) {
+            finish(URL(fileURLWithPath: editedVideoPath))
+        }
+        func videoEditorControllerDidCancel(_ editor: UIVideoEditorController) { finish(nil) }
+        func videoEditorController(_ editor: UIVideoEditorController, didFailWithError error: Error) { finish(nil) }
+    }
+}
+
 // MARK: - Document scanner (VisionKit, UIKit-only)
 
 /// "Scan the pages" for printed sides. Returns recognised page images.
