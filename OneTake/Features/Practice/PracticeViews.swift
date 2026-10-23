@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 // MARK: - 24 Practice (tab)
 
@@ -150,6 +151,10 @@ struct PracticeTakeView: View {
         .preferredColorScheme(.dark)
         .keepScreenAwake()
         .task { if await CameraController.requestAccess() { camera.configure() } }
+        .onCameraCaptureEvent { event in
+            guard event.phase == .ended else { return }
+            if camera.state == .recording { camera.stopRecording() } else { camera.startRecording() }
+        }
         .onChange(of: camera.state) { _, newState in
             guard newState == .ready, let url = camera.lastRecording, let piece else { return }
             let number = piece.takesRecorded + 1
