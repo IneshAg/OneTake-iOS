@@ -119,7 +119,8 @@ struct DotLabelStyle: LabelStyle {
 struct PrompterSettingsSheet: View {
     @AppStorage("prompter.size") private var size = 1
     @AppStorage("prompter.followVoice") private var followVoice = true
-    @AppStorage("prompter.mirror") private var mirror = true
+    /// Off by default: mirrored text only makes sense behind a beam-splitter glass.
+    @AppStorage("prompter.mirror") private var mirror = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
