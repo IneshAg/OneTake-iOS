@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 // MARK: - 10 Profile (tab)
 
@@ -452,6 +453,10 @@ struct HeadshotFlow: View {
         }
         .onChange(of: follower.lastCommand) { _, cmd in
             if cmd?.word == "now" || cmd?.word == "action" { capture() }
+        }
+        // Volume buttons, Camera Control and AirPods stem press work as the shutter.
+        .onCameraCaptureEvent { event in
+            if event.phase == .ended { capture() }
         }
         .onDisappear { camera.stop(); follower.stop(); store.syncHeadshotPieces() }
     }

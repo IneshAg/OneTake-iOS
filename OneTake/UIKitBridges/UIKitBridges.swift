@@ -283,12 +283,15 @@ final class ReaderTrackPlayer {
             .appendingPathComponent("line-\(index).m4a")
     }
 
-    func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) {
+    /// Plays one recorded reader line. Returns false when that line hasn't been recorded.
+    @discardableResult
+    func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
         let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }  // not recorded yet → silent cue
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }  // not recorded yet → silent cue
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
         player = try? AVAudioPlayer(contentsOf: url)
-        player?.play()
+        player?.volume = volume
+        return player?.play() ?? false
     }
 
     func stop() { player?.stop() }

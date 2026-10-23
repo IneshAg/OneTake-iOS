@@ -1,4 +1,6 @@
 import SwiftUI
+import AVKit
+import Speech
 
 // MARK: - Record button (v2/Record Button · Ready / Rolling-hold)
 
@@ -36,28 +38,82 @@ struct RecordButton: View {
 }
 
 // MARK: - 13c Before you roll
-// Solo-only for MVP: the solo/multi-device picker and the whole pairing flow (connect, reconnect,
-// disconnect) are cut. The framing-check job they partly existed for is covered by voice commands
-// ("How do I look?"), and the prompter job is already covered by the solo flow's own prompter below.
+// Solo-only for MVP: the solo/multi-device picker and the whole pairing flow are cut. Framing is
+// checked after the fact by Tape Check, and the prompter is the solo flow's own, below.
 
 struct ShootSetupView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
+    /// Focus/Do Not Disturb can't be read or set by an app, so this one is the actor's own tick.
     @State private var silenced = false
 
+    private struct Check { var eyebrow: String; var title: String; var detail: String; var ok: Bool }
+
+    /// Every row reflects the real state of this iPhone right now — nothing is assumed.
+    private var checks: [Check] {
+        var checks: [Check] = []
+        checks.append(Check(eyebrow: "Camera", title: "Front camera · you can watch yourself",
+                            detail: "Switch to the back camera in the shot if you'd rather — it's sharper.", ok: true))
+
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            checks.append(Check(eyebrow: "Hands-free", title: "Say “Action” and “Cut”",
+                                detail: "Or press a volume button, Camera Control, or your AirPods stem.", ok: true))
+        case .notDetermined:
+            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands ask permission when you start",
+                                detail: "Volume buttons, Camera Control and AirPods work either way.", ok: true))
+        default:
+            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands are off",
+                                detail: "Turn on Speech Recognition for OneTake in Settings — volume buttons still work.", ok: false))
+        }
+
+        if AVAudioApplication.shared.recordPermission == .denied {
+            checks.append(Check(eyebrow: "Microphone", title: "Microphone access is off",
+                                detail: "Turn it on for OneTake in Settings, or the tape will be silent.", ok: false))
+        } else {
+            let input = AVAudioSession.sharedInstance().currentRoute.inputs.first
+            let isHeadset = input.map { [.bluetoothHFP, .headsetMic].contains($0.portType) } ?? false
+            checks.append(Check(eyebrow: "Microphone", title: input?.portName ?? "iPhone microphone",
+                                detail: isHeadset ? "Close to your mouth — good for sound." : "Stay within an arm's length or two of the phone.", ok: true))
+        }
+
+        if let a = store.audition(auditionID), let scene = a.scenes.first {
+            let readerLines = scene.lines.filter { !$0.isMine }
+            let recorded = readerLines.indices.filter {
+                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: $0).path)
+            }.count
+            if !readerLines.isEmpty {
+                checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(readerLines.count) reader lines recorded",
+                                    detail: recorded == readerLines.count ? "They play under your takes." : "Unrecorded lines stay silent — you'll get a pause instead.",
+                                    ok: recorded == readerLines.count))
+            }
+        }
+
+        if let minutes = CameraController.recordingMinutesLeft {
+            checks.append(Check(eyebrow: "Storage", title: "About \(minutes) minutes of video free",
+                                detail: minutes < 10 ? "Free up space before you shoot." : "Plenty for a few takes.", ok: minutes >= 10))
+        }
+
+        checks.append(Check(eyebrow: "Interruptions", title: silenced ? "Silenced for this shoot" : "Calls and alerts can cut in",
+                            detail: silenced ? "Do Not Disturb is on." : "Turn on Do Not Disturb from Control Centre.", ok: silenced))
+        return checks
+    }
+
     var body: some View {
+        let rows = checks
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Before you roll").font(.otLargeTitle)
                 Text("Simple · one iPhone").font(.otCallout).foregroundStyle(OT.labelSecondary)
-                Text("\(silenced ? 4 : 3) of 4 set").font(.otTitle)
-                check("Camera", "Back camera · sharper", "Screen faces away — we talk you through it", ok: true)
-                check("Hands-free", "Your voice + AirPods click", "“Action”, “Cut”, “Line?” · volume buttons on", ok: true)
-                check("Microphone", "Kabir’s AirPods Pro", "Good level from your mark", ok: true)
-                VStack(alignment: .leading, spacing: 8) {
-                    check("Interruptions", "Calls and alerts can cut in", "A notification mid-scene throws Maya’s timing", ok: silenced)
-                    if !silenced {
-                        Button { silenced = true; Haptics.success() } label: { Label("Silence for this shoot", systemImage: "moon.fill") }
+                Text("\(rows.filter(\.ok).count) of \(rows.count) set").font(.otTitle)
+                ForEach(rows, id: \.eyebrow) { c in
+                    check(c.eyebrow, c.title, c.detail, ok: c.ok)
+                    if c.eyebrow == "Reader", !c.ok {
+                        Button { store.push(.recordReader(auditionID)) } label: { Label("Record the reader", systemImage: "mic") }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    }
+                    if c.eyebrow == "Interruptions", !silenced {
+                        Button { silenced = true; Haptics.success() } label: { Label("I've turned on Do Not Disturb", systemImage: "moon.fill") }
                             .buttonStyle(.bordered).buttonBorderShape(.capsule)
                     }
                 }
@@ -69,13 +125,10 @@ struct ShootSetupView: View {
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 4) {
-                Button { store.camera = .shoot(auditionID) } label: { Label("Set up by voice", systemImage: "waveform") }.buttonStyle(.otPrimary)
-                Button("Start without voice") { store.camera = .shoot(auditionID) }
-                    .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
-            }
-            .padding(.horizontal, OT.gutter).padding(.top, 8)
-            .background(OT.bgCanvas)
+            Button { store.camera = .shoot(auditionID) } label: { Label("Open the camera", systemImage: "camera.fill") }
+                .buttonStyle(.otPrimary)
+                .padding(.horizontal, OT.gutter).padding(.vertical, 8)
+                .background(OT.bgCanvas)
         }
     }
 
@@ -108,6 +161,10 @@ struct ShootFlow: View {
     @State private var lineIndex = 0
     @State private var takeNumber = 1
     @State private var saveError: String?
+    /// Your own recorded reader lines, played during a take so they land under your voice.
+    @State private var reader = ReaderTrackPlayer()
+    @State private var readerAdvance: Task<Void, Never>?
+    @AppStorage("readerVolume") private var readerVolume = "Quieter"
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -140,7 +197,23 @@ struct ShootFlow: View {
             if cmd?.word == "action", camera.state == .ready { roll() }
             if cmd?.word == "cut", camera.state == .recording { cut() }
         }
-        .onDisappear { camera.stop(); follower.stop() }
+        // Volume buttons, Camera Control, and AirPods stem presses (camera remote) start and stop a
+        // take, so the actor never has to walk back to the phone.
+        .onCameraCaptureEvent { event in
+            guard event.phase == .ended else { return }
+            if camera.state == .recording { cut() }
+            else if camera.state == .ready, [.slate, .fullLength, .scene].contains(stage) { roll() }
+        }
+        // The prompter follows your voice: once you've said your line, it moves on to the next one.
+        .onChange(of: follower.spokenWordCount) { _, count in
+            guard stage == .scene, camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex),
+                  lines[lineIndex].isMine, count >= lines[lineIndex].text.split(separator: " ").count else { return }
+            advanceLine()
+        }
+        .onChange(of: camera.state) { _, state in
+            if state == .recording, stage == .scene { startScene() } else if state != .recording { stopReader() }
+        }
+        .onDisappear { camera.stop(); follower.stop(); stopReader() }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -203,7 +276,12 @@ struct ShootFlow: View {
             if lines.indices.contains(lineIndex) {
                 promptCard(eyebrow: lines[lineIndex].isMine ? "\(lines[lineIndex].character) · you" : lines[lineIndex].character,
                            text: lines[lineIndex].text, mine: lines[lineIndex].isMine)
-                    .onTapGesture { lineIndex = min(lineIndex + 1, lines.count - 1) }
+                    // Tap to move on early; swipe right to go back a line.
+                    .onTapGesture { advanceLine() }
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+                        if value.translation.width > 60 { stopReader(); lineIndex = max(0, lineIndex - 1); follower.reset() }
+                        else if value.translation.width < -60 { advanceLine() }
+                    })
             }
         case .saved:
             resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · reader track under your voice",
@@ -215,7 +293,10 @@ struct ShootFlow: View {
 
     private var hud: some View {
         HStack(spacing: 6) {
-            chip(nil, "4K · 30"); chip(nil, "1/60"); chip("lock.fill", "Exposure locked"); chip("internaldrive", "38 min")
+            // Real values only: the session preset, whether exposure is actually locked, free space.
+            chip(nil, "1080p · 30")
+            if camera.isExposureLocked { chip("lock.fill", "Exposure locked") }
+            if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
         }
         .opacity(stage == .saved || stage == .slateDone ? 0 : 1)
     }
@@ -247,8 +328,17 @@ struct ShootFlow: View {
                 }
             }
             Spacer()
-            Button { } label: { Image(systemName: "arrow.triangle.2.circlepath.camera").foregroundStyle(.white).frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle()) }
-                .accessibilityLabel("Switch camera")
+            Button {
+                camera.switchCamera()
+                // Exposure was locked on the old camera; lock the new one too once you're past the check.
+                if stage != .check { camera.lockExposure() }
+                Haptics.tick()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath.camera").foregroundStyle(.white).frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
+            }
+            .disabled(camera.state != .ready || countdown != nil)
+            .opacity(camera.state == .recording ? 0 : 1)
+            .accessibilityLabel("Switch camera")
         }
         .padding(.bottom, 8)
     }
@@ -261,6 +351,52 @@ struct ShootFlow: View {
     }
 
     // MARK: Actions
+
+    private var sceneLines: [ScriptLine]? { store.audition(auditionID)?.scenes.first?.lines }
+
+    private var readerGain: Float {
+        switch readerVolume {
+        case "Same as me": 1
+        case "Much quieter": 0.35
+        default: 0.6
+        }
+    }
+
+    /// Rolling on a scene: start from the top, and if the scene opens on the reader, play them in.
+    private func startScene() {
+        lineIndex = 0
+        follower.reset()
+        speakIfReader()
+    }
+
+    private func advanceLine() {
+        stopReader()
+        follower.reset()
+        guard let lines = sceneLines, lineIndex + 1 < lines.count else { return }
+        lineIndex += 1
+        speakIfReader()
+    }
+
+    /// Plays your recorded reader line at the chosen volume, then moves on to your next line once it
+    /// has had time to land (the same pacing as Run Lines).
+    private func speakIfReader() {
+        guard camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex), !lines[lineIndex].isMine else { return }
+        let readerIndex = lines[..<lineIndex].filter { !$0.isMine }.count
+        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain)
+        let delay = Double(lines[lineIndex].text.count) * 0.06 + 0.8
+        readerAdvance?.cancel()
+        readerAdvance = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            advanceLine()
+        }
+    }
+
+    private func stopReader() {
+        readerAdvance?.cancel()
+        readerAdvance = nil
+        reader.stop()
+    }
 
     private func start(at first: Stage) {
         stage = first

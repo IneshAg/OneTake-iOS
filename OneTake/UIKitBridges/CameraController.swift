@@ -13,6 +13,7 @@ final class CameraController: NSObject {
     private(set) var elapsed: TimeInterval = 0
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
+    private(set) var isExposureLocked = false
 
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
@@ -23,7 +24,7 @@ final class CameraController: NSObject {
     /// Called once the movie file is actually finalized on disk — `stopRecording()` returns before that.
     private var recordingFinishedHandler: ((URL?) -> Void)?
     private var isStopping = false
-    private var position: Position = .front
+    private(set) var position: Position = .front
 
     // MARK: Permissions
 
@@ -37,6 +38,7 @@ final class CameraController: NSObject {
 
     func configure(position: Position = .front) {
         self.position = position
+        isExposureLocked = false
         queue.async { [weak self] in
             guard let self else { return }
             session.beginConfiguration()
@@ -76,11 +78,29 @@ final class CameraController: NSObject {
 
     func lockExposure() {
         queue.async { [weak self] in
-            guard let device = (self?.session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
-            try? device.lockForConfiguration()
-            if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  device.isExposureModeSupported(.locked),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            device.exposureMode = .locked
             device.unlockForConfiguration()
+            // Only claim "Exposure locked" in the HUD once it really is.
+            Task { @MainActor in self.isExposureLocked = true }
         }
+    }
+
+    /// Flips between the front and back camera — never mid-take, which would end the recording.
+    func switchCamera() {
+        guard state == .ready else { return }
+        configure(position: position == .front ? .back : .front)
+    }
+
+    /// Roughly how many minutes of 1080p30 video still fit on this iPhone (~120 MB a minute).
+    static var recordingMinutesLeft: Int? {
+        let values = try? FileManager.default.temporaryDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let bytes = values?.volumeAvailableCapacityForImportantUsage else { return nil }
+        return Int(bytes / 120_000_000)
     }
 
     func stop() {
