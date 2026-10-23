@@ -6,9 +6,9 @@ import UserNotifications
 /// No sign-in wall and no upfront camera/mic/notifications prompts: guest-first, and every
 /// permission is asked for at the moment it's actually needed (the camera flows already request
 /// access via `CameraController.requestAccess()` right when a shoot starts; notifications are
-/// asked for the first time an audition with a due date is added). Sign-in only ever surfaces
-/// later, from Profile, at a real persistence boundary (a share link, cross-device sync) — never
-/// to unlock recording or export.
+/// asked for the first time an audition with a due date is added). Sign-in is never offered here,
+/// not even as an optional step: it's required only when sending as a private link (see
+/// `PackageView`), and never to unlock recording or export.
 struct OnboardingFlow: View {
     enum Step: Hashable { case slate }
     @Environment(AppStore.self) private var store
@@ -113,18 +113,30 @@ struct RecLabelStyle: LabelStyle {
 // MARK: - 02 Sign in
 
 struct SignInView: View {
+    /// Why sign-in is being asked for right now, shown under the title.
+    var reason = "Your auditions, reader tracks and takes, on every device you own."
     var onContinue: () -> Void
     @State private var email = ""
+
+    /// Sign-in gates link sharing, so only a real result counts — a cancelled Apple sheet or an
+    /// empty email field must not sign anyone in.
+    private var isValidEmail: Bool {
+        let trimmed = email.trimmingCharacters(in: .whitespaces)
+        guard let at = trimmed.firstIndex(of: "@"), at != trimmed.startIndex else { return false }
+        return trimmed[trimmed.index(after: at)...].contains(".")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Sign in or create an account").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-            Text("Your auditions, reader tracks and takes, on every device you own.")
+            Text(reason)
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
 
             SignInWithAppleButton(.continue) { request in
                 request.requestedScopes = [.fullName, .email]
-            } onCompletion: { _ in onContinue() }
+            } onCompletion: { result in
+                if case .success = result { onContinue() }
+            }
             .signInWithAppleButtonStyle(.black)
             .frame(height: 52).clipShape(Capsule())
             .padding(.top, 8)
@@ -137,6 +149,7 @@ struct SignInView: View {
                 .padding(.horizontal, 16).frame(height: 52)
                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             Button("Continue with email", action: onContinue).buttonStyle(.otSecondary)
+                .disabled(!isValidEmail)
 
             Label("Takes stay on this iPhone until you send them.", systemImage: "lock.fill")
                 .font(.otFootnote).foregroundStyle(OT.labelSecondary)

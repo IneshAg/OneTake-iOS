@@ -21,6 +21,7 @@ struct PackageView: View {
     @State private var progress = 0.0
     @State private var exportErrorMessage: String?
     @State private var exportTask: Task<Void, Never>?
+    @State private var showSignIn = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -39,6 +40,13 @@ struct PackageView: View {
                     ShareSheet(items: [url]) { completed in
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
                     }
+                }
+            }
+            .sheet(isPresented: $showSignIn) {
+                SignInView(reason: "A private link lives online, so it needs an account. Everything else in OneTake works without one.") {
+                    store.isSignedIn = true
+                    showSignIn = false
+                    send()
                 }
             }
             .sheet(isPresented: $showPreview) {
@@ -129,6 +137,11 @@ struct PackageView: View {
     /// only once that succeeds does the share sheet open so the real file can actually go somewhere.
     private func send() {
         guard let a = store.audition(auditionID) else { return }
+        // A submission link is the one thing that needs an account; file hand-offs never do.
+        if a.destination == .emailOrLink && !store.isSignedIn {
+            showSignIn = true
+            return
+        }
         phase = .sending
         progress = 0
         exportErrorMessage = nil
@@ -209,7 +222,13 @@ struct DestinationSheet: View {
                             dismiss()
                         } label: {
                             HStack {
-                                VStack(alignment: .leading) { Text(d.rawValue).font(.otBody); Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+                                VStack(alignment: .leading) {
+                                    Text(d.rawValue).font(.otBody)
+                                    Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    if d == .emailOrLink && !store.isSignedIn {
+                                        Text("Asks you to sign in when you send").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                }
                                 Spacer()
                                 if store.audition(auditionID)?.destination == d { Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent) }
                             }
