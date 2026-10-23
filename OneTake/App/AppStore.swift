@@ -121,6 +121,8 @@ final class AppStore {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             Persistence.save(snapshot)
+            // Same debounce: reminders follow due dates, status and deletions.
+            Reminders.reschedule(snapshot.auditions)
         }
     }
 

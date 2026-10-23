@@ -156,7 +156,15 @@ struct PackageView: View {
                 if asLink {
                     await MainActor.run { uploading = true }
                     let link = try await CloudLink.publish(url)
-                    await MainActor.run { store.setShareLink(link, for: a.id); progress = 1 }
+                    await MainActor.run {
+                        store.setShareLink(link, for: a.id)
+                        progress = 1
+                        // Uploads can take minutes; if the actor wandered off, tell them it's ready.
+                        if UIApplication.shared.applicationState != .active,
+                           UserDefaults.standard.object(forKey: "n.delivery") as? Bool ?? true {
+                            Reminders.notifyNow(title: "Your link is ready", body: "\(a.project) — open OneTake to send it.")
+                        }
+                    }
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }

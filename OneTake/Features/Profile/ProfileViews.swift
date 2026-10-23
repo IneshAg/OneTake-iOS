@@ -269,10 +269,9 @@ struct PrivacyView: View {
 // MARK: - 10c Notifications
 
 struct NotificationSettingsView: View {
+    @Environment(AppStore.self) private var store
     @AppStorage("n.morning") private var morning = true
     @AppStorage("n.twoHours") private var twoHours = true
-    @AppStorage("n.callbacks") private var callbacks = true
-    @AppStorage("n.messages") private var messages = true
     @AppStorage("n.delivery") private var delivery = true
     @AppStorage("n.practice") private var practice = false
 
@@ -284,17 +283,21 @@ struct NotificationSettingsView: View {
             } header: {
                 Text("Deadlines")
             } footer: {
-                Text("Each audition alerts once per change — never the same thing twice.")
+                Text("Scheduled on this iPhone, and updated whenever a due date changes or a tape is sent.")
             }
-            Section("From casting") {
-                Toggle("Callbacks and new sides", isOn: $callbacks)
-                Toggle("Messages", isOn: $messages)
-            }
-            Section("Your tapes") {
-                Toggle("Delivered or failed", isOn: $delivery)
-                Toggle("Practice nudges", isOn: $practice)
+            // No "from casting" alerts: there's no server that could hear from them.
+            Section {
+                Toggle("Link ready", isOn: $delivery)
+                Toggle("Practice nudges · 6 pm", isOn: $practice)
+            } header: {
+                Text("Your tapes")
+            } footer: {
+                Text("“Link ready” lets you know if an iCloud link finishes uploading while you're out of the app.")
             }
         }
+        .onChange(of: morning) { Reminders.reschedule(store.auditions) }
+        .onChange(of: twoHours) { Reminders.reschedule(store.auditions) }
+        .onChange(of: practice) { Reminders.reschedule(store.auditions) }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Notifications")
