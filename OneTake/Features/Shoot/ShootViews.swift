@@ -136,8 +136,8 @@ struct ShootFlow: View {
             if await SpeechFollower.requestAccess() { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
-            if cmd == "action", camera.state == .ready { roll() }
-            if cmd == "cut", camera.state == .recording { cut() }
+            if cmd?.word == "action", camera.state == .ready { roll() }
+            if cmd?.word == "cut", camera.state == .recording { cut() }
         }
         .onDisappear { camera.stop(); follower.stop() }
     }

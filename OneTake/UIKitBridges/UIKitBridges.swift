@@ -85,8 +85,15 @@ extension View { func keepScreenAwake() -> some View { modifier(KeepScreenAwake(
 
 @Observable
 final class SpeechFollower {
+    /// A spoken command. Each one is distinct (even the same word twice) so `onChange` fires every time.
+    struct Command: Equatable {
+        let word: String
+        private let id = UUID()
+        init(word: String) { self.word = word }
+    }
+
     private(set) var spokenWordCount = 0
-    private(set) var lastCommand: String?
+    private(set) var lastCommand: Command?
     private(set) var isListening = false
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -97,6 +104,16 @@ final class SpeechFollower {
     /// to zero. `reset()` records where the current line starts instead.
     private var totalWords = 0
     private var wordOffset = 0
+
+    /// Command words also turn up in dialogue ("…I said cut", "Now listen"). A word only counts as a
+    /// command when it's said on its own: a pause before it and no more speech straight after.
+    private static let commandWords: Set<String> = ["action", "cut", "line", "now"]
+    private static let commandPause: TimeInterval = 0.5
+    private var latestWords: [String] = []
+    private var lastWordAt = Date.distantPast
+    /// Word count up to which a command has already fired, so re-sent partial results can't repeat it.
+    private var firedThroughWord = 0
+    private var pendingCommand: Task<Void, Never>?
 
     static func requestAccess() async -> Bool {
         await withCheckedContinuation { cont in
@@ -121,13 +138,36 @@ final class SpeechFollower {
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, _ in
             guard let self, let result else { return }
-            let words = result.bestTranscription.segments.map { $0.substring.lowercased() }
-            Task { @MainActor in
-                self.totalWords = words.count
-                self.spokenWordCount = max(0, words.count - self.wordOffset)
-                if let last = words.last, ["action", "cut", "line", "now"].contains(last) { self.lastCommand = last }
+            let words = result.bestTranscription.segments.map {
+                $0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
             }
+            Task { @MainActor in self.handle(words) }
         }
+    }
+
+    @MainActor
+    private func handle(_ words: [String]) {
+        let now = Date()
+        if words.count > totalWords {
+            let silenceBefore = now.timeIntervalSince(lastWordAt)
+            // Any new speech means a pending command wasn't said on its own.
+            pendingCommand?.cancel()
+            pendingCommand = nil
+            if words.count == totalWords + 1, words.count > firedThroughWord,
+               let last = words.last, Self.commandWords.contains(last), silenceBefore >= Self.commandPause {
+                let count = words.count
+                pendingCommand = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(Self.commandPause))
+                    guard let self, !Task.isCancelled, self.latestWords.count == count, self.latestWords.last == last else { return }
+                    self.firedThroughWord = count
+                    self.lastCommand = Command(word: last)
+                }
+            }
+            lastWordAt = now
+        }
+        latestWords = words
+        totalWords = words.count
+        spokenWordCount = max(0, words.count - wordOffset)
     }
 
     func stop() {
@@ -138,9 +178,20 @@ final class SpeechFollower {
         isListening = false
         totalWords = 0
         wordOffset = 0
+        latestWords = []
+        lastWordAt = .distantPast
+        firedThroughWord = 0
+        pendingCommand?.cancel()
+        pendingCommand = nil
     }
 
-    func reset() { wordOffset = totalWords; spokenWordCount = 0; lastCommand = nil }
+    func reset() {
+        wordOffset = totalWords
+        spokenWordCount = 0
+        lastCommand = nil
+        pendingCommand?.cancel()
+        pendingCommand = nil
+    }
 }
 
 // MARK: - Reader track playback (your own recorded voice only)

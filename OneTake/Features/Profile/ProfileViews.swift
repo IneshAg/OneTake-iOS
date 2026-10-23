@@ -428,7 +428,7 @@ struct HeadshotFlow: View {
             if await SpeechFollower.requestAccess() { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
-            if cmd == "now" || cmd == "action" { capture() }
+            if cmd?.word == "now" || cmd?.word == "action" { capture() }
         }
         .onDisappear { camera.stop(); follower.stop() }
     }
