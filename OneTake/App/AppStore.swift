@@ -202,6 +202,44 @@ final class AppStore {
         auditions.removeAll { $0.id == id }
     }
 
+    /// Revised sides: swaps in the new scenes and resets the scene pieces (the old takes stay, but the
+    /// new pages need shooting). Practice pieces for this audition follow the new text.
+    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene]) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].scenes = scenes
+        auditions[i].pieces.removeAll { $0.kind == .scene }
+        auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: "Revised sides", isDone: false) }
+        if auditions[i].status == .ready { auditions[i].status = .due }
+        for p in practice.indices where practice[p].auditionID == id {
+            guard let s = practice[p].sceneIndex, scenes.indices.contains(s) else { continue }
+            practice[p].scene = scenes[s]
+            practice[p].linesTotal = scenes[s].lines.filter(\.isMine).count
+            practice[p].linesLearned = min(practice[p].linesLearned, practice[p].linesTotal)
+        }
+    }
+
+    /// A callback: a new audition for the next round of the same role, with casting's notes, its own
+    /// due date and a fresh checklist. Reader recordings can come along so they needn't be re-recorded.
+    @discardableResult
+    func startCallback(from id: Audition.ID, due: Date, notes: String, bringReader: Bool) -> Audition.ID? {
+        guard let original = audition(id) else { return nil }
+        var callback = Audition(project: original.project, projectType: original.projectType, role: original.role,
+                                roleSize: original.roleSize, castingOffice: original.castingOffice, due: due,
+                                asks: original.asks,
+                                pieces: original.pieces.map { Piece(kind: $0.kind, title: $0.title, detail: $0.detail, isDone: false) },
+                                scenes: original.scenes, destination: original.destination, status: .due)
+        callback.round = (original.round ?? 1) + 1
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        callback.castingNotes = trimmed.isEmpty ? nil : trimmed
+        if bringReader {
+            let from = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true)
+            let to = MediaStore.directory(ReaderTrackPlayer.folder).appendingPathComponent(callback.id.uuidString, isDirectory: true)
+            try? FileManager.default.copyItem(at: from, to: to)
+        }
+        add(callback)
+        return callback.id
+    }
+
     func markDone(_ kind: PieceKind, in id: Audition.ID, title: String? = nil) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         if let j = auditions[i].pieces.firstIndex(where: { $0.kind == kind && !$0.isDone && (title == nil || $0.title == title) }) {
