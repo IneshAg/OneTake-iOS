@@ -108,8 +108,10 @@ final class CameraController: NSObject {
 
     /// Stopping is asynchronous: the file isn't written until AVFoundation calls back, so callers that
     /// need the recording must use `completion` rather than reading `lastRecording` straight away.
+    /// A second stop while one is already finishing (say, hold-to-stop plus a spoken "Cut") is
+    /// ignored rather than reported as a failed recording — the first stop's completion still fires.
     func stopRecording(_ completion: ((URL?) -> Void)? = nil) {
-        guard state == .recording, !isStopping else { completion?(nil); return }
+        guard state == .recording, !isStopping else { return }
         isStopping = true
         recordingFinishedHandler = completion
         movieOutput.stopRecording()

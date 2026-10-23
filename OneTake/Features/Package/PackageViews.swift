@@ -349,7 +349,7 @@ struct SentView: View {
                 Text(earlyText).font(.otTitle).foregroundStyle(OT.success)
                 Text("Break a leg.").font(.otHeadline).foregroundStyle(OT.labelSecondary)
             }
-            if let expires = audition.shareLinkExpires, audition.shareLink != nil {
+            if audition.destination == .emailOrLink, let expires = audition.shareLinkExpires, audition.shareLink != nil {
                 Label("Link shared · works until \(expires.formatted(date: .abbreviated, time: .omitted))", systemImage: "link").font(.otFootnote).foregroundStyle(OT.labelSecondary)
             } else {
                 Label("Handed off through your Share Sheet to \(audition.destination.rawValue)", systemImage: "square.and.arrow.up").font(.otFootnote).foregroundStyle(OT.labelSecondary)

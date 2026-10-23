@@ -159,8 +159,9 @@ final class AppStore {
     /// unsent audition's headshot piece is done.
     func syncHeadshotPieces() {
         guard HeadshotStore.exists(key: "front") else { return }
+        // Only writes when something actually changes — every write persists and re-renders.
         for i in auditions.indices where auditions[i].status != .sent {
-            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot && !auditions[i].pieces[j].isDone {
                 auditions[i].pieces[j].isDone = true
             }
             if auditions[i].nextPiece == nil, auditions[i].status == .due { auditions[i].status = .ready }

@@ -251,6 +251,8 @@ struct ShootFlow: View {
     // MARK: Actions
 
     private func roll() {
+        // A tap or "Action" during the countdown must not start a second, overlapping one.
+        guard countdown == nil else { return }
         Task {
             for n in [3, 2, 1] { withAnimation(.easeOut(duration: 0.3)) { countdown = n }; Haptics.tick(); try? await Task.sleep(for: .seconds(1)) }
             withAnimation { countdown = nil }
