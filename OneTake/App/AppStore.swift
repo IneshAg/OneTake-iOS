@@ -87,8 +87,18 @@ final class AppStore {
     init() {
         isLoading = true
         if let saved = Persistence.load() {
-            auditions = saved.auditions
-            takes = saved.takes
+            auditions = saved.auditions.map { a in
+                var a = a
+                a.slateVideoURL = MediaStore.rebased(a.slateVideoURL)
+                a.fullLengthVideoURL = MediaStore.rebased(a.fullLengthVideoURL)
+                a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
+                return a
+            }
+            takes = saved.takes.map { t in
+                var t = t
+                t.fileURL = MediaStore.rebased(t.fileURL)
+                return t
+            }
             practice = saved.practice
             slate = saved.slate
             isOnboarded = saved.isOnboarded

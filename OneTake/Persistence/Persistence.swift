@@ -42,6 +42,15 @@ enum MediaStore {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
+    /// iOS can move the app's container between installs, updates and restores, so a persisted absolute
+    /// file URL may point at a container that no longer exists. Re-anchors anything stored under
+    /// Documents onto the current Documents directory; leaves other URLs untouched.
+    static func rebased(_ url: URL?) -> URL? {
+        guard let url, url.isFileURL else { return url }
+        guard let range = url.path.range(of: "/Documents/") else { return url }
+        return documentsURL.appendingPathComponent(String(url.path[range.upperBound...]))
+    }
+
     static func directory(_ subfolder: String) -> URL {
         let dir = documentsURL.appendingPathComponent(subfolder, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
