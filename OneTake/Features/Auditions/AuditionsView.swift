@@ -113,7 +113,8 @@ struct AuditionCard: View {
                 Text("\(audition.projectType) · \(audition.role)").font(.otFootnote).foregroundStyle(OT.labelSecondary)
 
                 if audition.status == .sent {
-                    Label("\(audition.sentDate?.otDayMonth ?? "") · link active 22 days", systemImage: "link")
+                    Label("\(audition.sentDate?.otDayMonth ?? "")" + (audition.shareLinkTimeLeft.map { " · link active \($0)" } ?? ""),
+                          systemImage: audition.shareLink != nil ? "link" : "paperplane")
                         .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 } else {
                     ReadinessDashes(done: audition.readyCount, total: audition.totalCount)

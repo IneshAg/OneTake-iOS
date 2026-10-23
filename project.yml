@@ -16,6 +16,18 @@ targets:
     platform: iOS
     sources:
       - path: OneTake
+    # iCloud Drive (CloudDocuments) for "Email or link": the exported tape is uploaded to the app's
+    # own iCloud container and published as a download link. Needs a development team with this
+    # container registered in the Apple Developer portal.
+    entitlements:
+      path: OneTake/OneTake.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.onetake.app
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.onetake.app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app

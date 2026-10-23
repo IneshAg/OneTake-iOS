@@ -228,7 +228,7 @@ struct PrivacyView: View {
                 LabeledContent("Reader recordings", value: mb(readerSize))
             }
             Section("Sent tapes") {
-                LabeledContent("Private links", value: "Expire after 30 days")
+                LabeledContent("Links", value: "Hosted in your iCloud · expiry shown per tape")
             }
             Section {
                 Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
