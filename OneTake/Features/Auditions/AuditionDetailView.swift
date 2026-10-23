@@ -109,7 +109,7 @@ struct AuditionDetailView: View {
                 SectionLabel(text: "Up next · \(next?.title ?? "")")
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
                 quoteLine(store.slate.spoken)
-                Button("Set up the camera") { store.push(.shootMode(a.id)) }.buttonStyle(.otPrimary)
+                Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
             } else if let scene = a.scenes.first, next != nil {
                 HStack { SectionLabel(text: "Up next · scene \(scene.number) of \(a.scenes.count)"); Spacer(); Text("≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60)) · \(scene.lines.filter(\.isMine).count) lines").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
                 Text("Apartment Confrontation").font(.otTitle)
@@ -191,7 +191,7 @@ struct PackageSheet: View {
     private func open(_ piece: Piece, _ a: Audition) {
         switch piece.kind {
         case .headshot: store.push(.headshots)
-        case .slate, .fullLength: store.push(.shootMode(a.id))
+        case .slate, .fullLength: store.push(.shootSetup(a.id))
         case .scene: store.push(.prepare(a.id, sceneIndex: 0))
         }
     }

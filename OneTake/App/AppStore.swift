@@ -8,8 +8,6 @@ enum Route: Hashable {
     case runLines(Audition.ID, sceneIndex: Int)
     case reader(Audition.ID)
     case recordReader(Audition.ID)
-    case shootMode(Audition.ID)
-    case multiDevice(Audition.ID)
     case shootSetup(Audition.ID)
     case takes(Audition.ID)
     case tapeCheck(Audition.ID)
@@ -19,6 +17,10 @@ enum Route: Hashable {
     case privacy
     case notifications
     case practiceSetup
+    /// Practice's Quick Drills: First-Letter Prompts and Mask & Reveal Lines (Audio Gap reuses `.runLines`).
+    case lineDrill(Audition.ID, sceneIndex: Int, mode: LineLearningMode)
+    /// Hands-Free Audio Walk — the one drill with its own screen.
+    case audioWalk(Audition.ID, sceneIndex: Int)
 }
 
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
@@ -38,12 +40,16 @@ enum CameraFlow: Identifiable, Hashable {
     }
 }
 
-enum AppTab: Hashable { case home, auditions, practice, profile, search }
+enum AppTab: Hashable { case auditions, practice, profile, search }
 
 @Observable
 final class AppStore {
     // Session
     var isOnboarded = false
+    /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
+    /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock
+    /// recording or export.
+    var isSignedIn = false
     var slate = SlateInfo()
 
     // Data
@@ -52,15 +58,14 @@ final class AppStore {
     var practice: [PracticePiece] = SampleData.practice
 
     // Navigation
-    var tab: AppTab = .home {
+    var tab: AppTab = .auditions {
         didSet {
             if tab != .search {
                 lastActiveTab = tab
             }
         }
     }
-    var lastActiveTab: AppTab = .home
-    var homePath: [Route] = []
+    var lastActiveTab: AppTab = .auditions
     var auditionsPath: [Route] = []
     var practicePath: [Route] = []
     var profilePath: [Route] = []
@@ -116,7 +121,6 @@ final class AppStore {
     /// Push a route on the currently selected tab's stack.
     func push(_ route: Route) {
         switch tab {
-        case .home:      homePath.append(route)
         case .auditions: auditionsPath.append(route)
         case .search:    searchPath.append(route)
         case .practice:  practicePath.append(route)
@@ -126,7 +130,6 @@ final class AppStore {
 
     func popToRoot() {
         switch tab {
-        case .home:      homePath.removeAll()
         case .auditions: auditionsPath.removeAll()
         case .search:    searchPath.removeAll()
         case .practice:  practicePath.removeAll()

@@ -64,17 +64,10 @@ struct PrepareView: View {
         .padding(.vertical, 4)
     }
 
+    /// Same transform Practice's First-Letter / Mask & Reveal drills use — implemented once, in `otLineDisplay`.
     private func display(_ line: ScriptLine) -> String {
-        guard line.isMine, peeked != line.id else { return line.text }
-        switch mode {
-        case .full: return line.text
-        case .hide: return "Tap to peek"
-        case .firstLetters:
-            return line.text.split(separator: " ").map { w in
-                guard let f = w.first else { return "" }
-                return String(f) + (w.count > 1 ? "—" : "")
-            }.joined(separator: " ")
-        }
+        let shared: LineDisplayMode = switch mode { case .full: .full; case .hide: .hide; case .firstLetters: .firstLetters }
+        return otLineDisplay(line, mode: shared, peeked: peeked == line.id)
     }
 
     private func bottomBar(_ a: Audition) -> some View {
@@ -91,7 +84,7 @@ struct PrepareView: View {
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
                     .padding(.horizontal, 14).frame(height: 44).background(OT.fillField, in: Capsule())
             }
-            Button { store.push(.shootMode(a.id)) } label: {
+            Button { store.push(.shootSetup(a.id)) } label: {
                 Label("Record", systemImage: "record.circle").labelStyle(TrailingIconLabelStyle())
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelOnAccent)
                     .padding(.horizontal, 16).frame(height: 44).background(OT.accent, in: Capsule())

@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import UserNotifications
 
 /// 06 Add an audition → 6.1 Reading the notice → (6.2 One thing missing) → 6c Here's what they want → 7.0 Detail (0 of 4)
 struct AddAuditionFlow: View {
@@ -104,6 +105,13 @@ struct AddAuditionFlow: View {
         dismiss()
         store.tab = .auditions
         store.auditionsPath = [.auditionDetail(audition.id)]
+        requestNotificationsIfFirstAudition()
+    }
+
+    /// Deferred permission: the first time a due date actually exists to remind about, not during onboarding.
+    private func requestNotificationsIfFirstAudition() {
+        guard store.auditions.count == 1 else { return }
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) }
     }
 }
 

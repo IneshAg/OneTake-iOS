@@ -25,11 +25,6 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
-            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack(path: $store.homePath) {
-                    HomeView().withRoutes()
-                }
-            }
             Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView().withRoutes()
@@ -79,8 +74,6 @@ private struct RouteDestinations: ViewModifier {
             case .runLines(let id, let scene):       RunLinesView(auditionID: id, sceneIndex: scene)
             case .reader(let id):                    ReaderView(auditionID: id)
             case .recordReader(let id):              RecordReaderView(auditionID: id)
-            case .shootMode(let id):                 ShootModeView(auditionID: id)
-            case .multiDevice(let id):               MultiDeviceView(auditionID: id)
             case .shootSetup(let id):                ShootSetupView(auditionID: id)
             case .takes(let id):                     TakesView(auditionID: id)
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
@@ -90,6 +83,8 @@ private struct RouteDestinations: ViewModifier {
             case .privacy:                           PrivacyView()
             case .notifications:                     NotificationSettingsView()
             case .practiceSetup:                     PracticeSetupView()
+            case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)
+            case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
             }
         }
     }

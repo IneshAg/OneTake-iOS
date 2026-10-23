@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
+    @State private var showSignIn = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("cleanNoise") private var cleanNoise = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
@@ -105,15 +106,6 @@ struct ProfileView: View {
                     SectionLabel(text: "More")
 
                     VStack(spacing: 0) {
-                        if let a = store.auditions.first {
-                            Button { store.push(.multiDevice(a.id)) } label: {
-                                profileRow(symbol: "ipad.and.iphone", title: "Multi-Device")
-                            }
-                            .buttonStyle(.plain)
-
-                            Divider().padding(.vertical, 2)
-                        }
-
                         Button { store.push(.notifications) } label: {
                             profileRow(symbol: "bell", title: "Notifications")
                         }
@@ -128,16 +120,32 @@ struct ProfileView: View {
 
                         Divider().padding(.vertical, 2)
 
-                        Button { store.isOnboarded = false } label: {
-                            HStack {
-                                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                                    .font(.otBody.weight(.medium))
-                                    .foregroundStyle(OT.danger)
-                                Spacer()
+                        if store.isSignedIn {
+                            Button { store.isOnboarded = false } label: {
+                                HStack {
+                                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                                        .font(.otBody.weight(.medium))
+                                        .foregroundStyle(OT.danger)
+                                    Spacer()
+                                }
+                                .frame(minHeight: 44)
                             }
-                            .frame(minHeight: 44)
+                            .buttonStyle(.plain)
+                        } else {
+                            Button { showSignIn = true } label: {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                                            .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                        Text("Only needed to share a link or sync across devices — everything here already works without it.")
+                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                    Spacer()
+                                }
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(18)
                     .otCard(radius: 20)
@@ -148,6 +156,9 @@ struct ProfileView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showSignIn) {
+            SignInView { store.isSignedIn = true; showSignIn = false }
+        }
     }
 
     private func profileRow(symbol: String, title: String) -> some View {
@@ -203,7 +214,6 @@ struct PrivacyView: View {
             }
             Section("Sent tapes") {
                 LabeledContent("Private links", value: "Expire after 30 days")
-                LabeledContent("Multi-Device sessions", value: "Device to device")
             }
             Section {
                 Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
@@ -326,13 +336,19 @@ struct HeadshotFlow: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("headshots.count") private var taken = 1
     @State private var camera = CameraController()
+    @State private var follower = SpeechFollower()
     @State private var angle: Angle = .front
     @State private var review: UIImage?
+    @State private var justCaptured = false
 
     var body: some View {
         ZStack {
             CameraBackground(controller: camera)
-            Ellipse().stroke(OT.due, lineWidth: 1.5).frame(width: 200, height: 270).offset(y: -20)
+            // Alignment overlay — ghost outline to position against, shifted per angle.
+            Ellipse().stroke(OT.due, lineWidth: 1.5).frame(width: 200, height: 270)
+                .rotation3DEffect(.degrees(angle == .front ? 0 : 8), axis: (x: 0, y: 1, z: 0))
+                .offset(x: angle == .left ? -14 : angle == .right ? 14 : 0, y: -20)
+
             VStack {
                 HStack {
                     Button { dismiss() } label: {
@@ -351,7 +367,8 @@ struct HeadshotFlow: View {
 
                     Spacer()
 
-                    Color.clear.frame(width: 44, height: 44)
+                    // Reference model — a small example of this angle, to match against.
+                    referenceThumbnail
                 }
                 .frame(height: 44)
                 .padding(.top, 8)
@@ -362,27 +379,63 @@ struct HeadshotFlow: View {
                     .font(.otHeadline).foregroundStyle(.white)
                 Text("Tap, or say “Now”").font(.otFootnote).foregroundStyle(.white.opacity(0.7))
 
-                Button {
-                    let fallbackName = angle == .front ? "Headshot" : angle == .left ? "HeadshotLeft" : "HeadshotRight"
-                    camera.capturePhoto(fallbackName: fallbackName) { image in
-                        review = image
-                        taken = max(taken, (Angle.allCases.firstIndex(of: angle) ?? 0) + 1)
-                        if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
-                            angle = next
-                        } else {
-                            dismiss()
-                        }
-                    }
-                } label: {
+                Button { capture() } label: {
                     Circle().fill(.white).frame(width: 66, height: 66).overlay(Circle().stroke(.white, lineWidth: 4).frame(width: 78, height: 78))
                 }
+                .scaleEffect(justCaptured ? 0.88 : 1)
+                .animation(.spring(response: 0.2, dampingFraction: 0.6), value: justCaptured)
                 .accessibilityLabel("Take photo")
                 .padding(.bottom, 12)
             }
             .padding(.horizontal, OT.gutter)
         }
         .preferredColorScheme(.dark)
-        .task { if await CameraController.requestAccess() { camera.configure(position: .front) } }
-        .onDisappear { camera.stop() }
+        .task {
+            if await CameraController.requestAccess() { camera.configure(position: .front) }
+            // Voice shutter — reuses the same "Talk to OneTake" recognizer the recording flow uses,
+            // just with a capture command added to its vocabulary. Gesture trigger is a v1.1 candidate.
+            if await SpeechFollower.requestAccess() { follower.start() }
+        }
+        .onChange(of: follower.lastCommand) { _, cmd in
+            if cmd == "now" || cmd == "action" { capture() }
+        }
+        .onDisappear { camera.stop(); follower.stop() }
+    }
+
+    private var referenceThumbnail: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.12))
+                Image(systemName: referenceSymbol).font(.system(size: 18)).foregroundStyle(.white.opacity(0.85))
+            }
+            .frame(width: 44, height: 44)
+            Text("Match this").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+        }
+    }
+
+    private var referenceSymbol: String {
+        switch angle {
+        case .front: "person.crop.circle"
+        case .left:  "person.crop.circle.badge.checkmark"
+        case .right: "person.crop.circle.badge.checkmark"
+        }
+    }
+
+    private func capture() {
+        guard !justCaptured else { return }
+        justCaptured = true
+        let fallbackName = angle == .front ? "Headshot" : angle == .left ? "HeadshotLeft" : "HeadshotRight"
+        camera.capturePhoto(fallbackName: fallbackName) { image in
+            review = image
+            taken = max(taken, (Angle.allCases.firstIndex(of: angle) ?? 0) + 1)
+            Haptics.success()
+            justCaptured = false
+            if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
+                angle = next
+                follower.reset()
+            } else {
+                dismiss()
+            }
+        }
     }
 }

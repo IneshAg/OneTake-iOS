@@ -18,16 +18,8 @@ struct PracticeView: View {
                     .accessibilityLabel("Practise a new scene")
                 }
                 Text("Nothing due? Run a scene anyway.").font(.otCallout).foregroundStyle(OT.labelSecondary)
-
-                HStack(spacing: 16) {
-                    ProgressRing(value: 42.0 / 60.0).frame(width: 60, height: 60)
-                    VStack(alignment: .leading) {
-                        Text("42 of 60 min this week").font(.otHeadline)
-                        Text("4 sessions · 2 takes kept · on track").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                    }
-                    Spacer()
-                }
-                .padding(16).otCard(radius: 20)
+                // Time/duration tracking is cut for MVP — a real stats view (practice history, time
+                // invested) comes later, rather than a partial number shown ad hoc here.
 
                 if let piece = store.practice.first {
                     VStack(alignment: .leading, spacing: 10) {
@@ -43,12 +35,7 @@ struct PracticeView: View {
                     .padding(18).otCard()
                 }
 
-                SectionLabel(text: "Warm-ups · 2 to 5 min")
-                HStack(alignment: .top) {
-                    warmup("eye", "Cold read", "One look, then lines hide")
-                    warmup("checklist", "Off-book check", "Say it all, lines hidden")
-                    warmup("person.text.rectangle", "Slate run", "Until it’s smooth")
-                }
+                QuickDrillsGrid { mode in start(mode) }
 
                 SectionLabel(text: "Your pieces")
                 ForEach(store.practice) { p in
@@ -68,13 +55,16 @@ struct PracticeView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private func warmup(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: symbol).foregroundStyle(OT.accent)
-            Text(title).font(.otHeadline)
-            Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+    /// Quick Drills need a scene to operate on: prefer the piece currently being picked up, else
+    /// the first upcoming audition's first scene — the same fallback already used by "Run lines" above.
+    private func start(_ mode: LineLearningMode) {
+        guard let a = store.auditions.first else { return }
+        let sceneIndex = 0
+        switch mode {
+        case .firstLetter, .maskAndReveal: store.push(.lineDrill(a.id, sceneIndex: sceneIndex, mode: mode))
+        case .audioGap:                    store.push(.runLines(a.id, sceneIndex: sceneIndex))
+        case .handsFreeWalk:               store.push(.audioWalk(a.id, sceneIndex: sceneIndex))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

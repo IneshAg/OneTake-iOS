@@ -53,9 +53,10 @@ struct TakesView: View {
         .otCanvas()
         .navigationTitle("Your takes").navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Compare Takes is cut from MVP — the loop stays record → check → keep/retake/edit, no
+            // side-by-side comparison step.
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { } label: { Image(systemName: "scissors") }.accessibilityLabel("Trim")
-                Button { } label: { Image(systemName: "rectangle.split.2x1") }.accessibilityLabel("Compare")
             }
         }
         .safeAreaInset(edge: .bottom) {

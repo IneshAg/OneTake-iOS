@@ -132,6 +132,61 @@ struct PracticePiece: Identifiable, Hashable {
     var detail: String
     var linesLearned: Int
     var linesTotal: Int
+    /// Who this piece is played against, when it's tied to a real scene (lets a Quick Drill operate on it).
+    var character: String = ""
+    var scene: ScriptScene? = nil
+}
+
+// MARK: - Line learning drills (Practice tab's "Quick Drills")
+
+/// The four rehearsal techniques on Practice's Quick Drills grid. `firstLetter` and `maskAndReveal`
+/// reuse Prepare's own line-display transform; `audioGap` reuses Run Lines as-is; `handsFreeWalk` is
+/// the only one with its own screen (continuous looped audio, no screen interaction at all).
+enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
+    case firstLetter, maskAndReveal, audioGap, handsFreeWalk
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .firstLetter:   "First-Letter Prompts"
+        case .maskAndReveal: "Mask & Reveal Lines"
+        case .audioGap:      "Audio Gap Rehearsal"
+        case .handsFreeWalk: "Hands-Free Audio Walk"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .firstLetter:   "Replaces lines with initial letters to trigger recall"
+        case .maskAndReveal: "Hides words progressively · tap to peek on hesitation"
+        case .audioGap:      "Partner delivers cues, then leaves silence for your line"
+        case .handsFreeWalk: "Listen to the whole scene on repeat, hands-free"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .firstLetter:   "textformat"
+        case .maskAndReveal: "eye.slash"
+        case .audioGap:      "waveform"
+        case .handsFreeWalk: "headphones"
+        }
+    }
+}
+
+/// Shared by Prepare's own toggle (`PrepareView.Mode`) and Practice's First-Letter / Mask & Reveal drills,
+/// so the memorization mechanic is implemented exactly once.
+enum LineDisplayMode { case full, firstLetters, hide }
+
+func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> String {
+    guard line.isMine, !peeked else { return line.text }
+    switch mode {
+    case .full: return line.text
+    case .hide: return "Tap to peek"
+    case .firstLetters:
+        return line.text.split(separator: " ").map { w in
+            guard let f = w.first else { return "" }
+            return String(f) + (w.count > 1 ? "—" : "")
+        }.joined(separator: " ")
+    }
 }
 
 // MARK: - Profile

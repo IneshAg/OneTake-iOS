@@ -117,6 +117,15 @@ struct PackageStepsBar: View {
 
 // MARK: - Buttons
 
+/// A gentle press-scale for whole-card buttons (audition cards, first-run card).
+struct PressableCardStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
 struct PrimaryButtonStyle: ButtonStyle {
     var tint: Color = OT.accent
     func makeBody(configuration: Configuration) -> some View {

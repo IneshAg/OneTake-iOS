@@ -2,28 +2,31 @@ import SwiftUI
 import AuthenticationServices
 import UserNotifications
 
-/// 01 Welcome → 02 Sign in → 03 Your slate → 04 Camera & mic → 04b Notifications → Home (first run)
+/// 01 Welcome → 03 Your slate (skippable) → straight into the app, as a guest.
+/// No sign-in wall and no upfront camera/mic/notifications prompts: guest-first, and every
+/// permission is asked for at the moment it's actually needed (the camera flows already request
+/// access via `CameraController.requestAccess()` right when a shoot starts; notifications are
+/// asked for the first time an audition with a due date is added). Sign-in only ever surfaces
+/// later, from Profile, at a real persistence boundary (a share link, cross-device sync) — never
+/// to unlock recording or export.
 struct OnboardingFlow: View {
-    enum Step: Hashable { case signIn, slate, permissions, notifications }
+    enum Step: Hashable { case slate }
     @Environment(AppStore.self) private var store
     @State private var path: [Step] = []
 
     var body: some View {
         NavigationStack(path: $path) {
-            WelcomeView { path.append(.signIn) }
+            WelcomeView { path.append(.slate) }
                 .navigationDestination(for: Step.self) { step in
                     switch step {
-                    case .signIn:        SignInView { path.append(.slate) }
-                    case .slate:         SlateDetailsView { path.append(.permissions) }
-                    case .permissions:   PermissionsView { path.append(.notifications) }
-                    case .notifications: NotificationsPermissionView { finish() }
+                    case .slate: SlateDetailsView { finish() }
                     }
                 }
         }
     }
 
     private func finish() {
-        // First run: Home shows "Add your first audition".
+        // First run: Auditions shows the real empty state, "Add your first audition" — no sample project.
         store.auditions = []
         store.isOnboarded = true
     }
@@ -53,9 +56,7 @@ struct WelcomeView: View {
 
             Spacer().frame(height: 40)
             Button("Get started", action: onStart).buttonStyle(.otPrimary)
-            Button("I already have an account", action: onStart)
-                .font(.otHeadline).foregroundStyle(OT.labelPrimary)
-                .frame(maxWidth: .infinity, minHeight: 52)
+            Text("No account needed to start.").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
         }
         .padding(.horizontal, OT.gutter + 4)
         .otCanvas()
@@ -198,81 +199,7 @@ struct SlateDetailsView: View {
     }
 }
 
-// MARK: - 04 Camera & mic
-
-struct PermissionsView: View {
-    var onContinue: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Your camera and mic, only for your tapes").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-            VStack(spacing: 4) {
-                benefit("viewfinder", "Check before you roll", "Framing, light and sound, in one glance.")
-                benefit("waveform", "Start with your voice", "Say “Action” from your mark. No running back to the phone.")
-                benefit("lock.fill", "Private until you send", "Takes stay on this phone.")
-            }
-            Spacer()
-            Text("Your iPhone asks next. Tap Allow for each.")
-                .font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
-            Button("Allow camera & mic") {
-                Task { _ = await CameraController.requestAccess(); onContinue() }
-            }
-            .buttonStyle(.otPrimary)
-        }
-        .padding(.horizontal, OT.gutter)
-        .otCanvas()
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Not now", action: onContinue) } }
-        .navigationBarBackButtonHidden()
-    }
-
-    private func benefit(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol).foregroundStyle(OT.accent)
-                .frame(width: 40, height: 40)
-                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.otBody)
-                Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-            }
-            Spacer()
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-// MARK: - 04b Notifications
-
-struct NotificationsPermissionView: View {
-    var onContinue: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Never miss a due date").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-            Text("One reminder, so it never sneaks up on you.").font(.otCallout).foregroundStyle(OT.labelSecondary)
-
-            SectionLabel(text: "Preview").padding(.top, 8)
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "movieclapper.fill").foregroundStyle(.white)
-                    .frame(width: 38, height: 38).background(OT.accent, in: RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack { Text("OneTake").font(.otFootnote.weight(.semibold)); Spacer(); Text("8:00 AM").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
-                    Text("The Last Summer is due today at 10:00 AM. 2 of 4 ready.").font(.otCallout)
-                }
-            }
-            .padding(14).otCard(radius: 18)
-
-            Spacer()
-            Text("Your iPhone asks next. Tap Allow.")
-                .font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
-            Button("Allow notifications") {
-                Task {
-                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-                    onContinue()
-                }
-            }
-            .buttonStyle(.otPrimary)
-        }
-        .padding(.horizontal, OT.gutter)
-        .otCanvas()
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Not now", action: onContinue) } }
-        .navigationBarBackButtonHidden()
-    }
-}
+// Camera/mic permission is requested at the moment a shoot actually starts (see
+// `CameraController.requestAccess()` in the Shoot/Headshot/Practice-take flows), and notification
+// permission is requested the first time an audition with a due date is added (see
+// `AddAuditionFlow`) — never upfront during onboarding. A decline here never costs setup progress.

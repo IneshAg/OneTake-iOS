@@ -43,7 +43,7 @@ Designed meticulously around the **OneTake v2 · Light / Dark** design system wi
 - **Hold-to-Stop Protection**: Ergonomic hold-to-stop trigger to prevent accidental capture termination during emotional scenes.
 
 ### ⭐ Takes Review & Automated Tape Check
-- **Circle Takes**: Scrub through recorded takes, compare takes side-by-side, and long-press/tap to star (circle) your hero take for delivery.
+- **Circle Takes**: Scrub through recorded takes and long-press/tap to star (circle) your hero take for delivery. No take-comparison screen by design — the loop stays record → check → keep/retake/edit.
 - **Automated Tape Check**: Real-time pre-flight verification checking for framing positioning, eye-line alignment, and audio clipping/room noise.
 
 ### 📦 Casting Package & Delivery
@@ -76,12 +76,11 @@ OneTake/
 │   └── Components/
 │       └── Components.swift    # Custom buttons, dials, status tags, cards & HUD elements
 ├── Models/
-│   ├── Models.swift            # Audition, Scene, Take, Slate, and Deliverable data structures
+│   ├── Models.swift            # Audition, Scene, Take, Slate, Deliverable & LineLearningMode data structures
 │   └── SampleData.swift        # Mock auditions and call sheets for simulator testing
 ├── Features/
-│   ├── Onboarding/             # Welcome flow, Sign in with Apple, slate & permission setup
-│   ├── Home/                   # Hero audition card, readiness dial, next steps
-│   ├── Auditions/              # Auditions library, add-audition flow, and detail breakdown
+│   ├── Onboarding/             # Welcome + slate setup only — guest-first, no sign-in wall, no upfront permission prompts
+│   ├── Auditions/              # Auditions library (absorbs what used to be a separate Home tab), add-audition flow, and detail breakdown
 │   ├── Prepare/                # Line memorization studio, reader audio, and teleprompter
 │   ├── Shoot/                  # Filming flows, live preview HUD, exposure lock
 │   ├── Takes/                  # Takes review, scrubbing, and automated tape check

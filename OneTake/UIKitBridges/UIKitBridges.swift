@@ -114,7 +114,7 @@ final class SpeechFollower {
             let words = result.bestTranscription.segments.map { $0.substring.lowercased() }
             Task { @MainActor in
                 self.spokenWordCount = words.count
-                if let last = words.last, ["action", "cut", "line"].contains(last) { self.lastCommand = last }
+                if let last = words.last, ["action", "cut", "line", "now"].contains(last) { self.lastCommand = last }
             }
         }
     }

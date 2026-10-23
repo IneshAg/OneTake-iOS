@@ -320,7 +320,7 @@ struct SearchView: View {
                 case .practice:  scope = .practice
                 case .profile:   scope = .profile
                 case .auditions: scope = .auditions
-                case .home, .search: scope = .all
+                case .search:    scope = .all
                 }
             }
         }
