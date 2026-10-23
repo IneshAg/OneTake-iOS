@@ -28,6 +28,13 @@ struct PrepareView: View {
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
                         }
                     }
+                    if let notes = a.castingNotes {
+                        // Casting's adjustment for this round, seen before every pass at the scene.
+                        Label { Text(notes).font(.otCallout) } icon: { Image(systemName: "quote.opening") }
+                            .foregroundStyle(OT.labelPrimary)
+                            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(OT.scriptHighlight, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                     ForEach(scene.lines) { line in lineView(line) }
                 }
                 .padding(.horizontal, OT.gutter)
