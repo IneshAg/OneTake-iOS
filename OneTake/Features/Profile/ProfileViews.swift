@@ -202,11 +202,15 @@ struct PrivacyView: View {
         return takeFolders.reduce(Int64(0)) { $0 + MediaStore.sizeOnDisk($1) }
     }
     private var headshotsSize: Int64 { MediaStore.sizeOnDisk("headshots") }
-    private var readerSize: Int64 { (0..<64).reduce(Int64(0)) { total, i in
-        let url = ReaderTrackPlayer.url(forLine: i)
-        guard FileManager.default.fileExists(atPath: url.path) else { return total }
-        return total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+    private var readerSize: Int64 { MediaStore.sizeOnDisk(ReaderTrackPlayer.folder) + legacyReaderFiles.reduce(Int64(0)) { total, url in
+        total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
     } }
+    /// Reader lines from before tracks were scoped per audition lived loose in Documents as
+    /// `reader-line-N.m4a`; still counted and deleted so they don't linger invisibly.
+    private var legacyReaderFiles: [URL] {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path)) ?? []
+        return entries.filter { $0.hasPrefix("reader-line-") }.map { MediaStore.documentsURL.appendingPathComponent($0) }
+    }
     private var totalSize: Int64 { takesSize + headshotsSize + readerSize }
 
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
@@ -245,8 +249,8 @@ struct PrivacyView: View {
     }
 
     private func deleteAll() {
-        MediaStore.deleteAll(["headshots", "takes", "Exports"] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
-        for i in (0..<64) { try? FileManager.default.removeItem(at: ReaderTrackPlayer.url(forLine: i)) }
+        MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
+        for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
         for i in store.auditions.indices { store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil }
         for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
