@@ -21,14 +21,15 @@ struct PackageView: View {
     @State private var progress = 0.0
     @State private var exportErrorMessage: String?
     @State private var exportTask: Task<Void, Never>?
-    @State private var showSignIn = false
+    /// True while the exported tape is uploading to iCloud for an "Email or link" send.
+    @State private var uploading = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
             Group {
                 switch phase {
                 case .review:  review(a)
-                case .sending: SendProgressView(audition: a, progress: progress, onCancel: cancelExport)
+                case .sending: SendProgressView(audition: a, progress: progress, uploading: uploading, onCancel: cancelExport)
                 case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
@@ -36,17 +37,10 @@ struct PackageView: View {
             .animation(.easeInOut(duration: 0.25), value: phase)
             .otCanvas()
             .sheet(isPresented: $showShare) {
-                if let url = a.exportedFileURL {
-                    ShareSheet(items: [url]) { completed in
+                if let items = shareItems(a) {
+                    ShareSheet(items: items) { completed in
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
                     }
-                }
-            }
-            .sheet(isPresented: $showSignIn) {
-                SignInView(reason: "A private link lives online, so it needs an account. Everything else in OneTake works without one.") {
-                    store.isSignedIn = true
-                    showSignIn = false
-                    send()
                 }
             }
             .sheet(isPresented: $showPreview) {
@@ -137,11 +131,15 @@ struct PackageView: View {
     /// only once that succeeds does the share sheet open so the real file can actually go somewhere.
     private func send() {
         guard let a = store.audition(auditionID) else { return }
-        // A submission link is the one thing that needs an account; file hand-offs never do.
-        if a.destination == .emailOrLink && !store.isSignedIn {
-            showSignIn = true
+        // A submission link is the one thing that needs an account — the actor's own iCloud. File
+        // hand-offs to the casting sites never do.
+        let asLink = a.destination == .emailOrLink
+        if asLink && !CloudLink.isAvailable {
+            exportErrorMessage = CloudLink.CloudError.iCloudUnavailable.errorDescription
+            phase = .failed
             return
         }
+        uploading = false
         phase = .sending
         progress = 0
         exportErrorMessage = nil
@@ -151,11 +149,17 @@ struct PackageView: View {
         exportTask = Task {
             do {
                 let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
-                    Task { @MainActor in progress = p }
+                    // Leave the last stretch of the bar for the iCloud upload when sending a link.
+                    Task { @MainActor in progress = asLink ? p * 0.8 : p }
+                }
+                await MainActor.run { store.setExportedFile(url, for: a.id) }
+                if asLink {
+                    await MainActor.run { uploading = true }
+                    let link = try await CloudLink.publish(url)
+                    await MainActor.run { store.setShareLink(link, for: a.id); progress = 1 }
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    store.setExportedFile(url, for: a.id)
                     phase = .review
                     showShare = true
                 }
@@ -168,6 +172,17 @@ struct PackageView: View {
                 }
             }
         }
+    }
+
+    /// What the share sheet hands on: the iCloud link (with a line of context) for "Email or link",
+    /// otherwise the exported file itself.
+    private func shareItems(_ a: Audition) -> [Any]? {
+        if a.destination == .emailOrLink {
+            guard let link = a.shareLink else { return nil }
+            let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
+            return ["\(store.slate.name) — \(a.role), \(a.project).\(expiry)", link]
+        }
+        return a.exportedFileURL.map { [$0] }
     }
 
     private func cancelExport() {
@@ -225,8 +240,9 @@ struct DestinationSheet: View {
                                 VStack(alignment: .leading) {
                                     Text(d.rawValue).font(.otBody)
                                     Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                    if d == .emailOrLink && !store.isSignedIn {
-                                        Text("Asks you to sign in when you send").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    if d == .emailOrLink {
+                                        Text(CloudLink.isAvailable ? "Uploads to your iCloud Drive" : "Needs iCloud — sign in from Settings")
+                                            .font(.otFootnote).foregroundStyle(CloudLink.isAvailable ? OT.labelTertiary : OT.warning)
                                     }
                                 }
                                 Spacer()
@@ -236,7 +252,7 @@ struct DestinationSheet: View {
                         .buttonStyle(.plain)
                     }
                 } footer: {
-                    Text("We match the file name each site asks for. Every destination hands off through your Share Sheet — there's no direct upload API.")
+                    Text("We match the file name each site asks for. Casting sites get the file through your Share Sheet; a link is hosted in your own iCloud — there's no OneTake server.")
                 }
             }
             .navigationTitle("Where’s it going?").navigationBarTitleDisplayMode(.inline)
@@ -249,6 +265,7 @@ struct DestinationSheet: View {
 struct SendProgressView: View {
     let audition: Audition
     let progress: Double
+    var uploading = false
     var onCancel: () -> Void
 
     var body: some View {
@@ -262,9 +279,14 @@ struct SendProgressView: View {
             Text("Joining your slate, full length and circled takes into one file.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
             SectionLabel(text: "Steps").padding(.top, 8)
             step("Found your recorded pieces", done: true)
-            step("Composing one file", done: progress < 1, active: progress < 1)
+            step("Composing one file", done: uploading || progress >= 1, active: !uploading && progress < 1)
+            if audition.destination == .emailOrLink {
+                step("Uploading to your iCloud", done: progress >= 1, active: uploading && progress < 1)
+            }
             step("Done — opens your Share Sheet", done: progress >= 1)
-            Text("Exported locally — nothing leaves this iPhone until you choose where to send it next.")
+            Text(audition.destination == .emailOrLink
+                 ? "The tape goes to your own iCloud Drive and iCloud makes the download link."
+                 : "Exported locally — nothing leaves this iPhone until you choose where to send it next.")
                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             Spacer()
             Button("Cancel", action: onCancel).buttonStyle(.otSecondary)
@@ -327,7 +349,11 @@ struct SentView: View {
                 Text(earlyText).font(.otTitle).foregroundStyle(OT.success)
                 Text("Break a leg.").font(.otHeadline).foregroundStyle(OT.labelSecondary)
             }
-            Label("Handed off through your Share Sheet to \(audition.destination.rawValue)", systemImage: "square.and.arrow.up").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            if let expires = audition.shareLinkExpires, audition.shareLink != nil {
+                Label("Link shared · works until \(expires.formatted(date: .abbreviated, time: .omitted))", systemImage: "link").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            } else {
+                Label("Handed off through your Share Sheet to \(audition.destination.rawValue)", systemImage: "square.and.arrow.up").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            }
             Label("All your takes stay here if they ask for another", systemImage: "iphone").font(.otFootnote).foregroundStyle(OT.labelSecondary)
             Spacer()
             Button("Done", action: onDone).buttonStyle(.otPrimary)

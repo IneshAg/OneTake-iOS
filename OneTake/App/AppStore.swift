@@ -211,6 +211,12 @@ final class AppStore {
         auditions[i].fullLengthVideoURL = url
     }
 
+    func setShareLink(_ link: CloudLink.Published, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].shareLink = link.url
+        auditions[i].shareLinkExpires = link.expires
+    }
+
     func setExportedFile(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].exportedFileURL = url
