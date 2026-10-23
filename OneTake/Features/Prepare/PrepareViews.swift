@@ -209,7 +209,7 @@ struct RunLinesView: View {
     private func speakIfReader(_ lines: [ScriptLine]) {
         guard !lines[index].isMine else { return }
         let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
-        readerPlayer.play(lineIndex: readerLineIndex)
+        readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(lines[index].text.count) * 0.06 + 0.8) {
             if !lines[index].isMine { advance(lines) }
         }
@@ -280,12 +280,12 @@ struct ReaderView: View {
                     Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 } else {
                     ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(forLine: index).path)
+                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: index).path)
                         HStack(spacing: 12) {
                             Button {
                                 if recorded {
                                     if playingLine == index { player.stop(); playingLine = nil }
-                                    else { player.play(lineIndex: index); playingLine = index }
+                                    else { player.play(auditionID: auditionID, sceneIndex: 0, lineIndex: index); playingLine = index }
                                 }
                             } label: {
                                 Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
@@ -343,7 +343,7 @@ struct RecordReaderView: View {
                     Text(recording ? "Tap stop when you've said the line" : "Tap record when you're ready").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
                     RecordButton(isRecording: recording) {
                         if recording { recorder.stop(); lineIndex += 1; Haptics.success() }
-                        else { recorder.start(lineIndex: lineIndex) }
+                        else { recorder.start(auditionID: auditionID, sceneIndex: 0, lineIndex: lineIndex) }
                         recording.toggle()
                     }
                     .frame(maxWidth: .infinity)

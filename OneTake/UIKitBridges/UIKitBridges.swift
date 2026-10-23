@@ -143,13 +143,18 @@ final class SpeechFollower {
 final class ReaderTrackPlayer {
     private var player: AVAudioPlayer?
 
-    static func url(forLine index: Int) -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("reader-line-\(index).m4a")
+    /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
+    static let folder = "reader"
+
+    /// One file per reader line, scoped to the audition and scene it was recorded for — so one
+    /// audition's reader never plays (or overwrites) another's.
+    static func url(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> URL {
+        MediaStore.directory("\(folder)/\(auditionID.uuidString)/scene-\(sceneIndex)")
+            .appendingPathComponent("line-\(index).m4a")
     }
 
-    func play(lineIndex: Int) {
-        let url = Self.url(forLine: lineIndex)
+    func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) {
+        let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
         guard FileManager.default.fileExists(atPath: url.path) else { return }  // not recorded yet → silent cue
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
         player = try? AVAudioPlayer(contentsOf: url)
@@ -164,12 +169,12 @@ final class ReaderTrackPlayer {
 final class ReaderLineRecorder {
     private var recorder: AVAudioRecorder?
 
-    func start(lineIndex: Int) {
+    func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
         try? session.setActive(true)
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1]
-        recorder = try? AVAudioRecorder(url: ReaderTrackPlayer.url(forLine: lineIndex), settings: settings)
+        recorder = try? AVAudioRecorder(url: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex), settings: settings)
         recorder?.record()
     }
 
