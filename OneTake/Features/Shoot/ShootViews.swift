@@ -107,6 +107,7 @@ struct ShootFlow: View {
     @State private var countdown: Int?
     @State private var lineIndex = 0
     @State private var takeNumber = 1
+    @State private var saveError: String?
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -140,6 +141,11 @@ struct ShootFlow: View {
             if cmd?.word == "cut", camera.state == .recording { cut() }
         }
         .onDisappear { camera.stop(); follower.stop() }
+        .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     // MARK: Bars
@@ -252,33 +258,40 @@ struct ShootFlow: View {
 
     private func saveRecording(_ recording: URL?, from cutStage: Stage) {
         let folder = "audition-\(auditionID.uuidString)"
+        // A piece only moves forward (and is only ticked off) once its file is really on disk; on a
+        // failed save the actor stays on the same stage to record it again.
+        let failed = "Nothing was written to this iPhone. Record it again."
         switch cutStage {
         case .slate:
-            if let url = MediaStore.persist(recording, as: "slate.mov", in: folder) {
-                store.setSlateVideo(url, for: auditionID)
-            }
+            guard let url = MediaStore.persist(recording, as: "slate.mov", in: folder) else { saveError = failed; return }
+            store.setSlateVideo(url, for: auditionID)
             stage = .slateDone
         case .fullLength:
-            if let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) {
-                store.setFullLengthVideo(url, for: auditionID)
-            }
+            guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else { saveError = failed; return }
+            store.setFullLengthVideo(url, for: auditionID)
             store.markDone(.fullLength, in: auditionID)
             stage = .scene
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
-            if let url = MediaStore.persist(recording, as: "take-\(number).mov", in: "\(folder)/scene-\(sceneIndex)") {
-                let take = Take(number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
-                                 fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
-                store.addTake(take)
-                takeNumber = number
+            guard let url = MediaStore.persist(recording, as: "take-\(number).mov", in: "\(folder)/scene-\(sceneIndex)") else {
+                saveError = failed; return
             }
+            let take = Take(number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
+                             fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
+            store.addTake(take)
+            takeNumber = number
             stage = .saved
         default: break
         }
     }
 
     private func finish(goTo route: Route?) {
-        store.markDone(.scene, in: auditionID)
+        // Only tick the scene off when a take for it actually exists.
+        if store.takes.contains(where: { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }) {
+            let title = store.audition(auditionID)?.scenes.indices.contains(sceneIndex) == true
+                ? store.audition(auditionID)?.scenes[sceneIndex].title : nil
+            store.markDone(.scene, in: auditionID, title: title)
+        }
         dismiss()
         if let route { store.push(route) } else { store.push(.auditionDetail(auditionID)) }
     }
