@@ -20,6 +20,9 @@ final class CameraController: NSObject {
     private let queue = DispatchQueue(label: "onetake.camera")
     private var timer: Timer?
     private var photoHandler: ((UIImage?) -> Void)?
+    /// Called once the movie file is actually finalized on disk — `stopRecording()` returns before that.
+    private var recordingFinishedHandler: ((URL?) -> Void)?
+    private var isStopping = false
     private var position: Position = .front
 
     // MARK: Permissions
@@ -103,8 +106,12 @@ final class CameraController: NSObject {
         Haptics.impact(.rigid)
     }
 
-    func stopRecording() {
-        guard state == .recording else { return }
+    /// Stopping is asynchronous: the file isn't written until AVFoundation calls back, so callers that
+    /// need the recording must use `completion` rather than reading `lastRecording` straight away.
+    func stopRecording(_ completion: ((URL?) -> Void)? = nil) {
+        guard state == .recording, !isStopping else { completion?(nil); return }
+        isStopping = true
+        recordingFinishedHandler = completion
         movieOutput.stopRecording()
         timer?.invalidate()
         Haptics.success()
@@ -131,9 +138,18 @@ final class CameraController: NSObject {
 extension CameraController: AVCaptureFileOutputRecordingDelegate {
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL,
                     from connections: [AVCaptureConnection], error: Error?) {
+        // AVFoundation can report an error (e.g. disk nearly full) even though the file was finalized
+        // and is playable — that case is flagged with AVErrorRecordingSuccessfullyFinishedKey.
+        let finished = error == nil
+            || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         Task { @MainActor in
-            self.lastRecording = error == nil ? outputFileURL : nil
+            let url = finished ? outputFileURL : nil
+            self.lastRecording = url
             self.state = .ready
+            self.isStopping = false
+            let handler = self.recordingFinishedHandler
+            self.recordingFinishedHandler = nil
+            handler?(url)
         }
     }
 }

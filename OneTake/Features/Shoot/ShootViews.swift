@@ -244,22 +244,29 @@ struct ShootFlow: View {
     private let sceneIndex = 0
 
     private func cut() {
-        camera.stopRecording()
-        switch stage {
+        let cutStage = stage
+        // Wait for the file to be finalized — reading `lastRecording` right after stopping would pick
+        // up nothing (first clip) or the previous clip.
+        camera.stopRecording { url in saveRecording(url, from: cutStage) }
+    }
+
+    private func saveRecording(_ recording: URL?, from cutStage: Stage) {
+        let folder = "audition-\(auditionID.uuidString)"
+        switch cutStage {
         case .slate:
-            if let url = MediaStore.persist(camera.lastRecording, as: "slate.mov", in: "audition-\(auditionID.uuidString)") {
+            if let url = MediaStore.persist(recording, as: "slate.mov", in: folder) {
                 store.setSlateVideo(url, for: auditionID)
             }
             stage = .slateDone
         case .fullLength:
-            if let url = MediaStore.persist(camera.lastRecording, as: "fulllength.mov", in: "audition-\(auditionID.uuidString)") {
+            if let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) {
                 store.setFullLengthVideo(url, for: auditionID)
             }
             store.markDone(.fullLength, in: auditionID)
             stage = .scene
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
-            if let url = MediaStore.persist(camera.lastRecording, as: "take-\(number).mov", in: "audition-\(auditionID.uuidString)/scene-\(sceneIndex)") {
+            if let url = MediaStore.persist(recording, as: "take-\(number).mov", in: "\(folder)/scene-\(sceneIndex)") {
                 let take = Take(number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
                                  fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
                 store.addTake(take)
