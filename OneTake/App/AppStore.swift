@@ -180,6 +180,27 @@ final class AppStore {
         }
     }
 
+    /// Removes an audition and everything recorded for it on this iPhone: takes, slate and full
+    /// length, reader tracks, practice pieces made from its scenes, and its exported tape. The iCloud
+    /// copy behind a sent link is left alone — casting may still be using that link.
+    func deleteAudition(_ id: Audition.ID) {
+        guard let audition = audition(id) else { return }
+        let fm = FileManager.default
+        try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("audition-\(id.uuidString)", isDirectory: true))
+        try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true))
+        // Export file names come from role + project, so two auditions can share one; keep it if so.
+        if let export = audition.exportedFileURL,
+           !auditions.contains(where: { $0.id != id && $0.exportedFileURL == export }) {
+            try? fm.removeItem(at: export)
+        }
+        for piece in practice where piece.auditionID == id {
+            try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("practice-\(piece.id.uuidString)", isDirectory: true))
+        }
+        practice.removeAll { $0.auditionID == id }
+        takes.removeAll { $0.auditionID == id }
+        auditions.removeAll { $0.id == id }
+    }
+
     func markDone(_ kind: PieceKind, in id: Audition.ID, title: String? = nil) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         if let j = auditions[i].pieces.firstIndex(where: { $0.kind == kind && !$0.isDone && (title == nil || $0.title == title) }) {

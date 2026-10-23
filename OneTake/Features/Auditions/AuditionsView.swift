@@ -49,7 +49,7 @@ struct AuditionsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .confirmationDialog("Delete “\(pendingDelete?.project ?? "")”?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
-                if let a = pendingDelete { store.auditions.removeAll { $0.id == a.id } }
+                if let a = pendingDelete { store.deleteAudition(a.id) }
                 pendingDelete = nil
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }

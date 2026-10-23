@@ -226,7 +226,19 @@ struct ShootFlow: View {
             Spacer()
             switch stage {
             case .check:
-                Button("Go to your mark") { stage = firstStage; camera.lockExposure() }.buttonStyle(.otPrimary).frame(width: 200)
+                VStack(spacing: 10) {
+                    Button("Go to your mark") { start(at: firstStage) }.buttonStyle(.otPrimary).frame(width: 200)
+                    // Once the slate is in, the default skips to the scene — these keep the slate and
+                    // the optional full length reachable without making them part of every reopen.
+                    if firstStage == .scene {
+                        HStack(spacing: 8) {
+                            cameraChoice("Redo slate") { start(at: .slate) }
+                            cameraChoice(store.audition(auditionID)?.fullLengthVideoURL != nil ? "Redo full length" : "Add full length") {
+                                start(at: .fullLength)
+                            }
+                        }
+                    }
+                }
             case .slateDone, .saved:
                 Color.clear.frame(height: 78)
             default:
@@ -249,6 +261,11 @@ struct ShootFlow: View {
     }
 
     // MARK: Actions
+
+    private func start(at first: Stage) {
+        stage = first
+        camera.lockExposure()
+    }
 
     private func roll() {
         // A tap or "Action" during the countdown must not start a second, overlapping one.
@@ -317,6 +334,12 @@ struct ShootFlow: View {
     }
 
     // MARK: Pieces
+
+    private func cameraChoice(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.otFootnote.weight(.semibold)).foregroundStyle(.white)
+            .padding(.horizontal, 12).frame(height: 36).background(OT.cameraGlass, in: Capsule())
+    }
 
     private func chip(_ symbol: String?, _ text: String) -> some View {
         HStack(spacing: 4) {

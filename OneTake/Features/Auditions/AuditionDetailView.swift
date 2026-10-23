@@ -90,7 +90,7 @@ struct AuditionDetailView: View {
         .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
         .confirmationDialog("Delete “\(a.project)”?", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { store.auditions.removeAll { $0.id == a.id }; store.popToRoot() }
+            Button("Delete", role: .destructive) { store.deleteAudition(a.id); store.popToRoot() }
         } message: { Text("Its slate, reader track and any takes are removed from this iPhone. Your headshots stay in Profile.") }
     }
 
