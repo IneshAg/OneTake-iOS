@@ -165,6 +165,10 @@ struct ShootFlow: View {
     @State private var reader = ReaderTrackPlayer()
     @State private var readerAdvance: Task<Void, Never>?
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
+    // Teleprompter settings from Prepare — applied to the in-camera prompter.
+    @AppStorage("prompter.size") private var prompterSize = 1
+    @AppStorage("prompter.followVoice") private var followVoice = true
+    @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -206,7 +210,7 @@ struct ShootFlow: View {
         }
         // The prompter follows your voice: once you've said your line, it moves on to the next one.
         .onChange(of: follower.spokenWordCount) { _, count in
-            guard stage == .scene, camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex),
+            guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex),
                   lines[lineIndex].isMine, count >= lines[lineIndex].text.split(separator: " ").count else { return }
             advanceLine()
         }
@@ -489,7 +493,9 @@ struct ShootFlow: View {
     private func promptCard(eyebrow: String, text: String, mine: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow.uppercased()).font(.otCaption.weight(.semibold)).foregroundStyle(mine ? OT.cameraLabel2 : OT.reader)
-            Text(text).font(.system(size: 24, weight: .bold)).foregroundStyle(mine ? Color.white : Color.white.opacity(0.7))
+            Text(text).font(.system(size: [20, 26, 34][min(max(prompterSize, 0), 2)], weight: .bold))
+                .foregroundStyle(mine ? Color.white : Color.white.opacity(0.7))
+                .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
