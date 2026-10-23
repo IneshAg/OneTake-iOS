@@ -104,7 +104,7 @@ struct AuditionDetailView: View {
                 Text("Your headshot").font(.otTitle)
                 Text("FRONT · LEFT · RIGHT").font(.otCaption).foregroundStyle(OT.labelTertiary)
                 quoteLine("Casting sees this first. A window and a plain wall is all you need.")
-                Button("Take your headshot") { store.push(.headshots) }.buttonStyle(.otPrimary)
+                Button("Take your headshot") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
             } else if next?.kind == .slate || next?.kind == .fullLength {
                 SectionLabel(text: "Up next · \(next?.title ?? "")")
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
@@ -194,7 +194,7 @@ struct PackageSheet: View {
 
     private func open(_ piece: Piece, _ a: Audition) {
         switch piece.kind {
-        case .headshot: store.push(.headshots)
+        case .headshot: store.push(.headshots(for: a.id))
         case .slate, .fullLength: store.push(.shootSetup(a.id))
         case .scene: store.push(.prepare(a.id, sceneIndex: 0))
         }

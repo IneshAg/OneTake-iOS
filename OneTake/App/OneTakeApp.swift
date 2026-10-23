@@ -48,7 +48,13 @@ struct RootTabView: View {
         }
         .searchable(text: $store.searchQuery, prompt: "Search auditions, practice, profile...")
         .applySearchTabActivation()
-        .sheet(isPresented: $store.showAddAudition) {
+        .sheet(isPresented: $store.showAddAudition, onDismiss: {
+            // Presenting the next screen only after the sheet is fully gone (a camera cover can't
+            // present over a sheet that's still dismissing).
+            guard let id = store.continueAfterAdd else { return }
+            store.continueAfterAdd = nil
+            store.continueAudition(id)
+        }) {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
         }
@@ -78,7 +84,7 @@ private struct RouteDestinations: ViewModifier {
             case .takes(let id):                     TakesView(auditionID: id)
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
             case .package(let id):                   PackageView(auditionID: id)
-            case .headshots:                         HeadshotsView()
+            case .headshots(let id):                 HeadshotsView(auditionID: id)
             case .editSlate:                         EditSlateView()
             case .privacy:                           PrivacyView()
             case .notifications:                     NotificationSettingsView()

@@ -25,7 +25,7 @@ struct AuditionsView: View {
                 List {
                     ForEach(items) { audition in
                         Button { store.push(.auditionDetail(audition.id)) } label: {
-                            AuditionCard(audition: audition) { next(for: audition) }
+                            AuditionCard(audition: audition) { store.continueAudition(audition.id) }
                         }
                         .buttonStyle(PressableCardStyle())
                         .listRowSeparator(.hidden)
@@ -85,15 +85,6 @@ struct AuditionsView: View {
         .background(OT.bgCanvas)
     }
 
-    private func next(for audition: Audition) {
-        guard let next = audition.nextPiece else { store.push(.package(audition.id)); return }
-        switch next.kind {
-        case .headshot: store.push(.headshots)
-        case .slate, .fullLength: store.camera = .shoot(audition.id)
-        case .scene:
-            if next.title == "Watch it once" { store.push(.package(audition.id)) } else { store.camera = .shoot(audition.id) }
-        }
-    }
 }
 
 // MARK: - Audition card (v2/Audition Card · Due / Ready / Sent)
@@ -291,7 +282,7 @@ struct SearchView: View {
             if scope == .all || scope == .profile {
                 let profileItems: [(title: String, detail: String, route: Route)] = [
                     ("Slate & bio", "\(store.slate.name) · \(store.slate.height) · \(store.slate.basedIn)", .editSlate),
-                    ("Headshots", "Front, left profile, right profile", .headshots),
+                    ("Headshots", "Front, left profile, right profile", .headshots(for: nil)),
                     ("Notifications", "Deadlines, callbacks, tape delivery", .notifications),
                     ("Privacy & data", "Local storage, sent tapes, exports", .privacy)
                 ]
