@@ -78,12 +78,14 @@ enum MediaExporter {
         let fileName = audition.deliverableFileName(slate: slate)
         let outputDir = MediaStore.directory("Exports")
         let fileURL = outputDir.appendingPathComponent(fileName)
-        try? FileManager.default.removeItem(at: fileURL)
+        // Export to a scratch file and only replace the deliverable on success, so a cancelled or
+        // failed export never destroys the last good one (or races a retry writing the same name).
+        let workingURL = outputDir.appendingPathComponent("exporting-\(UUID().uuidString).mp4")
 
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportError.sessionCreationFailed
         }
-        export.outputURL = fileURL
+        export.outputURL = workingURL
         export.outputFileType = .mp4
         export.videoComposition = videoComposition
 
@@ -92,11 +94,23 @@ enum MediaExporter {
         }
         defer { timer.invalidate() }
 
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            export.exportAsynchronously { cont.resume() }
+        try Task.checkCancellation()
+        // Cancelling the calling task stops the real export instead of letting it run on unseen.
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                export.exportAsynchronously { cont.resume() }
+            }
+        } onCancel: {
+            export.cancelExport()
         }
 
-        if let error = export.error { throw error }
+        guard export.status == .completed, !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: workingURL)
+            if export.status == .cancelled || Task.isCancelled { throw CancellationError() }
+            throw export.error ?? ExportError.sessionCreationFailed
+        }
+        try? FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.moveItem(at: workingURL, to: fileURL)
         progress(1.0)
         return fileURL
     }

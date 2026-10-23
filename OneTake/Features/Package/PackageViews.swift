@@ -20,13 +20,14 @@ struct PackageView: View {
     @State private var showPreview = false
     @State private var progress = 0.0
     @State private var exportErrorMessage: String?
+    @State private var exportTask: Task<Void, Never>?
 
     var body: some View {
         if let a = store.audition(auditionID) {
             Group {
                 switch phase {
                 case .review:  review(a)
-                case .sending: SendProgressView(audition: a, progress: progress, onCancel: { phase = .review })
+                case .sending: SendProgressView(audition: a, progress: progress, onCancel: cancelExport)
                 case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
@@ -133,16 +134,20 @@ struct PackageView: View {
         exportErrorMessage = nil
         let takesForAudition = store.takes.filter { $0.auditionID == a.id }
         let slate = store.slate
-        Task {
+        exportTask?.cancel()
+        exportTask = Task {
             do {
                 let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
                     Task { @MainActor in progress = p }
                 }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     store.setExportedFile(url, for: a.id)
                     phase = .review
                     showShare = true
                 }
+            } catch is CancellationError {
+                // Cancelled from the progress screen — cancelExport() already returned to review.
             } catch {
                 await MainActor.run {
                     exportErrorMessage = error.localizedDescription
@@ -150,6 +155,12 @@ struct PackageView: View {
                 }
             }
         }
+    }
+
+    private func cancelExport() {
+        exportTask?.cancel()
+        exportTask = nil
+        phase = .review
     }
 }
 
