@@ -32,6 +32,8 @@ enum CloudLink {
     static func publish(_ fileURL: URL, uploadTimeout: Duration = .seconds(15 * 60)) async throws -> Published {
         // Every file-system call against the ubiquity container can block, so none of it runs on main.
         let work = Task.detached(priority: .userInitiated) { () async throws -> Published in
+            // Cancelled before anything reached iCloud → upload nothing.
+            try Task.checkCancellation()
             let fm = FileManager.default
             guard let container = fm.url(forUbiquityContainerIdentifier: nil) else { throw CloudError.iCloudUnavailable }
 
@@ -45,17 +47,25 @@ enum CloudLink {
             let staging = fm.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-\(fileURL.lastPathComponent)")
             try fm.copyItem(at: fileURL, to: staging)
             do {
+                try Task.checkCancellation()
                 try fm.setUbiquitous(true, itemAt: staging, destinationURL: destination)
             } catch {
                 try? fm.removeItem(at: staging)
+                if error is CancellationError { throw error }
                 throw CloudError.uploadFailed(error)
             }
 
-            try await waitForUpload(of: destination, timeout: uploadTimeout)
-
-            var expiration: NSDate?
-            let link = try fm.url(forPublishingUbiquitousItemAt: destination, expiration: &expiration)
-            return Published(url: link, expires: expiration as Date?)
+            do {
+                try await waitForUpload(of: destination, timeout: uploadTimeout)
+                var expiration: NSDate?
+                let link = try fm.url(forPublishingUbiquitousItemAt: destination, expiration: &expiration)
+                return Published(url: link, expires: expiration as Date?)
+            } catch {
+                // Cancelled or failed after the file went to iCloud: take it back out, so no
+                // unshared copy sits in the actor's iCloud Drive.
+                try? fm.removeItem(at: dir)
+                throw error
+            }
         }
         // A detached task doesn't inherit cancellation, so forward it — Cancel on the progress screen
         // must stop the upload wait too.

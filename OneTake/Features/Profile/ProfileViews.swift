@@ -252,7 +252,14 @@ struct PrivacyView: View {
         MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
-        for i in store.auditions.indices { store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil }
+        for i in store.auditions.indices {
+            store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
+            // The recordings and headshots behind these pieces are gone, so unsent auditions go back
+            // to "not done" rather than claiming to be ready. Sent ones keep their history (and link).
+            guard store.auditions[i].status != .sent else { continue }
+            for j in store.auditions[i].pieces.indices { store.auditions[i].pieces[j].isDone = false }
+            store.auditions[i].status = .due
+        }
         for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
         Haptics.success()
     }
