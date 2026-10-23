@@ -123,9 +123,17 @@ final class AppStore {
 
     func audition(_ id: Audition.ID) -> Audition? { auditions.first { $0.id == id } }
 
+    /// Looks the audition up by ID on every get/set — capturing its index would go stale (editing the
+    /// wrong audition, or crashing) as soon as `add` inserts at the top or one is removed.
     func binding(for id: Audition.ID) -> Binding<Audition>? {
-        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return nil }
-        return Binding(get: { self.auditions[i] }, set: { self.auditions[i] = $0 })
+        guard let initial = audition(id) else { return nil }
+        return Binding(
+            get: { self.audition(id) ?? initial },
+            set: { newValue in
+                guard let i = self.auditions.firstIndex(where: { $0.id == id }) else { return }
+                self.auditions[i] = newValue
+            }
+        )
     }
 
     /// The audition Home should push the actor toward: soonest due, not sent.
