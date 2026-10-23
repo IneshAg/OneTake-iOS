@@ -18,6 +18,32 @@ enum MediaExporter {
         }
     }
 
+    /// One recorded piece that goes on the tape, in tape order.
+    struct Clip: Hashable {
+        enum Kind: Hashable { case slate, fullLength, scene(Int) }
+        let kind: Kind
+        let label: String
+        let url: URL
+    }
+
+    /// What goes on the tape, in order: slate, full length, then the circled (or first) take of each
+    /// scene. Shared by the export and by Tape Check, so the check looks at exactly what gets sent.
+    static func clips(for audition: Audition, takes: [Take]) -> [Clip] {
+        var clips: [Clip] = []
+        if let s = audition.slateVideoURL { clips.append(Clip(kind: .slate, label: "Slate", url: s)) }
+        if let f = audition.fullLengthVideoURL { clips.append(Clip(kind: .fullLength, label: "Full length", url: f)) }
+        // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
+        // display number, and only this audition's takes are eligible whatever the caller passes in.
+        let auditionTakes = takes.filter { $0.auditionID == audition.id }
+        for sceneIndex in audition.scenes.indices {
+            let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
+            if let chosen = (sceneTakes.first(where: \.isCircled) ?? sceneTakes.first), let url = chosen.fileURL {
+                clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url))
+            }
+        }
+        return clips
+    }
+
     @MainActor
     static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
         let composition = AVMutableComposition()
@@ -25,18 +51,7 @@ enum MediaExporter {
               let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw ExportError.trackCreationFailed }
 
-        var clipURLs: [URL] = []
-        if let s = audition.slateVideoURL { clipURLs.append(s) }
-        if let f = audition.fullLengthVideoURL { clipURLs.append(f) }
-        // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
-        // display number, and only this audition's takes are eligible whatever the caller passes in.
-        let auditionTakes = takes.filter { $0.auditionID == audition.id }
-        for sceneIndex in audition.scenes.indices {
-            let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
-            if let chosen = (sceneTakes.first(where: \.isCircled) ?? sceneTakes.first), let url = chosen.fileURL {
-                clipURLs.append(url)
-            }
-        }
+        let clipURLs = clips(for: audition, takes: takes).map(\.url)
         guard !clipURLs.isEmpty else { throw ExportError.nothingToExport }
 
         // Each clip carries its own orientation (portrait capture, front-camera mirroring) in its

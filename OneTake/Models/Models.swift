@@ -146,6 +146,9 @@ struct TapeFinding: Identifiable, Hashable {
     var title: String
     var where_: String
     var advice: String
+    /// The clip and moment this is about, so Tape Check can play exactly that moment.
+    var clipURL: URL? = nil
+    var seconds: Double? = nil
 }
 
 // MARK: - Practice
