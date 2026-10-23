@@ -93,6 +93,10 @@ final class SpeechFollower {
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    /// The recognizer keeps transcribing one continuous session, so its word count never goes back
+    /// to zero. `reset()` records where the current line starts instead.
+    private var totalWords = 0
+    private var wordOffset = 0
 
     static func requestAccess() async -> Bool {
         await withCheckedContinuation { cont in
@@ -119,7 +123,8 @@ final class SpeechFollower {
             guard let self, let result else { return }
             let words = result.bestTranscription.segments.map { $0.substring.lowercased() }
             Task { @MainActor in
-                self.spokenWordCount = words.count
+                self.totalWords = words.count
+                self.spokenWordCount = max(0, words.count - self.wordOffset)
                 if let last = words.last, ["action", "cut", "line", "now"].contains(last) { self.lastCommand = last }
             }
         }
@@ -131,9 +136,11 @@ final class SpeechFollower {
         request?.endAudio()
         task?.cancel()
         isListening = false
+        totalWords = 0
+        wordOffset = 0
     }
 
-    func reset() { spokenWordCount = 0; lastCommand = nil }
+    func reset() { wordOffset = totalWords; spokenWordCount = 0; lastCommand = nil }
 }
 
 // MARK: - Reader track playback (your own recorded voice only)
