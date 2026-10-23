@@ -110,12 +110,16 @@ struct AuditionDetailView: View {
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
                 quoteLine(store.slate.spoken)
                 Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
-            } else if let scene = a.scenes.first, next != nil {
+            } else if next?.kind == .scene, let scene = a.scenes.first {
                 HStack { SectionLabel(text: "Up next · scene \(scene.number) of \(a.scenes.count)"); Spacer(); Text("≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60)) · \(scene.lines.filter(\.isMine).count) lines").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
-                Text("Apartment Confrontation").font(.otTitle)
+                Text(scene.title).font(.otTitle)
                 Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
                 Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: 0)) }.buttonStyle(.otPrimary)
+            } else if next?.kind == .scene {
+                SectionLabel(text: "Up next · \(next?.title ?? "scene")")
+                Text("No sides captured yet").font(.otTitle)
+                Text("Nothing was readable in what you added this audition from — rescan or retype the sides to prepare and shoot this scene.").font(.otCallout).foregroundStyle(OT.labelSecondary)
             } else {
                 SectionLabel(text: "Everything's in")
                 Text("Watch it once, then send").font(.otTitle)

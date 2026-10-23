@@ -1,6 +1,13 @@
 import SwiftUI
+import AVKit
 
 // MARK: - 20 Package · Ready to send
+//
+// There's no casting-site API this app can submit a tape to directly, so "sending" is real:
+// MediaExporter actually composes the slate, full-length and circled takes into one file, and
+// handing it off happens through the system share sheet (AirDrop, Mail, Files, or the casting
+// site's own upload if it's installed) — not a simulated network call that claims a third party
+// confirmed receipt it never saw.
 
 struct PackageView: View {
     enum Phase { case review, sending, failed, sent }
@@ -10,39 +17,55 @@ struct PackageView: View {
     @State private var phase: Phase = .review
     @State private var showDestination = false
     @State private var showShare = false
+    @State private var showPreview = false
     @State private var progress = 0.0
-    @State private var useMobileData = true
+    @State private var exportErrorMessage: String?
 
     var body: some View {
         if let a = store.audition(auditionID) {
             Group {
                 switch phase {
                 case .review:  review(a)
-                case .sending: SendProgressView(audition: a, progress: progress, onCancel: { phase = .review }, onDrop: { phase = .failed })
-                case .failed:  SendFailedView(audition: a, useMobileData: $useMobileData, onRetry: send)
-                case .sent:    SentView(audition: a) { store.popToRoot(); store.tab = .auditions }
+                case .sending: SendProgressView(audition: a, progress: progress, onCancel: { phase = .review })
+                case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
+                case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: phase)
             .otCanvas()
+            .sheet(isPresented: $showShare) {
+                if let url = a.exportedFileURL {
+                    ShareSheet(items: [url]) { completed in
+                        if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
+                    }
+                }
+            }
+            .sheet(isPresented: $showPreview) {
+                if let url = a.exportedFileURL { VideoPlayer(player: AVPlayer(url: url)) }
+            }
         }
     }
 
     private func review(_ a: Audition) -> some View {
-        ScrollView {
+        let legend = tapeLegend(a)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Ready to send.").font(.otLargeTitle)
                 Text("Due \(a.due.otDue) · \(a.readyCount) of \(a.totalCount) ready").font(.otCallout).foregroundStyle(OT.labelSecondary)
 
-                HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text("2:25").font(.otHeadline) }
-                TapeStrip()
+                HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text(totalDurationLabel(a)).font(.otHeadline) }
+                TapeStrip(legend: legend)
 
                 VStack(spacing: 0) {
-                    row(symbol: "film", title: "SHARMA_KABIR_ARJUN_THELASTSUMMER.mp4", detail: "Named the way casting asked · one file", value: nil)
-                    Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: nil, value: "184 MB · 1080p") }.buttonStyle(.plain)
-                    Button { store.push(.tapeCheck(a.id)) } label: { row(symbol: "checkmark.seal.fill", title: "Tape check", detail: nil, value: "Passed", tint: OT.success) }.buttonStyle(.plain)
-                    row(symbol: "waveform", title: "Audio", detail: nil, value: "Both voices clear", tint: OT.success)
-                    row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Exactly what casting gets · 2:25", value: nil)
+                    row(symbol: "film", title: a.deliverableFileName(slate: store.slate), detail: "Named the way casting asked · one file", value: nil)
+                    Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: nil, value: exportedSizeLabel(a)) }.buttonStyle(.plain)
+                    Button { store.push(.tapeCheck(a.id)) } label: { row(symbol: "checkmark.seal.fill", title: "Tape check", detail: nil, value: "Review", tint: OT.success) }.buttonStyle(.plain)
+                    row(symbol: "waveform", title: "Audio", detail: nil, value: "From your takes", tint: OT.success)
+                    if a.exportedFileURL != nil {
+                        Button { showPreview = true } label: { row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "What's actually in the exported file", value: nil) }.buttonStyle(.plain)
+                    } else {
+                        row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Available once you've exported it", value: nil)
+                    }
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -57,8 +80,7 @@ struct PackageView: View {
             }
             .padding(.horizontal, OT.gutter).background(OT.bgCanvas)
         }
-        .sheet(isPresented: $showDestination) { DestinationSheet(auditionID: a.id, showShare: $showShare).presentationDetents([.medium]) }
-        .sheet(isPresented: $showShare) { ShareSheet(items: ["OneTake tape — The Last Summer"]) }
+        .sheet(isPresented: $showDestination) { DestinationSheet(auditionID: a.id).presentationDetents([.medium]) }
     }
 
     private func row(symbol: String, title: String, detail: String?, value: String?, tint: Color = OT.labelSecondary) -> some View {
@@ -76,47 +98,82 @@ struct PackageView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// No hold-to-send: one tap sends. "Delivered" only appears once the destination confirms.
+    private func tapeLegend(_ a: Audition) -> [(String, String, Color)] {
+        var items: [(String, String, Color)] = []
+        items.append(("Headshot", a.pieces.first(where: { $0.kind == .headshot })?.isDone == true ? "Captured" : "Not yet", OT.accent.opacity(0.4)))
+        items.append(("Slate", a.slateVideoURL != nil ? "Recorded" : "Not yet", OT.accent.opacity(0.4)))
+        for (i, scene) in a.scenes.enumerated() {
+            let take = store.takes.first(where: { $0.auditionID == a.id && $0.sceneIndex == i && $0.isCircled })
+            let detail = take.map { "Take \($0.number) · \(Int($0.duration))s" } ?? "Not shot yet"
+            items.append((scene.title, detail, i.isMultiple(of: 2) ? OT.accent : OT.reader))
+        }
+        return items
+    }
+
+    private func totalDurationLabel(_ a: Audition) -> String {
+        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled }
+        guard !takes.isEmpty else { return "—" }
+        let total = Int(takes.reduce(0) { $0 + $1.duration })
+        return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+
+    private func exportedSizeLabel(_ a: Audition) -> String {
+        guard let url = a.exportedFileURL, let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64 else {
+            return "Not exported yet"
+        }
+        return "\(size / 1_048_576) MB"
+    }
+
+    /// Real export, not a simulated upload: `MediaExporter` composes the actual recorded files, and
+    /// only once that succeeds does the share sheet open so the real file can actually go somewhere.
     private func send() {
+        guard let a = store.audition(auditionID) else { return }
         phase = .sending
         progress = 0
+        exportErrorMessage = nil
+        let takesForAudition = store.takes.filter { $0.auditionID == a.id }
+        let slate = store.slate
         Task {
-            while progress < 1 {
-                try? await Task.sleep(for: .milliseconds(60))
-                guard phase == .sending else { return }
-                progress = min(1, progress + 0.02)
+            do {
+                let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
+                    Task { @MainActor in progress = p }
+                }
+                await MainActor.run {
+                    store.setExportedFile(url, for: a.id)
+                    phase = .review
+                    showShare = true
+                }
+            } catch {
+                await MainActor.run {
+                    exportErrorMessage = error.localizedDescription
+                    phase = .failed
+                }
             }
-            store.markSent(auditionID)
-            Haptics.success()
-            phase = .sent
         }
     }
 }
 
 struct TapeStrip: View {
+    let legend: [(String, String, Color)]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             GeometryReader { geo in
                 HStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 6).fill(OT.accent.opacity(0.4)).frame(width: 10)
-                    RoundedRectangle(cornerRadius: 6).fill(OT.accent.opacity(0.4)).frame(width: 10)
-                    RoundedRectangle(cornerRadius: 6).fill(OT.accent).frame(width: geo.size.width * 0.58)
-                    RoundedRectangle(cornerRadius: 6).fill(OT.reader)
+                    ForEach(Array(legend.enumerated()), id: \.offset) { _, item in
+                        RoundedRectangle(cornerRadius: 6).fill(item.2).frame(width: max(10, geo.size.width / CGFloat(max(legend.count, 1)) - 3))
+                    }
                 }
             }
             .frame(height: 44)
             HStack(spacing: 14) {
-                legend("Headshot", "Front", OT.accent.opacity(0.4))
-                legend("Slate", "0:05", OT.accent.opacity(0.4))
-                legend("Scene 1", "Take 2 · 1:28", OT.accent)
-                legend("Scene 2", "Take 1 · 0:52", OT.reader)
+                ForEach(Array(legend.enumerated()), id: \.offset) { _, item in legendItem(item.0, item.1, item.2) }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Tape: headshot, slate, scene 1 take 2, scene 2 take 1. 2 minutes 25.")
+        .accessibilityLabel("Tape order: " + legend.map { "\($0.0), \($0.1)" }.joined(separator: ", "))
     }
 
-    private func legend(_ t: String, _ d: String, _ c: Color) -> some View {
+    private func legendItem(_ t: String, _ d: String, _ c: Color) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 8, height: 8); Text(t).font(.otCaption.weight(.semibold)) }
             Text(d).font(.otCaption).foregroundStyle(OT.labelTertiary)
@@ -128,7 +185,6 @@ struct TapeStrip: View {
 
 struct DestinationSheet: View {
     let auditionID: Audition.ID
-    @Binding var showShare: Bool
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
@@ -139,7 +195,7 @@ struct DestinationSheet: View {
                     ForEach(Destination.allCases) { d in
                         Button {
                             if let i = store.auditions.firstIndex(where: { $0.id == auditionID }) { store.auditions[i].destination = d }
-                            if d == .emailOrLink { dismiss(); showShare = true } else { dismiss() }
+                            dismiss()
                         } label: {
                             HStack {
                                 VStack(alignment: .leading) { Text(d.rawValue).font(.otBody); Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
@@ -150,7 +206,7 @@ struct DestinationSheet: View {
                         .buttonStyle(.plain)
                     }
                 } footer: {
-                    Text("We match the format, size and file name each site accepts.")
+                    Text("We match the file name each site asks for. Every destination hands off through your Share Sheet — there's no direct upload API.")
                 }
             }
             .navigationTitle("Where’s it going?").navigationBarTitleDisplayMode(.inline)
@@ -158,39 +214,37 @@ struct DestinationSheet: View {
     }
 }
 
-// MARK: - 20.3 Sending
+// MARK: - 20.3 Exporting
 
 struct SendProgressView: View {
     let audition: Audition
     let progress: Double
     var onCancel: () -> Void
-    var onDrop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionLabel(text: "Sending to \(audition.destination.rawValue)").padding(.top, 20)
+            SectionLabel(text: "Packaging your tape").padding(.top, 20)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text("\(Int(progress * 100))").font(.system(size: 72, weight: .bold)).monospacedDigit()
                 Text("%").font(.otTitle)
             }
             ProgressView(value: progress).tint(OT.accent)
-            Text("about \(max(1, Int((1 - progress) * 90))) s left · \(Int(progress * 184)) of 184 MB").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            Text("Joining your slate, full length and circled takes into one file.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
             SectionLabel(text: "Steps").padding(.top, 8)
-            step("Joined headshot, slate and 2 scenes", done: true)
-            step("Exported 1080p · 184 MB", done: true)
-            step("Uploading", done: false, active: true).onTapGesture(perform: onDrop)
-            step("Delivered — once \(audition.destination.rawValue) confirms", done: false)
-            Text("You can lock your iPhone. It only says Delivered once \(audition.destination.rawValue) confirms it has the file.")
+            step("Found your recorded pieces", done: true)
+            step("Composing one file", done: progress < 1, active: progress < 1)
+            step("Done — opens your Share Sheet", done: progress >= 1)
+            Text("Exported locally — nothing leaves this iPhone until you choose where to send it next.")
                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             Spacer()
-            Button("Cancel sending", action: onCancel).buttonStyle(.otSecondary)
+            Button("Cancel", action: onCancel).buttonStyle(.otSecondary)
         }
         .padding(.horizontal, OT.gutter)
     }
 
     private func step(_ t: String, done: Bool, active: Bool = false) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: done ? "checkmark.circle.fill" : active ? "arrow.up.circle.fill" : "circle")
+            Image(systemName: done ? "checkmark.circle.fill" : active ? "arrow.triangle.2.circlepath.circle.fill" : "circle")
                 .foregroundStyle(done ? OT.success : active ? OT.accent : OT.labelTertiary)
             Text(t).font(.otBody).foregroundStyle(done || active ? OT.labelPrimary : OT.labelTertiary)
         }
@@ -198,24 +252,20 @@ struct SendProgressView: View {
     }
 }
 
-// MARK: - 20.4 Not sent yet
+// MARK: - 20.4 Couldn't export
 
 struct SendFailedView: View {
-    let audition: Audition
-    @Binding var useMobileData: Bool
+    let message: String?
     var onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: "wifi.exclamationmark").font(.largeTitle).foregroundStyle(OT.warning).padding(.top, 20)
-            Text("Not sent yet").font(.otLargeTitle)
-            Text("You lost connection. Your tape is safe on this iPhone and sends on its own when you're back online.")
+            Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(OT.warning).padding(.top, 20)
+            Text("Couldn't package it").font(.otLargeTitle)
+            Text(message ?? "Something went wrong composing your tape. Your takes are untouched on this iPhone — this only affects the combined file.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
-            ScheduleRow(eyebrow: audition.due.formatted(.dateTime.weekday(.abbreviated)).uppercased(), value: "\(audition.hoursLeft)h",
-                        title: "Due \(audition.due.otDue)", detail: "Plenty of time — it'll retry automatically")
-            Toggle(isOn: $useMobileData) { VStack(alignment: .leading) { Text("Use mobile data"); Text("About 184 MB").font(.otFootnote).foregroundStyle(OT.labelTertiary) } }
             Spacer()
-            Button("Try again now", action: onRetry).buttonStyle(.otPrimary)
+            Button("Try again", action: onRetry).buttonStyle(.otPrimary)
         }
         .padding(.horizontal, OT.gutter)
     }
@@ -225,28 +275,29 @@ struct SendFailedView: View {
 
 struct SentView: View {
     let audition: Audition
+    let slate: SlateInfo
     var onDone: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("DELIVERED · CONFIRMED \(Date.now.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())")
+                    Text("SHARED · \(Date.now.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())")
                         .font(.otCaption.weight(.semibold)).foregroundStyle(OT.success)
                     Spacer()
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(OT.success)
                 }
-                Text("SHARMA_KABIR_ARJUN_THELASTSUMMER.mp4").font(.otFootnote.weight(.semibold))
-                Text("2:25 · headshot · slate · 2 scenes").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                Text(audition.deliverableFileName(slate: slate)).font(.otFootnote.weight(.semibold))
+                Text("Headshot · slate · \(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")").font(.otFootnote).foregroundStyle(OT.labelSecondary)
             }
             .padding(16).otCard(radius: 18).rotationEffect(.degrees(1.5)).padding(.top, 30)
 
-            Text("It’s with casting.").font(.system(size: 38, weight: .bold))
+            Text("It’s on its way.").font(.system(size: 38, weight: .bold))
             HStack(alignment: .firstTextBaseline) {
                 Text(earlyText).font(.otTitle).foregroundStyle(OT.success)
                 Text("Break a leg.").font(.otHeadline).foregroundStyle(OT.labelSecondary)
             }
-            Label("Private link copied · works for 30 days", systemImage: "link").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            Label("Handed off through your Share Sheet to \(audition.destination.rawValue)", systemImage: "square.and.arrow.up").font(.otFootnote).foregroundStyle(OT.labelSecondary)
             Label("All your takes stay here if they ask for another", systemImage: "iphone").font(.otFootnote).foregroundStyle(OT.labelSecondary)
             Spacer()
             Button("Done", action: onDone).buttonStyle(.otPrimary)

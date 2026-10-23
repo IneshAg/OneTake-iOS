@@ -11,7 +11,7 @@ struct AddAuditionFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var path: [Step] = []
     @State private var notice = ""
-    @State private var draft = NoticeParser.parse(SampleNotice.text)
+    @State private var draft = NoticeParser.Draft.blank
     @State private var photoItem: PhotosPickerItem?
     @State private var showFileImporter = false
     @State private var showScanner = false
@@ -24,21 +24,50 @@ struct AddAuditionFlow: View {
                     case .reading:      NoticeReadingView(notice: notice) { result in draft = result; path.append(result.due == nil ? .missingDate : .review) }
                     case .missingDate:  MissingDateView(draft: $draft) { path.append(.review) }
                     case .review:       NoticeReviewView(draft: $draft) { save() }
-                    case .couldNotRead: NoticeErrorView(onRetry: { path = [.reading] }, onScan: { showScanner = true }, onType: { path = [.review] })
+                    case .couldNotRead: NoticeErrorView(onRetry: { path = [.reading] }, onScan: { showScanner = true }, onType: { draft = .blank; path = [.review] })
                     }
                 }
         }
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in
                 showScanner = false
-                if !pages.isEmpty { notice = SampleNotice.text; path = [.reading] }
+                guard !pages.isEmpty else { return }
+                Task {
+                    let text = await NoticeOCR.recognizeText(in: pages)
+                    await MainActor.run {
+                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { path = [.couldNotRead] }
+                        else { notice = text; path = [.reading] }
+                    }
+                }
             }
             .ignoresSafeArea()
         }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
-            if case .success = result { notice = SampleNotice.text; path = [.reading] } else { path = [.couldNotRead] }
+            switch result {
+            case .success(let url):
+                let accessed = url.startAccessingSecurityScopedResource()
+                let text = NoticeOCR.extractText(fromFileAt: url)
+                if accessed { url.stopAccessingSecurityScopedResource() }
+                if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notice = text; path = [.reading] }
+                else { path = [.couldNotRead] }
+            case .failure:
+                path = [.couldNotRead]
+            }
         }
-        .onChange(of: photoItem) { _, item in if item != nil { notice = SampleNotice.text; path = [.reading] } }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                    await MainActor.run { path = [.couldNotRead] }
+                    return
+                }
+                let text = await NoticeOCR.recognizeText(in: [image])
+                await MainActor.run {
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { path = [.couldNotRead] }
+                    else { notice = text; path = [.reading] }
+                }
+            }
+        }
     }
 
     // MARK: 06 capture-first sheet
@@ -53,14 +82,14 @@ struct AddAuditionFlow: View {
                         .buttonStyle(.plain).accessibilityLabel("Close")
                 }
 
-                if let clip = Clipboard.castingNotice ?? Optional(SampleNotice.text) {
+                if let clip = Clipboard.castingNotice {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
                             Image(systemName: "doc.on.clipboard").foregroundStyle(OT.accent)
                                 .frame(width: 36, height: 36).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 9))
                             VStack(alignment: .leading) {
                                 Text("On your clipboard").font(.otHeadline)
-                                Text("Northlight Casting · The Last Summer").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                Text("Looks like a casting notice").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                             }
                         }
                         Text("“\(clip.prefix(110))…”").font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(3)
@@ -115,15 +144,7 @@ struct AddAuditionFlow: View {
     }
 }
 
-// MARK: - Notice parsing (on-device, rule-based placeholder for the real parser)
-
-enum SampleNotice {
-    static let text = """
-    Hi Kabir, we'd love a self-tape for ARJUN in THE LAST SUMMER (feature). Please send by Fri 9 Oct, 10am. \
-    Slate first, landscape, include a full-length shot. Sides attached (2 scenes). Under 3 minutes total. \
-    Upload to Actors Access, named Last_First_Role.
-    """
-}
+// MARK: - Notice parsing (on-device, rule-based — runs on whatever real text OCR/the file importer found)
 
 enum NoticeParser {
     struct Draft: Hashable {
@@ -131,37 +152,95 @@ enum NoticeParser {
         var role = ""
         var projectType = "Feature film"
         var due: Date?
-        var scenes = 2
+        var scenes = 1
         var asks: [String] = []
         var destination: Destination = .actorsAccess
+        /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
+        /// sides out of it instead of substituting a canned scene.
+        var sourceText = ""
 
         static let blank = Draft()
 
         func makeAudition() -> Audition {
+            let parsedScenes = ScriptParser.parseScenes(from: sourceText, myRole: role)
             var pieces: [Piece] = [
                 .init(kind: .headshot, title: "Headshot", detail: "Front", isDone: false),
                 .init(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: false)
             ]
-            for i in 0..<max(scenes, 1) { pieces.append(.init(kind: .scene, title: "Scene \(i + 1)", detail: "", isDone: false)) }
-            return Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType, role: role.isEmpty ? "Role" : role,
-                            roleSize: "Lead", castingOffice: "Northlight Casting", due: due ?? .now.addingTimeInterval(3 * 86400),
-                            asks: asks, pieces: pieces, scenes: Array(SampleData.lastSummer.scenes.prefix(scenes)),
+            if parsedScenes.isEmpty {
+                // No sides could be read from what was captured — be honest about that rather than
+                // filling in a stand-in scene. Pieces still exist so the checklist has something to
+                // point at; "Add sides" is left for the actor to do once they have the real pages.
+                for i in 0..<max(scenes, 1) {
+                    pieces.append(.init(kind: .scene, title: "Scene \(i + 1)", detail: "No sides yet — add them", isDone: false))
+                }
+            } else {
+                for scene in parsedScenes {
+                    pieces.append(.init(kind: .scene, title: scene.title, detail: "", isDone: false))
+                }
+            }
+            return Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
+                            role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: "Casting office",
+                            due: due ?? .now.addingTimeInterval(3 * 86400),
+                            asks: asks, pieces: pieces, scenes: parsedScenes,
                             destination: destination, status: .due)
         }
     }
 
     static func parse(_ text: String) -> Draft {
         var d = Draft()
+        d.sourceText = text
         let lower = text.lowercased()
-        if lower.contains("last summer") { d.project = "The Last Summer" }
-        if lower.contains("arjun") { d.role = "Arjun" }
-        if lower.contains("fri 9 oct") { d.due = SampleData.lastSummer.due }
+
+        d.due = detectDate(in: text)
+        if let role = detectRole(in: text) { d.role = role }
+        if let project = detectProject(in: text) { d.project = project }
+        d.scenes = max(detectSceneCount(in: text) ?? 1, 1)
+
         if lower.contains("slate") { d.asks.append("Slate first") }
         if lower.contains("landscape") { d.asks.append("Landscape") }
         if lower.contains("full-length") || lower.contains("full length") { d.asks.append("Full length") }
         if lower.contains("under 3") { d.asks.append("Under 3 min") }
-        if lower.contains("actors access") { d.asks.append("Actors Access"); d.destination = .actorsAccess }
+        if lower.contains("feature") { d.projectType = "Feature film" }
+        else if lower.contains("series") || lower.contains("episod") { d.projectType = "Series" }
+        else if lower.contains("theatre") || lower.contains("theater") { d.projectType = "Theatre" }
+        for dest in Destination.allCases where lower.contains(dest.rawValue.lowercased()) {
+            d.destination = dest
+            d.asks.append(dest.rawValue)
+        }
         return d
+    }
+
+    /// NSDataDetector finds real dates in arbitrary text — "by Fri 9 Oct, 10am", "due 10/12", etc.
+    private static func detectDate(in text: String) -> Date? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return nil }
+        let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        return matches.first?.date
+    }
+
+    /// "self-tape for ARJUN", "reading for the role of MAYA" — the all-caps word(s) right after "for".
+    private static func detectRole(in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[r]).capitalized
+    }
+
+    /// "in THE LAST SUMMER (feature)" — the capitalised run between "in" and the next punctuation.
+    private static func detectProject(in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?:\s*[\(.,]|\s+by\s|$)"#) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
+        let candidate = String(text[r]).trimmingCharacters(in: .whitespaces)
+        return candidate.isEmpty ? nil : candidate.capitalized
+    }
+
+    /// "Sides attached (2 scenes)" — any "<N> scene(s)" mention.
+    private static func detectSceneCount(in text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"(\d+)\s+scenes?"#, options: .caseInsensitive) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
+        return Int(text[r])
     }
 }
 
@@ -171,7 +250,23 @@ struct NoticeReadingView: View {
     let notice: String
     var onDone: (NoticeParser.Draft) -> Void
     @State private var found = 0
-    private let rows = [("Project", "The Last Summer"), ("Your role", "Arjun"), ("Due", "Fri 9 Oct, 10:00 AM"), ("Sides", "2 scenes"), ("What they asked for", "7 things")]
+    private let draft: NoticeParser.Draft
+
+    init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void) {
+        self.notice = notice
+        self.onDone = onDone
+        self.draft = NoticeParser.parse(notice)
+    }
+
+    private var rows: [(String, String)] {
+        [
+            ("Project", draft.project.isEmpty ? "Not found — type it in" : draft.project),
+            ("Your role", draft.role.isEmpty ? "Not found — type it in" : draft.role),
+            ("Due", draft.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not found — pick a date"),
+            ("Sides", draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes"),
+            ("What they asked for", "\(draft.asks.count) things")
+        ]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -199,7 +294,7 @@ struct NoticeReadingView: View {
         .task {
             for i in 1...rows.count { try? await Task.sleep(for: .milliseconds(450)); found = i; Haptics.tick() }
             try? await Task.sleep(for: .milliseconds(300))
-            onDone(NoticeParser.parse(notice))
+            onDone(draft)
         }
     }
 }
@@ -248,11 +343,13 @@ struct NoticeReviewView: View {
                         Text(due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))).font(.otTitle)
                         Text(due.formatted(date: .omitted, time: .shortened)).font(.otHeadline).foregroundStyle(OT.due)
                     }
+                } else {
+                    DatePicker("Due", selection: Binding(get: { draft.due ?? .now.addingTimeInterval(86400) }, set: { draft.due = $0 })).labelsHidden()
                 }
 
                 SectionLabel(text: "They asked for")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
-                    field("person.2", "\(draft.role) · \(draft.scenes) scenes", "Your lines found")
+                    field("person.2", "\(draft.role.isEmpty ? "Role" : draft.role) · \(draft.scenes) scenes", "Your lines found")
                     ForEach(draft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }
                 }
 
@@ -262,6 +359,11 @@ struct NoticeReviewView: View {
                     Stepper("Scenes: \(draft.scenes)", value: $draft.scenes, in: 0...6)
                 }
                 .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                if !draft.sourceText.isEmpty && ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role).isEmpty {
+                    Label("Couldn't make out character lines from this — the checklist still gets created, and you can add sides once you have clean pages.", systemImage: "info.circle")
+                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                }
             }
             .padding(.horizontal, OT.gutter)
             .padding(.bottom, 100)

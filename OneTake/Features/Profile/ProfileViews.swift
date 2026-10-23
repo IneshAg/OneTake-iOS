@@ -193,38 +193,64 @@ struct EditSlateView: View {
 // MARK: - 10b Privacy & data
 
 struct PrivacyView: View {
+    @Environment(AppStore.self) private var store
+    @State private var showConfirmDelete = false
+
+    private var takesSize: Int64 {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path) else { return 0 }
+        let takeFolders = entries.filter { $0.hasPrefix("audition-") || $0.hasPrefix("practice-") || $0 == "Exports" }
+        return takeFolders.reduce(Int64(0)) { $0 + MediaStore.sizeOnDisk($1) }
+    }
+    private var headshotsSize: Int64 { MediaStore.sizeOnDisk("headshots") }
+    private var readerSize: Int64 { (0..<64).reduce(Int64(0)) { total, i in
+        let url = ReaderTrackPlayer.url(forLine: i)
+        guard FileManager.default.fileExists(atPath: url.path) else { return total }
+        return total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+    } }
+    private var totalSize: Int64 { takesSize + headshotsSize + readerSize }
+
+    private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
+
     var body: some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text("ON THIS IPHONE").font(.otEyebrow).foregroundStyle(OT.labelTertiary); Spacer(); Text("626 MB").font(.otHeadline) }
-                    GeometryReader { g in
-                        HStack(spacing: 2) {
-                            Capsule().fill(OT.accent).frame(width: g.size.width * 0.9)
-                            Capsule().fill(OT.reader); Capsule().fill(OT.due)
-                        }
-                    }.frame(height: 6)
+                    HStack { Text("ON THIS IPHONE").font(.otEyebrow).foregroundStyle(OT.labelTertiary); Spacer(); Text(mb(totalSize)).font(.otHeadline) }
                 }
             }
             Section {
-                LabeledContent("Takes", value: "612 MB")
-                LabeledContent("Scripts & sides", value: "9 MB")
-                LabeledContent("Headshots", value: "4.1 MB")
-                LabeledContent("Reader recordings", value: "1.8 MB")
+                LabeledContent("Takes & recordings", value: mb(takesSize))
+                LabeledContent("Headshots", value: mb(headshotsSize))
+                LabeledContent("Reader recordings", value: mb(readerSize))
             }
             Section("Sent tapes") {
                 LabeledContent("Private links", value: "Expire after 30 days")
             }
             Section {
                 Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
-                Button("Delete all local data", role: .destructive) {}
+                Button("Delete all local data", role: .destructive) { showConfirmDelete = true }
             } footer: {
-                Text("Clears headshots, reader tracks and every take. Sent tapes already delivered aren’t affected.")
+                Text("Clears headshots, reader tracks and every take on this iPhone. Sent tapes already delivered aren’t affected.")
             }
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Privacy & data")
+        .confirmationDialog("Delete all local data?", isPresented: $showConfirmDelete, titleVisibility: .visible) {
+            Button("Delete everything", role: .destructive) { deleteAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every take, headshot and reader recording from this iPhone. It can't be undone.")
+        }
+    }
+
+    private func deleteAll() {
+        MediaStore.deleteAll(["headshots", "takes", "Exports"] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
+        for i in (0..<64) { try? FileManager.default.removeItem(at: ReaderTrackPlayer.url(forLine: i)) }
+        store.takes.removeAll()
+        for i in store.auditions.indices { store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil }
+        for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
+        Haptics.success()
     }
 }
 
@@ -302,9 +328,10 @@ struct HeadshotsView: View {
     }
 
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        let key = title == "Front" ? "front" : title == "Left profile" ? "left" : "right"
+        return ZStack(alignment: .bottomLeading) {
             if done {
-                HeadshotImage(name: title == "Front" ? "Headshot" : title == "Left profile" ? "HeadshotLeft" : "HeadshotRight")
+                HeadshotImage(name: title == "Front" ? "Headshot" : title == "Left profile" ? "HeadshotLeft" : "HeadshotRight", realKey: key)
                 LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
                 Label(title, systemImage: "checkmark").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(12)
             } else {
@@ -427,6 +454,7 @@ struct HeadshotFlow: View {
         let fallbackName = angle == .front ? "Headshot" : angle == .left ? "HeadshotLeft" : "HeadshotRight"
         camera.capturePhoto(fallbackName: fallbackName) { image in
             review = image
+            if let image { HeadshotStore.save(image, key: angle.rawValue) }
             taken = max(taken, (Angle.allCases.firstIndex(of: angle) ?? 0) + 1)
             Haptics.success()
             justCaptured = false

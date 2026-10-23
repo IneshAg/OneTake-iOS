@@ -17,11 +17,17 @@ enum Haptics {
 
 // MARK: - Share sheet (UIActivityViewController)
 
-/// "More ways to share" on the package screen — AirDrop, Mail, Messages.
+/// "More ways to share" on the package screen — AirDrop, Mail, Messages, Files, or the casting
+/// site's own app/upload if it's installed. `onComplete` reports whether the person actually
+/// finished a share action (vs. dismissing), which is what "sent" should mean with no real backend.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    var onComplete: ((Bool) -> Void)? = nil
+
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, completed, _, _ in onComplete?(completed) }
+        return vc
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

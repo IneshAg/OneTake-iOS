@@ -1,5 +1,34 @@
 import SwiftUI
 import AVKit
+import AVFoundation
+
+/// A real frame grabbed from the take's own file — not a stand-in photo — generated once and cached
+/// in memory for the life of the view.
+struct VideoThumbnail: View {
+    let url: URL
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let image { Image(uiImage: image).resizable().scaledToFill() } else { OT.cameraBg }
+        }
+        .task(id: url) {
+            guard image == nil else { return }
+            image = await Self.generate(url)
+        }
+    }
+
+    private static func generate(_ url: URL) async -> UIImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        return try? await withCheckedThrowingContinuation { cont in
+            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: CMTime(seconds: 0.1, preferredTimescale: 30))]) { _, cgImage, _, _, error in
+                if let cgImage { cont.resume(returning: UIImage(cgImage: cgImage)) }
+                else { cont.resume(throwing: error ?? NSError(domain: "VideoThumbnail", code: -1)) }
+            }
+        }
+    }
+}
 
 // MARK: - 18 Your takes
 
@@ -11,7 +40,7 @@ struct TakesView: View {
     @State private var notesOpen = false
 
     var body: some View {
-        let takes = store.takes
+        let takes = store.takes.filter { $0.auditionID == auditionID }
         let current = takes.first { $0.id == (selected ?? takes.first(where: \.isCircled)?.id) } ?? takes.last
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -23,7 +52,7 @@ struct TakesView: View {
                         ForEach(takes) { take in
                             TakeThumbnail(take: take, isSelected: take.id == current?.id)
                                 .onTapGesture { selected = take.id; Haptics.tick() }
-                                .onLongPressGesture { store.circle(take); Haptics.success() }
+                                .onLongPressGesture { store.circleOnly(take); Haptics.success() }
                         }
                     }
                 }
@@ -32,7 +61,7 @@ struct TakesView: View {
                     Text("Take \(takes.first(where: \.isCircled)?.number ?? 0) is circled — that's your send.").font(.otFootnote).foregroundStyle(OT.labelSecondary)
                     Spacer()
                     if let c = current, !c.isCircled {
-                        Button("Circle take \(c.number)") { store.circle(c); Haptics.success() }.font(.otFootnote.weight(.semibold))
+                        Button("Circle take \(c.number)") { store.circleOnly(c); Haptics.success() }.font(.otFootnote.weight(.semibold))
                     }
                 }
 
@@ -117,7 +146,9 @@ struct TakeThumbnail: View {
     var isSelected: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HeadshotImage()
+            Group {
+                if let url = take.fileURL { VideoThumbnail(url: url) } else { HeadshotImage() }
+            }
                 .frame(width: 104, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? OT.accent : .clear, lineWidth: 2.5).padding(-3))

@@ -25,10 +25,10 @@ struct PracticeView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel(text: "Pick up where you left off")
                         Text(piece.title).font(.otTitle)
-                        Text("\(piece.detail) · 3 takes so far").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        Text("\(piece.detail) · \(piece.takesRecorded == 0 ? "no takes yet" : "\(piece.takesRecorded) take\(piece.takesRecorded == 1 ? "" : "s") so far")").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         ReadinessDashes(done: piece.linesLearned, total: piece.linesTotal)
                         HStack {
-                            Button { if let a = store.auditions.first { store.push(.runLines(a.id, sceneIndex: 0)) } } label: { Label("Run lines", systemImage: "play.fill") }.buttonStyle(.otPrimary)
+                            Button { if let id = piece.auditionID, let scene = piece.sceneIndex { store.push(.runLines(id, sceneIndex: scene)) } } label: { Label("Run lines", systemImage: "play.fill") }.buttonStyle(.otPrimary)
                             Button("Record a take") { store.camera = .practiceTake }.buttonStyle(.otSecondary)
                         }
                     }
@@ -56,14 +56,25 @@ struct PracticeView: View {
     }
 
     /// Quick Drills need a scene to operate on: prefer the piece currently being picked up, else
-    /// the first upcoming audition's first scene — the same fallback already used by "Run lines" above.
+    /// the first upcoming audition's first scene — creating a real `PracticePiece` for it if one
+    /// doesn't exist yet, so progress has somewhere real to be tracked.
     private func start(_ mode: LineLearningMode) {
-        guard let a = store.auditions.first else { return }
-        let sceneIndex = 0
+        let auditionID: Audition.ID
+        let sceneIndex: Int
+        if let piece = store.practice.first, let id = piece.auditionID, let scene = piece.sceneIndex {
+            auditionID = id
+            sceneIndex = scene
+        } else if let a = store.auditions.first(where: { !$0.scenes.isEmpty }) {
+            auditionID = a.id
+            sceneIndex = 0
+            store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
+        } else {
+            return
+        }
         switch mode {
-        case .firstLetter, .maskAndReveal: store.push(.lineDrill(a.id, sceneIndex: sceneIndex, mode: mode))
-        case .audioGap:                    store.push(.runLines(a.id, sceneIndex: sceneIndex))
-        case .handsFreeWalk:               store.push(.audioWalk(a.id, sceneIndex: sceneIndex))
+        case .firstLetter, .maskAndReveal: store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: mode))
+        case .audioGap:                    store.push(.runLines(auditionID, sceneIndex: sceneIndex))
+        case .handsFreeWalk:               store.push(.audioWalk(auditionID, sceneIndex: sceneIndex))
         }
     }
 }
@@ -72,41 +83,48 @@ struct PracticeView: View {
 
 struct PracticeSetupView: View {
     @Environment(AppStore.self) private var store
-    @State private var playing = "Sam"
-    @State private var reader = "Your recording"
+    @Environment(\.dismiss) private var dismiss
 
+    /// "Bring it in" here deliberately reuses Add Audition's real scan/paste/file import rather than
+    /// duplicating that OCR pipeline for a second entry point — picking an audition below covers the
+    /// common case (practicing a scene you've already added) for now.
     var body: some View {
         Form {
-            Section("Bring it in") {
-                Label("Paste", systemImage: "doc.on.clipboard")
-                Button { store.camera = .scanSides } label: { Label("Scan pages", systemImage: "doc.viewfinder") }
-                Label("PDF or file", systemImage: "folder")
-                Label("Type it in", systemImage: "keyboard")
-            }
-            Section("Who are you playing?") {
-                Picker("You play", selection: $playing) { Text("Sam").tag("Sam"); Text("Nina").tag("Nina") }.pickerStyle(.segmented)
-            }
-            Section("Who reads Nina?") {
-                Picker("Reader", selection: $reader) {
-                    Text("Your recording").tag("Your recording"); Text("Nobody — I’ll hear the cues in my head").tag("Nobody")
+            Section("Choose a scene") {
+                let withScenes = store.auditions.filter { !$0.scenes.isEmpty }
+                if withScenes.isEmpty {
+                    Text("Add an audition with sides first — Practice pulls real scenes from your auditions.")
+                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                } else {
+                    ForEach(withScenes) { a in
+                        ForEach(Array(a.scenes.enumerated()), id: \.element.id) { i, scene in
+                            Button { start(auditionID: a.id, sceneIndex: i) } label: {
+                                IconRow(symbol: "theatermasks", title: scene.title, detail: "\(a.project) · \(a.role)")
+                            }.buttonStyle(.plain)
+                        }
+                    }
                 }
-                .pickerStyle(.inline).labelsHidden()
             }
             Section { Label("Practice pieces and takes stay on this iPhone", systemImage: "lock.fill").font(.otFootnote) }
         }
         .navigationTitle("Practise a scene")
-        .safeAreaInset(edge: .bottom) {
-            Button("Start practising") { if let a = store.auditions.first { store.push(.runLines(a.id, sceneIndex: 0)) } }
-                .buttonStyle(.otPrimary).padding(OT.gutter)
-        }
+    }
+
+    private func start(auditionID: Audition.ID, sceneIndex: Int) {
+        store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
+        dismiss()
+        store.push(.runLines(auditionID, sceneIndex: sceneIndex))
     }
 }
 
 // MARK: - 24e Practice take (no slate, never sent)
 
 struct PracticeTakeView: View {
+    @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
+
+    private var piece: PracticePiece? { store.practice.first }
 
     var body: some View {
         ZStack {
@@ -115,7 +133,7 @@ struct PracticeTakeView: View {
                 HStack {
                     Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(.white).frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle()) }
                     Spacer()
-                    Text("Practice · TK 4").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 12).frame(height: 32).background(OT.cameraGlass, in: Capsule())
+                    Text("Practice · TK \((piece?.takesRecorded ?? 0) + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 12).frame(height: 32).background(OT.cameraGlass, in: Capsule())
                     Spacer()
                     Color.clear.frame(width: 44)
                 }
@@ -132,6 +150,13 @@ struct PracticeTakeView: View {
         .preferredColorScheme(.dark)
         .keepScreenAwake()
         .task { if await CameraController.requestAccess() { camera.configure() } }
+        .onChange(of: camera.state) { _, newState in
+            guard newState == .ready, let url = camera.lastRecording, let piece else { return }
+            let number = piece.takesRecorded + 1
+            if MediaStore.persist(url, as: "take-\(number).mov", in: "practice-\(piece.id.uuidString)") != nil {
+                store.incrementPracticeTakes(for: piece.id)
+            }
+        }
         .onDisappear { camera.stop() }
     }
 }

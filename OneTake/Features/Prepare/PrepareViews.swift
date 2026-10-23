@@ -18,12 +18,13 @@ struct PrepareView: View {
             let scene = a.scenes[sceneIndex]
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Apartment Confrontation").font(.otLargeTitle)
+                    Text(scene.title).font(.otLargeTitle)
                     HStack {
                         Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         Spacer()
                         Button { store.push(.reader(a.id)) } label: {
-                            Label("Maya · your recording", systemImage: "circle.fill").labelStyle(DotLabelStyle(color: OT.reader))
+                            let readerName = scene.lines.first(where: { !$0.isMine })?.character.capitalized ?? "Reader"
+                            Label("\(readerName) · your recording", systemImage: "circle.fill").labelStyle(DotLabelStyle(color: OT.reader))
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
                         }
                     }
@@ -45,7 +46,10 @@ struct PrepareView: View {
         }
     }
 
-    private func learned(_ s: ScriptScene) -> Int { 1 }
+    /// Real progress from the matching Practice piece, if one exists for this scene — not a constant.
+    private func learned(_ s: ScriptScene) -> Int {
+        store.practice.first(where: { $0.scene?.id == s.id })?.linesLearned ?? 0
+    }
 
     @ViewBuilder private func lineView(_ line: ScriptLine) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -255,34 +259,49 @@ struct ReaderView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var playing: Int?
-    @State private var inUse = 1
-    @State private var volume = "Quieter"
+    @State private var player = ReaderTrackPlayer()
+    @State private var playingLine: Int?
+    @AppStorage("readerVolume") private var volume = "Quieter"
+
+    private var readerLines: [ScriptLine] {
+        store.audition(auditionID)?.scenes.first?.lines.filter { !$0.isMine } ?? []
+    }
+    private var readerName: String { readerLines.first?.character.capitalized ?? "your reader" }
 
     var body: some View {
         List {
             Section {
-                Text("Record Maya’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
+                Text("Record \(readerName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary)
             }
             .listRowBackground(Color.clear)
             Section("Your reader tracks") {
-                ForEach(1...2, id: \.self) { n in
-                    HStack(spacing: 12) {
-                        Button { playing = playing == n ? nil : n } label: {
-                            Image(systemName: playing == n ? "pause.fill" : "play.fill").frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
-                        }.buttonStyle(.plain)
-                        VStack(alignment: .leading) {
-                            Text("Reader Track 0\(n)").font(.otBody)
-                            Text(n == 1 ? "0:48 · recorded yesterday" : "0:51 · recorded today").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                if readerLines.isEmpty {
+                    Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                } else {
+                    ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
+                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(forLine: index).path)
+                        HStack(spacing: 12) {
+                            Button {
+                                if recorded {
+                                    if playingLine == index { player.stop(); playingLine = nil }
+                                    else { player.play(lineIndex: index); playingLine = index }
+                                }
+                            } label: {
+                                Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
+                                    .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
+                                    .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
+                            }.buttonStyle(.plain).disabled(!recorded)
+                            VStack(alignment: .leading) {
+                                Text("Line \(index + 1)").font(.otBody)
+                                Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                            }
+                            Spacer()
                         }
-                        Spacer()
-                        if inUse == n { Image(systemName: "checkmark").foregroundStyle(OT.accent) }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { inUse = n; Haptics.tick() }
                 }
-                Picker("Her volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
+                Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
             }
             Section {
                 Button { store.push(.recordReader(auditionID)) } label: { IconRow(symbol: "mic", title: "Record a new track", detail: "Your voice · we leave pauses for your lines") }
@@ -291,10 +310,11 @@ struct ReaderView: View {
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
-        .navigationTitle("Who reads Maya?")
+        .navigationTitle("Who reads \(readerName)?")
         .safeAreaInset(edge: .bottom) {
             Button("Continue") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
         }
+        .onDisappear { player.stop() }
     }
 }
 
@@ -310,12 +330,13 @@ struct RecordReaderView: View {
 
     var body: some View {
         if let a = store.audition(auditionID), let firstScene = a.scenes.first {
-            let maya = firstScene.lines.filter { !$0.isMine }
+            let readerLines = firstScene.lines.filter { !$0.isMine }
+            let readerName = readerLines.first?.character.capitalized ?? "Reader"
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 4) { ForEach(maya.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
-                if lineIndex < maya.count {
-                    SectionLabel(text: "Maya · line \(lineIndex + 1)")
-                    Text(maya[lineIndex].text).font(.system(size: 26, weight: .bold))
+                HStack(spacing: 4) { ForEach(readerLines.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
+                if lineIndex < readerLines.count {
+                    SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
+                    Text(readerLines[lineIndex].text).font(.system(size: 26, weight: .bold))
                         .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 20)
                     Text("A little softer than you'd act it. We add the pauses.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     Spacer()
@@ -327,7 +348,7 @@ struct RecordReaderView: View {
                     }
                     .frame(maxWidth: .infinity)
                 } else {
-                    Text("All \(maya.count) lines done").font(.otLargeTitle)
+                    Text("All \(readerLines.count) lines done").font(.otLargeTitle)
                     Text("Pauses come from how long your lines took in Run lines.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     Spacer()
                     Button("Save track") { dismiss() }.buttonStyle(.otPrimary)
@@ -335,7 +356,7 @@ struct RecordReaderView: View {
             }
             .padding(OT.gutter)
             .otCanvas()
-            .navigationTitle("Record Maya").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Record \(readerName)").navigationBarTitleDisplayMode(.inline)
         }
     }
 }

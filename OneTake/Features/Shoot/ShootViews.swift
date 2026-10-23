@@ -193,9 +193,9 @@ struct ShootFlow: View {
                     .onTapGesture { lineIndex = min(lineIndex + 1, lines.count - 1) }
             }
         case .saved:
-            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · Maya under your voice · walk-in trimmed",
+            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · reader track under your voice",
                        primary: ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }),
-                       secondary: ("Go again", { takeNumber += 1; lineIndex = 0; stage = .scene }),
+                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
                        tertiary: ("Done for now", { finish(goTo: nil) }))
         }
     }
@@ -238,12 +238,34 @@ struct ShootFlow: View {
         }
     }
 
+    /// Note: recording currently always targets scene 0 — there's no scene picker ahead of "Before
+    /// you roll" yet, so a second scene can't be shot independently through this flow. Flagged as a
+    /// known gap rather than silently dropping extra scenes' takes into the same bucket.
+    private let sceneIndex = 0
+
     private func cut() {
         camera.stopRecording()
         switch stage {
-        case .slate: stage = .slateDone
-        case .fullLength: store.markDone(.fullLength, in: auditionID); stage = .scene
-        case .scene: stage = .saved
+        case .slate:
+            if let url = MediaStore.persist(camera.lastRecording, as: "slate.mov", in: "audition-\(auditionID.uuidString)") {
+                store.setSlateVideo(url, for: auditionID)
+            }
+            stage = .slateDone
+        case .fullLength:
+            if let url = MediaStore.persist(camera.lastRecording, as: "fulllength.mov", in: "audition-\(auditionID.uuidString)") {
+                store.setFullLengthVideo(url, for: auditionID)
+            }
+            store.markDone(.fullLength, in: auditionID)
+            stage = .scene
+        case .scene:
+            let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
+            if let url = MediaStore.persist(camera.lastRecording, as: "take-\(number).mov", in: "audition-\(auditionID.uuidString)/scene-\(sceneIndex)") {
+                let take = Take(number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
+                                 fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
+                store.addTake(take)
+                takeNumber = number
+            }
+            stage = .saved
         default: break
         }
     }

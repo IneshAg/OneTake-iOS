@@ -75,6 +75,13 @@ struct Audition: Identifiable, Hashable, Codable {
     var sentDate: Date?
     var headshotAsset: String = "Headshot"
 
+    /// Real recordings, once this audition has actually been shot — nil until then. Persisted as
+    /// file URLs; the files themselves live under `MediaStore`.
+    var slateVideoURL: URL?
+    var fullLengthVideoURL: URL?
+    /// The packaged deliverable, once `MediaExporter` has actually composed one.
+    var exportedFileURL: URL?
+
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }
     var nextPiece: Piece? { pieces.first { !$0.isDone } }
@@ -92,11 +99,22 @@ struct Audition: Identifiable, Hashable, Codable {
     }
 
     var hoursLeft: Int { max(0, Int(due.timeIntervalSinceNow / 3600)) }
+
+    /// The filename casting sites expect: LASTNAME_FIRSTNAME_ROLE_PROJECT.mp4, computed from the
+    /// real slate and role instead of a hardcoded example.
+    func deliverableFileName(slate: SlateInfo) -> String {
+        func token(_ s: String) -> String { s.uppercased().filter { $0.isLetter || $0.isNumber } }
+        let parts = slate.name.split(separator: " ")
+        let last = parts.last.map(String.init) ?? "ACTOR"
+        let first = parts.count > 1 ? String(parts.first!) : ""
+        let pieces = [token(last), token(first), token(role), token(project)].filter { !$0.isEmpty }
+        return pieces.joined(separator: "_") + ".mp4"
+    }
 }
 
 // MARK: - Takes
 
-struct Take: Identifiable, Hashable {
+struct Take: Identifiable, Hashable, Codable {
     var id = UUID()
     var number: Int
     var duration: TimeInterval
@@ -104,6 +122,10 @@ struct Take: Identifiable, Hashable {
     var isCircled: Bool
     var notes: [String]
     var fileURL: URL?
+    /// Which audition/scene this take belongs to. Real takes created by `ShootFlow` always set
+    /// both; optional only so `Take` can still be constructed in previews/tests without one.
+    var auditionID: Audition.ID?
+    var sceneIndex: Int?
 }
 
 // MARK: - Tape check
@@ -116,17 +138,9 @@ struct TapeFinding: Identifiable, Hashable {
     var advice: String
 }
 
-// MARK: - Schedule / practice
+// MARK: - Practice
 
-struct ScheduleItem: Identifiable, Hashable {
-    var id = UUID()
-    var when: String
-    var time: String
-    var title: String
-    var detail: String
-}
-
-struct PracticePiece: Identifiable, Hashable {
+struct PracticePiece: Identifiable, Hashable, Codable {
     var id = UUID()
     var title: String
     var detail: String
@@ -135,6 +149,11 @@ struct PracticePiece: Identifiable, Hashable {
     /// Who this piece is played against, when it's tied to a real scene (lets a Quick Drill operate on it).
     var character: String = ""
     var scene: ScriptScene? = nil
+    /// Real count of practice takes recorded for this piece — never sent, but genuinely saved to disk.
+    var takesRecorded: Int = 0
+    /// Which audition this piece's scene came from, so Quick Drills can find real scene content.
+    var auditionID: Audition.ID? = nil
+    var sceneIndex: Int? = nil
 }
 
 // MARK: - Line learning drills (Practice tab's "Quick Drills")

@@ -104,7 +104,7 @@ struct AuditionCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            HeadshotImage(name: audition.headshotAsset)
+            HeadshotImage(name: audition.headshotAsset, realKey: "front")
                 .frame(width: 88, height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 

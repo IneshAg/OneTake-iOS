@@ -263,8 +263,14 @@ struct IconRow: View {
 
 struct HeadshotImage: View {
     var name: String = "Headshot"
+    /// When set, checks for a real captured photo on disk first (`HeadshotStore`) before falling
+    /// back to a bundled placeholder asset — real data takes priority over decorative sample art.
+    var realKey: String? = nil
+
     var body: some View {
-        if UIImage(named: name) != nil {
+        if let realKey, let real = HeadshotStore.load(key: realKey) {
+            Image(uiImage: real).resizable().scaledToFill()
+        } else if UIImage(named: name) != nil {
             Image(name).resizable().scaledToFill()
         } else {
             // Placeholder until an asset is added; keeps layouts correct in previews.

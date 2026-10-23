@@ -44,18 +44,18 @@ enum AppTab: Hashable { case auditions, practice, profile, search }
 
 @Observable
 final class AppStore {
-    // Session
-    var isOnboarded = false
+    // Session — didSet persists to disk (debounced) so none of this is lost on relaunch.
+    var isOnboarded = false { didSet { persist() } }
     /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
     /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock
     /// recording or export.
-    var isSignedIn = false
-    var slate = SlateInfo()
+    var isSignedIn = false { didSet { persist() } }
+    var slate = SlateInfo() { didSet { persist() } }
 
     // Data
-    var auditions: [Audition] = SampleData.auditions
-    var takes: [Take] = SampleData.takes
-    var practice: [PracticePiece] = SampleData.practice
+    var auditions: [Audition] = [] { didSet { persist() } }
+    var takes: [Take] = [] { didSet { persist() } }
+    var practice: [PracticePiece] = [] { didSet { persist() } }
 
     // Navigation
     var tab: AppTab = .auditions {
@@ -76,6 +76,38 @@ final class AppStore {
 
     // Send state
     var sendProgress: Double = 0
+
+    // MARK: Persistence
+
+    private var saveTask: Task<Void, Never>?
+    /// True while `init` is still applying a loaded snapshot, so that pass doesn't immediately
+    /// re-trigger its own save.
+    private var isLoading = false
+
+    init() {
+        isLoading = true
+        if let saved = Persistence.load() {
+            auditions = saved.auditions
+            takes = saved.takes
+            practice = saved.practice
+            slate = saved.slate
+            isOnboarded = saved.isOnboarded
+            isSignedIn = saved.isSignedIn
+        }
+        isLoading = false
+    }
+
+    /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke.
+    private func persist() {
+        guard !isLoading else { return }
+        saveTask?.cancel()
+        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, isSignedIn: isSignedIn)
+        saveTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            Persistence.save(snapshot)
+        }
+    }
 
     // MARK: Lookup
 
@@ -114,8 +146,72 @@ final class AppStore {
         auditions[i].sentDate = .now
     }
 
-    func circle(_ take: Take) {
-        for i in takes.indices { takes[i].isCircled = takes[i].id == take.id }
+    /// Circles `take` and un-circles every other take in the *same* audition+scene — scoped, so
+    /// circling a take in one audition no longer silently un-circles another audition's send pick.
+    func circleOnly(_ take: Take) {
+        for i in takes.indices where takes[i].auditionID == take.auditionID && takes[i].sceneIndex == take.sceneIndex {
+            takes[i].isCircled = takes[i].id == take.id
+        }
+    }
+
+    func setSlateVideo(_ url: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].slateVideoURL = url
+    }
+
+    func setFullLengthVideo(_ url: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].fullLengthVideoURL = url
+    }
+
+    func setExportedFile(_ url: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].exportedFileURL = url
+    }
+
+    /// Next take number for a scene — real takes only, so numbering reflects what's actually on disk.
+    func nextTakeNumber(auditionID: Audition.ID, sceneIndex: Int) -> Int {
+        takes.filter { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }.count + 1
+    }
+
+    /// Appends a real take, circling it automatically if it's the first for that scene (so there's
+    /// always a sensible send pick without the actor having to remember to circle one).
+    func addTake(_ take: Take) {
+        var take = take
+        if let id = take.auditionID, let scene = take.sceneIndex,
+           !takes.contains(where: { $0.auditionID == id && $0.sceneIndex == scene }) {
+            take.isCircled = true
+        }
+        takes.append(take)
+    }
+
+    func incrementPracticeTakes(for id: PracticePiece.ID) {
+        guard let i = practice.firstIndex(where: { $0.id == id }) else { return }
+        practice[i].takesRecorded += 1
+    }
+
+    /// Finds or creates the `PracticePiece` for a given audition scene, so Quick Drills and the
+    /// "pick up where you left off" card have something real to point at.
+    @discardableResult
+    func practicePiece(for auditionID: Audition.ID, sceneIndex: Int) -> PracticePiece {
+        if let existing = practice.first(where: { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }) {
+            return existing
+        }
+        guard let audition = audition(auditionID), audition.scenes.indices.contains(sceneIndex) else {
+            let blank = PracticePiece(title: "Practice", detail: "", linesLearned: 0, linesTotal: 0)
+            practice.append(blank)
+            return blank
+        }
+        let scene = audition.scenes[sceneIndex]
+        let mine = scene.lines.filter(\.isMine)
+        let piece = PracticePiece(
+            title: scene.title, detail: "\(audition.project) · \(audition.role)",
+            linesLearned: 0, linesTotal: mine.count,
+            character: audition.role, scene: scene,
+            auditionID: auditionID, sceneIndex: sceneIndex
+        )
+        practice.insert(piece, at: 0)
+        return piece
     }
 
     /// Push a route on the currently selected tab's stack.
