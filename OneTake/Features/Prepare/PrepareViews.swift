@@ -198,6 +198,10 @@ struct RunLinesView: View {
             .onChange(of: follower.spokenWordCount) { _, count in
                 if lines[index].isMine, count >= lines[index].text.split(separator: " ").count { advance(lines) }
             }
+            // "Line?" out loud — same as tapping the button, so you never have to touch the phone.
+            .onChange(of: follower.lastCommand) { _, cmd in
+                if cmd?.word == "line", lines[index].isMine, !prompted { prompted = true; Haptics.tick() }
+            }
             .task { if await SpeechFollower.requestAccess() { follower.start() } }
             .onDisappear { follower.stop(); stopReader() }
         }
