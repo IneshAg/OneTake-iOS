@@ -12,7 +12,8 @@ enum Route: Hashable {
     case takes(Audition.ID)
     case tapeCheck(Audition.ID)
     case package(Audition.ID)
-    case headshots
+    /// Headshots, optionally opened from an audition's checklist so it can offer "Next" afterwards.
+    case headshots(for: Audition.ID?)
     case editSlate
     case privacy
     case notifications
@@ -73,6 +74,9 @@ final class AppStore {
     var searchQuery: String = ""
     var camera: CameraFlow?
     var showAddAudition = false
+    /// Set when an audition is saved; once the Add sheet has gone, the app continues straight into
+    /// that audition's first step instead of stopping on its overview.
+    var continueAfterAdd: Audition.ID?
 
     // Send state
     var sendProgress: Double = 0
@@ -148,6 +152,31 @@ final class AppStore {
 
     func add(_ audition: Audition) {
         auditions.insert(audition, at: 0)
+        syncHeadshotPieces()
+    }
+
+    /// Headshots belong to the actor, not one audition: once a real front headshot exists, every
+    /// unsent audition's headshot piece is done.
+    func syncHeadshotPieces() {
+        guard HeadshotStore.exists(key: "front") else { return }
+        for i in auditions.indices where auditions[i].status != .sent {
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
+                auditions[i].pieces[j].isDone = true
+            }
+            if auditions[i].nextPiece == nil, auditions[i].status == .due { auditions[i].status = .ready }
+        }
+    }
+
+    /// The one "Next" action used everywhere an audition offers to continue: opens whatever its next
+    /// unfinished piece needs, or the package once everything is in.
+    func continueAudition(_ id: Audition.ID) {
+        syncHeadshotPieces()
+        guard let a = audition(id) else { return }
+        guard let next = a.nextPiece else { push(.package(id)); return }
+        switch next.kind {
+        case .headshot:                   push(.headshots(for: id))
+        case .slate, .fullLength, .scene: camera = .shoot(id)
+        }
     }
 
     func markDone(_ kind: PieceKind, in id: Audition.ID, title: String? = nil) {

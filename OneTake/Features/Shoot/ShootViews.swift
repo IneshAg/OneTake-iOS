@@ -188,10 +188,16 @@ struct ShootFlow: View {
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
         case .slateDone:
             resultCard(title: "Slate’s done.", detail: "0:05 · saved · opens every scene in \(a.project)",
-                       primary: ("Next: full length", { stage = .fullLength; store.markDone(.slate, in: a.id) }),
-                       secondary: ("Redo", { stage = .slate }))
+                       primary: ("Next: full length", { stage = .fullLength }),
+                       secondary: ("Redo", { stage = .slate }),
+                       tertiary: ("Skip full length — it’s optional", { stage = .scene }))
         case .fullLength:
-            promptCard(eyebrow: "After the slate", text: "Head to feet, hold still")
+            promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
+            if camera.state != .recording {
+                Button("Skip full length") { stage = .scene }
+                    .font(.otHeadline).foregroundStyle(.white)
+                    .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
+            }
         case .scene:
             let lines = a.scenes.first?.lines ?? []
             if lines.indices.contains(lineIndex) {
@@ -220,7 +226,7 @@ struct ShootFlow: View {
             Spacer()
             switch stage {
             case .check:
-                Button("Go to your mark") { stage = .slate; camera.lockExposure() }.buttonStyle(.otPrimary).frame(width: 200)
+                Button("Go to your mark") { stage = firstStage; camera.lockExposure() }.buttonStyle(.otPrimary).frame(width: 200)
             case .slateDone, .saved:
                 Color.clear.frame(height: 78)
             default:
@@ -233,6 +239,13 @@ struct ShootFlow: View {
                 .accessibilityLabel("Switch camera")
         }
         .padding(.bottom, 8)
+    }
+
+    /// Picks up where this audition left off: once the slate is in, "Next" goes straight to the scene
+    /// rather than making the actor re-shoot the slate.
+    private var firstStage: Stage {
+        let slateDone = store.audition(auditionID)?.pieces.first(where: { $0.kind == .slate })?.isDone ?? false
+        return slateDone ? .scene : .slate
     }
 
     // MARK: Actions
@@ -266,6 +279,8 @@ struct ShootFlow: View {
         case .slate:
             guard let url = MediaStore.persist(recording, as: "slate.mov", in: folder) else { saveError = failed; return }
             store.setSlateVideo(url, for: auditionID)
+            // Done as soon as it's on disk, so closing the camera here doesn't lose the progress.
+            store.markDone(.slate, in: auditionID)
             stage = .slateDone
         case .fullLength:
             guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else { saveError = failed; return }

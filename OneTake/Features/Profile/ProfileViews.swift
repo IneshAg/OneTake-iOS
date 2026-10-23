@@ -38,7 +38,7 @@ struct ProfileView: View {
 
                     Divider()
 
-                    Button { store.push(.headshots) } label: {
+                    Button { store.push(.headshots(for: nil)) } label: {
                         HStack {
                             Label("Headshots", systemImage: "person.crop.square")
                                 .font(.otBody).foregroundStyle(OT.labelPrimary)
@@ -296,8 +296,13 @@ struct NotificationSettingsView: View {
 // MARK: - 08 Headshots
 
 struct HeadshotsView: View {
+    /// Set when opened from an audition's checklist, so the screen can continue to its next step.
+    var auditionID: Audition.ID? = nil
     @Environment(AppStore.self) private var store
-    @AppStorage("headshots.count") private var taken = 1
+
+    /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
+    /// headshot showed as taken before it ever was.
+    private var taken: Int { ["front", "left", "right"].prefix { HeadshotStore.exists(key: $0) }.count }
 
     var body: some View {
         ScrollView {
@@ -324,11 +329,21 @@ struct HeadshotsView: View {
         .otCanvas()
         .navigationTitle("Headshots")
         .safeAreaInset(edge: .bottom) {
-            Button(taken == 0 ? "Take your headshot" : taken < 3 ? "Add your profiles" : "Retake") {
-                store.camera = .headshot
+            VStack(spacing: 4) {
+                if let auditionID, taken > 0, let a = store.audition(auditionID) {
+                    Button("Next: \(a.nextAction)") { store.continueAudition(auditionID) }.buttonStyle(.otPrimary)
+                    Button(taken < 3 ? "Add your profiles" : "Retake") { store.camera = .headshot }
+                        .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
+                } else {
+                    Button(taken == 0 ? "Take your headshot" : taken < 3 ? "Add your profiles" : "Retake") {
+                        store.camera = .headshot
+                    }
+                    .buttonStyle(.otPrimary)
+                }
             }
-            .buttonStyle(.otPrimary).padding(OT.gutter)
+            .padding(OT.gutter)
         }
+        .onAppear { store.syncHeadshotPieces() }
     }
 
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {
@@ -365,6 +380,7 @@ struct HeadshotFlow: View {
     enum Angle: String, CaseIterable { case front = "Front", left = "Left", right = "Right" }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
     @AppStorage("headshots.count") private var taken = 1
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
@@ -430,7 +446,7 @@ struct HeadshotFlow: View {
         .onChange(of: follower.lastCommand) { _, cmd in
             if cmd?.word == "now" || cmd?.word == "action" { capture() }
         }
-        .onDisappear { camera.stop(); follower.stop() }
+        .onDisappear { camera.stop(); follower.stop(); store.syncHeadshotPieces() }
     }
 
     private var referenceThumbnail: some View {
