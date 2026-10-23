@@ -175,7 +175,8 @@ struct ShootFlow: View {
         case .check: return "Camera check"
         case .slate, .slateDone: return "Slate  \(time)"
         case .fullLength: return "Full length  \(time)"
-        case .scene, .saved: return "SC 1 · TK \(takeNumber)  \(time)"
+        case .scene: return "SC \(sceneIndex + 1) · TK \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex))  \(time)"
+        case .saved: return "SC \(sceneIndex + 1) · TK \(takeNumber)  \(time)"
         }
     }
 
@@ -273,10 +274,12 @@ struct ShootFlow: View {
             stage = .scene
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
-            guard let url = MediaStore.persist(recording, as: "take-\(number).mov", in: "\(folder)/scene-\(sceneIndex)") else {
+            let takeID = UUID()
+            // The take's own ID in the file name means a new take can never replace another's file.
+            guard let url = MediaStore.persist(recording, as: "take-\(number)-\(takeID.uuidString).mov", in: "\(folder)/scene-\(sceneIndex)") else {
                 saveError = failed; return
             }
-            let take = Take(number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
+            let take = Take(id: takeID, number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
                              fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
             store.addTake(take)
             takeNumber = number
