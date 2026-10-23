@@ -179,9 +179,10 @@ final class AppStore {
         auditions[i].exportedFileURL = url
     }
 
-    /// Next take number for a scene — real takes only, so numbering reflects what's actually on disk.
+    /// Next take number for a scene — one past the highest real take, so numbers never repeat even
+    /// after a take is removed (a count-based number would collide with an existing take).
     func nextTakeNumber(auditionID: Audition.ID, sceneIndex: Int) -> Int {
-        takes.filter { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }.count + 1
+        (takes.filter { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }.map(\.number).max() ?? 0) + 1
     }
 
     /// Appends a real take, circling it automatically if it's the first for that scene (so there's

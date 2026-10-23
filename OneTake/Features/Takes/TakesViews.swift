@@ -100,7 +100,7 @@ struct TakesView: View {
                 Text("One more?").font(.otTitle)
                 Text("Takes 1 to \(takes.count) stay right here. Three solid takes is plenty — trust the one you circled.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
-                Button("Record take \(takes.count + 1)") { showOneMore = false; store.camera = .shoot(auditionID) }.buttonStyle(.otPrimary)
+                Button("Record take \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: 0))") { showOneMore = false; store.camera = .shoot(auditionID) }.buttonStyle(.otPrimary)
                 Button("Not now") { showOneMore = false }.buttonStyle(.otSecondary)
             }
             .padding(OT.gutter)

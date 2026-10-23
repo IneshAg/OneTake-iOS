@@ -153,7 +153,7 @@ struct PracticeTakeView: View {
         .onChange(of: camera.state) { _, newState in
             guard newState == .ready, let url = camera.lastRecording, let piece else { return }
             let number = piece.takesRecorded + 1
-            if MediaStore.persist(url, as: "take-\(number).mov", in: "practice-\(piece.id.uuidString)") != nil {
+            if MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(piece.id.uuidString)") != nil {
                 store.incrementPracticeTakes(for: piece.id)
             }
         }
