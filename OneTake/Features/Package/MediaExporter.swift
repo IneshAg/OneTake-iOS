@@ -28,14 +28,22 @@ enum MediaExporter {
         var clipURLs: [URL] = []
         if let s = audition.slateVideoURL { clipURLs.append(s) }
         if let f = audition.fullLengthVideoURL { clipURLs.append(f) }
-        for scene in audition.scenes {
-            let sceneTakes = takes.filter { $0.sceneIndex == scene.number - 1 }
+        // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
+        // display number, and only this audition's takes are eligible whatever the caller passes in.
+        let auditionTakes = takes.filter { $0.auditionID == audition.id }
+        for sceneIndex in audition.scenes.indices {
+            let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
             if let chosen = (sceneTakes.first(where: \.isCircled) ?? sceneTakes.first), let url = chosen.fileURL {
                 clipURLs.append(url)
             }
         }
         guard !clipURLs.isEmpty else { throw ExportError.nothingToExport }
 
+        // Each clip carries its own orientation (portrait capture, front-camera mirroring) in its
+        // track's preferredTransform. Copying frames alone drops that, so the transforms are re-applied
+        // per clip through a video composition.
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+        var renderSize: CGSize?
         var cursor = CMTime.zero
         for url in clipURLs {
             let asset = AVURLAsset(url: url)
@@ -43,12 +51,29 @@ enum MediaExporter {
             let range = CMTimeRange(start: .zero, duration: duration)
             if let vTrack = try? await asset.loadTracks(withMediaType: .video).first {
                 try? videoTrack.insertTimeRange(range, of: vTrack, at: cursor)
+                if let loaded = try? await vTrack.load(.naturalSize, .preferredTransform) {
+                    let (naturalSize, transform) = loaded
+                    layerInstruction.setTransform(transform, at: cursor)
+                    if renderSize == nil {
+                        let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
+                        renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
+                    }
+                }
             }
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {
                 try? audioTrack.insertTimeRange(range, of: aTrack, at: cursor)
             }
             cursor = CMTimeAdd(cursor, duration)
         }
+        guard cursor > .zero else { throw ExportError.nothingToExport }
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
+        instruction.layerInstructions = [layerInstruction]
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.instructions = [instruction]
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.renderSize = renderSize ?? CGSize(width: 1080, height: 1920)
 
         let fileName = audition.deliverableFileName(slate: slate)
         let outputDir = MediaStore.directory("Exports")
@@ -60,6 +85,7 @@ enum MediaExporter {
         }
         export.outputURL = fileURL
         export.outputFileType = .mp4
+        export.videoComposition = videoComposition
 
         let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             progress(Double(export.progress))
