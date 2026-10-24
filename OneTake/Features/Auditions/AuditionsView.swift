@@ -104,10 +104,12 @@ struct AuditionCard: View {
                     Text(audition.project).font(.otHeadline).foregroundStyle(OT.labelPrimary)
                     Spacer()
                     if audition.status == .sent {
-                        Label("Sent", systemImage: "paperplane.fill")
-                            .font(.otCaption.weight(.semibold)).foregroundStyle(OT.success)
+                        // Once the actor logs what came of it, that replaces the plain "Sent".
+                        let tint = audition.outcome == .passed ? OT.labelTertiary : OT.success
+                        Label(audition.outcome?.title ?? "Sent", systemImage: audition.outcome?.symbol ?? "paperplane.fill")
+                            .font(.otCaption.weight(.semibold)).foregroundStyle(tint)
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(OT.success.opacity(0.14), in: Capsule())
+                            .background(tint.opacity(0.14), in: Capsule())
                     }
                 }
                 Text("\(audition.projectType) · \(audition.role)").font(.otFootnote).foregroundStyle(OT.labelSecondary)

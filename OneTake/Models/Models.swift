@@ -43,6 +43,30 @@ enum AuditionStatus: String, Codable, Hashable {
     case due, ready, sent
 }
 
+/// What came of a sent tape, as the actor logs it (nil = no word yet). Kept now so a stats screen
+/// later has real history to count: callback and booking rates, which offices call you back.
+enum AuditionOutcome: String, Codable, CaseIterable, Hashable, Identifiable {
+    case callback, pinned, booked, passed
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .callback: "Callback"
+        case .pinned:   "Pinned"
+        case .booked:   "Booked"
+        case .passed:   "Not this time"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .callback: "arrow.uturn.right"
+        case .pinned:   "pin.fill"
+        case .booked:   "star.fill"
+        case .passed:   "xmark"
+        }
+    }
+}
+
 enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
     case actorsAccess = "Actors Access"
     case castingNetworks = "Casting Networks"
@@ -108,6 +132,9 @@ struct Audition: Identifiable, Hashable, Codable {
     /// state saved before these existed still decodes.
     var round: Int?
     var castingNotes: String?
+    /// What came of it once sent, and when that was logged. Optional so older state decodes.
+    var outcome: AuditionOutcome?
+    var outcomeDate: Date?
 
     /// "22 days" style remaining lifetime of the sent link, or nil if there's no (live) link.
     var shareLinkTimeLeft: String? {

@@ -39,6 +39,8 @@ struct AuditionDetailView: View {
                     }
                 }
 
+                if a.status == .sent { outcome(a) }
+
                 // Package
                 Button { showPackage = true } label: {
                     VStack(alignment: .leading, spacing: 10) {
@@ -97,6 +99,37 @@ struct AuditionDetailView: View {
         .confirmationDialog("Delete “\(a.project)”?", isPresented: $showDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { store.deleteAudition(a.id); store.popToRoot() }
         } message: { Text("Its slate, reader track and any takes are removed from this iPhone. Your headshots stay in Profile.") }
+    }
+
+    // MARK: Outcome (sent auditions)
+
+    /// What came of the tape, logged by the actor. Stays on this iPhone like everything else.
+    private func outcome(_ a: Audition) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionLabel(text: "How did it go?")
+                Spacer()
+                if a.outcome != nil, let date = a.outcomeDate { Text(date.otDayMonth).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AuditionOutcome.allCases) { o in
+                        let on = a.outcome == o
+                        Button { store.setOutcome(on ? nil : o, for: a.id); Haptics.tick() } label: {
+                            Label(o.title, systemImage: o.symbol)
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(on ? OT.labelOnAccent : OT.labelPrimary)
+                                .padding(.horizontal, 12).frame(height: 36)
+                                .background(on ? OT.accent : OT.fillField, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+            Text(a.outcome == nil ? "No word yet. Tap what happened when you hear." : "Tap it again to clear.")
+                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+        }
     }
 
     // MARK: Up next panel

@@ -260,6 +260,8 @@ final class AppStore {
             try? FileManager.default.copyItem(at: from, to: to)
         }
         add(callback)
+        // Being called back is the outcome of the round before, unless something later was logged.
+        if original.outcome == nil { setOutcome(.callback, for: id) }
         return callback.id
     }
 
@@ -275,6 +277,13 @@ final class AppStore {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].status = .sent
         auditions[i].sentDate = .now
+    }
+
+    /// Logs what came of a sent tape (nil clears it back to "no word yet").
+    func setOutcome(_ outcome: AuditionOutcome?, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].outcome = outcome
+        auditions[i].outcomeDate = outcome == nil ? nil : .now
     }
 
     /// Circles `take` and un-circles every other take in the *same* audition+scene — scoped, so
