@@ -152,7 +152,8 @@ struct RunLinesView: View {
     @State private var prompted = false
     @State private var finished = false
     @State private var follower = SpeechFollower()
-    /// Plays the reader lines you recorded yourself (Record Maya). No synthetic or second-device voices.
+    /// Plays the reader lines you recorded yourself (Record Maya); ones you haven't recorded are read
+    /// in the built-in voice unless that's switched off on the Reader screen.
     @State private var readerPlayer = ReaderTrackPlayer()
     /// The pending auto-advance after a reader line. Kept so a manual skip, pause or leaving the
     /// screen cancels it instead of letting it fire later and skip an extra line.
@@ -190,7 +191,7 @@ struct RunLinesView: View {
                             .foregroundStyle(OT.labelPrimary)
                         Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
                     } else {
-                        Label("\(line.character.capitalized) · your recording", systemImage: "waveform")
+                        Label("\(line.character.capitalized) · \(readerSource(lines))", systemImage: "waveform")
                             .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
                         Text(line.text).font(.system(size: 30, weight: .bold))
                     }
@@ -236,9 +237,10 @@ struct RunLinesView: View {
         let unrecordedPause = Double(lines[index].text.count) * 0.06 + 0.8
         readerAdvance?.cancel()
         readerAdvance = Task { @MainActor in
-            // Your recording plays to its end, however long you read it; a line you haven't recorded
-            // gets roughly its reading time in silence.
-            let played = await readerPlayer.playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
+            // Your recording plays to its end, however long you read it; a line you haven't recorded is
+            // read in the built-in voice, or (with that off) gets roughly its reading time in silence.
+            let played = await readerPlayer.readToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex,
+                                                      text: lines[index].text)
             try? await Task.sleep(for: .seconds(played ? 0.25 : unrecordedPause))
             guard !Task.isCancelled else { return }
             advance(lines)
@@ -249,6 +251,13 @@ struct RunLinesView: View {
         readerAdvance?.cancel()
         readerAdvance = nil
         readerPlayer.stop()
+    }
+
+    /// Who's reading the current reader line — always labelled, so the built-in voice is never mistaken for you.
+    private func readerSource(_ lines: [ScriptLine]) -> String {
+        let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
+        if ReaderTrackPlayer.isRecorded(auditionID: auditionID, sceneIndex: sceneIndex, line: readerLineIndex) { return "your recording" }
+        return ReaderTrackPlayer.usesBuiltInVoice ? "built-in voice" : "not recorded"
     }
 
     private func firstWords(_ text: String) -> String { text.split(separator: " ").prefix(3).joined(separator: " ") + "…" }
@@ -327,6 +336,7 @@ struct ReaderView: View {
     @State private var player = ReaderTrackPlayer()
     @State private var playingLine: Int?
     @AppStorage("readerVolume") private var volume = "Quieter"
+    @AppStorage(ReaderTrackPlayer.builtInVoiceKey) private var builtInVoice = true
 
     private var readerLines: [ScriptLine] {
         store.audition(auditionID)?.scenes.first?.lines.filter { !$0.isMine } ?? []
@@ -367,6 +377,11 @@ struct ReaderView: View {
                     }
                 }
                 Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
+            }
+            Section {
+                Toggle("Built-in voice for lines you haven't recorded", isOn: $builtInVoice).tint(OT.accent)
+            } footer: {
+                Text("Rehearsal only — Run Lines and the Audio Walk. It's never on a tape: takes only play lines you've recorded.")
             }
             Section {
                 Button { store.push(.recordReader(auditionID)) } label: { IconRow(symbol: "mic", title: "Record a new track", detail: "Your voice · we leave pauses for your lines") }

@@ -310,14 +310,28 @@ final class SpeechFollower {
     }
 }
 
-// MARK: - Reader track playback (your own recorded voice only)
+// MARK: - Reader track playback (your own recorded voice; a built-in voice fills gaps in rehearsal)
 
 /// Plays the reader lines the actor recorded in "Record Maya". One file per line, saved by RecordReaderView.
+/// For rehearsal only, a line that hasn't been recorded can be read in a built-in voice instead
+/// (`readToEnd`); takes only ever play your recordings (`playToEnd`).
 @Observable
-final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
+final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
     private var player: AVAudioPlayer?
-    /// Whoever is waiting in `playToEnd` for the current line to finish.
+    /// Whoever is waiting in `playToEnd` / `readToEnd` for the current line to finish.
     @ObservationIgnored private var finished: CheckedContinuation<Void, Never>?
+    private let synthesizer = AVSpeechSynthesizer()
+    @ObservationIgnored private var utterance: AVSpeechUtterance?
+
+    /// UserDefaults key: read unrecorded reader lines in a built-in voice while rehearsing (on unless
+    /// switched off on the Reader screen).
+    static let builtInVoiceKey = "reader.builtInVoice"
+    static var usesBuiltInVoice: Bool { UserDefaults.standard.object(forKey: builtInVoiceKey) as? Bool ?? true }
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
     static let folder = "reader"
@@ -329,11 +343,14 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
             .appendingPathComponent("line-\(index).m4a")
     }
 
+    static func isRecorded(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> Bool {
+        FileManager.default.fileExists(atPath: url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
+    }
+
     /// Plays one recorded reader line. Returns false when that line hasn't been recorded.
     @discardableResult
     func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
-        player?.stop()
-        resumeFinished()
+        stop()
         let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
         guard FileManager.default.fileExists(atPath: url.path) else { return false }  // not recorded yet → silent cue
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
@@ -353,9 +370,50 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
         return true
     }
 
+    /// Rehearsal: your recording when there is one, otherwise `text` in the built-in voice (if that's
+    /// on). Returns once it's done; false when there was nothing to hear.
+    @MainActor
+    func readToEnd(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, text: String) async -> Bool {
+        if await playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) { return true }
+        guard Self.usesBuiltInVoice else { return false }
+        stop()
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = Self.voice
+        self.utterance = utterance
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+        synthesizer.speak(utterance)
+        await withCheckedContinuation { finished = $0 }
+        return true
+    }
+
+    /// The best installed English voice — premium, then enhanced, then the default — preferring the
+    /// iPhone's own English (en-GB, en-IN…). Better ones download free in Settings › Accessibility.
+    private static let voice: AVSpeechSynthesisVoice? = {
+        let current = AVSpeechSynthesisVoice.currentLanguageCode()
+        let english = AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("en") }
+            .sorted { ($0.language == current ? 0 : 1) < ($1.language == current ? 0 : 1) }
+        return english.first { $0.quality == .premium } ?? english.first { $0.quality == .enhanced }
+            ?? english.first ?? AVSpeechSynthesisVoice(language: "en-US")
+    }()
+
     func stop() {
         player?.stop()
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        utterance = nil
         resumeFinished()
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { spoke(utterance) }
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { spoke(utterance) }
+
+    private func spoke(_ spoken: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            // A stopped line's callback can land after the next one has started; only the current one counts.
+            guard let self, spoken === self.utterance else { return }
+            self.utterance = nil
+            self.resumeFinished()
+        }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {

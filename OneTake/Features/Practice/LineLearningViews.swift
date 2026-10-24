@@ -157,7 +157,8 @@ struct AudioWalkView: View {
 }
 
 /// Loops a scene's reader tracks and your own line timings continuously, hands-free.
-/// Reuses the same on-device reader recordings as Run Lines — no synthetic voice.
+/// Reuses the same on-device reader recordings as Run Lines, and like it reads unrecorded lines in the
+/// built-in voice unless that's switched off.
 @Observable
 final class AudioWalkPlayer {
     private var task: Task<Void, Never>?
@@ -173,8 +174,8 @@ final class AudioWalkPlayer {
                     if line.isMine {
                         try? await Task.sleep(for: .seconds(Double(line.text.count) * 0.06 + 0.6))
                     } else {
-                        // A recorded line plays to its end; an unrecorded one gets its reading time.
-                        let played = await reader.playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex)
+                        // A recorded (or built-in voice) line plays to its end; otherwise it gets its reading time.
+                        let played = await reader.readToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, text: line.text)
                         readerIndex += 1
                         try? await Task.sleep(for: .seconds(played ? 0.4 : Double(line.text.count) * 0.06 + 0.8))
                     }
