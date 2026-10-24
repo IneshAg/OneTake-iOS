@@ -112,55 +112,115 @@ struct RecLabelStyle: LabelStyle {
 
 // MARK: - 02 Sign in
 
+/// "Sign in or create an account" — one screen for both: Apple and Google each sign a returning
+/// person in and create an account for a new one. There's no email option: without a server there's
+/// no way to verify an address, and an unverified account would be worse than none.
 struct SignInView: View {
     /// Why sign-in is being asked for right now, shown under the title.
-    var reason = "Your auditions, reader tracks and takes, on every device you own."
-    var onContinue: () -> Void
-    @State private var email = ""
+    var reason = "Back up your auditions and takes, and pick them up on any device."
+    var onSignedIn: (Account) -> Void
+    @Environment(AppStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
-
-    /// Sign-in gates link sharing, so only a real result counts — a cancelled Apple sheet or an
-    /// empty email field must not sign anyone in.
-    private var isValidEmail: Bool {
-        let trimmed = email.trimmingCharacters(in: .whitespaces)
-        guard let at = trimmed.firstIndex(of: "@"), at != trimmed.startIndex else { return false }
-        return trimmed[trimmed.index(after: at)...].contains(".")
-    }
+    @State private var errorMessage: String?
+    @State private var working = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Sign in or create an account").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-            Text(reason)
-                .font(.otCallout).foregroundStyle(OT.labelSecondary)
-
-            SignInWithAppleButton(.continue) { request in
-                request.requestedScopes = [.fullName, .email]
-            } onCompletion: { result in
-                if case .success = result { onContinue() }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Sign in or create an account")
+                    .font(.system(size: 40, weight: .bold)).tracking(-0.8)
+                    .foregroundStyle(OT.labelPrimary)
+                Text(reason).font(.otCallout).foregroundStyle(OT.labelSecondary)
             }
-            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-            .frame(height: 52).clipShape(Capsule())
-            .padding(.top, 8)
+            .padding(.top, 4)
 
-            HStack { line; Text("or").font(.otFootnote).foregroundStyle(OT.labelTertiary); line }
+            VStack(spacing: 16) {
+                SignInWithAppleButton(.continue) { request in
+                    request.requestedScopes = [.fullName, .email]
+                } onCompletion: { result in
+                    finish { try AccountAuth.account(from: result, previous: store.account) }
+                }
+                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                .frame(height: 54).clipShape(Capsule())
 
-            Text("Email").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.labelSecondary)
-            TextField("you@example.com", text: $email)
-                .keyboardType(.emailAddress).textContentType(.emailAddress).textInputAutocapitalization(.never)
-                .padding(.horizontal, 16).frame(height: 52)
-                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            Button("Continue with email", action: onContinue).buttonStyle(.otSecondary)
-                .disabled(!isValidEmail)
+                Button {
+                    working = true
+                    Task {
+                        let outcome: Result<Account, Error>
+                        do { outcome = .success(try await AccountAuth.signInWithGoogle()) } catch { outcome = .failure(error) }
+                        finish { try outcome.get() }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        GoogleMark().frame(width: 18, height: 18)
+                        Text("Continue with Google").font(.system(size: 17, weight: .semibold)).tracking(-0.4)
+                    }
+                    .foregroundStyle(OT.labelPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(OT.surfaceCard, in: Capsule())
+                    .overlay(Capsule().strokeBorder(OT.separator, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(working || !AccountAuth.isGoogleConfigured)
+                .opacity(AccountAuth.isGoogleConfigured ? 1 : 0.5)
+            }
+            .padding(.top, 28)
 
-            Label("Takes stay on this iPhone until you send them.", systemImage: "lock.fill")
-                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            if working { ProgressView().frame(maxWidth: .infinity).padding(.top, 16) }
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.circle")
+                    .font(.otFootnote).foregroundStyle(OT.danger).padding(.top, 16)
+            }
+
+            Text("New here? Either one creates your account. By continuing you agree to the Terms and Privacy Policy.")
+                .font(.otCaption).foregroundStyle(OT.labelTertiary)
+                .padding(.top, 20).padding(.horizontal, 4)
             Spacer()
         }
-        .padding(.horizontal, OT.gutter)
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
         .otCanvas()
     }
 
-    private var line: some View { Rectangle().fill(OT.separator).frame(height: 1) }
+    private func finish(_ make: () throws -> Account) {
+        working = false
+        do {
+            let account = try make()
+            errorMessage = nil
+            Haptics.success()
+            onSignedIn(account)
+        } catch AccountAuth.AuthError.cancelled {
+            // Backed out of the Apple / Google sheet — nothing to report.
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+/// Google's four-colour "G", drawn from its brand colours (no asset needed).
+private struct GoogleMark: View {
+    var body: some View {
+        Canvas { context, size in
+            let lineWidth = size.width * 0.2
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let radius = rect.width / 2
+            func arc(_ from: Double, _ to: Double, _ color: Color) {
+                var path = Path()
+                path.addArc(center: center, radius: radius, startAngle: .degrees(from), endAngle: .degrees(to), clockwise: false)
+                context.stroke(path, with: .color(color), lineWidth: lineWidth)
+            }
+            arc(-40, 45, Color(red: 0.26, green: 0.52, blue: 0.96))   // blue
+            arc(45, 140, Color(red: 0.20, green: 0.66, blue: 0.33))   // green
+            arc(140, 215, Color(red: 0.98, green: 0.74, blue: 0.02))  // yellow
+            arc(215, 320, Color(red: 0.92, green: 0.26, blue: 0.21))  // red
+            var bar = Path()
+            bar.move(to: center)
+            bar.addLine(to: CGPoint(x: rect.maxX + lineWidth / 2, y: center.y))
+            context.stroke(bar, with: .color(Color(red: 0.26, green: 0.52, blue: 0.96)), lineWidth: lineWidth)
+        }
+        .accessibilityHidden(true)
+    }
 }
 
 // MARK: - 03 Your slate

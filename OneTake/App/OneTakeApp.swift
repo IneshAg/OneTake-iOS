@@ -1,4 +1,5 @@
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct OneTakeApp: App {
@@ -20,8 +21,11 @@ struct OneTakeApp: App {
             .environment(store)
             .tint(OT.accent)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+            .task { await store.validateAccount() }
             // Widgets and the Live Activity open "onetake://audition/<id>".
             .onOpenURL { url in
+                // Google's sign-in redirect comes back through here too.
+                if GIDSignIn.sharedInstance.handle(url) { return }
                 guard url.scheme == "onetake", url.host == "audition",
                       let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
                 store.camera = nil

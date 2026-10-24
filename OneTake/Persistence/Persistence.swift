@@ -11,7 +11,9 @@ struct PersistedState: Codable {
     var practice: [PracticePiece] = []
     var slate = SlateInfo()
     var isOnboarded = false
-    var isSignedIn = false
+    /// Optional, so state saved before accounts existed still loads (an old `isSignedIn` flag is
+    /// simply ignored — it never had a real account behind it).
+    var account: Account?
 }
 
 enum Persistence {
