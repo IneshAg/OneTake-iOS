@@ -13,6 +13,8 @@ enum Route: Hashable {
     case takes(Audition.ID)
     case tapeCheck(Audition.ID)
     case package(Audition.ID)
+    /// 20.0 — the whole tape with chapters, after Tape Check and before Package.
+    case preview(Audition.ID)
     /// Headshots, optionally opened from an audition's checklist so it can offer "Next" afterwards.
     case headshots(for: Audition.ID?)
     case editSlate
@@ -364,6 +366,24 @@ final class AppStore {
         case .practice:  practicePath.append(route)
         case .profile:   profilePath.append(route)
         }
+    }
+
+    /// Goes back to `route` if it's already on the current tab's stack (so "Change a take" returns to
+    /// the Takes screen you came from instead of stacking a second one); pushes it otherwise.
+    func popTo(_ route: Route) {
+        func trim(_ path: inout [Route]) -> Bool {
+            guard let i = path.lastIndex(of: route) else { return false }
+            path.removeSubrange(path.index(after: i)...)
+            return true
+        }
+        let found: Bool
+        switch tab {
+        case .auditions: found = trim(&auditionsPath)
+        case .search:    found = trim(&searchPath)
+        case .practice:  found = trim(&practicePath)
+        case .profile:   found = trim(&profilePath)
+        }
+        if !found { push(route) }
     }
 
     func popToRoot() {
