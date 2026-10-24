@@ -82,22 +82,31 @@ struct AddAuditionFlow: View {
                         .buttonStyle(.plain).accessibilityLabel("Close")
                 }
 
-                if let clip = Clipboard.castingNotice {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "doc.on.clipboard").foregroundStyle(OT.accent)
-                                .frame(width: 36, height: 36).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 9))
-                            VStack(alignment: .leading) {
-                                Text("On your clipboard").font(.otHeadline)
-                                Text("Looks like a casting notice").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                            }
+                // The system paste button reads the clipboard only when tapped, so opening this sheet
+                // no longer peeks at it (which raised iOS's "Allow Paste" prompt every time).
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.on.clipboard").foregroundStyle(OT.accent)
+                            .frame(width: 36, height: 36).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 9))
+                        VStack(alignment: .leading) {
+                            Text("Copied the notice?").font(.otHeadline)
+                            Text("Paste the email or message — OneTake reads it here").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         }
-                        Text("“\(clip.prefix(110))…”").font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(3)
-                        Button("Paste and set up") { notice = clip; path.append(.reading) }.buttonStyle(.otPrimary)
                     }
-                    .padding(16)
-                    .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    PasteButton(payloadType: String.self) { strings in
+                        let text = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                        Task { @MainActor in
+                            guard !text.isEmpty else { return }
+                            notice = text
+                            path = [.reading]
+                        }
+                    }
+                    .buttonBorderShape(.capsule)
+                    .tint(OT.accent)
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 SectionLabel(text: "Or bring it in")
                 HStack {

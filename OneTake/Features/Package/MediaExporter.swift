@@ -47,12 +47,17 @@ enum MediaExporter {
     /// "no title cards".
     static var opensWithHeadshot: Bool { UserDefaults.standard.object(forKey: "tape.headshotCard") as? Bool ?? true }
 
+    /// Profile → "Slate at the start". Some casting asks for the slate at the end instead.
+    static var slateAtStart: Bool { UserDefaults.standard.object(forKey: "slateAtStart") as? Bool ?? true }
+
     /// The recorded clips, in order: slate, full length, then the circled (or first) take of each
-    /// scene. Shared by the export, Preview and Tape Check, so all three look at the same thing.
-    static func clips(for audition: Audition, takes: [Take]) -> [Clip] {
+    /// scene — or the scenes first when the slate goes at the end. Shared by the export, Preview and
+    /// Tape Check, so all three look at the same thing.
+    static func clips(for audition: Audition, takes: [Take], slateAtStart: Bool = Self.slateAtStart) -> [Clip] {
+        var slate: [Clip] = []
+        if let s = audition.slateVideoURL { slate.append(Clip(kind: .slate, label: "Slate", url: s)) }
+        if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full length", url: f)) }
         var clips: [Clip] = []
-        if let s = audition.slateVideoURL { clips.append(Clip(kind: .slate, label: "Slate", url: s)) }
-        if let f = audition.fullLengthVideoURL { clips.append(Clip(kind: .fullLength, label: "Full length", url: f)) }
         // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
         // display number, and only this audition's takes are eligible whatever the caller passes in.
         let auditionTakes = takes.filter { $0.auditionID == audition.id }
@@ -62,7 +67,7 @@ enum MediaExporter {
                 clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url))
             }
         }
-        return clips
+        return slateAtStart ? slate + clips : clips + slate
     }
 
     /// Everything on the tape: the audition headshots as an opening card (when taken, and unless

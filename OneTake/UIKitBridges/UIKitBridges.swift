@@ -99,16 +99,6 @@ struct DocumentScannerView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Clipboard (UIPasteboard) — "On your clipboard" card in Add audition
-
-enum Clipboard {
-    static var castingNotice: String? {
-        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else { return nil }
-        let lower = text.lowercased()
-        return (lower.contains("tape") || lower.contains("audition") || lower.contains("sides")) ? text : nil
-    }
-}
-
 // MARK: - Idle timer (keep the screen awake while filming)
 
 struct KeepScreenAwake: ViewModifier {
