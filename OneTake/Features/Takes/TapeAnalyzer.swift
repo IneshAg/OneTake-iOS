@@ -30,28 +30,15 @@ enum TapeAnalyzer {
 
         for clip in clips {
             if Task.isCancelled { return report }
-            let asset = AVURLAsset(url: clip.url)
-            guard let duration = try? await asset.load(.duration).seconds, duration > 0 else { continue }
-            totalSeconds += duration
-
-            if let track = try? await asset.loadTracks(withMediaType: .video).first,
-               let loaded = try? await track.load(.naturalSize, .preferredTransform) {
-                let (naturalSize, transform) = loaded
-                let oriented = CGRect(origin: .zero, size: naturalSize).applying(transform)
-                let width = abs(oriented.width), height = abs(oriented.height)
-                if width < height { allLandscape = false }
-                if min(width, height) < 1080 { allHD = false }
-            }
-
-            let video = await videoFindings(for: clip, asset: asset, duration: duration, context: context)
-            if video.contains(where: { $0.category == "Framing" }) { framingOK = false }
-            if video.contains(where: { $0.category == "Light" }) { lightOK = false }
-            if video.contains(where: { $0.category == "Eyeline" }) { eyelineOK = false }
-            report.findings += video
-
-            let audio = await audioFindings(for: clip, asset: asset)
-            if !audio.isEmpty { audioOK = false }
-            report.findings += audio
+            guard let result = await measure(clip, context: context) else { continue }
+            totalSeconds += result.duration
+            if !result.isLandscape { allLandscape = false }
+            if !result.isHD { allHD = false }
+            if result.video.contains(where: { $0.category == "Framing" }) { framingOK = false }
+            if result.video.contains(where: { $0.category == "Light" }) { lightOK = false }
+            if result.video.contains(where: { $0.category == "Eyeline" }) { eyelineOK = false }
+            if !result.audio.isEmpty { audioOK = false }
+            report.findings += result.video + result.audio
         }
         guard !clips.isEmpty else { return report }
 
@@ -66,6 +53,51 @@ enum TapeAnalyzer {
         report.findings += package
         report.passed.append("File name")
         return report
+    }
+
+    // MARK: Per clip
+
+    /// What one clip measured.
+    private struct ClipResult {
+        var duration: Double
+        var isLandscape: Bool
+        var isHD: Bool
+        var video: [TapeFinding]
+        var audio: [TapeFinding]
+    }
+
+    /// Results per file version, so opening Tape Check again only analyses the clips that are new or
+    /// changed (re-shot, trimmed): frame sampling, Vision and audio decoding are the slow part.
+    private actor ResultCache {
+        private var results: [String: ClipResult] = [:]
+        func get(_ key: String) -> ClipResult? { results[key] }
+        func set(_ key: String, _ result: ClipResult) { results[key] = result }
+    }
+    private static let cache = ResultCache()
+
+    private static func measure(_ clip: MediaExporter.Clip, context: CIContext) async -> ClipResult? {
+        // A re-recorded slate keeps its file name, so the key carries the file's date and size too.
+        let values = try? clip.url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let key = "\(clip.url.path)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(values?.fileSize ?? 0)|\(clip.label)"
+        if let cached = await cache.get(key) { return cached }
+
+        let asset = AVURLAsset(url: clip.url)
+        guard let duration = try? await asset.load(.duration).seconds, duration > 0 else { return nil }
+        var isLandscape = true, isHD = true
+        if let track = try? await asset.loadTracks(withMediaType: .video).first,
+           let loaded = try? await track.load(.naturalSize, .preferredTransform) {
+            let (naturalSize, transform) = loaded
+            let oriented = CGRect(origin: .zero, size: naturalSize).applying(transform)
+            let width = abs(oriented.width), height = abs(oriented.height)
+            isLandscape = width >= height
+            isHD = min(width, height) >= 1080
+        }
+        let result = ClipResult(duration: duration, isLandscape: isLandscape, isHD: isHD,
+                                video: await videoFindings(for: clip, asset: asset, duration: duration, context: context),
+                                audio: await audioFindings(for: clip, asset: asset))
+        // A check cut short by leaving Tape Check only looked at part of the clip; don't keep it.
+        if !Task.isCancelled { await cache.set(key, result) }
+        return result
     }
 
     // MARK: Video
