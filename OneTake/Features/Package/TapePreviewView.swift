@@ -63,7 +63,7 @@ struct TapePreviewView: View {
             }
             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         }
-        // Rebuilt whenever what's on the tape changes, or the headshot card is switched on/off.
+        // Rebuilt whenever what's on the tape changes (a different circled take, a retake, a trim).
         .task(id: currentClipURLs) { await load() }
         .onDisappear { stop() }
     }
