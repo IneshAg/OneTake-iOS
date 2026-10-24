@@ -182,17 +182,16 @@ struct SlateDetailsView: View {
                     Spacer()
                     Label("≈ 0:05", systemImage: "waveform").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 }
-                slateField($store.slate.name, hint: "from Apple Account")
-                slateField($store.slate.height, hint: "height")
-                slateField($store.slate.basedIn, hint: "based in")
+                slateField($store.slate.name, placeholder: "Your name", hint: "name")
+                    .textContentType(.name)
+                slateField($store.slate.height, placeholder: "5′ 9″", hint: "height")
+                slateField($store.slate.basedIn, placeholder: "City", hint: "based in")
+                    .textContentType(.addressCity)
                 Divider()
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Representation").font(.otBody)
-                        Text("Leave blank if you represent yourself").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                    }
-                    Spacer()
-                    Button("Add") {}.font(.otHeadline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Representation").font(.otBody)
+                    TextField("Leave blank if you represent yourself", text: $store.slate.representation)
+                        .font(.otCallout)
                 }
             }
             .padding(20).otCard()
@@ -205,9 +204,9 @@ struct SlateDetailsView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Skip", action: onContinue) } }
     }
 
-    private func slateField(_ text: Binding<String>, hint: String) -> some View {
+    private func slateField(_ text: Binding<String>, placeholder: String, hint: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            TextField("", text: text).font(.system(size: 28, weight: .bold))
+            TextField(placeholder, text: text).font(.system(size: 28, weight: .bold))
             Text(hint).font(.otFootnote).foregroundStyle(OT.labelTertiary)
         }
     }

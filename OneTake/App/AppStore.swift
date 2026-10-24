@@ -107,7 +107,7 @@ final class AppStore {
                 return t
             }
             practice = saved.practice
-            slate = saved.slate
+            slate = saved.slate == SlateInfo.legacyPlaceholder ? SlateInfo() : saved.slate
             isOnboarded = saved.isOnboarded
             isSignedIn = saved.isSignedIn
         }
