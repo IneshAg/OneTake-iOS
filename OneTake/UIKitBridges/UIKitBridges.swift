@@ -132,7 +132,9 @@ final class SpeechFollower {
         init(word: String) { self.word = word }
     }
 
-    private(set) var spokenWordCount = 0
+    /// What you've said since the last `reset()`, word by word (lowercased, no punctuation) — what
+    /// `otMatch` lines up against the script.
+    private(set) var heardWords: [String] = []
     private(set) var lastCommand: Command?
     private(set) var isListening = false
 
@@ -244,6 +246,7 @@ final class SpeechFollower {
         totalWords = 0
         wordOffset = 0
         latestWords = []
+        heardWords = []
         firedThroughWord = 0
         pendingCommand?.cancel()
         pendingCommand = nil
@@ -275,7 +278,7 @@ final class SpeechFollower {
         }
         latestWords = words
         totalWords = words.count
-        spokenWordCount = max(0, words.count - wordOffset)
+        heardWords = Array(words.dropFirst(wordOffset))
     }
 
     func stop() {
@@ -291,6 +294,7 @@ final class SpeechFollower {
         totalWords = 0
         wordOffset = 0
         latestWords = []
+        heardWords = []
         lastWordAt = .distantPast
         firedThroughWord = 0
         pendingCommand?.cancel()
@@ -299,7 +303,7 @@ final class SpeechFollower {
 
     func reset() {
         wordOffset = totalWords
-        spokenWordCount = 0
+        heardWords = []
         lastCommand = nil
         pendingCommand?.cancel()
         pendingCommand = nil
@@ -310,8 +314,10 @@ final class SpeechFollower {
 
 /// Plays the reader lines the actor recorded in "Record Maya". One file per line, saved by RecordReaderView.
 @Observable
-final class ReaderTrackPlayer {
+final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
+    /// Whoever is waiting in `playToEnd` for the current line to finish.
+    @ObservationIgnored private var finished: CheckedContinuation<Void, Never>?
 
     /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
     static let folder = "reader"
@@ -326,15 +332,43 @@ final class ReaderTrackPlayer {
     /// Plays one recorded reader line. Returns false when that line hasn't been recorded.
     @discardableResult
     func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
+        player?.stop()
+        resumeFinished()
         let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
         guard FileManager.default.fileExists(atPath: url.path) else { return false }  // not recorded yet → silent cue
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
         player = try? AVAudioPlayer(contentsOf: url)
+        player?.delegate = self
         player?.volume = volume
         return player?.play() ?? false
     }
 
-    func stop() { player?.stop() }
+    /// Plays one recorded line and returns once it has finished (or been stopped), so whatever comes
+    /// next waits for the whole line however long it was read. False straight away when the line
+    /// hasn't been recorded.
+    @MainActor
+    func playToEnd(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) async -> Bool {
+        guard play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, volume: volume) else { return false }
+        await withCheckedContinuation { finished = $0 }
+        return true
+    }
+
+    func stop() {
+        player?.stop()
+        resumeFinished()
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, player === self.player else { return }
+            self.resumeFinished()
+        }
+    }
+
+    private func resumeFinished() {
+        finished?.resume()
+        finished = nil
+    }
 }
 
 /// Records one reader line to disk.

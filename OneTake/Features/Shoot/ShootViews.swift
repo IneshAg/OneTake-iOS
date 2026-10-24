@@ -208,10 +208,11 @@ struct ShootFlow: View {
             if camera.state == .recording { cut() }
             else if camera.state == .ready, [.slate, .fullLength, .scene].contains(stage) { roll() }
         }
-        // The prompter follows your voice: once you've said your line, it moves on to the next one.
-        .onChange(of: follower.spokenWordCount) { _, count in
+        // The prompter follows your voice: once you've said your line — its words, ending on its
+        // last one, not just as many words as it has — it moves on to the next one.
+        .onChange(of: follower.heardWords) { _, words in
             guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex),
-                  lines[lineIndex].isMine, count >= lines[lineIndex].text.split(separator: " ").count else { return }
+                  lines[lineIndex].isMine, otMatch(lines[lineIndex].text, heard: words).isComplete else { return }
             advanceLine()
         }
         .onChange(of: camera.state) { _, state in
@@ -382,15 +383,15 @@ struct ShootFlow: View {
     }
 
     /// Plays your recorded reader line at the chosen volume, then moves on to your next line once it
-    /// has had time to land (the same pacing as Run Lines).
+    /// has finished (the same pacing as Run Lines).
     private func speakIfReader() {
         guard camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex), !lines[lineIndex].isMine else { return }
         let readerIndex = lines[..<lineIndex].filter { !$0.isMine }.count
-        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain)
-        let delay = Double(lines[lineIndex].text.count) * 0.06 + 0.8
+        let unrecordedPause = Double(lines[lineIndex].text.count) * 0.06 + 0.8
         readerAdvance?.cancel()
         readerAdvance = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(delay))
+            let played = await reader.playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain)
+            try? await Task.sleep(for: .seconds(played ? 0.25 : unrecordedPause))
             guard !Task.isCancelled else { return }
             advanceLine()
         }

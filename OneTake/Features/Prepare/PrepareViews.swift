@@ -158,6 +158,10 @@ struct RunLinesView: View {
     /// screen cancels it instead of letting it fire later and skip an extra line.
     @State private var readerAdvance: Task<Void, Never>?
 
+    /// How one of your lines went this run.
+    enum LineResult { case own, prompted, skipped }
+    @State private var results: [ScriptLine.ID: LineResult] = [:]
+
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
             let lines = a.scenes[sceneIndex].lines
@@ -171,7 +175,7 @@ struct RunLinesView: View {
                 Text("Line \(index + 1) of \(lines.count)").font(.otFootnote).foregroundStyle(OT.labelTertiary)
 
                 if finished {
-                    RunFinishedView(lines: lines) { index = 0; finished = false; speakIfReader(lines) } onClose: { dismiss() }
+                    RunFinishedView(lines: lines, results: results) { index = 0; finished = false; results = [:]; follower.reset(); speakIfReader(lines) } onClose: { dismiss() }
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
@@ -203,8 +207,10 @@ struct RunLinesView: View {
             .otCanvas()
             .navigationTitle("Run lines").navigationBarTitleDisplayMode(.inline)
             .onAppear { speakIfReader(lines) }
-            .onChange(of: follower.spokenWordCount) { _, count in
-                if lines[index].isMine, count >= lines[index].text.split(separator: " ").count { advance(lines) }
+            // Moves on once you've actually said the line — its words, ending on its last one — not
+            // just as many words as it has.
+            .onChange(of: follower.heardWords) { _, words in
+                if !finished, lines[index].isMine, otMatch(lines[index].text, heard: words).isComplete { advance(lines, heard: true) }
             }
             // "Line?" out loud — same as tapping the button, so you never have to touch the phone.
             .onChange(of: follower.lastCommand) { _, cmd in
@@ -215,8 +221,10 @@ struct RunLinesView: View {
         }
     }
 
-    private func advance(_ lines: [ScriptLine]) {
+    /// `heard` is true when the recogniser heard you finish the line, false for the skip button.
+    private func advance(_ lines: [ScriptLine], heard: Bool = false) {
         stopReader()
+        if lines[index].isMine { results[lines[index].id] = heard ? (prompted ? .prompted : .own) : .skipped }
         prompted = false
         follower.reset()
         if index + 1 < lines.count { index += 1; speakIfReader(lines) } else { finished = true; Haptics.success() }
@@ -225,11 +233,13 @@ struct RunLinesView: View {
     private func speakIfReader(_ lines: [ScriptLine]) {
         guard !lines[index].isMine else { return }
         let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
-        readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
+        let unrecordedPause = Double(lines[index].text.count) * 0.06 + 0.8
         readerAdvance?.cancel()
-        let delay = Double(lines[index].text.count) * 0.06 + 0.8
         readerAdvance = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(delay))
+            // Your recording plays to its end, however long you read it; a line you haven't recorded
+            // gets roughly its reading time in silence.
+            let played = await readerPlayer.playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
+            try? await Task.sleep(for: .seconds(played ? 0.25 : unrecordedPause))
             guard !Task.isCancelled else { return }
             advance(lines)
         }
@@ -243,11 +253,16 @@ struct RunLinesView: View {
 
     private func firstWords(_ text: String) -> String { text.split(separator: " ").prefix(3).joined(separator: " ") + "…" }
 
+    /// Lights the words of your line the recogniser has matched so far (not just how many you've said).
     private func highlighted(_ text: String) -> AttributedString {
+        let reached = otMatch(text, heard: follower.heardWords).reached
         var out = AttributedString()
-        for (i, w) in text.split(separator: " ").enumerated() {
+        var seen = 0
+        for w in text.split(separator: " ") {
+            // A token lights once every word in it is heard; punctuation goes with the word before it.
+            seen += otWords(String(w)).count
             var part = AttributedString(String(w) + " ")
-            part.foregroundColor = i < follower.spokenWordCount ? OT.accent : OT.labelTertiary
+            part.foregroundColor = seen > 0 && seen <= reached ? OT.accent : OT.labelTertiary
             out += part
         }
         return out
@@ -256,25 +271,49 @@ struct RunLinesView: View {
 
 struct RunFinishedView: View {
     let lines: [ScriptLine]
+    /// How each of your lines went. A line you never got to (you paused first) has no entry.
+    let results: [ScriptLine.ID: RunLinesView.LineResult]
     var onAgain: () -> Void
     var onClose: () -> Void
+
     var body: some View {
+        let mine = lines.filter(\.isMine)
+        let own = mine.filter { results[$0.id] == .own }.count
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(text: "This run")
             HStack(alignment: .firstTextBaseline) {
-                Text("2").font(.system(size: 64, weight: .bold))
-                Text("of \(lines.filter(\.isMine).count)").font(.otTitle).foregroundStyle(OT.labelSecondary)
+                Text("\(own)").font(.system(size: 64, weight: .bold))
+                Text("of \(mine.count)").font(.otTitle).foregroundStyle(OT.labelSecondary)
             }
-            Text("on your own. You needed a start on one line.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+            Text(summary(mine)).font(.otCallout).foregroundStyle(OT.labelSecondary)
             ForEach(lines) { l in
                 HStack(alignment: .top) {
-                    Image(systemName: l.isMine ? "checkmark.square.fill" : "m.square").foregroundStyle(l.isMine ? OT.accent : OT.labelTertiary)
+                    Image(systemName: symbol(for: l)).foregroundStyle(l.isMine && results[l.id] != nil ? OT.accent : OT.labelTertiary)
                     Text(l.text).font(l.isMine ? .otHeadline : .otCallout).foregroundStyle(l.isMine ? OT.labelPrimary : OT.labelTertiary)
                 }
             }
             Spacer()
             Button("Run again", action: onAgain).buttonStyle(.otPrimary)
             Button("Done", action: onClose).buttonStyle(.otSecondary)
+        }
+    }
+
+    private func summary(_ mine: [ScriptLine]) -> String {
+        let prompted = mine.filter { results[$0.id] == .prompted }.count
+        let skipped = mine.filter { results[$0.id] == .skipped }.count
+        var parts = ["on your own."]
+        if prompted > 0 { parts.append("You needed a start on \(prompted == 1 ? "one line" : "\(prompted) lines").") }
+        if skipped > 0 { parts.append("You skipped \(skipped == 1 ? "one" : "\(skipped)").") }
+        return parts.joined(separator: " ")
+    }
+
+    private func symbol(for line: ScriptLine) -> String {
+        guard line.isMine else { return "m.square" }
+        switch results[line.id] {
+        case .own?:      return "checkmark.square.fill"
+        case .prompted?: return "questionmark.square"
+        case .skipped?:  return "arrow.forward.square"
+        case nil:        return "square"
         }
     }
 }

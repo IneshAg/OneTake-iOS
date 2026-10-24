@@ -253,6 +253,70 @@ func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> S
     }
 }
 
+/// How far into one of your lines the speech recogniser has heard you. It matches the words
+/// themselves rather than counting them, so a stumble, an ad-lib or the wrong line doesn't move the
+/// prompter on. Shared by Run Lines and the in-camera prompter.
+struct LineMatch: Equatable {
+    /// Words of the line covered so far, for the highlight: up to the last one heard.
+    var reached = 0
+    /// Words of the line actually heard.
+    var matched = 0
+    var total = 0
+    /// Done: the line's last word was heard, and most of the rest of it too.
+    var isComplete: Bool { total > 0 && reached == total && matched * 5 >= total * 3 }
+}
+
+func otMatch(_ text: String, heard: [String]) -> LineMatch {
+    let expected = otWords(text)
+    var match = LineMatch(total: expected.count)
+    for word in heard.flatMap(otWords) where match.reached < expected.count {
+        // A few words of look-ahead, so a skipped or misheard word doesn't stall the line, but a word
+        // from much later in it (or from another line) can't jump to its end.
+        let window = expected[match.reached..<min(expected.count, match.reached + 3)]
+        if let hit = window.firstIndex(where: { otSameWord($0, word) }) {
+            match.matched += 1
+            match.reached = hit + 1
+        }
+    }
+    return match
+}
+
+/// Lowercased words, the same on both sides of a match: apostrophes dropped ("Don't" → "dont"), any
+/// other punctuation splits ("you—Maya" → "you", "maya").
+func otWords(_ text: String) -> [String] {
+    var cleaned = String.UnicodeScalarView()
+    for scalar in text.lowercased().unicodeScalars {
+        if CharacterSet.alphanumerics.contains(scalar) { cleaned.append(scalar) }
+        else if scalar != "'" && scalar != "\u{2019}" { cleaned.append(" ") }
+    }
+    return String(cleaned).split(separator: " ").map(String.init)
+}
+
+private let otNumberWords: Set<String> = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+    "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "first", "second", "third"
+]
+
+/// Same word, allowing for how the recogniser writes things: digits for a spelled-out number ("20" for
+/// "twenty"), and one letter off in a longer word ("color"/"colour", a misheard name).
+private func otSameWord(_ a: String, _ b: String) -> Bool {
+    if a == b { return true }
+    let aDigits = a.allSatisfy(\.isNumber), bDigits = b.allSatisfy(\.isNumber)
+    if aDigits != bDigits { return aDigits ? otNumberWords.contains(b) : otNumberWords.contains(a) }
+    guard min(a.count, b.count) >= 4, abs(a.count - b.count) <= 1 else { return false }
+    // Levenshtein distance ≤ 1.
+    let x = Array(a), y = Array(b)
+    var i = 0, j = 0, edits = 0
+    while i < x.count && j < y.count {
+        if x[i] == y[j] { i += 1; j += 1; continue }
+        edits += 1
+        if edits > 1 { return false }
+        if x.count > y.count { i += 1 } else if y.count > x.count { j += 1 } else { i += 1; j += 1 }
+    }
+    return edits + (x.count - i) + (y.count - j) <= 1
+}
+
 // MARK: - Profile
 
 struct SlateInfo: Hashable, Codable {
