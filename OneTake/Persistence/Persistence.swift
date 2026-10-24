@@ -110,4 +110,19 @@ enum HeadshotStore {
     static func exists(key: String) -> Bool {
         FileManager.default.fileExists(atPath: url(for: key).path)
     }
+
+    /// The audition headshots that have been taken, in order: front, then left and right profiles.
+    static let angles: [(key: String, title: String)] = [("front", "Front"), ("left", "Left profile"), ("right", "Right profile")]
+    static var taken: [(key: String, title: String)] { angles.filter { exists(key: $0.key) } }
+
+    /// Copies of the taken headshots named to match the tape (LAST_FIRST_ROLE_PROJECT_HEADSHOT_FRONT.jpg),
+    /// to send alongside it as photos.
+    static func deliverables(baseName: String) -> [URL] {
+        let dir = MediaStore.directory("Exports")
+        return taken.compactMap { angle in
+            let dest = dir.appendingPathComponent("\(baseName)_HEADSHOT_\(angle.key.uppercased()).jpg")
+            try? FileManager.default.removeItem(at: dest)
+            return (try? FileManager.default.copyItem(at: url(for: angle.key), to: dest)) != nil ? dest : nil
+        }
+    }
 }

@@ -270,6 +270,10 @@ enum TapeAnalyzer {
             findings.append(TapeFinding(category: "Package", title: title, where_: a.project, advice: advice))
         }
 
+        // Headshots go with the tape as photos; casting expects at least the front one.
+        if HeadshotStore.exists(key: "front") { passed.append("Headshots") }
+        else { add("No headshot yet", "Take your front headshot — it's sent with the tape as a photo. Profiles help on commercial calls.") }
+
         if clips.contains(where: { $0.kind == .slate }) { passed.append("Slate") }
         else { add("There's no slate yet", "Most casting offices want a slate first. Record one from the camera — it only takes 5 seconds.") }
 

@@ -18,9 +18,10 @@ enum MediaExporter {
         }
     }
 
-    /// One piece that goes on the tape, in tape order.
+    /// One recorded piece that goes on the tape, in tape order. (Headshots aren't on the tape: they're
+    /// photos, sent alongside it — see `HeadshotStore.deliverables`.)
     struct Clip: Hashable {
-        enum Kind: Hashable { case headshot, slate, fullLength, scene(Int) }
+        enum Kind: Hashable { case slate, fullLength, scene(Int) }
         let kind: Kind
         let label: String
         let url: URL
@@ -43,10 +44,6 @@ enum MediaExporter {
         var duration: Double { chapters.last.map { $0.start + $0.duration } ?? 0 }
     }
 
-    /// Off by default only when the actor turns it off (Preview's switch) — e.g. a notice that says
-    /// "no title cards".
-    static var opensWithHeadshot: Bool { UserDefaults.standard.object(forKey: "tape.headshotCard") as? Bool ?? true }
-
     /// The recorded clips, in order: slate, full length, then the circled (or first) take of each
     /// scene. Shared by the export, Preview and Tape Check, so all three look at the same thing.
     static func clips(for audition: Audition, takes: [Take]) -> [Clip] {
@@ -63,16 +60,6 @@ enum MediaExporter {
             }
         }
         return clips
-    }
-
-    /// Everything on the tape: the audition headshots as an opening card (when taken, and unless
-    /// switched off), then the recorded clips.
-    static func tapeClips(for audition: Audition, takes: [Take]) async -> [Clip] {
-        let recorded = clips(for: audition, takes: takes)
-        guard opensWithHeadshot, let first = recorded.first,
-              let size = await orientedSize(of: AVURLAsset(url: first.url)),
-              let card = await HeadshotCard.video(size: size) else { return recorded }
-        return [Clip(kind: .headshot, label: "Headshot", url: card)] + recorded
     }
 
     /// Joins the clips into one composition. Used for the instant Preview and for the export.
@@ -99,8 +86,7 @@ enum MediaExporter {
                 if let loaded = try? await vTrack.load(.naturalSize, .preferredTransform) {
                     let (naturalSize, transform) = loaded
                     layerInstruction.setTransform(transform, at: cursor)
-                    // Sized from the first real recording, so a headshot card never decides the frame.
-                    if renderSize == nil, clip.kind != .headshot {
+                    if renderSize == nil {
                         let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
                         renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
                     }
@@ -109,8 +95,8 @@ enum MediaExporter {
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {
                 try? audioTrack.insertTimeRange(range, of: aTrack, at: cursor)
             }
-            let label = clip.kind == .headshot || clip.kind == .slate || clip.kind == .fullLength
-                ? clip.label : (clip.label.components(separatedBy: " · ").first ?? clip.label)
+            // "Scene 1 · Take 3" → "Scene 1" in the chapter list.
+            let label = clip.label.components(separatedBy: " · ").first ?? clip.label
             chapters.append(Chapter(kind: clip.kind, label: label, start: cursor.seconds, duration: duration.seconds))
             cursor = CMTimeAdd(cursor, duration)
         }
@@ -126,16 +112,9 @@ enum MediaExporter {
         return Tape(composition: composition, videoComposition: videoComposition, chapters: chapters)
     }
 
-    static func orientedSize(of asset: AVURLAsset) async -> CGSize? {
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let loaded = try? await track.load(.naturalSize, .preferredTransform) else { return nil }
-        let rect = CGRect(origin: .zero, size: loaded.0).applying(loaded.1)
-        return CGSize(width: abs(rect.width), height: abs(rect.height))
-    }
-
     @MainActor
     static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
-        let tape = try await build(tapeClips(for: audition, takes: takes))
+        let tape = try await build(clips(for: audition, takes: takes))
         let composition = tape.composition
         let videoComposition = tape.videoComposition
 
