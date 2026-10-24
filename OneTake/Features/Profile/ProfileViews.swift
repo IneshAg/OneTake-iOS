@@ -137,8 +137,23 @@ struct ProfileView: View {
 
                         Divider().padding(.vertical, 2)
 
-                        if store.isSignedIn {
-                            Button { store.isOnboarded = false } label: {
+                        if let account = store.account {
+                            HStack {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(account.name ?? account.email ?? "Signed in").font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                        Text("With \(account.providerName)" + (account.name != nil ? (account.email.map { " · \($0)" } ?? "") : ""))
+                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                } icon: { Image(systemName: "person.crop.circle.fill").foregroundStyle(OT.accent) }
+                                Spacer()
+                            }
+                            .frame(minHeight: 44)
+
+                            Divider().padding(.vertical, 2)
+
+                            // Signs out only — onboarding, auditions and takes stay exactly as they are.
+                            Button { store.signOut(); Haptics.tick() } label: {
                                 HStack {
                                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                                         .font(.otBody.weight(.medium))
@@ -154,7 +169,7 @@ struct ProfileView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Label("Sign in", systemImage: "person.crop.circle.badge.plus")
                                             .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
-                                        Text("Only needed to share a link or sync across devices — everything here already works without it.")
+                                        Text("With Apple or Google. Only needed to send a tape as a link — everything else works without it.")
                                             .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                     }
                                     Spacer()
@@ -174,7 +189,7 @@ struct ProfileView: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSignIn) {
-            SignInView { store.isSignedIn = true; showSignIn = false }
+            SignInView { account in store.account = account; showSignIn = false }
         }
     }
 

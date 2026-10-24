@@ -25,6 +25,7 @@ struct PackageView: View {
     @State private var uploading = false
     /// Last progress pushed to the Live Activity — updates are throttled to 5% steps.
     @State private var reportedProgress = -1.0
+    @State private var showSignIn = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -45,6 +46,13 @@ struct PackageView: View {
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
                         endUpload()
                     }
+                }
+            }
+            .sheet(isPresented: $showSignIn) {
+                SignInView(reason: "A link puts your tape online, so it's tied to your account. Everything else in OneTake works without one.") { account in
+                    store.account = account
+                    showSignIn = false
+                    send()
                 }
             }
             .sheet(isPresented: $showPreview) {
@@ -138,6 +146,11 @@ struct PackageView: View {
         // A submission link is the one thing that needs an account — the actor's own iCloud. File
         // hand-offs to the casting sites never do.
         let asLink = a.destination == .emailOrLink
+        // Account first (Apple or Google), then iCloud, which hosts the file.
+        if asLink && store.account == nil {
+            showSignIn = true
+            return
+        }
         if asLink && !CloudLink.isAvailable {
             exportErrorMessage = CloudLink.CloudError.iCloudUnavailable.errorDescription
             phase = .failed
