@@ -43,7 +43,11 @@ struct RecordButton: View {
 
 struct ShootSetupView: View {
     let auditionID: Audition.ID
+    /// The scene to shoot, when the actor came from a particular one; otherwise the next one due.
+    var scene: Int? = nil
     @Environment(AppStore.self) private var store
+
+    private var shootScene: Int { scene ?? store.sceneToShoot(auditionID) }
     /// Focus/Do Not Disturb can't be read or set by an app, so this one is the actor's own tick.
     @State private var silenced = false
 
@@ -77,10 +81,10 @@ struct ShootSetupView: View {
                                 detail: isHeadset ? "Close to your mouth — good for sound." : "Stay within an arm's length or two of the phone.", ok: true))
         }
 
-        if let a = store.audition(auditionID), let scene = a.scenes.first {
-            let readerLines = scene.lines.filter { !$0.isMine }
+        if let a = store.audition(auditionID), a.scenes.indices.contains(shootScene) {
+            let readerLines = a.scenes[shootScene].lines.filter { !$0.isMine }
             let recorded = readerLines.indices.filter {
-                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: $0).path)
+                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: shootScene, line: $0).path)
             }.count
             if !readerLines.isEmpty {
                 checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(readerLines.count) reader lines recorded",
@@ -109,7 +113,7 @@ struct ShootSetupView: View {
                 ForEach(rows, id: \.eyebrow) { c in
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
                     if c.eyebrow == "Reader", !c.ok {
-                        Button { store.push(.recordReader(auditionID)) } label: { Label("Record the reader", systemImage: "mic") }
+                        Button { store.push(.recordReader(auditionID, sceneIndex: shootScene)) } label: { Label("Record the reader", systemImage: "mic") }
                             .buttonStyle(.bordered).buttonBorderShape(.capsule)
                     }
                     if c.eyebrow == "Interruptions", !silenced {
@@ -125,7 +129,7 @@ struct ShootSetupView: View {
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
-            Button { store.camera = .shoot(auditionID) } label: { Label("Open the camera", systemImage: "camera.fill") }
+            Button { store.camera = .shoot(auditionID, scene: shootScene) } label: { Label("Open the camera", systemImage: "camera.fill") }
                 .buttonStyle(.otPrimary)
                 .padding(.horizontal, OT.gutter).padding(.vertical, 8)
                 .background(OT.bgCanvas)
@@ -152,11 +156,15 @@ struct ShootFlow: View {
     enum Stage { case check, slate, slateDone, fullLength, scene, saved }
 
     let auditionID: Audition.ID
+    /// Which scene to open on; nil picks the next one still to shoot.
+    var initialScene: Int? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
     @State private var stage: Stage = .check
+    /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
+    @State private var sceneIndex = 0
     @State private var countdown: Int?
     @State private var lineIndex = 0
     @State private var takeNumber = 1
@@ -194,6 +202,7 @@ struct ShootFlow: View {
         .statusBarHidden(camera.state == .recording)
         .keepScreenAwake()
         .task {
+            sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
             if await CameraController.requestAccess() { camera.configure(position: .front) }
             if await SpeechFollower.requestAccess() { follower.start() }
         }
@@ -260,14 +269,17 @@ struct ShootFlow: View {
     @ViewBuilder private func overlay(for a: Audition) -> some View {
         switch stage {
         case .check:
-            HStack(spacing: 6) { ForEach(["Framing", "Eyeline", "Light", "Sound"], id: \.self) { chip("checkmark", $0) } }
+            // Nothing measures these before the take (Tape Check does, afterwards), so they're a
+            // reminder, not ticks.
+            chip("viewfinder", "Check framing, eyeline, light and sound")
+            scenePicker(a)
         case .slate:
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
         case .slateDone:
-            resultCard(title: "Slate’s done.", detail: "0:05 · saved · opens every scene in \(a.project)",
+            resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
                        primary: ("Next: full length", { stage = .fullLength }),
                        secondary: ("Redo", { stage = .slate }),
-                       tertiary: ("Skip full length — it’s optional", { stage = .scene }))
+                       more: [("Skip full length — it’s optional", { stage = .scene })])
         case .fullLength:
             promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
             if camera.state != .recording {
@@ -276,7 +288,8 @@ struct ShootFlow: View {
                     .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
             }
         case .scene:
-            let lines = a.scenes.first?.lines ?? []
+            if camera.state != .recording { scenePicker(a) }
+            let lines = sceneLines ?? []
             if lines.indices.contains(lineIndex) {
                 promptCard(eyebrow: lines[lineIndex].isMine ? "\(lines[lineIndex].character) · you" : lines[lineIndex].character,
                            text: lines[lineIndex].text, mine: lines[lineIndex].isMine)
@@ -288,10 +301,17 @@ struct ShootFlow: View {
                     })
             }
         case .saved:
-            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · reader track under your voice",
-                       primary: ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }),
-                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
-                       tertiary: ("Done for now", { finish(goTo: nil) }))
+            if let next = nextUnshotScene(in: a) {
+                resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · \(a.scenes[next].title) is still to shoot",
+                           primary: ("Next: \(a.scenes[next].title)", { moveToScene(next) }),
+                           secondary: ("Go again", { lineIndex = 0; stage = .scene }),
+                           more: [("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }), ("Done for now", { finish(goTo: nil) })])
+            } else {
+                resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · saved on this iPhone",
+                           primary: ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }),
+                           secondary: ("Go again", { lineIndex = 0; stage = .scene }),
+                           more: [("Done for now", { finish(goTo: nil) })])
+            }
         }
     }
 
@@ -356,7 +376,65 @@ struct ShootFlow: View {
 
     // MARK: Actions
 
-    private var sceneLines: [ScriptLine]? { store.audition(auditionID)?.scenes.first?.lines }
+    private var sceneLines: [ScriptLine]? {
+        guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return nil }
+        return scenes[sceneIndex].lines
+    }
+
+    /// Scene chips, shown only when the sides have more than one scene and nothing is rolling.
+    @ViewBuilder private func scenePicker(_ a: Audition) -> some View {
+        if a.scenes.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(a.scenes.indices, id: \.self) { i in
+                        let shot = store.takes.contains { $0.auditionID == auditionID && $0.sceneIndex == i }
+                        Button { pickScene(i) } label: {
+                            HStack(spacing: 4) {
+                                if shot { Image(systemName: "checkmark").font(.caption2) }
+                                Text(a.scenes[i].title).font(.otCaption.weight(.semibold))
+                            }
+                            .foregroundStyle(i == sceneIndex ? OT.labelOnAccent : .white)
+                            .padding(.horizontal, 10).frame(height: 30)
+                            .background(i == sceneIndex ? AnyShapeStyle(OT.accent) : AnyShapeStyle(Color.black.opacity(0.55)), in: Capsule())
+                        }
+                        .accessibilityLabel("\(a.scenes[i].title)\(shot ? ", has a take" : "")")
+                        .accessibilityAddTraits(i == sceneIndex ? .isSelected : [])
+                    }
+                }
+            }
+        }
+    }
+
+    private func pickScene(_ i: Int) {
+        guard camera.state != .recording, countdown == nil else { return }
+        stopReader()
+        sceneIndex = i
+        lineIndex = 0
+        follower.reset()
+        Haptics.tick()
+    }
+
+    /// The next scene (after this one, wrapping round) that has no take yet.
+    private func nextUnshotScene(in a: Audition) -> Int? {
+        let order = a.scenes.indices.filter { $0 > sceneIndex } + a.scenes.indices.filter { $0 < sceneIndex }
+        return order.first { i in !store.takes.contains { $0.auditionID == auditionID && $0.sceneIndex == i } }
+    }
+
+    /// On to another scene: this one is ticked off (it has a take), the prompter starts from the top.
+    private func moveToScene(_ next: Int) {
+        markSceneDone()
+        sceneIndex = next
+        lineIndex = 0
+        follower.reset()
+        stage = .scene
+    }
+
+    private func markSceneDone() {
+        // Only tick the scene off when a take for it actually exists.
+        guard store.takes.contains(where: { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }),
+              let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return }
+        store.markDone(.scene, in: auditionID, title: scenes[sceneIndex].title)
+    }
 
     private var readerGain: Float {
         switch readerVolume {
@@ -417,11 +495,6 @@ struct ShootFlow: View {
         }
     }
 
-    /// Note: recording currently always targets scene 0 — there's no scene picker ahead of "Before
-    /// you roll" yet, so a second scene can't be shot independently through this flow. Flagged as a
-    /// known gap rather than silently dropping extra scenes' takes into the same bucket.
-    private let sceneIndex = 0
-
     private func cut() {
         let cutStage = stage
         // Wait for the file to be finalized — reading `lastRecording` right after stopping would pick
@@ -463,12 +536,7 @@ struct ShootFlow: View {
     }
 
     private func finish(goTo route: Route?) {
-        // Only tick the scene off when a take for it actually exists.
-        if store.takes.contains(where: { $0.auditionID == auditionID && $0.sceneIndex == sceneIndex }) {
-            let title = store.audition(auditionID)?.scenes.indices.contains(sceneIndex) == true
-                ? store.audition(auditionID)?.scenes[sceneIndex].title : nil
-            store.markDone(.scene, in: auditionID, title: title)
-        }
+        markSceneDone()
         dismiss()
         if let route { store.push(route) } else { store.push(.auditionDetail(auditionID)) }
     }
@@ -501,7 +569,7 @@ struct ShootFlow: View {
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func resultCard(title: String, detail: String, primary: (String, () -> Void), secondary: (String, () -> Void), tertiary: (String, () -> Void)? = nil) -> some View {
+    private func resultCard(title: String, detail: String, primary: (String, () -> Void), secondary: (String, () -> Void), more: [(String, () -> Void)] = []) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.otTitle).foregroundStyle(OT.labelPrimary)
             Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -509,7 +577,9 @@ struct ShootFlow: View {
                 Button(secondary.0, action: secondary.1).buttonStyle(.otSecondary)
                 Button(primary.0, action: primary.1).buttonStyle(.otPrimary)
             }
-            if let tertiary { Button(tertiary.0, action: tertiary.1).font(.otHeadline).foregroundStyle(OT.accent) }
+            ForEach(Array(more.enumerated()), id: \.offset) { _, item in
+                Button(item.0, action: item.1).font(.otHeadline).foregroundStyle(OT.accent)
+            }
         }
         .padding(18)
         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))

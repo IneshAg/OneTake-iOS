@@ -22,7 +22,7 @@ struct PrepareView: View {
                     HStack {
                         Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         Spacer()
-                        Button { store.push(.reader(a.id)) } label: {
+                        Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
                             let readerName = scene.lines.first(where: { !$0.isMine })?.character.capitalized ?? "Reader"
                             Label("\(readerName) · your recording", systemImage: "circle.fill").labelStyle(DotLabelStyle(color: OT.reader))
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
@@ -95,7 +95,7 @@ struct PrepareView: View {
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
                     .padding(.horizontal, 14).frame(height: 44).background(OT.fillField, in: Capsule())
             }
-            Button { store.push(.shootSetup(a.id)) } label: {
+            Button { store.push(.shootSetup(a.id, scene: sceneIndex)) } label: {
                 Label("Record", systemImage: "record.circle").labelStyle(TrailingIconLabelStyle())
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelOnAccent)
                     .padding(.horizontal, 16).frame(height: 44).background(OT.accent, in: Capsule())
@@ -283,6 +283,7 @@ struct RunFinishedView: View {
 
 struct ReaderView: View {
     let auditionID: Audition.ID
+    let sceneIndex: Int
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var player = ReaderTrackPlayer()
@@ -290,7 +291,8 @@ struct ReaderView: View {
     @AppStorage("readerVolume") private var volume = "Quieter"
 
     private var readerLines: [ScriptLine] {
-        store.audition(auditionID)?.scenes.first?.lines.filter { !$0.isMine } ?? []
+        guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return [] }
+        return scenes[sceneIndex].lines.filter { !$0.isMine }
     }
     private var readerName: String { readerLines.first?.character.capitalized ?? "your reader" }
 
@@ -306,12 +308,12 @@ struct ReaderView: View {
                     Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 } else {
                     ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: index).path)
+                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
                         HStack(spacing: 12) {
                             Button {
                                 if recorded {
                                     if playingLine == index { player.stop(); playingLine = nil }
-                                    else { player.play(auditionID: auditionID, sceneIndex: 0, lineIndex: index); playingLine = index }
+                                    else { player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index); playingLine = index }
                                 }
                             } label: {
                                 Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
@@ -330,7 +332,7 @@ struct ReaderView: View {
                 Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
             }
             Section {
-                Button { store.push(.recordReader(auditionID)) } label: { IconRow(symbol: "mic", title: "Record a new track", detail: "Your voice · we leave pauses for your lines") }
+                Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record a new track", detail: "Your voice · we leave pauses for your lines") }
                     .buttonStyle(.plain)
             }
         }
@@ -348,6 +350,7 @@ struct ReaderView: View {
 
 struct RecordReaderView: View {
     let auditionID: Audition.ID
+    let sceneIndex: Int
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var lineIndex = 0
@@ -355,8 +358,8 @@ struct RecordReaderView: View {
     @State private var recorder = ReaderLineRecorder()
 
     var body: some View {
-        if let a = store.audition(auditionID), let firstScene = a.scenes.first {
-            let readerLines = firstScene.lines.filter { !$0.isMine }
+        if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
+            let readerLines = a.scenes[sceneIndex].lines.filter { !$0.isMine }
             let readerName = readerLines.first?.character.capitalized ?? "Reader"
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 4) { ForEach(readerLines.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
@@ -369,7 +372,7 @@ struct RecordReaderView: View {
                     Text(recording ? "Tap stop when you've said the line" : "Tap record when you're ready").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
                     RecordButton(isRecording: recording) {
                         if recording { recorder.stop(); lineIndex += 1; Haptics.success() }
-                        else { recorder.start(auditionID: auditionID, sceneIndex: 0, lineIndex: lineIndex) }
+                        else { recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) }
                         recording.toggle()
                     }
                     .frame(maxWidth: .infinity)
