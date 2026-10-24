@@ -20,3 +20,13 @@ jobs:
             -scheme OneTake \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+      # The camera, preview and photo code only exists in device builds (the Simulator has no
+      # camera, so it's behind #if targetEnvironment(simulator)); build for a device too so that
+      # code is compiled on every push.
+      - name: Build for iOS device
+        run: |
+          xcodebuild build \
+            -project OneTake.xcodeproj \
+            -scheme OneTake \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
