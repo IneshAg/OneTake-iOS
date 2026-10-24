@@ -7,9 +7,10 @@ enum Route: Hashable {
     case auditionDetail(Audition.ID)
     case prepare(Audition.ID, sceneIndex: Int)
     case runLines(Audition.ID, sceneIndex: Int)
-    case reader(Audition.ID)
-    case recordReader(Audition.ID)
-    case shootSetup(Audition.ID)
+    case reader(Audition.ID, sceneIndex: Int)
+    case recordReader(Audition.ID, sceneIndex: Int)
+    /// `scene` picks which scene the camera opens on; nil lets it pick the next one still to shoot.
+    case shootSetup(Audition.ID, scene: Int? = nil)
     case takes(Audition.ID)
     case tapeCheck(Audition.ID)
     case package(Audition.ID)
@@ -29,14 +30,14 @@ enum Route: Hashable {
 
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
 enum CameraFlow: Identifiable, Hashable {
-    case shoot(Audition.ID)          // camera check → slate → full length → scene → take saved
+    case shoot(Audition.ID, scene: Int? = nil)  // camera check → slate → full length → scene → take saved
     case headshot                    // front → left → right → crop
     case scanSides
     case practiceTake
 
     var id: String {
         switch self {
-        case .shoot(let id): "shoot-\(id)"
+        case .shoot(let id, _): "shoot-\(id)"
         case .headshot:      "headshot"
         case .scanSides:     "scan"
         case .practiceTake:  "practice"
@@ -174,6 +175,21 @@ final class AppStore {
             }
             if auditions[i].nextPiece == nil, auditions[i].status == .due { auditions[i].status = .ready }
         }
+    }
+
+    /// The scene the camera should open on: the first one whose checklist piece isn't done, else the
+    /// first with no takes yet, else the first.
+    func sceneToShoot(_ id: Audition.ID) -> Int {
+        guard let a = audition(id), !a.scenes.isEmpty else { return 0 }
+        let undone = Set(a.pieces.filter { $0.kind == .scene && !$0.isDone }.map(\.title))
+        if let i = a.scenes.indices.first(where: { undone.contains(a.scenes[$0].title) }) { return i }
+        if let i = a.scenes.indices.first(where: { i in !takes.contains { $0.auditionID == id && $0.sceneIndex == i } }) { return i }
+        return 0
+    }
+
+    /// The scene a checklist piece is about (scene pieces share their scene's title).
+    func sceneIndex(for piece: Piece, in id: Audition.ID) -> Int {
+        audition(id)?.scenes.firstIndex { $0.title == piece.title } ?? sceneToShoot(id)
     }
 
     /// The one "Next" action used everywhere an audition offers to continue: opens whatever its next

@@ -115,12 +115,13 @@ struct AuditionDetailView: View {
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
                 quoteLine(store.slate.spoken)
                 Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
-            } else if next?.kind == .scene, let scene = a.scenes.first {
+            } else if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
+                let scene = a.scenes[sceneIndex]
                 HStack { SectionLabel(text: "Up next · scene \(scene.number) of \(a.scenes.count)"); Spacer(); Text("≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60)) · \(scene.lines.filter(\.isMine).count) lines").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
                 Text(scene.title).font(.otTitle)
                 Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
-                Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: 0)) }.buttonStyle(.otPrimary)
+                Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: sceneIndex)) }.buttonStyle(.otPrimary)
             } else if next?.kind == .scene {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
                 Text("No sides captured yet").font(.otTitle)
@@ -201,7 +202,7 @@ struct PackageSheet: View {
         switch piece.kind {
         case .headshot: store.push(.headshots(for: a.id))
         case .slate, .fullLength: store.push(.shootSetup(a.id))
-        case .scene: store.push(.prepare(a.id, sceneIndex: 0))
+        case .scene: store.push(.prepare(a.id, sceneIndex: store.sceneIndex(for: piece, in: a.id)))
         }
     }
 }
