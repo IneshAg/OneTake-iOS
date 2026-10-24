@@ -11,12 +11,11 @@ struct PersistedState: Codable {
     var practice: [PracticePiece] = []
     var slate = SlateInfo()
     var isOnboarded = false
-    var isSignedIn = false
     /// How many saved records couldn't be read back and were left out. Never written to disk.
     var droppedRecords = 0
 
     private enum CodingKeys: String, CodingKey {
-        case auditions, takes, practice, slate, isOnboarded, isSignedIn
+        case auditions, takes, practice, slate, isOnboarded
     }
 }
 
@@ -41,7 +40,6 @@ extension PersistedState {
         practice = records(.practice)
         slate = (try? c.decodeIfPresent(SlateInfo.self, forKey: .slate)) ?? SlateInfo()
         isOnboarded = (try? c.decodeIfPresent(Bool.self, forKey: .isOnboarded)) ?? false
-        isSignedIn = (try? c.decodeIfPresent(Bool.self, forKey: .isSignedIn)) ?? false
         droppedRecords = dropped
     }
 }

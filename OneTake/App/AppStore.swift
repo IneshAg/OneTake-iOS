@@ -50,11 +50,8 @@ enum AppTab: Hashable { case auditions, practice, profile, search }
 @Observable
 final class AppStore {
     // Session — didSet persists to disk (debounced) so none of this is lost on relaunch.
+    /// No account: OneTake works fully offline, and "Email or link" uses the actor's own iCloud.
     var isOnboarded = false { didSet { persist() } }
-    /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
-    /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock
-    /// recording or export.
-    var isSignedIn = false { didSet { persist() } }
     var slate = SlateInfo() { didSet { persist() } }
 
     // Data
@@ -110,7 +107,6 @@ final class AppStore {
             practice = saved.practice
             slate = saved.slate == SlateInfo.legacyPlaceholder ? SlateInfo() : saved.slate
             isOnboarded = saved.isOnboarded
-            isSignedIn = saved.isSignedIn
         }
         isLoading = false
     }
@@ -119,7 +115,7 @@ final class AppStore {
     private func persist() {
         guard !isLoading else { return }
         saveTask?.cancel()
-        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, isSignedIn: isSignedIn)
+        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded)
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
@@ -372,6 +368,18 @@ final class AppStore {
         )
         practice.insert(piece, at: 0)
         return piece
+    }
+
+    /// A Run Lines pass that reached the end: the lines said without a prompt become the scene's
+    /// "lines learned", and its practice piece moves to the top as the one to pick up next.
+    func recordRun(auditionID: Audition.ID, sceneIndex: Int, linesOnYourOwn: Int) {
+        guard audition(auditionID)?.scenes.indices.contains(sceneIndex) == true else { return }
+        let piece = practicePiece(for: auditionID, sceneIndex: sceneIndex)
+        guard let i = practice.firstIndex(where: { $0.id == piece.id }) else { return }
+        var updated = practice[i]
+        updated.linesLearned = min(linesOnYourOwn, updated.linesTotal)
+        practice.remove(at: i)
+        practice.insert(updated, at: 0)
     }
 
     /// Push a route on the currently selected tab's stack.

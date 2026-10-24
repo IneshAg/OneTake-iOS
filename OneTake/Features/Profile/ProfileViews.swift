@@ -6,11 +6,8 @@ import AVKit
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearance = "system"
-    @State private var showSignIn = false
     @AppStorage("slateAtStart") private var slateAtStart = true
-    @AppStorage("cleanNoise") private var cleanNoise = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
-    @AppStorage("export") private var export = "1080p, landscape"
 
     var body: some View {
         ScrollView {
@@ -60,9 +57,16 @@ struct ProfileView: View {
                     SectionLabel(text: "Every time you record")
 
                     VStack(spacing: 0) {
-                        Toggle("Slate at the start", isOn: $slateAtStart)
+                        // "Room noise" and "Export" settings used to sit here; nothing ever applied
+                        // them, so they're gone until there's processing behind them.
+                        Toggle(isOn: $slateAtStart) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Slate at the start").font(.otBody).foregroundStyle(OT.labelPrimary)
+                                Text(slateAtStart ? "Slate and full length open the tape" : "Slate and full length close the tape")
+                                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                            }
+                        }
                             .tint(OT.accent)
-                            .foregroundStyle(OT.labelPrimary)
                             .frame(minHeight: 48)
 
                         Divider().padding(.vertical, 4)
@@ -80,24 +84,6 @@ struct ProfileView: View {
                         }
                         .frame(minHeight: 48)
 
-                        Divider().padding(.vertical, 4)
-
-                        Toggle("Clean up room noise", isOn: $cleanNoise)
-                            .tint(OT.accent)
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(minHeight: 48)
-
-                        Divider().padding(.vertical, 4)
-
-                        HStack {
-                            Text("Export").font(.otBody).foregroundStyle(OT.labelPrimary)
-                            Spacer()
-                            Picker("Export", selection: $export) {
-                                ForEach(["1080p, landscape", "4K, landscape", "1080p, portrait"], id: \.self) { Text($0) }
-                            }
-                            .tint(OT.accent)
-                        }
-                        .frame(minHeight: 48)
                     }
                     .padding(18)
                     .otCard(radius: 20)
@@ -134,35 +120,6 @@ struct ProfileView: View {
                             profileRow(symbol: "hand.raised", title: "Privacy & data")
                         }
                         .buttonStyle(.plain)
-
-                        Divider().padding(.vertical, 2)
-
-                        if store.isSignedIn {
-                            Button { store.isOnboarded = false } label: {
-                                HStack {
-                                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                                        .font(.otBody.weight(.medium))
-                                        .foregroundStyle(OT.danger)
-                                    Spacer()
-                                }
-                                .frame(minHeight: 44)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Button { showSignIn = true } label: {
-                                HStack(alignment: .top) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
-                                            .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
-                                        Text("Only needed to share a link or sync across devices — everything here already works without it.")
-                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                    }
-                                    Spacer()
-                                }
-                                .frame(minHeight: 44)
-                            }
-                            .buttonStyle(.plain)
-                        }
                     }
                     .padding(18)
                     .otCard(radius: 20)
@@ -173,9 +130,6 @@ struct ProfileView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showSignIn) {
-            SignInView { store.isSignedIn = true; showSignIn = false }
-        }
     }
 
     private func profileRow(symbol: String, title: String) -> some View {
@@ -248,7 +202,7 @@ struct PrivacyView: View {
                 LabeledContent("Links", value: "Hosted in your iCloud · expiry shown per tape")
             }
             Section {
-                Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
+                NavigationLink("Privacy policy") { PrivacyPolicyView() }
                 Button("Delete all local data", role: .destructive) { showConfirmDelete = true }
             } footer: {
                 Text("Clears headshots, reader tracks and every take on this iPhone. Sent tapes already delivered aren’t affected.")
@@ -280,6 +234,37 @@ struct PrivacyView: View {
         }
         for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
         Haptics.success()
+    }
+}
+
+// MARK: - Privacy policy
+
+/// What OneTake does with your data, in the app itself — there's no website for it to point at.
+/// Keep it in step with the code: every claim here should stay true.
+struct PrivacyPolicyView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                section("No account, no servers", "OneTake has no server and no account system. It doesn't collect analytics, show ads or track you, and nothing you add or record is sent to us.")
+                section("What stays on this iPhone", "Your auditions, sides, takes, slate, headshots, reader recordings and practice are stored in OneTake's own storage on this iPhone. Your iPhone's backups (iCloud Backup, or a computer) include them, the same as any app's data.")
+                section("Reading notices and sides", "Text in photos, scans and PDFs is read on this iPhone with Apple's Vision and PDFKit. Nothing is uploaded to do it.")
+                section("Voice commands and the prompter", "Speech recognition runs on this iPhone where it's supported. On iPhones that can't do it on the device, Apple's speech recognition service processes the audio under Apple's privacy policy. OneTake only listens on the camera, Run Lines and drill screens.")
+                section("Sending a tape", "A tape only leaves this iPhone when you send it. Through the Share Sheet it goes to the app or person you pick. \"Email or link\" uploads it to your own iCloud Drive and makes a download link; anyone with the link can download the tape until iCloud expires it.")
+                section("Reminders and widgets", "Deadline reminders are scheduled on this iPhone. Widgets and the Lock Screen countdown read a small summary (project, role, due date, progress) that OneTake keeps on this iPhone for them.")
+                section("Deleting your data", "Privacy & data → Delete all local data removes every take, headshot and reader recording. Deleting the app removes everything OneTake stored. Links you've already sent stay in your iCloud Drive until you delete them there.")
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.vertical, 12)
+        }
+        .otCanvas()
+        .navigationTitle("Privacy policy")
+    }
+
+    private func section(_ title: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.otHeadline).foregroundStyle(OT.labelPrimary)
+            Text(body).font(.otCallout).foregroundStyle(OT.labelSecondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
