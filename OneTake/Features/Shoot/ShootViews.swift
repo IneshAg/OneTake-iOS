@@ -164,6 +164,8 @@ struct ShootFlow: View {
     /// Your own recorded reader lines, played during a take so they land under your voice.
     @State private var reader = ReaderTrackPlayer()
     @State private var readerAdvance: Task<Void, Never>?
+    /// When the reader played during the current take — saved with it for Tape Check's reader level.
+    @State private var readerSpans: [Take.ReaderSpan] = []
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
     // Teleprompter settings from Prepare — applied to the in-camera prompter.
     @AppStorage("prompter.size") private var prompterSize = 1
@@ -370,6 +372,7 @@ struct ShootFlow: View {
     /// Rolling on a scene: start from the top, and if the scene opens on the reader, play them in.
     private func startScene() {
         lineIndex = 0
+        readerSpans = []
         follower.reset()
         speakIfReader()
     }
@@ -390,7 +393,10 @@ struct ShootFlow: View {
         let unrecordedPause = Double(lines[lineIndex].text.count) * 0.06 + 0.8
         readerAdvance?.cancel()
         readerAdvance = Task { @MainActor in
+            // Only your own recordings ever play on a tape — never the built-in rehearsal voice.
+            let start = camera.elapsed
             let played = await reader.playToEnd(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain)
+            if played { readerSpans.append(Take.ReaderSpan(start: start, end: camera.elapsed)) }
             try? await Task.sleep(for: .seconds(played ? 0.25 : unrecordedPause))
             guard !Task.isCancelled else { return }
             advanceLine()
@@ -455,7 +461,7 @@ struct ShootFlow: View {
                 saveError = failed; return
             }
             let take = Take(id: takeID, number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
-                             fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
+                             fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex, readerSpans: readerSpans)
             store.addTake(take)
             takeNumber = number
             stage = .saved

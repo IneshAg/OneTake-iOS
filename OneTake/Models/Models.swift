@@ -195,6 +195,15 @@ struct Take: Identifiable, Hashable, Codable {
     /// both; optional only so `Take` can still be constructed in previews/tests without one.
     var auditionID: Audition.ID?
     var sceneIndex: Int?
+    /// When your recorded reader lines were playing during the take, in seconds from its start, so
+    /// Tape Check can compare the reader's level with yours. nil for older takes, and after a trim
+    /// (the times no longer line up).
+    var readerSpans: [ReaderSpan]?
+
+    struct ReaderSpan: Hashable, Codable {
+        var start: Double
+        var end: Double
+    }
 }
 
 // MARK: - Tape check

@@ -350,6 +350,8 @@ final class AppStore {
         do { try FileManager.default.moveItem(at: edited, to: dest) } catch { return }
         try? FileManager.default.removeItem(at: old)
         takes[i].fileURL = dest
+        // Trimming shifts everything, so when the reader played no longer matches the file.
+        takes[i].readerSpans = nil
         Task { @MainActor in
             guard let seconds = try? await AVURLAsset(url: dest).load(.duration).seconds,
                   let j = self.takes.firstIndex(where: { $0.id == id }) else { return }

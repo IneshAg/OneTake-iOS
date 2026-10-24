@@ -27,6 +27,7 @@ enum TapeAnalyzer {
         var allLandscape = true
         var allHD = true
         var framingOK = true, lightOK = true, eyelineOK = true, audioOK = true
+        var readerChecked = false, readerOK = true
 
         for clip in clips {
             if Task.isCancelled { return report }
@@ -49,9 +50,12 @@ enum TapeAnalyzer {
             if video.contains(where: { $0.category == "Eyeline" }) { eyelineOK = false }
             report.findings += video
 
-            let audio = await audioFindings(for: clip, asset: asset)
-            if !audio.isEmpty { audioOK = false }
-            report.findings += audio
+            let spans = takes.first(where: { $0.fileURL == clip.url })?.readerSpans
+            let audio = await audioFindings(for: clip, asset: asset, readerSpans: spans)
+            if audio.findings.contains(where: { $0.category == "Sound" }) { audioOK = false }
+            if audio.readerChecked { readerChecked = true }
+            if audio.findings.contains(where: { $0.category == "Reader" }) { readerOK = false }
+            report.findings += audio.findings
         }
         guard !clips.isEmpty else { return report }
 
@@ -59,6 +63,7 @@ enum TapeAnalyzer {
         if lightOK { report.passed.append("Light") }
         if eyelineOK { report.passed.append("Facing camera") }
         if audioOK { report.passed.append("Sound level") }
+        if readerChecked && readerOK { report.passed.append("Reader level") }
         var passed = report.passed
         let package = packageFindings(audition, clips: clips, totalSeconds: totalSeconds,
                                       allLandscape: allLandscape, allHD: allHD, passed: &passed)
@@ -184,11 +189,14 @@ enum TapeAnalyzer {
 
     // MARK: Audio
 
-    private static func audioFindings(for clip: MediaExporter.Clip, asset: AVURLAsset) async -> [TapeFinding] {
+    /// `readerSpans` are when the take's reader recordings played; with them, the reader's level is
+    /// compared with yours. `readerChecked` says whether there was enough of both to compare.
+    private static func audioFindings(for clip: MediaExporter.Clip, asset: AVURLAsset,
+                                      readerSpans: [Take.ReaderSpan]?) async -> (findings: [TapeFinding], readerChecked: Bool) {
         // The full length is usually silent by design; only spoken clips are level-checked.
         guard clip.kind != .fullLength,
               let track = try? await asset.loadTracks(withMediaType: .audio).first,
-              let windows = audioWindows(asset, track: track), !windows.isEmpty else { return [] }
+              let windows = audioWindows(asset, track: track), !windows.isEmpty else { return ([], false) }
 
         var findings: [TapeFinding] = []
         func add(_ title: String, at time: Double, _ advice: String) {
@@ -196,8 +204,7 @@ enum TapeAnalyzer {
                                         advice: advice, clipURL: clip.url, seconds: time))
         }
         // Speaking level = the loud end of the clip (90th percentile), so pauses don't drag it down.
-        let sorted = windows.map(\.db).sorted()
-        let speaking = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.9))]
+        let speaking = loudEnd(windows)
         if speaking < -55 {
             add("There's no sound", at: 0, "Nothing was picked up. Check the microphone isn't covered and AirPods are connected if you're using them.")
         } else if speaking < -32, let quietest = windows.first(where: { $0.db < -32 }) {
@@ -206,7 +213,32 @@ enum TapeAnalyzer {
         if let clipped = windows.first(where: { $0.clipped }) {
             add("The sound distorts", at: clipped.time, "Your voice is clipping. Step back from the phone a little or bring your level down on the loud moments.")
         }
-        return findings
+
+        // Reader vs you: windows well inside a reader line against windows well clear of any. The
+        // span times come from the camera's own clock, so a quarter second either side is left out.
+        var readerChecked = false
+        if let spans = readerSpans, !spans.isEmpty {
+            let margin = 0.25
+            let reader = windows.filter { w in spans.contains { w.time >= $0.start + margin && w.time + 0.5 <= $0.end - margin } }
+            let you = windows.filter { w in !spans.contains { w.time + 0.5 > $0.start - margin && w.time < $0.end + margin } }
+            if reader.count >= 2, you.count >= 2 {
+                readerChecked = true
+                let louder = loudEnd(reader) - loudEnd(you)
+                if loudEnd(you) > -55, louder > 3, let first = reader.first {
+                    findings.append(TapeFinding(category: "Reader", title: "Your reader is \(Int(louder.rounded())) dB louder than you",
+                                                where_: "\(clip.label) · \(timestamp(first.time))",
+                                                advice: "Casting should hear you first. Set the reader to Quieter or Much quieter on the Reader screen, or stand a little closer to the phone.",
+                                                clipURL: clip.url, seconds: first.time))
+                }
+            }
+        }
+        return (findings, readerChecked)
+    }
+
+    /// The loud end of a stretch (90th percentile of its half-second levels), so pauses don't drag it down.
+    private static func loudEnd(_ windows: [AudioWindow]) -> Double {
+        let sorted = windows.map(\.db).sorted()
+        return sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.9))]
     }
 
     private struct AudioWindow { var time: Double; var db: Double; var clipped: Bool }
