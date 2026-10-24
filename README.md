@@ -1,166 +1,121 @@
 # OneTake · iOS 🎬
 
-> **The actor's self-tape audition studio.** Built with **SwiftUI**, **AVFoundation**, and **VisionKit** for iOS 18+.
+> **The actor's self-tape audition studio.** SwiftUI, AVFoundation, Vision and VisionKit, for iOS 18+.
 
+[![Build](https://github.com/IneshAg/OneTake-iOS/actions/workflows/build.yml/badge.svg)](https://github.com/IneshAg/OneTake-iOS/actions/workflows/build.yml)
 [![iOS](https://img.shields.io/badge/iOS-18.0%2B-blue.svg?style=flat&logo=apple)](https://developer.apple.com/ios/)
-[![Swift](https://img.shields.io/badge/Swift-5.10%20%2F%206.0-orange.svg?style=flat&logo=swift)](https://swift.org)
-[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-purple.svg?style=flat)](https://developer.apple.com/xcode/swiftui/)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat)](https://github.com/IneshAg/OneTake-iOS/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+OneTake takes an actor from a casting notice to a finished self-tape: it reads the notice and the
+sides, helps you learn the lines, films the slate and every scene with a prompter and your own
+recorded reader, checks the tape, and packages it the way casting asked. There's no account and no
+server — everything stays on the iPhone until you send it.
+
+> 🤖 **Android:** [OneTake-Android](https://github.com/IneshAg/OneTake-Android) (Kotlin, Jetpack Compose, CameraX).
 
 ---
 
-## 📱 Overview
+## ✨ Features
 
-**OneTake** is a dedicated audition recording studio and production assistant built for actors. It streamlines the entire self-tape lifecycle—from parsing casting notices and running lines with an automated teleprompter to filming multi-take scenes, running pre-flight checks, and packaging finished tapes to casting specifications.
+### Auditions
+- **Add from anywhere** — paste the notice, take a photo, scan the pages (VisionKit), pick a PDF or
+  text file, type it in, or **Share → OneTake** from Mail, WhatsApp, Safari, Photos or Files.
+  Everything is read on-device (Vision OCR, PDFKit).
+- **Reads the notice** — role, project, due date, number of scenes and what casting asked for
+  (slate, full length, landscape, length limit, destination). Anything it can't find, you fill in.
+- **Splits the sides into scenes** at each slugline (`INT.` / `EXT.`) or `SCENE 2` header, and marks
+  your lines.
+- **Checklist per audition** — headshot, slate, optional full length and one piece per scene, with a
+  single "Next" action that opens whatever's next.
+- Edit details, revised sides, callbacks, and filters for Active / Due this week / Sent / All.
 
-Designed meticulously around the **OneTake v2 · Light / Dark** design system with Velvet color tokens, dynamic system typography, and distraction-free filming ergonomics.
+### Learn the lines
+- **Prepare** — full lines, first letters, or hide yours (tap to peek), with casting's notes on top.
+- **Run lines** — your recorded reader plays their lines; speech recognition follows yours and moves on
+  when you've said it. Say "Line?" for a prompt. The end screen shows which lines you got on your own,
+  and that becomes the scene's "lines learned".
+- **Quick drills** — First-Letter prompts, Mask & Reveal (hide a quarter to all of each line), Audio Gap,
+  and a hands-free Audio Walk loop.
+- **Record the reader** in your own voice, one line at a time, per scene.
 
-> 🤖 **Android Companion:** Looking for the Android version? Check out [OneTake-Android](https://github.com/IneshAg/OneTake-Android), built with Kotlin, Jetpack Compose, and CameraX.
+### Shoot
+- Front or back camera at 1080p, recorded upright however the phone is held and never mirrored.
+- Slate, optional full length, then each scene — with a scene picker and "Next: Scene N".
+- Hands-free: say "Action" / "Cut" (only when said on their own), or use a volume button, Camera Control
+  or an AirPods stem press. The prompter follows your voice and plays your reader lines.
+- Hold-to-stop while rolling, so a stray tap can't end an emotional take.
 
----
+### Takes, Tape Check and sending
+- Takes per scene, circle your send take, trim, and private notes.
+- **Tape Check** analyses the actual tape on-device: face in frame, distance, headroom, centring, head turn,
+  lighting, silence, quiet voice, clipping, plus the package itself (slate, every scene shot, length,
+  orientation, file name).
+- **Preview** the whole tape, then **package** it into one `.mp4` named `LAST_FIRST_ROLE_PROJECT.mp4`,
+  with the slate at the start or the end.
+- Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) or as an **iCloud download
+  link** from your own iCloud Drive.
 
-## ✨ Key Features
-
-### 🏠 Hero Audition & Schedule
-- **Hero Audition Card**: At-a-glance dashboard showing your most urgent upcoming self-tape deadline, hours remaining, and today's practice schedule.
-- **Readiness Dial**: Visual completion indicator dynamically calculated from script memorization, slate status, and recorded scenes.
-
-### 📋 Audition Pipeline & Sides Scanner
-- **Library Management**: Filter auditions seamlessly across `Active`, `Due Soon`, `Ready`, and `Sent`.
-- **Sides Scanner**: Capture printed script pages directly using Apple's VisionKit (`VNDocumentCameraViewController`).
-- **Pieces Checklist**: Automatically track deliverables required by casting (Headshots, Spoken Slate, Full-Length Profile, Scene Takes).
-
-### 🎭 Prepare & Voice Rehearsal Studio
-- **Line Memorization Modes**: Switch between `Full lines`, `First letters` (mnemonic practice), and `Hide mine` (hide your dialogue for memory recall).
-- **Voice-Follow Teleprompter**: Automatic scrolling powered by on-device Speech Recognition (`SFSpeechRecognizer`) and `AVAudioEngine`.
-- **Reader Tracks**: Rehearse sides with your own recorded voice tracks or synthetic speech reader tracks.
-
-### 🎥 Studio Camera & Filming HUD
-- **Live Camera Studio**: Hardware-accelerated camera preview hosted via `AVCaptureVideoPreviewLayer`.
-- **Pre-Roll Slate & Countdown**: Automated 3-2-1 slate countdown with spoken slate overlay before scene capture begins.
-- **Exposure Lock & Grid**: Manual exposure locking and rule-of-thirds eye-line framing guides.
-- **Hold-to-Stop Protection**: Ergonomic hold-to-stop trigger to prevent accidental capture termination during emotional scenes.
-
-### ⭐ Takes Review & Automated Tape Check
-- **Circle Takes**: Scrub through recorded takes and long-press/tap to star (circle) your hero take for delivery. No take-comparison screen by design — the loop stays record → check → keep/retake/edit.
-- **Automated Tape Check**: Real-time pre-flight verification checking for framing positioning, eye-line alignment, and audio clipping/room noise.
-
-### 📦 Casting Package & Delivery
-- **One-Tap Packaging**: Package final videos according to industry standards without tedious external video editing.
-- **Export Presets**: Dedicated export configurations tailored for:
-  - **Actors Access**
-  - **Casting Networks**
-  - **Spotlight**
-  - **Direct Agency Email** (custom size/resolution optimization)
-- **Share Sheet Integration**: Native iOS system share sheet supporting AirDrop, Mail, and Files export.
-
-### 👤 Actor Profile, Slate & Headshots
-- **Digital Slate Studio**: Configure spoken slate specifications (Full Name, Height, Location/Based In, Representation) with real-time text and speech preview.
-- **Headshot Studio**: Guided capture flow for front, 3/4 left, and 3/4 right angles with oval face alignment overlays.
-- **Privacy First**: 100% on-device data retention. All media stays local to your device until explicitly exported.
+### Profile and the rest
+- Slate details, front / left / right headshots with a guide overlay, reader volume, appearance.
+- Deadline reminders (morning of, two hours before) scheduled locally, Home and Lock Screen widgets, and
+  a Live Activity countdown in the last 24 hours.
+- Privacy & data shows what's stored and deletes it; the privacy policy is in the app.
 
 ---
 
-## 🏛️ Architecture & Tech Stack
-
-The application leverages modern Swift 5.10 / Swift 6 paradigms with a clean modular structure:
+## 🏛️ Project layout
 
 ```
 OneTake/
-├── App/
-│   ├── OneTakeApp.swift        # App entry point, TabView hierarchy, sheet handlers
-│   └── AppStore.swift          # Centralized observable state & navigation router
-├── DesignSystem/
-│   ├── Theme.swift             # Velvet tokens, semantic colors, light/dark providers
-│   └── Components/
-│       └── Components.swift    # Custom buttons, dials, status tags, cards & HUD elements
-├── Models/
-│   ├── Models.swift            # Audition, Scene, Take, Slate, Deliverable & LineLearningMode data structures
-│   └── SampleData.swift        # Mock auditions and call sheets for simulator testing
-├── Features/
-│   ├── Onboarding/             # Welcome + slate setup only — guest-first, no sign-in wall, no upfront permission prompts
-│   ├── Auditions/              # Auditions library (absorbs what used to be a separate Home tab), add-audition flow, and detail breakdown
-│   ├── Prepare/                # Line memorization studio, reader audio, and teleprompter
-│   ├── Shoot/                  # Filming flows, live preview HUD, exposure lock
-│   ├── Takes/                  # Takes review, scrubbing, and automated tape check
-│   ├── Practice/               # Practice hub, scene drills, and practice recordings
-│   ├── Profile/                # Profile management, slate configuration, headshot studio
-│   └── Package/                # Export packaging and destination presets
-├── UIKitBridges/
-│   ├── CameraController.swift  # AVFoundation session management, photo & video output
-│   └── UIKitBridges.swift      # VisionKit scanner, ShareSheet, haptic feedback generators
-└── Resources/
-    └── Assets.xcassets         # Accent colors, headshots, and system symbols
+├── App/            AppStore (state + navigation), app entry & routes, Reminders, WidgetSync
+├── DesignSystem/   Velvet colour tokens (light/dark) and shared components
+├── Models/         Audition, Take, Scene, Slate… and ScriptParser
+├── Persistence/    JSON state on disk (tolerant of damaged records), media and headshot storage
+├── Features/       Auditions, Onboarding, Prepare, Practice, Shoot, Takes (incl. TapeAnalyzer),
+│                   Package (MediaExporter, CloudLink, Preview), Profile
+├── UIKitBridges/   CameraController (AVFoundation), speech follower, reader audio, trimmer, scanner
+└── Resources/      Asset catalog, PrivacyInfo.xcprivacy
+OneTakeWidgets/     Widgets and the Live Activity
+OneTakeShare/       "Share to OneTake" extension
+Shared/             Code shared with the extensions (widget snapshot, share inbox)
+OneTakeTests/       Unit tests
+project.yml         XcodeGen project definition
 ```
 
-### System Framework Integrations
-
-| Capability | System Framework / API |
-|---|---|
-| **Video & Photo Capture** | `AVFoundation` (`AVCaptureSession`, `AVCaptureMovieFileOutput`, `AVCapturePhotoOutput`) |
-| **Document Scanning** | `VisionKit` (`VNDocumentCameraViewController`) |
-| **Speech Recognition & Prompter** | `Speech` (`SFSpeechRecognizer`) & `AVFAudio` (`AVAudioEngine`) |
-| **Synthesized Speech Reader** | `AVFoundation` (`AVSpeechSynthesizer`) |
-| **Haptic Feedback** | `UIKit` (`UIImpactFeedbackGenerator`, `UINotificationFeedbackGenerator`, `UISelectionFeedbackGenerator`) |
-| **Share & Export** | `UIKit` (`UIActivityViewController`) |
-| **Declarative Project Generation** | `XcodeGen` (`project.yml`) |
-
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
-### Prerequisites
+Requirements: macOS with **Xcode 16 or later** (building with the iOS 26 SDK also turns on the
+search-tab behaviour) and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
-- **macOS Sonoma** or **macOS Sequoia**
-- **Xcode 16+** with the iOS 18+ SDK
-- **Homebrew** (for installing `xcodegen`)
+```bash
+git clone https://github.com/IneshAg/OneTake-iOS.git
+cd OneTake-iOS
+brew install xcodegen
+xcodegen generate
+open OneTake.xcodeproj
+```
 
-### Installation & Project Generation
+Run on an iPhone simulator or a device (set your team under *Signing & Capabilities*). On a device,
+the iCloud container `iCloud.com.onetake.app` and the App Group `group.com.onetake.app` must be
+registered for your team for "Email or link" sending, widgets and the share extension.
 
-OneTake uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) to maintain a clean git history free of cumbersome `.xcodeproj` merge conflicts.
+Tests: **⌘U** in Xcode, or
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/IneshAg/OneTake-iOS.git
-   cd OneTake-iOS
-   ```
+```bash
+xcodebuild test -project OneTake.xcodeproj -scheme OneTake -destination 'platform=iOS Simulator,name=iPhone 16'
+```
 
-2. **Install XcodeGen (if not already installed):**
-   ```bash
-   brew install xcodegen
-   ```
+CI (`.github/workflows/build.yml`) builds for the Simulator and for a device and runs the unit tests on
+every push and pull request.
 
-3. **Generate the Xcode project:**
-   ```bash
-   xcodegen generate
-   ```
-
-4. **Open and build:**
-   ```bash
-   open OneTake.xcodeproj
-   ```
-
-5. Select an **iPhone 16 / iPhone 16 Pro Simulator (iOS 18+)** or a physical device and press **⌘R** to run.
-
----
-
-## 📱 Simulator vs. Physical Device Notes
-
-- **Camera Feeds**: The iOS Simulator does not have access to a hardware camera sensor; OneTake automatically provides high-resolution simulated studio backgrounds so you can test all teleprompter and UI flows smoothly.
-- **Physical Device**: To record live video takes and capture headshots with real sensor hardware, select your target iPhone and configure your Development Team under *Signing & Capabilities* in Xcode.
-
----
-
-## 🎨 Design System & Ergonomics
-
-- **Velvet Color Scheme**: Minimalist aubergine palette optimized for low eye fatigue in dimly lit studio environments.
-- **Amber Signals Urgency**: Amber is reserved strictly for time-critical states (audition due dates, countdown timers).
-- **Fail-Safe Filming**: Accidental taps are avoided during shoots via hold-to-stop buttons and prominent status indicators.
-- **Full Light & Dark Mode**: Dynamic color providers ensure rich contrast across all lighting conditions.
+### Simulator notes
+The Simulator has no camera, so the camera screens show a plain silhouette and headshot capture saves a
+placeholder; recording itself needs a real iPhone.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
