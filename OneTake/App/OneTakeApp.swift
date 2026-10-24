@@ -1,4 +1,5 @@
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct OneTakeApp: App {
@@ -20,8 +21,11 @@ struct OneTakeApp: App {
             .environment(store)
             .tint(OT.accent)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+            .task { await store.validateAccount() }
             // Widgets and the Live Activity open "onetake://audition/<id>".
             .onOpenURL { url in
+                // Google's sign-in redirect comes back through here too.
+                if GIDSignIn.sharedInstance.handle(url) { return }
                 guard url.scheme == "onetake", url.host == "audition",
                       let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
                 store.camera = nil
@@ -129,8 +133,8 @@ extension View {
 
     @ViewBuilder
     func applySearchTabActivation() -> some View {
-        // `tabViewSearchActivation` only exists in the iOS 26 SDK (Swift 6.2 toolchains); older Xcodes
-        // must still be able to build the app.
+        // `#available` only guards the runtime; the API also has to exist in the SDK being built
+        // with (Xcode 26+). Older toolchains, like CI's Xcode 16, skip it entirely.
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.tabViewSearchActivation(.searchTabSelection)

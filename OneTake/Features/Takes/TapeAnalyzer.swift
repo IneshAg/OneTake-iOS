@@ -244,12 +244,13 @@ enum TapeAnalyzer {
             }
             guard samplesPerWindow > 0, let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             let length = CMBlockBufferGetDataLength(block)
-            let count = length / MemoryLayout<Float>.size
-            var floats = [Float](repeating: 0, count: count)
-            // `count` is read up front: reading `floats.count` inside its own mutable-bytes closure is an
-            // overlapping access the compiler rejects.
+            let sampleCount = length / MemoryLayout<Float>.size
+            var floats = [Float](repeating: 0, count: sampleCount)
+            // The byte count is computed outside the closure: reading `floats` while it's mutably
+            // borrowed is an overlapping access, which doesn't compile.
+            let byteCount = sampleCount * MemoryLayout<Float>.size
             let status = floats.withUnsafeMutableBytes { raw in
-                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: raw.baseAddress!)
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: byteCount, destination: raw.baseAddress!)
             }
             guard status == kCMBlockBufferNoErr else { continue }
             for sample in floats {
@@ -272,6 +273,10 @@ enum TapeAnalyzer {
         func add(_ title: String, _ advice: String) {
             findings.append(TapeFinding(category: "Package", title: title, where_: a.project, advice: advice))
         }
+
+        // Headshots go with the tape as photos; casting expects at least the front one.
+        if HeadshotStore.exists(key: "front") { passed.append("Headshots") }
+        else { add("No headshot yet", "Take your front headshot — it's sent with the tape as a photo. Profiles help on commercial calls.") }
 
         if clips.contains(where: { $0.kind == .slate }) { passed.append("Slate") }
         else { add("There's no slate yet", "Most casting offices want a slate first. Record one from the camera — it only takes 5 seconds.") }

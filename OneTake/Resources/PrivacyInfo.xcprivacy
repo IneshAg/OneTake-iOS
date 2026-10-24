@@ -4,7 +4,7 @@
   Privacy manifest (required for App Store submission). OneTake collects no data and does no
   tracking; these are the "required reason" APIs it calls and why. Keep in step with the code:
     UserDefaults      - settings (@AppStorage, Reminders, MediaExporter)                  -> CA92.1
-    File timestamps   - HeadshotCard keys its cached video on the headshots' modified date -> C617.1
+    File timestamps   - attributesOfItem reads the size of the tape and of stored media     -> C617.1
     Disk space        - the camera shows minutes of video left and warns when space is low -> 85F4.1, E174.1
 -->
 <plist version="1.0">

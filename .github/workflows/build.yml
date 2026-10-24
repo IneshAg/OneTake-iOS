@@ -16,6 +16,7 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
       - name: Build for iOS Simulator
+        # pipefail: without it the pipeline's status is xcpretty's, so a failed build passed.
         run: |
           set -o pipefail
           xcodebuild build \

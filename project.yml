@@ -10,6 +10,10 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
+packages:
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 8.0.0
 targets:
   OneTake:
     type: application
@@ -32,12 +36,30 @@ targets:
         # Shared with the widget extension, which reads the snapshot the app writes.
         com.apple.security.application-groups:
           - group.com.onetake.app
+        # Sign in with Apple (sign-in is only asked for when sending a tape as a link).
+        com.apple.developer.applesignin:
+          - Default
+    # Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE): Google's client ID and the
+    # URL schemes for Google's sign-in redirect and the widgets' onetake:// links.
+    info:
+      path: OneTake/Info.plist
+      properties:
+        GIDClientID: $(GOOGLE_CLIENT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [onetake]
+          - CFBundleURLSchemes: [$(GOOGLE_REVERSED_CLIENT_ID)]
     dependencies:
       - target: OneTakeWidgets
       - target: OneTakeShare
+      - package: GoogleSignIn
+        product: GoogleSignIn
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app
+        # From Google Cloud Console → Credentials → OAuth client ID (iOS). Until these are real,
+        # the Google button stays disabled rather than crashing.
+        GOOGLE_CLIENT_ID: YOUR_CLIENT_ID.apps.googleusercontent.com
+        GOOGLE_REVERSED_CLIENT_ID: com.googleusercontent.apps.YOUR_CLIENT_ID
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

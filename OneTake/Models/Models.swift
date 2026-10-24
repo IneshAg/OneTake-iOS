@@ -54,7 +54,7 @@ enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
         case .actorsAccess:    "H.264 .mp4 · 1080p · under 500 MB"
         case .castingNetworks: "H.264 .mp4 · 1080p · up to 300 MB"
         case .spotlight:       "H.264 .mp4 · 1080p"
-        case .emailOrLink:     "iCloud download link · no app needed to open"
+        case .emailOrLink:     "Download link · needs Apple or Google sign-in"
         }
     }
 }
