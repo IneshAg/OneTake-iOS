@@ -26,6 +26,14 @@ final class CameraController: NSObject {
     private var isStopping = false
     private(set) var position: Position = .front
 
+    /// Keeps recordings, photos and the preview upright however the phone is held. Without it every
+    /// clip is written in the sensor's own orientation, so only one way of holding the phone came out
+    /// the right way up.
+    @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    @ObservationIgnored private var rotationObservation: NSKeyValueObservation?
+    @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    @ObservationIgnored private var videoDevice: AVCaptureDevice?
+
     // MARK: Permissions
 
     static func requestAccess() async -> Bool {
@@ -72,7 +80,53 @@ final class CameraController: NSObject {
 
             session.commitConfiguration()
             session.startRunning()
-            Task { @MainActor in self.state = .ready }
+            Task { @MainActor in
+                self.videoDevice = camera
+                self.updateRotationCoordinator()
+                self.state = .ready
+            }
+        }
+    }
+
+    // MARK: Orientation
+
+    /// The on-screen preview registers itself so it can be kept level too.
+    @MainActor
+    func attachPreview(_ layer: AVCaptureVideoPreviewLayer) {
+        previewLayer = layer
+        updateRotationCoordinator()
+    }
+
+    @MainActor
+    private func updateRotationCoordinator() {
+        rotationObservation = nil
+        guard let videoDevice else { rotationCoordinator = nil; return }
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: videoDevice, previewLayer: previewLayer)
+        rotationCoordinator = coordinator
+        applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, change in
+            guard let angle = change.newValue else { return }
+            Task { @MainActor in self?.applyPreviewRotation(angle) }
+        }
+    }
+
+    @MainActor
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer?.connection, connection.isVideoRotationAngleSupported(angle) else { return }
+        connection.videoRotationAngle = angle
+    }
+
+    /// Levels an output for how the phone is held right now. Recordings and photos are also never
+    /// mirrored: the preview mirrors the front camera so it feels like a mirror, but casting should
+    /// see the shot the right way round (a mirrored file flips any text or set dressing behind you).
+    private func prepareOutput(_ connection: AVCaptureConnection?) {
+        guard let connection else { return }
+        if let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture, connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = false
         }
     }
 
@@ -114,9 +168,7 @@ final class CameraController: NSObject {
         guard state == .ready else { return }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("take-\(UUID().uuidString).mov")
-        if let connection = movieOutput.connection(with: .video), connection.isVideoMirroringSupported {
-            connection.isVideoMirrored = position == .front
-        }
+        prepareOutput(movieOutput.connection(with: .video))
         movieOutput.startRecording(to: url, recordingDelegate: self)
         state = .recording
         elapsed = 0
@@ -141,20 +193,36 @@ final class CameraController: NSObject {
 
     // MARK: Photo (headshots)
 
-    func capturePhoto(fallbackName: String = "Headshot", _ completion: @escaping (UIImage?) -> Void) {
+    /// Reports nil when nothing was captured (camera not ready, capture failed) — callers must not
+    /// save anything in that case.
+    func capturePhoto(_ completion: @escaping (UIImage?) -> Void) {
         #if targetEnvironment(simulator)
+        // No camera in the Simulator: a plain silhouette lets the flow be exercised there.
         Haptics.impact(.medium)
-        completion(UIImage(named: fallbackName) ?? UIImage(named: "Headshot"))
+        completion(Self.simulatorPlaceholder)
         #else
-        guard state == .ready, session.isRunning, photoOutput.connection(with: .video) != nil else {
-            completion(UIImage(named: fallbackName) ?? UIImage(named: "Headshot"))
+        guard state == .ready, session.isRunning, let connection = photoOutput.connection(with: .video) else {
+            completion(nil)
             return
         }
+        prepareOutput(connection)
         photoHandler = completion
         photoOutput.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
         Haptics.impact(.medium)
         #endif
     }
+
+    #if targetEnvironment(simulator)
+    private static var simulatorPlaceholder: UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 720, height: 960)).image { context in
+            UIColor(white: 0.12, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 720, height: 960))
+            UIColor(white: 0.25, alpha: 1).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 210, y: 230, width: 300, height: 300))
+            UIBezierPath(roundedRect: CGRect(x: 140, y: 560, width: 440, height: 460), cornerRadius: 120).fill()
+        }
+    }
+    #endif
 }
 
 extension CameraController: AVCaptureFileOutputRecordingDelegate {
@@ -178,7 +246,7 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
 
 extension CameraController: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        let image = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
+        let image = error == nil ? photo.fileDataRepresentation().flatMap(UIImage.init(data:)) : nil
         Task { @MainActor in self.photoHandler?(image); self.photoHandler = nil }
     }
 }
@@ -189,6 +257,8 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var gravity: AVLayerVideoGravity = .resizeAspectFill
+    /// Hands the preview layer to whoever keeps it level (see `CameraController.attachPreview`).
+    var onLayer: (@MainActor (AVCaptureVideoPreviewLayer) -> Void)? = nil
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
@@ -200,6 +270,7 @@ struct CameraPreview: UIViewRepresentable {
         view.backgroundColor = .black
         view.previewLayer.session = session
         view.previewLayer.videoGravity = gravity
+        onLayer?(view.previewLayer)
         return view
     }
 
@@ -222,7 +293,7 @@ struct CameraBackground: View {
                     .opacity(0.85)
             }
             #else
-            CameraPreview(session: controller.session)
+            CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
             #endif
         }
         .ignoresSafeArea()
