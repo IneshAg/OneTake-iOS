@@ -103,6 +103,7 @@ private struct RouteDestinations: ViewModifier {
             case .takes(let id):                     TakesView(auditionID: id)
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
             case .package(let id):                   PackageView(auditionID: id)
+            case .preview(let id):                   TapePreviewView(auditionID: id)
             case .headshots(let id):                 HeadshotsView(auditionID: id)
             case .editSlate:                         EditSlateView()
             case .privacy:                           PrivacyView()

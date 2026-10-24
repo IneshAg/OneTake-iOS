@@ -18,16 +18,37 @@ enum MediaExporter {
         }
     }
 
-    /// One recorded piece that goes on the tape, in tape order.
+    /// One piece that goes on the tape, in tape order.
     struct Clip: Hashable {
-        enum Kind: Hashable { case slate, fullLength, scene(Int) }
+        enum Kind: Hashable { case headshot, slate, fullLength, scene(Int) }
         let kind: Kind
         let label: String
         let url: URL
     }
 
-    /// What goes on the tape, in order: slate, full length, then the circled (or first) take of each
-    /// scene. Shared by the export and by Tape Check, so the check looks at exactly what gets sent.
+    /// A stretch of the finished tape — what Preview lists and jumps between.
+    struct Chapter: Hashable, Identifiable {
+        var id: Double { start }
+        let kind: Clip.Kind
+        let label: String
+        let start: Double
+        let duration: Double
+    }
+
+    /// The tape as a playable/exportable composition, with each clip's orientation re-applied.
+    struct Tape {
+        let composition: AVMutableComposition
+        let videoComposition: AVMutableVideoComposition
+        let chapters: [Chapter]
+        var duration: Double { chapters.last.map { $0.start + $0.duration } ?? 0 }
+    }
+
+    /// Off by default only when the actor turns it off (Preview's switch) — e.g. a notice that says
+    /// "no title cards".
+    static var opensWithHeadshot: Bool { UserDefaults.standard.object(forKey: "tape.headshotCard") as? Bool ?? true }
+
+    /// The recorded clips, in order: slate, full length, then the circled (or first) take of each
+    /// scene. Shared by the export, Preview and Tape Check, so all three look at the same thing.
     static func clips(for audition: Audition, takes: [Take]) -> [Clip] {
         var clips: [Clip] = []
         if let s = audition.slateVideoURL { clips.append(Clip(kind: .slate, label: "Slate", url: s)) }
@@ -44,24 +65,33 @@ enum MediaExporter {
         return clips
     }
 
-    @MainActor
-    static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
+    /// Everything on the tape: the audition headshots as an opening card (when taken, and unless
+    /// switched off), then the recorded clips.
+    static func tapeClips(for audition: Audition, takes: [Take]) async -> [Clip] {
+        let recorded = clips(for: audition, takes: takes)
+        guard opensWithHeadshot, let first = recorded.first,
+              let size = await orientedSize(of: AVURLAsset(url: first.url)),
+              let card = await HeadshotCard.video(size: size) else { return recorded }
+        return [Clip(kind: .headshot, label: "Headshot", url: card)] + recorded
+    }
+
+    /// Joins the clips into one composition. Used for the instant Preview and for the export.
+    static func build(_ clips: [Clip]) async throws -> Tape {
         let composition = AVMutableComposition()
         guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
               let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw ExportError.trackCreationFailed }
-
-        let clipURLs = clips(for: audition, takes: takes).map(\.url)
-        guard !clipURLs.isEmpty else { throw ExportError.nothingToExport }
+        guard !clips.isEmpty else { throw ExportError.nothingToExport }
 
         // Each clip carries its own orientation (portrait capture, front-camera mirroring) in its
         // track's preferredTransform. Copying frames alone drops that, so the transforms are re-applied
         // per clip through a video composition.
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
         var renderSize: CGSize?
+        var chapters: [Chapter] = []
         var cursor = CMTime.zero
-        for url in clipURLs {
-            let asset = AVURLAsset(url: url)
+        for clip in clips {
+            let asset = AVURLAsset(url: clip.url)
             guard let duration = try? await asset.load(.duration) else { continue }
             let range = CMTimeRange(start: .zero, duration: duration)
             if let vTrack = try? await asset.loadTracks(withMediaType: .video).first {
@@ -69,7 +99,8 @@ enum MediaExporter {
                 if let loaded = try? await vTrack.load(.naturalSize, .preferredTransform) {
                     let (naturalSize, transform) = loaded
                     layerInstruction.setTransform(transform, at: cursor)
-                    if renderSize == nil {
+                    // Sized from the first real recording, so a headshot card never decides the frame.
+                    if renderSize == nil, clip.kind != .headshot {
                         let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
                         renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
                     }
@@ -78,6 +109,9 @@ enum MediaExporter {
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {
                 try? audioTrack.insertTimeRange(range, of: aTrack, at: cursor)
             }
+            let label = clip.kind == .headshot || clip.kind == .slate || clip.kind == .fullLength
+                ? clip.label : (clip.label.components(separatedBy: " · ").first ?? clip.label)
+            chapters.append(Chapter(kind: clip.kind, label: label, start: cursor.seconds, duration: duration.seconds))
             cursor = CMTimeAdd(cursor, duration)
         }
         guard cursor > .zero else { throw ExportError.nothingToExport }
@@ -89,6 +123,21 @@ enum MediaExporter {
         videoComposition.instructions = [instruction]
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
         videoComposition.renderSize = renderSize ?? CGSize(width: 1080, height: 1920)
+        return Tape(composition: composition, videoComposition: videoComposition, chapters: chapters)
+    }
+
+    static func orientedSize(of asset: AVURLAsset) async -> CGSize? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let loaded = try? await track.load(.naturalSize, .preferredTransform) else { return nil }
+        let rect = CGRect(origin: .zero, size: loaded.0).applying(loaded.1)
+        return CGSize(width: abs(rect.width), height: abs(rect.height))
+    }
+
+    @MainActor
+    static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
+        let tape = try await build(tapeClips(for: audition, takes: takes))
+        let composition = tape.composition
+        let videoComposition = tape.videoComposition
 
         let fileName = audition.deliverableFileName(slate: slate)
         let outputDir = MediaStore.directory("Exports")

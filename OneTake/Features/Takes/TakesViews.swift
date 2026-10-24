@@ -201,7 +201,8 @@ struct TapeCheckView: View {
         .navigationTitle("Tape check").navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {
-                Button("Continue to package") { store.push(.package(auditionID)) }.buttonStyle(.otPrimary)
+                // Checked first, then watched: Preview is the last look before packaging.
+                Button("Preview the tape") { store.push(.preview(auditionID)) }.buttonStyle(.otPrimary)
                 if let first = report?.findings.first(where: { $0.clipURL != nil }) {
                     Button("Watch the moments") { finding = first }
                         .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
