@@ -11,11 +11,14 @@ struct PersistedState: Codable {
     var practice: [PracticePiece] = []
     var slate = SlateInfo()
     var isOnboarded = false
+    /// Optional, so state saved before accounts existed still loads (an old `isSignedIn` flag is
+    /// simply ignored — it never had a real account behind it).
+    var account: Account?
     /// How many saved records couldn't be read back and were left out. Never written to disk.
     var droppedRecords = 0
 
     private enum CodingKeys: String, CodingKey {
-        case auditions, takes, practice, slate, isOnboarded
+        case auditions, takes, practice, slate, isOnboarded, account
     }
 }
 
@@ -40,6 +43,7 @@ extension PersistedState {
         practice = records(.practice)
         slate = (try? c.decodeIfPresent(SlateInfo.self, forKey: .slate)) ?? SlateInfo()
         isOnboarded = (try? c.decodeIfPresent(Bool.self, forKey: .isOnboarded)) ?? false
+        account = try? c.decodeIfPresent(Account.self, forKey: .account)
         droppedRecords = dropped
     }
 }
@@ -148,7 +152,6 @@ enum MediaStore {
 // MARK: - Headshots (real captured photos, keyed by angle)
 
 enum HeadshotStore {
-    static let keys = ["front", "left", "right"]
 
     /// Headshots are drawn in list rows that re-render often; decoding the JPEG from disk every time
     /// made scrolling the auditions list do file I/O per card.
@@ -175,9 +178,21 @@ enum HeadshotStore {
         FileManager.default.fileExists(atPath: url(for: key).path)
     }
 
-    /// How many of front / left / right have actually been taken.
-    static var count: Int { keys.filter(exists).count }
+    /// The audition headshots that have been taken, in order: front, then left and right profiles.
+    static let angles: [(key: String, title: String)] = [("front", "Front"), ("left", "Left profile"), ("right", "Right profile")]
+    static var taken: [(key: String, title: String)] { angles.filter { exists(key: $0.key) } }
 
     /// Call after deleting the headshots folder so stale images aren't drawn from memory.
     static func clearCache() { cache.removeAllObjects() }
+
+    /// Copies of the taken headshots named to match the tape (LAST_FIRST_ROLE_PROJECT_HEADSHOT_FRONT.jpg),
+    /// to send alongside it as photos.
+    static func deliverables(baseName: String) -> [URL] {
+        let dir = MediaStore.directory("Exports")
+        return taken.compactMap { angle in
+            let dest = dir.appendingPathComponent("\(baseName)_HEADSHOT_\(angle.key.uppercased()).jpg")
+            try? FileManager.default.removeItem(at: dest)
+            return (try? FileManager.default.copyItem(at: url(for: angle.key), to: dest)) != nil ? dest : nil
+        }
+    }
 }

@@ -50,8 +50,12 @@ enum AppTab: Hashable { case auditions, practice, profile, search }
 @Observable
 final class AppStore {
     // Session — didSet persists to disk (debounced) so none of this is lost on relaunch.
-    /// No account: OneTake works fully offline, and "Email or link" uses the actor's own iCloud.
     var isOnboarded = false { didSet { persist() } }
+    /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
+    /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock
+    /// recording or export.
+    var account: Account? { didSet { persist() } }
+    var isSignedIn: Bool { account != nil }
     var slate = SlateInfo() { didSet { persist() } }
 
     // Data
@@ -109,6 +113,7 @@ final class AppStore {
             practice = saved.practice
             slate = saved.slate == SlateInfo.legacyPlaceholder ? SlateInfo() : saved.slate
             isOnboarded = saved.isOnboarded
+            account = saved.account
         }
         isLoading = false
     }
@@ -117,7 +122,7 @@ final class AppStore {
     private func persist() {
         guard !isLoading else { return }
         saveTask?.cancel()
-        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded)
+        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
@@ -128,6 +133,20 @@ final class AppStore {
             WidgetSync.update(snapshot.auditions)
             await LiveActivitySync.update(snapshot.auditions)
         }
+    }
+
+    // MARK: Account
+
+    func signOut() {
+        AccountAuth.signOut(account)
+        account = nil
+    }
+
+    /// Drops an Apple account the person has revoked from Settings since last launch.
+    @MainActor
+    func validateAccount() async {
+        guard let account, !(await AccountAuth.isStillValid(account)) else { return }
+        self.account = nil
     }
 
     // MARK: Lookup

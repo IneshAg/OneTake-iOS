@@ -6,6 +6,7 @@ import AVKit
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearance = "system"
+    @State private var showSignIn = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
 
@@ -42,7 +43,7 @@ struct ProfileView: View {
                             Label("Headshots", systemImage: "person.crop.square")
                                 .font(.otBody).foregroundStyle(OT.labelPrimary)
                             Spacer()
-                            Text("\(HeadshotStore.count) of 3").font(.otCallout).foregroundStyle(OT.labelTertiary)
+                            Text("\(HeadshotStore.taken.count) of 3").font(.otCallout).foregroundStyle(OT.labelTertiary)
                             Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                         }
                         .frame(minHeight: 44)
@@ -120,6 +121,50 @@ struct ProfileView: View {
                             profileRow(symbol: "hand.raised", title: "Privacy & data")
                         }
                         .buttonStyle(.plain)
+
+                        Divider().padding(.vertical, 2)
+
+                        if let account = store.account {
+                            HStack {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(account.name ?? account.email ?? "Signed in").font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                        Text("With \(account.providerName)" + (account.name != nil ? (account.email.map { " · \($0)" } ?? "") : ""))
+                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                } icon: { Image(systemName: "person.crop.circle.fill").foregroundStyle(OT.accent) }
+                                Spacer()
+                            }
+                            .frame(minHeight: 44)
+
+                            Divider().padding(.vertical, 2)
+
+                            // Signs out only — onboarding, auditions and takes stay exactly as they are.
+                            Button { store.signOut(); Haptics.tick() } label: {
+                                HStack {
+                                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                                        .font(.otBody.weight(.medium))
+                                        .foregroundStyle(OT.danger)
+                                    Spacer()
+                                }
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Button { showSignIn = true } label: {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                                            .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                        Text("With Apple or Google. Only needed to send a tape as a link — everything else works without it.")
+                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                    Spacer()
+                                }
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(18)
                     .otCard(radius: 20)
@@ -130,6 +175,9 @@ struct ProfileView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showSignIn) {
+            SignInView { account in store.account = account; showSignIn = false }
+        }
     }
 
     private func profileRow(symbol: String, title: String) -> some View {
@@ -245,7 +293,8 @@ struct PrivacyPolicyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                section("No account, no servers", "OneTake has no server and no account system. It doesn't collect analytics, show ads or track you, and nothing you add or record is sent to us.")
+                section("No servers, no tracking", "OneTake has no server. It doesn't collect analytics, show ads or track you, and nothing you add or record is sent to us.")
+                section("Signing in", "You never need an account to add auditions, record or export. Signing in with Apple or Google is only asked for when you send a tape as a link. OneTake keeps the name and email that Apple or Google share on this iPhone to show who's signed in; it isn't sent anywhere else. Sign out from Profile at any time.")
                 section("What stays on this iPhone", "Your auditions, sides, takes, slate, headshots, reader recordings and practice are stored in OneTake's own storage on this iPhone. Your iPhone's backups (iCloud Backup, or a computer) include them, the same as any app's data.")
                 section("Reading notices and sides", "Text in photos, scans and PDFs is read on this iPhone with Apple's Vision and PDFKit. Nothing is uploaded to do it.")
                 section("Voice commands and the prompter", "Speech recognition runs on this iPhone where it's supported. On iPhones that can't do it on the device, Apple's speech recognition service processes the audio under Apple's privacy policy. OneTake only listens on the camera, Run Lines and drill screens.")
@@ -318,7 +367,7 @@ struct HeadshotsView: View {
 
     /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
     /// headshot showed as taken before it ever was.
-    private var taken: Int { HeadshotStore.keys.prefix { HeadshotStore.exists(key: $0) }.count }
+    private var taken: Int { HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key) }.count }
 
     var body: some View {
         ScrollView {

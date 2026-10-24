@@ -8,8 +8,8 @@
 
 OneTake takes an actor from a casting notice to a finished self-tape: it reads the notice and the
 sides, helps you learn the lines, films the slate and every scene with a prompter and your own
-recorded reader, checks the tape, and packages it the way casting asked. There's no account and no
-server — everything stays on the iPhone until you send it.
+recorded reader, checks the tape, and packages it the way casting asked. There's no server and no
+sign-up — everything stays on the iPhone until you send it.
 
 > 🤖 **Android:** [OneTake-Android](https://github.com/IneshAg/OneTake-Android) (Kotlin, Jetpack Compose, CameraX).
 
@@ -53,7 +53,8 @@ server — everything stays on the iPhone until you send it.
 - **Preview** the whole tape, then **package** it into one `.mp4` named `LAST_FIRST_ROLE_PROJECT.mp4`,
   with the slate at the start or the end.
 - Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) or as an **iCloud download
-  link** from your own iCloud Drive.
+  link** from your own iCloud Drive. Sending a link is the one place OneTake asks you to sign in, with
+  Apple or Google; headshots go along as photos.
 
 ### Profile and the rest
 - Slate details, front / left / right headshots with a guide overlay, reader volume, appearance.
@@ -99,7 +100,9 @@ open OneTake.xcodeproj
 
 Run on an iPhone simulator or a device (set your team under *Signing & Capabilities*). On a device,
 the iCloud container `iCloud.com.onetake.app` and the App Group `group.com.onetake.app` must be
-registered for your team for "Email or link" sending, widgets and the share extension.
+registered for your team for "Email or link" sending, widgets and the share extension, and Sign in
+with Apple enabled. For Google sign-in, set `GOOGLE_CLIENT_ID` and `GOOGLE_REVERSED_CLIENT_ID` in
+`project.yml` to your OAuth client (until then the Google button stays disabled).
 
 Tests: **⌘U** in Xcode, or
 

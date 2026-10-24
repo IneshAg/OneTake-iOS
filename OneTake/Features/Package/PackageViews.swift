@@ -25,6 +25,7 @@ struct PackageView: View {
     @State private var uploading = false
     /// Last progress pushed to the Live Activity — updates are throttled to 5% steps.
     @State private var reportedProgress = -1.0
+    @State private var showSignIn = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -45,6 +46,13 @@ struct PackageView: View {
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
                         endUpload()
                     }
+                }
+            }
+            .sheet(isPresented: $showSignIn) {
+                SignInView(reason: "A link puts your tape online, so it's tied to your account. Everything else in OneTake works without one.") { account in
+                    store.account = account
+                    showSignIn = false
+                    send()
                 }
             }
             .sheet(isPresented: $showPreview) {
@@ -138,6 +146,11 @@ struct PackageView: View {
         // A submission link is the one thing that needs an account — the actor's own iCloud. File
         // hand-offs to the casting sites never do.
         let asLink = a.destination == .emailOrLink
+        // Account first (Apple or Google), then iCloud, which hosts the file.
+        if asLink && store.account == nil {
+            showSignIn = true
+            return
+        }
         if asLink && !CloudLink.isAvailable {
             exportErrorMessage = CloudLink.CloudError.iCloudUnavailable.errorDescription
             phase = .failed
@@ -190,13 +203,16 @@ struct PackageView: View {
     /// What the share sheet hands on: the iCloud link (with a line of context) for "Email or link",
     /// otherwise the exported file itself.
     private func shareItems(_ a: Audition) -> [Any]? {
+        // The audition headshots go with the tape as photos, named to match it.
+        let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
+        let headshots: [Any] = HeadshotStore.deliverables(baseName: baseName)
         if a.destination == .emailOrLink {
             guard let link = a.shareLink else { return nil }
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
             let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
-            return ["\(who) — \(a.role), \(a.project).\(expiry)", link]
+            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + headshots
         }
-        return a.exportedFileURL.map { [$0] }
+        return a.exportedFileURL.map { [$0] + headshots }
     }
 
     private func cancelExport() {
