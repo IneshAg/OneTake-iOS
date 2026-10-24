@@ -125,10 +125,16 @@ extension View {
 
     @ViewBuilder
     func applySearchTabActivation() -> some View {
+        // `#available` only guards the runtime; the API also has to exist in the SDK being built
+        // with (Xcode 26+). Older toolchains, like CI's Xcode 16, skip it entirely.
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.tabViewSearchActivation(.searchTabSelection)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
