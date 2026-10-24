@@ -40,12 +40,20 @@ struct PracticeView: View {
 
                 SectionLabel(text: "Your pieces")
                 ForEach(store.practice) { p in
-                    HStack {
-                        VStack(alignment: .leading) { Text(p.title).font(.otBody); Text(p.detail).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
-                        Spacer()
-                        Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+                    Button { open(p) } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(p.title).font(.otBody).foregroundStyle(OT.labelPrimary)
+                                Text("\(p.detail) · \(p.linesLearned) of \(p.linesTotal) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+                        }
+                        .frame(minHeight: 56)
+                        .contentShape(Rectangle())
                     }
-                    .frame(minHeight: 56)
+                    .buttonStyle(.plain)
+                    .disabled(!canOpen(p))
                     Divider()
                 }
             }
@@ -54,6 +62,17 @@ struct PracticeView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// A piece opens its scene in Prepare — as long as the audition it came from still has it.
+    private func canOpen(_ p: PracticePiece) -> Bool {
+        guard let id = p.auditionID, let scene = p.sceneIndex else { return false }
+        return store.audition(id)?.scenes.indices.contains(scene) ?? false
+    }
+
+    private func open(_ p: PracticePiece) {
+        guard canOpen(p), let id = p.auditionID, let scene = p.sceneIndex else { return }
+        store.push(.prepare(id, sceneIndex: scene))
     }
 
     /// Quick Drills need a scene to operate on: prefer the piece currently being picked up, else

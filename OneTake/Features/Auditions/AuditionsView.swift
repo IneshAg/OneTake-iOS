@@ -263,7 +263,11 @@ struct SearchView: View {
                     Section("Practice") {
                         ForEach(practiceHits) { p in
                             Button {
-                                if let a = store.auditions.first { store.push(.runLines(a.id, sceneIndex: 0)) }
+                                // The piece's own audition and scene — not whichever audition happens to be first.
+                                if let id = p.auditionID, let scene = p.sceneIndex,
+                                   store.audition(id)?.scenes.indices.contains(scene) == true {
+                                    store.push(.runLines(id, sceneIndex: scene))
+                                }
                             } label: {
                                 ScheduleRow(eyebrow: "PRACTICE", value: "\(p.linesLearned)/\(p.linesTotal)", title: p.title, detail: p.detail)
                             }
