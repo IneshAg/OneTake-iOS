@@ -34,6 +34,7 @@ targets:
           - group.com.onetake.app
     dependencies:
       - target: OneTakeWidgets
+      - target: OneTakeShare
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app
@@ -73,6 +74,49 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.widgets
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
+  # "Share to OneTake" from Mail, WhatsApp, Safari, Photos and Files. Drops what's shared into the
+  # App Group inbox (Shared/ShareInbox.swift); the app opens Add audition with it.
+  OneTakeShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: OneTakeShare
+      - path: Shared/ShareInbox.swift
+      - path: Shared/WidgetSnapshot.swift
+    info:
+      path: OneTakeShare/Info.plist
+      properties:
+        CFBundleDisplayName: OneTake
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 10
+              NSExtensionActivationSupportsFileWithMaxCount: 5
+    entitlements:
+      path: OneTakeShare/OneTakeShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.onetake.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.share
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  OneTakeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: OneTakeTests
+    dependencies:
+      - target: OneTake
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.tests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   OneTake:
     build:
@@ -80,3 +124,7 @@ schemes:
         OneTake: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - OneTakeTests

@@ -34,6 +34,14 @@ struct OneTakeApp: App {
             guard phase == .active else { return }
             WidgetSync.update(store.auditions)
             LiveActivitySync.update(store.auditions)
+            // Anything shared to OneTake while it was closed opens Add audition with it — unless the
+            // actor is mid-shoot or already adding one; it waits in the inbox until next time.
+            if store.isOnboarded, store.camera == nil, !store.showAddAudition, store.incomingShare == nil,
+               let shared = ShareInbox.next() {
+                store.incomingShare = shared
+                store.tab = .auditions
+                store.showAddAudition = true
+            }
         }
     }
 }

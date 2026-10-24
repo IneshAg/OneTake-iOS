@@ -54,6 +54,8 @@ struct AddAuditionFlow: View {
                 path = [.couldNotRead]
             }
         }
+        // Something shared to OneTake from another app (see ShareInbox): read it like any other notice.
+        .task { await readSharedNotice() }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
@@ -68,6 +70,19 @@ struct AddAuditionFlow: View {
                 }
             }
         }
+    }
+
+    private func readSharedNotice() async {
+        guard let item = store.incomingShare else { return }
+        store.incomingShare = nil
+        var parts: [String] = []
+        if let text = item.text, !text.isEmpty { parts.append(text) }
+        parts += item.pdfs.compactMap(NoticeOCR.extractText(fromFileAt:))
+        let images = item.images.compactMap { UIImage(contentsOfFile: $0.path) }
+        if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
+        ShareInbox.remove(item)
+        let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { path = [.couldNotRead] } else { notice = text; path = [.reading] }
     }
 
     // MARK: 06 capture-first sheet
@@ -117,7 +132,7 @@ struct AddAuditionFlow: View {
                 }
                 .buttonStyle(.plain)
 
-                Label("Faster: Share from Mail or WhatsApp to OneTake", systemImage: "square.and.arrow.up")
+                Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
                     .font(.otFootnote).foregroundStyle(OT.accent)
                 Label("Read on this iPhone. Nothing is uploaded.", systemImage: "lock.fill")
                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
