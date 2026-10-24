@@ -73,7 +73,6 @@ struct Audition: Identifiable, Hashable, Codable {
     var destination: Destination
     var status: AuditionStatus
     var sentDate: Date?
-    var headshotAsset: String = "Headshot"
 
     /// Real recordings, once this audition has actually been shot — nil until then. Persisted as
     /// file URLs; the files themselves live under `MediaStore`.
@@ -228,10 +227,33 @@ func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> S
 // MARK: - Profile
 
 struct SlateInfo: Hashable, Codable {
-    var name: String = "Kabir Sharma"
-    var height: String = "5′ 11″"
-    var basedIn: String = "Mumbai"
+    /// Empty until the actor fills it in: every tape opens with this and every file is named after
+    /// it, so a made-up example would end up on real submissions.
+    var name: String = ""
+    var height: String = ""
+    var basedIn: String = ""
     var representation: String = ""
 
-    var spoken: String { "\(name). \(height). \(basedIn)." }
+    /// The design-mockup persona earlier builds pre-filled. Anyone who skipped the slate step still
+    /// has it saved; it's cleared on load (see `AppStore.init`).
+    static let legacyPlaceholder = SlateInfo(name: "Kabir Sharma", height: "5′ 11″", basedIn: "Mumbai", representation: "")
+
+    var isEmpty: Bool { name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// What the actor says to the lens — only the parts that are filled in.
+    var spoken: String {
+        guard !isEmpty else { return "Say your name, height and where you're based." }
+        return [name, height, basedIn]
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { $0 + "." }
+            .joined(separator: " ")
+    }
+
+    /// One line for Profile: "5′ 11″ · Mumbai · Self-represented".
+    var summary: String {
+        let rep = representation.trimmingCharacters(in: .whitespaces)
+        let parts = [height, basedIn].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return (parts + [rep.isEmpty ? "Self-represented" : rep]).joined(separator: " · ")
+    }
 }

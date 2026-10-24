@@ -262,18 +262,14 @@ struct IconRow: View {
 // MARK: - Headshot photo
 
 struct HeadshotImage: View {
-    var name: String = "Headshot"
-    /// When set, checks for a real captured photo on disk first (`HeadshotStore`) before falling
-    /// back to a bundled placeholder asset — real data takes priority over decorative sample art.
+    /// Which of the actor's own headshots to show (`front`, `left`, `right`). Without one taken —
+    /// or with no key — it's a neutral silhouette, never a stand-in photo of someone else.
     var realKey: String? = nil
 
     var body: some View {
         if let realKey, let real = HeadshotStore.load(key: realKey) {
             Image(uiImage: real).resizable().scaledToFill()
-        } else if UIImage(named: name) != nil {
-            Image(name).resizable().scaledToFill()
         } else {
-            // Placeholder until an asset is added; keeps layouts correct in previews.
             LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
                 .overlay(Image(systemName: "person.fill").font(.system(size: 40)).foregroundStyle(.white.opacity(0.35)))
         }

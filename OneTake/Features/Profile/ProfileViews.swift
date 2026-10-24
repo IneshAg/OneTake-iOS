@@ -25,10 +25,10 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Button { store.push(.editSlate) } label: {
                         HStack(spacing: 14) {
-                            HeadshotImage().frame(width: 64, height: 64).clipShape(Circle())
+                            HeadshotImage(realKey: "front").frame(width: 64, height: 64).clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
-                                Text("\(store.slate.height) · \(store.slate.basedIn) · \(store.slate.representation.isEmpty ? "Self-represented" : store.slate.representation)")
+                                Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
+                                Text(store.slate.summary)
                                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                             }
                             Spacer()
@@ -45,7 +45,7 @@ struct ProfileView: View {
                             Label("Headshots", systemImage: "person.crop.square")
                                 .font(.otBody).foregroundStyle(OT.labelPrimary)
                             Spacer()
-                            Text("1 of 3").font(.otCallout).foregroundStyle(OT.labelTertiary)
+                            Text("\(HeadshotStore.count) of 3").font(.otCallout).foregroundStyle(OT.labelTertiary)
                             Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                         }
                         .frame(minHeight: 44)
@@ -267,6 +267,7 @@ struct PrivacyView: View {
 
     private func deleteAll() {
         MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
+        HeadshotStore.clearCache()
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
         for i in store.auditions.indices {
@@ -332,7 +333,7 @@ struct HeadshotsView: View {
 
     /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
     /// headshot showed as taken before it ever was.
-    private var taken: Int { ["front", "left", "right"].prefix { HeadshotStore.exists(key: $0) }.count }
+    private var taken: Int { HeadshotStore.keys.prefix { HeadshotStore.exists(key: $0) }.count }
 
     var body: some View {
         ScrollView {
@@ -380,7 +381,7 @@ struct HeadshotsView: View {
         let key = title == "Front" ? "front" : title == "Left profile" ? "left" : "right"
         return ZStack(alignment: .bottomLeading) {
             if done {
-                HeadshotImage(name: title == "Front" ? "Headshot" : title == "Left profile" ? "HeadshotLeft" : "HeadshotRight", realKey: key)
+                HeadshotImage(realKey: key)
                 LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
                 Label(title, systemImage: "checkmark").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(12)
             } else {
@@ -411,12 +412,11 @@ struct HeadshotFlow: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppStore.self) private var store
-    @AppStorage("headshots.count") private var taken = 1
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
     @State private var angle: Angle = .front
-    @State private var review: UIImage?
     @State private var justCaptured = false
+    @State private var captureFailed = false
 
     var body: some View {
         ZStack {
@@ -481,6 +481,11 @@ struct HeadshotFlow: View {
             if event.phase == .ended { capture() }
         }
         .onDisappear { camera.stop(); follower.stop(); store.syncHeadshotPieces() }
+        .alert("Couldn’t take that photo", isPresented: $captureFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The camera wasn’t ready. Give it a second, then try again.")
+        }
     }
 
     private var referenceThumbnail: some View {
@@ -505,13 +510,12 @@ struct HeadshotFlow: View {
     private func capture() {
         guard !justCaptured else { return }
         justCaptured = true
-        let fallbackName = angle == .front ? "Headshot" : angle == .left ? "HeadshotLeft" : "HeadshotRight"
-        camera.capturePhoto(fallbackName: fallbackName) { image in
-            review = image
-            if let image { HeadshotStore.save(image, key: angle.rawValue) }
-            taken = max(taken, (Angle.allCases.firstIndex(of: angle) ?? 0) + 1)
-            Haptics.success()
+        camera.capturePhoto { image in
             justCaptured = false
+            // Nothing captured means nothing saved and no moving on — never a stand-in photo.
+            guard let image else { captureFailed = true; Haptics.warning(); return }
+            HeadshotStore.save(image, key: angle.rawValue)
+            Haptics.success()
             if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
                 angle = next
                 follower.reset()

@@ -95,7 +95,7 @@ struct AuditionCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            HeadshotImage(name: audition.headshotAsset, realKey: "front")
+            HeadshotImage(realKey: "front")
                 .frame(width: 88, height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -282,7 +282,7 @@ struct SearchView: View {
             // Profile / Settings Section
             if scope == .all || scope == .profile {
                 let profileItems: [(title: String, detail: String, route: Route)] = [
-                    ("Slate & bio", "\(store.slate.name) · \(store.slate.height) · \(store.slate.basedIn)", .editSlate),
+                    ("Slate & bio", store.slate.isEmpty ? "Name, height, city" : "\(store.slate.name) · \(store.slate.summary)", .editSlate),
                     ("Headshots", "Front, left profile, right profile", .headshots(for: nil)),
                     ("Notifications", "Deadlines, callbacks, tape delivery", .notifications),
                     ("Privacy & data", "Local storage, sent tapes, exports", .privacy)
