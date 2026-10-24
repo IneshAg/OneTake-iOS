@@ -3,15 +3,20 @@ import SwiftUI
 
 // MARK: - 20.0 Preview the tape
 //
-// The whole tape exactly as casting gets it — headshots, slate, full length, circled takes — played
-// instantly from the clips on this iPhone (no export needed), with chapters to jump between. Comes
-// after Tape Check and before Package: the last look before sending.
+// Exactly what casting gets, in order: the audition headshots as photos to click through, then the
+// tape — slate, full length, circled takes — played instantly from the clips on this iPhone (no
+// export needed), with chapters to jump between. Comes after Tape Check and before Package: the
+// last look before sending.
 
 struct TapePreviewView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
-    @AppStorage("tape.headshotCard") private var opensWithHeadshot = true
     @State private var tape: MediaExporter.Tape?
+    /// The audition headshots, sent as photos alongside the tape.
+    @State private var photos: [(title: String, image: UIImage)] = []
+    /// Showing the headshot photos (chapter 1) rather than the video.
+    @State private var showingPhotos = false
+    @State private var photoIndex = 0
     @State private var player: AVPlayer?
     @State private var now = 0.0
     @State private var timeObserver: Any?
@@ -20,22 +25,14 @@ struct TapePreviewView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let tape, let player {
-                VideoPlayer(player: player)
-                    .frame(height: 204)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
+                Group {
+                    if showingPhotos, !photos.isEmpty { photoViewer } else { VideoPlayer(player: player) }
+                }
+                .frame(height: 204)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
                 chapterBar(tape).padding(.horizontal, 20)
                 chapterList(tape).padding(.horizontal, 20).padding(.top, 16)
-                if HeadshotStore.exists(key: "front") {
-                    Toggle(isOn: $opensWithHeadshot) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Open with your headshots").font(.otBody).foregroundStyle(OT.cameraLabel)
-                            Text("Front, then profiles · off if the notice says no cards").font(.otCaption).foregroundStyle(OT.cameraLabel2)
-                        }
-                    }
-                    .tint(OT.accent)
-                    .padding(.horizontal, 20).padding(.top, 16)
-                }
             } else if failed {
                 Text("Nothing on the tape yet").font(.otTitle).foregroundStyle(OT.cameraLabel).padding(20)
                 Text("Record your slate and a take first.").font(.otCallout).foregroundStyle(OT.cameraLabel2).padding(.horizontal, 20)
@@ -67,15 +64,49 @@ struct TapePreviewView: View {
             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         }
         // Rebuilt whenever what's on the tape changes, or the headshot card is switched on/off.
-        .task(id: TapeKey(urls: currentClipURLs, headshot: opensWithHeadshot)) { await load() }
+        .task(id: currentClipURLs) { await load() }
         .onDisappear { stop() }
     }
-
-    private struct TapeKey: Hashable { let urls: [URL]; let headshot: Bool }
 
     private var currentClipURLs: [URL] {
         guard let a = store.audition(auditionID) else { return [] }
         return MediaExporter.clips(for: a, takes: store.takes).map(\.url)
+    }
+
+    // MARK: Headshots
+
+    /// Swipe, or tap to go to the next photo; past the last one, the tape starts — the same order
+    /// casting meets you in.
+    private var photoViewer: some View {
+        TabView(selection: $photoIndex) {
+            ForEach(Array(photos.enumerated()), id: \.offset) { index, photo in
+                Image(uiImage: photo.image)
+                    .resizable().scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .overlay(alignment: .bottomLeading) {
+                        Text("\(photo.title) · \(index + 1) of \(photos.count)")
+                            .font(.otCaption.weight(.semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 10).frame(height: 26)
+                            .background(OT.cameraGlass, in: Capsule())
+                            .padding(10)
+                    }
+                    .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: photos.count > 1 ? .always : .never))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if photoIndex + 1 < photos.count { withAnimation { photoIndex += 1 } } else { seek(to: 0) }
+        }
+        .accessibilityHint("Swipe for the next headshot")
+    }
+
+    private func showPhotos() {
+        player?.pause()
+        photoIndex = 0
+        showingPhotos = true
+        Haptics.tick()
     }
 
     // MARK: Chapters
@@ -84,12 +115,20 @@ struct TapePreviewView: View {
         VStack(alignment: .leading, spacing: 6) {
             GeometryReader { geo in
                 let total = max(tape.duration, 0.1)
-                let spacing = 3.0 * Double(max(tape.chapters.count - 1, 0))
+                let photoWidth = photos.isEmpty ? 0.0 : 24.0 + 3
+                let spacing = 3.0 * Double(max(tape.chapters.count - 1, 0)) + photoWidth
                 HStack(spacing: 3) {
+                    // Photos aren't timed, so their chapter is a short fixed segment at the start.
+                    if !photos.isEmpty {
+                        RoundedRectangle(cornerRadius: 4).fill(OT.accent)
+                            .opacity(showingPhotos ? 1 : 0.55)
+                            .frame(width: 24)
+                            .onTapGesture { showPhotos() }
+                    }
                     ForEach(tape.chapters) { chapter in
                         RoundedRectangle(cornerRadius: 4)
                             .fill(color(for: chapter, in: tape))
-                            .opacity(isCurrent(chapter) || now == 0 ? 1 : 0.55)
+                            .opacity(!showingPhotos && isCurrent(chapter) ? 1 : 0.55)
                             .frame(width: max(12, (geo.size.width - spacing) * chapter.duration / total))
                             .onTapGesture { seek(to: chapter.start) }
                     }
@@ -97,7 +136,7 @@ struct TapePreviewView: View {
             }
             .frame(height: 8)
             HStack {
-                Text(clock(now)).foregroundStyle(OT.cameraLabel)
+                Text(showingPhotos ? "Headshots · \(photoIndex + 1) of \(photos.count)" : clock(now)).foregroundStyle(OT.cameraLabel)
                 Spacer()
                 Text(clock(tape.duration)).foregroundStyle(OT.cameraLabel2)
             }
@@ -108,12 +147,35 @@ struct TapePreviewView: View {
     private func chapterList(_ tape: MediaExporter.Tape) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("CHAPTERS").font(.otCaption.weight(.semibold)).tracking(0.6).foregroundStyle(OT.cameraLabel2)
+            if photos.isEmpty {
+                Button { store.push(.headshots(for: auditionID)) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.crop.square").foregroundStyle(OT.warning)
+                        Text("No headshots yet").font(.otBody).foregroundStyle(OT.cameraLabel)
+                        Spacer()
+                        Text("Take them").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
+                    }
+                    .padding(.vertical, 6).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button { showPhotos() } label: {
+                    HStack(spacing: 12) {
+                        Text("1").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
+                        Text("Headshots").font(showingPhotos ? .otHeadline : .otBody).foregroundStyle(OT.cameraLabel)
+                        Spacer()
+                        Text("\(photos.count) photo\(photos.count == 1 ? "" : "s")").font(.otFootnote).foregroundStyle(OT.cameraLabel2)
+                    }
+                    .padding(.vertical, 6).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             ForEach(Array(tape.chapters.enumerated()), id: \.element.id) { index, chapter in
                 Button { seek(to: chapter.start) } label: {
                     HStack(spacing: 12) {
-                        Text("\(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
+                        Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
                         Text(chapter.label)
-                            .font(isCurrent(chapter) ? .otHeadline : .otBody)
+                            .font(!showingPhotos && isCurrent(chapter) ? .otHeadline : .otBody)
                             .foregroundStyle(OT.cameraLabel)
                         Spacer()
                         Text(clock(chapter.start)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
@@ -144,7 +206,10 @@ struct TapePreviewView: View {
         failed = false
         guard let a = store.audition(auditionID) else { return }
         let takes = store.takes
-        guard let built = try? await MediaExporter.build(await MediaExporter.tapeClips(for: a, takes: takes)),
+        photos = HeadshotStore.taken.compactMap { angle in HeadshotStore.load(key: angle.key).map { (title: angle.title, image: $0) } }
+        showingPhotos = !photos.isEmpty
+        photoIndex = 0
+        guard let built = try? await MediaExporter.build(MediaExporter.clips(for: a, takes: takes)),
               !Task.isCancelled else {
             failed = !Task.isCancelled
             return
@@ -160,6 +225,7 @@ struct TapePreviewView: View {
     }
 
     private func seek(to seconds: Double) {
+        showingPhotos = false
         player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         player?.play()
         now = seconds

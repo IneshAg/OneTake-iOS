@@ -190,12 +190,15 @@ struct PackageView: View {
     /// What the share sheet hands on: the iCloud link (with a line of context) for "Email or link",
     /// otherwise the exported file itself.
     private func shareItems(_ a: Audition) -> [Any]? {
+        // The audition headshots go with the tape as photos, named to match it.
+        let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
+        let headshots: [Any] = HeadshotStore.deliverables(baseName: baseName)
         if a.destination == .emailOrLink {
             guard let link = a.shareLink else { return nil }
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
-            return ["\(store.slate.name) — \(a.role), \(a.project).\(expiry)", link]
+            return ["\(store.slate.name) — \(a.role), \(a.project).\(expiry)", link] + headshots
         }
-        return a.exportedFileURL.map { [$0] }
+        return a.exportedFileURL.map { [$0] + headshots }
     }
 
     private func cancelExport() {
