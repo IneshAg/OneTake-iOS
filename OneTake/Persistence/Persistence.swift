@@ -11,7 +11,9 @@ struct PersistedState: Codable {
     var practice: [PracticePiece] = []
     var slate = SlateInfo()
     var isOnboarded = false
-    var isSignedIn = false
+    /// Optional, so state saved before accounts existed still loads (an old `isSignedIn` flag is
+    /// simply ignored — it never had a real account behind it).
+    var account: Account?
 }
 
 enum Persistence {
@@ -40,6 +42,15 @@ enum Persistence {
 enum MediaStore {
     static var documentsURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    /// iOS can move the app's container between installs, updates and restores, so a persisted absolute
+    /// file URL may point at a container that no longer exists. Re-anchors anything stored under
+    /// Documents onto the current Documents directory; leaves other URLs untouched.
+    static func rebased(_ url: URL?) -> URL? {
+        guard let url, url.isFileURL else { return url }
+        guard let range = url.path.range(of: "/Documents/") else { return url }
+        return documentsURL.appendingPathComponent(String(url.path[range.upperBound...]))
     }
 
     static func directory(_ subfolder: String) -> URL {
@@ -100,5 +111,20 @@ enum HeadshotStore {
 
     static func exists(key: String) -> Bool {
         FileManager.default.fileExists(atPath: url(for: key).path)
+    }
+
+    /// The audition headshots that have been taken, in order: front, then left and right profiles.
+    static let angles: [(key: String, title: String)] = [("front", "Front"), ("left", "Left profile"), ("right", "Right profile")]
+    static var taken: [(key: String, title: String)] { angles.filter { exists(key: $0.key) } }
+
+    /// Copies of the taken headshots named to match the tape (LAST_FIRST_ROLE_PROJECT_HEADSHOT_FRONT.jpg),
+    /// to send alongside it as photos.
+    static func deliverables(baseName: String) -> [URL] {
+        let dir = MediaStore.directory("Exports")
+        return taken.compactMap { angle in
+            let dest = dir.appendingPathComponent("\(baseName)_HEADSHOT_\(angle.key.uppercased()).jpg")
+            try? FileManager.default.removeItem(at: dest)
+            return (try? FileManager.default.copyItem(at: url(for: angle.key), to: dest)) != nil ? dest : nil
+        }
     }
 }

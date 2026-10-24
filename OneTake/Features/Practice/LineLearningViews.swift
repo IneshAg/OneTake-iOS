@@ -143,7 +143,7 @@ struct AudioWalkView: View {
                 Spacer()
                 Button(playing ? "Stop" : "Start looping") {
                     playing.toggle()
-                    if playing { walker.loop(scene: scene) } else { walker.stop() }
+                    if playing { walker.loop(scene: scene, auditionID: auditionID, sceneIndex: sceneIndex) } else { walker.stop() }
                 }
                 .buttonStyle(.otPrimary)
                 Button("Done") { dismiss() }.buttonStyle(.otSecondary)
@@ -163,7 +163,7 @@ final class AudioWalkPlayer {
     private var task: Task<Void, Never>?
     private let reader = ReaderTrackPlayer()
 
-    func loop(scene: ScriptScene) {
+    func loop(scene: ScriptScene, auditionID: Audition.ID, sceneIndex: Int) {
         stop()
         task = Task {
             while !Task.isCancelled {
@@ -173,7 +173,7 @@ final class AudioWalkPlayer {
                     if line.isMine {
                         try? await Task.sleep(for: .seconds(Double(line.text.count) * 0.06 + 0.6))
                     } else {
-                        reader.play(lineIndex: readerIndex)
+                        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex)
                         readerIndex += 1
                         try? await Task.sleep(for: .seconds(Double(line.text.count) * 0.06 + 0.8))
                     }

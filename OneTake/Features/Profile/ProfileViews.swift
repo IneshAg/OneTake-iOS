@@ -1,9 +1,11 @@
 import SwiftUI
+import AVKit
 
 // MARK: - 10 Profile (tab)
 
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("appearance") private var appearance = "system"
     @State private var showSignIn = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("cleanNoise") private var cleanNoise = true
@@ -38,7 +40,7 @@ struct ProfileView: View {
 
                     Divider()
 
-                    Button { store.push(.headshots) } label: {
+                    Button { store.push(.headshots(for: nil)) } label: {
                         HStack {
                             Label("Headshots", systemImage: "person.crop.square")
                                 .font(.otBody).foregroundStyle(OT.labelPrimary)
@@ -106,6 +108,21 @@ struct ProfileView: View {
                     SectionLabel(text: "More")
 
                     VStack(spacing: 0) {
+                        HStack {
+                            Label("Appearance", systemImage: "circle.lefthalf.filled")
+                                .font(.otBody).foregroundStyle(OT.labelPrimary)
+                            Spacer()
+                            Picker("Appearance", selection: $appearance) {
+                                Text("System").tag("system")
+                                Text("Light").tag("light")
+                                Text("Dark").tag("dark")
+                            }
+                            .labelsHidden()
+                        }
+                        .frame(minHeight: 44)
+
+                        Divider().padding(.vertical, 2)
+
                         Button { store.push(.notifications) } label: {
                             profileRow(symbol: "bell", title: "Notifications")
                         }
@@ -120,8 +137,23 @@ struct ProfileView: View {
 
                         Divider().padding(.vertical, 2)
 
-                        if store.isSignedIn {
-                            Button { store.isOnboarded = false } label: {
+                        if let account = store.account {
+                            HStack {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(account.name ?? account.email ?? "Signed in").font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                        Text("With \(account.providerName)" + (account.name != nil ? (account.email.map { " · \($0)" } ?? "") : ""))
+                                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                } icon: { Image(systemName: "person.crop.circle.fill").foregroundStyle(OT.accent) }
+                                Spacer()
+                            }
+                            .frame(minHeight: 44)
+
+                            Divider().padding(.vertical, 2)
+
+                            // Signs out only — onboarding, auditions and takes stay exactly as they are.
+                            Button { store.signOut(); Haptics.tick() } label: {
                                 HStack {
                                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                                         .font(.otBody.weight(.medium))
@@ -137,7 +169,7 @@ struct ProfileView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Label("Sign in", systemImage: "person.crop.circle.badge.plus")
                                             .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
-                                        Text("Only needed to share a link or sync across devices — everything here already works without it.")
+                                        Text("With Apple or Google. Only needed to send a tape as a link — everything else works without it.")
                                             .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                     }
                                     Spacer()
@@ -157,7 +189,7 @@ struct ProfileView: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSignIn) {
-            SignInView { store.isSignedIn = true; showSignIn = false }
+            SignInView { account in store.account = account; showSignIn = false }
         }
     }
 
@@ -202,11 +234,15 @@ struct PrivacyView: View {
         return takeFolders.reduce(Int64(0)) { $0 + MediaStore.sizeOnDisk($1) }
     }
     private var headshotsSize: Int64 { MediaStore.sizeOnDisk("headshots") }
-    private var readerSize: Int64 { (0..<64).reduce(Int64(0)) { total, i in
-        let url = ReaderTrackPlayer.url(forLine: i)
-        guard FileManager.default.fileExists(atPath: url.path) else { return total }
-        return total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+    private var readerSize: Int64 { MediaStore.sizeOnDisk(ReaderTrackPlayer.folder) + legacyReaderFiles.reduce(Int64(0)) { total, url in
+        total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
     } }
+    /// Reader lines from before tracks were scoped per audition lived loose in Documents as
+    /// `reader-line-N.m4a`; still counted and deleted so they don't linger invisibly.
+    private var legacyReaderFiles: [URL] {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path)) ?? []
+        return entries.filter { $0.hasPrefix("reader-line-") }.map { MediaStore.documentsURL.appendingPathComponent($0) }
+    }
     private var totalSize: Int64 { takesSize + headshotsSize + readerSize }
 
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
@@ -224,7 +260,7 @@ struct PrivacyView: View {
                 LabeledContent("Reader recordings", value: mb(readerSize))
             }
             Section("Sent tapes") {
-                LabeledContent("Private links", value: "Expire after 30 days")
+                LabeledContent("Links", value: "Hosted in your iCloud · expiry shown per tape")
             }
             Section {
                 Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
@@ -245,10 +281,17 @@ struct PrivacyView: View {
     }
 
     private func deleteAll() {
-        MediaStore.deleteAll(["headshots", "takes", "Exports"] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
-        for i in (0..<64) { try? FileManager.default.removeItem(at: ReaderTrackPlayer.url(forLine: i)) }
+        MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
+        for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
-        for i in store.auditions.indices { store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil }
+        for i in store.auditions.indices {
+            store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
+            // The recordings and headshots behind these pieces are gone, so unsent auditions go back
+            // to "not done" rather than claiming to be ready. Sent ones keep their history (and link).
+            guard store.auditions[i].status != .sent else { continue }
+            for j in store.auditions[i].pieces.indices { store.auditions[i].pieces[j].isDone = false }
+            store.auditions[i].status = .due
+        }
         for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
         Haptics.success()
     }
@@ -257,10 +300,10 @@ struct PrivacyView: View {
 // MARK: - 10c Notifications
 
 struct NotificationSettingsView: View {
+    @Environment(AppStore.self) private var store
+    @AppStorage("n.liveActivity") private var liveActivity = true
     @AppStorage("n.morning") private var morning = true
     @AppStorage("n.twoHours") private var twoHours = true
-    @AppStorage("n.callbacks") private var callbacks = true
-    @AppStorage("n.messages") private var messages = true
     @AppStorage("n.delivery") private var delivery = true
     @AppStorage("n.practice") private var practice = false
 
@@ -269,20 +312,26 @@ struct NotificationSettingsView: View {
             Section {
                 Toggle("Morning it’s due", isOn: $morning)
                 Toggle("Two hours before", isOn: $twoHours)
+                Toggle("Countdown on Lock Screen", isOn: $liveActivity)
             } header: {
                 Text("Deadlines")
             } footer: {
-                Text("Each audition alerts once per change — never the same thing twice.")
+                Text("Scheduled on this iPhone, and updated whenever a due date changes or a tape is sent.")
             }
-            Section("From casting") {
-                Toggle("Callbacks and new sides", isOn: $callbacks)
-                Toggle("Messages", isOn: $messages)
-            }
-            Section("Your tapes") {
-                Toggle("Delivered or failed", isOn: $delivery)
-                Toggle("Practice nudges", isOn: $practice)
+            // No "from casting" alerts: there's no server that could hear from them.
+            Section {
+                Toggle("Link ready", isOn: $delivery)
+                Toggle("Practice nudges · 6 pm", isOn: $practice)
+            } header: {
+                Text("Your tapes")
+            } footer: {
+                Text("“Link ready” lets you know if an iCloud link finishes uploading while you're out of the app.")
             }
         }
+        .onChange(of: morning) { Reminders.reschedule(store.auditions) }
+        .onChange(of: twoHours) { Reminders.reschedule(store.auditions) }
+        .onChange(of: practice) { Reminders.reschedule(store.auditions) }
+        .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Notifications")
@@ -292,8 +341,13 @@ struct NotificationSettingsView: View {
 // MARK: - 08 Headshots
 
 struct HeadshotsView: View {
+    /// Set when opened from an audition's checklist, so the screen can continue to its next step.
+    var auditionID: Audition.ID? = nil
     @Environment(AppStore.self) private var store
-    @AppStorage("headshots.count") private var taken = 1
+
+    /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
+    /// headshot showed as taken before it ever was.
+    private var taken: Int { ["front", "left", "right"].prefix { HeadshotStore.exists(key: $0) }.count }
 
     var body: some View {
         ScrollView {
@@ -320,11 +374,21 @@ struct HeadshotsView: View {
         .otCanvas()
         .navigationTitle("Headshots")
         .safeAreaInset(edge: .bottom) {
-            Button(taken == 0 ? "Take your headshot" : taken < 3 ? "Add your profiles" : "Retake") {
-                store.camera = .headshot
+            VStack(spacing: 4) {
+                if let auditionID, taken > 0, let a = store.audition(auditionID) {
+                    Button("Next: \(a.nextAction)") { store.continueAudition(auditionID) }.buttonStyle(.otPrimary)
+                    Button(taken < 3 ? "Add your profiles" : "Retake") { store.camera = .headshot }
+                        .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
+                } else {
+                    Button(taken == 0 ? "Take your headshot" : taken < 3 ? "Add your profiles" : "Retake") {
+                        store.camera = .headshot
+                    }
+                    .buttonStyle(.otPrimary)
+                }
             }
-            .buttonStyle(.otPrimary).padding(OT.gutter)
+            .padding(OT.gutter)
         }
+        .onAppear { store.syncHeadshotPieces() }
     }
 
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {
@@ -361,6 +425,7 @@ struct HeadshotFlow: View {
     enum Angle: String, CaseIterable { case front = "Front", left = "Left", right = "Right" }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
     @AppStorage("headshots.count") private var taken = 1
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
@@ -424,9 +489,13 @@ struct HeadshotFlow: View {
             if await SpeechFollower.requestAccess() { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
-            if cmd == "now" || cmd == "action" { capture() }
+            if cmd?.word == "now" || cmd?.word == "action" { capture() }
         }
-        .onDisappear { camera.stop(); follower.stop() }
+        // Volume buttons, Camera Control and AirPods stem press work as the shutter.
+        .onCameraCaptureEvent { event in
+            if event.phase == .ended { capture() }
+        }
+        .onDisappear { camera.stop(); follower.stop(); store.syncHeadshotPieces() }
     }
 
     private var referenceThumbnail: some View {

@@ -18,59 +18,142 @@ enum MediaExporter {
         }
     }
 
-    @MainActor
-    static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
+    /// One recorded piece that goes on the tape, in tape order. (Headshots aren't on the tape: they're
+    /// photos, sent alongside it — see `HeadshotStore.deliverables`.)
+    struct Clip: Hashable {
+        enum Kind: Hashable { case slate, fullLength, scene(Int) }
+        let kind: Kind
+        let label: String
+        let url: URL
+    }
+
+    /// A stretch of the finished tape — what Preview lists and jumps between.
+    struct Chapter: Hashable, Identifiable {
+        var id: Double { start }
+        let kind: Clip.Kind
+        let label: String
+        let start: Double
+        let duration: Double
+    }
+
+    /// The tape as a playable/exportable composition, with each clip's orientation re-applied.
+    struct Tape {
+        let composition: AVMutableComposition
+        let videoComposition: AVMutableVideoComposition
+        let chapters: [Chapter]
+        var duration: Double { chapters.last.map { $0.start + $0.duration } ?? 0 }
+    }
+
+    /// The recorded clips, in order: slate, full length, then the circled (or first) take of each
+    /// scene. Shared by the export, Preview and Tape Check, so all three look at the same thing.
+    static func clips(for audition: Audition, takes: [Take]) -> [Clip] {
+        var clips: [Clip] = []
+        if let s = audition.slateVideoURL { clips.append(Clip(kind: .slate, label: "Slate", url: s)) }
+        if let f = audition.fullLengthVideoURL { clips.append(Clip(kind: .fullLength, label: "Full length", url: f)) }
+        // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
+        // display number, and only this audition's takes are eligible whatever the caller passes in.
+        let auditionTakes = takes.filter { $0.auditionID == audition.id }
+        for sceneIndex in audition.scenes.indices {
+            let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
+            if let chosen = (sceneTakes.first(where: \.isCircled) ?? sceneTakes.first), let url = chosen.fileURL {
+                clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url))
+            }
+        }
+        return clips
+    }
+
+    /// Joins the clips into one composition. Used for the instant Preview and for the export.
+    static func build(_ clips: [Clip]) async throws -> Tape {
         let composition = AVMutableComposition()
         guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
               let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw ExportError.trackCreationFailed }
+        guard !clips.isEmpty else { throw ExportError.nothingToExport }
 
-        var clipURLs: [URL] = []
-        if let s = audition.slateVideoURL { clipURLs.append(s) }
-        if let f = audition.fullLengthVideoURL { clipURLs.append(f) }
-        for scene in audition.scenes {
-            let sceneTakes = takes.filter { $0.sceneIndex == scene.number - 1 }
-            if let chosen = (sceneTakes.first(where: \.isCircled) ?? sceneTakes.first), let url = chosen.fileURL {
-                clipURLs.append(url)
-            }
-        }
-        guard !clipURLs.isEmpty else { throw ExportError.nothingToExport }
-
+        // Each clip carries its own orientation (portrait capture, front-camera mirroring) in its
+        // track's preferredTransform. Copying frames alone drops that, so the transforms are re-applied
+        // per clip through a video composition.
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+        var renderSize: CGSize?
+        var chapters: [Chapter] = []
         var cursor = CMTime.zero
-        for url in clipURLs {
-            let asset = AVURLAsset(url: url)
+        for clip in clips {
+            let asset = AVURLAsset(url: clip.url)
             guard let duration = try? await asset.load(.duration) else { continue }
             let range = CMTimeRange(start: .zero, duration: duration)
             if let vTrack = try? await asset.loadTracks(withMediaType: .video).first {
                 try? videoTrack.insertTimeRange(range, of: vTrack, at: cursor)
+                if let loaded = try? await vTrack.load(.naturalSize, .preferredTransform) {
+                    let (naturalSize, transform) = loaded
+                    layerInstruction.setTransform(transform, at: cursor)
+                    if renderSize == nil {
+                        let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
+                        renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
+                    }
+                }
             }
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {
                 try? audioTrack.insertTimeRange(range, of: aTrack, at: cursor)
             }
+            // "Scene 1 · Take 3" → "Scene 1" in the chapter list.
+            let label = clip.label.components(separatedBy: " · ").first ?? clip.label
+            chapters.append(Chapter(kind: clip.kind, label: label, start: cursor.seconds, duration: duration.seconds))
             cursor = CMTimeAdd(cursor, duration)
         }
+        guard cursor > .zero else { throw ExportError.nothingToExport }
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
+        instruction.layerInstructions = [layerInstruction]
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.instructions = [instruction]
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.renderSize = renderSize ?? CGSize(width: 1080, height: 1920)
+        return Tape(composition: composition, videoComposition: videoComposition, chapters: chapters)
+    }
+
+    @MainActor
+    static func export(_ audition: Audition, takes: [Take], slate: SlateInfo, progress: @escaping (Double) -> Void) async throws -> URL {
+        let tape = try await build(clips(for: audition, takes: takes))
+        let composition = tape.composition
+        let videoComposition = tape.videoComposition
 
         let fileName = audition.deliverableFileName(slate: slate)
         let outputDir = MediaStore.directory("Exports")
         let fileURL = outputDir.appendingPathComponent(fileName)
-        try? FileManager.default.removeItem(at: fileURL)
+        // Export to a scratch file and only replace the deliverable on success, so a cancelled or
+        // failed export never destroys the last good one (or races a retry writing the same name).
+        let workingURL = outputDir.appendingPathComponent("exporting-\(UUID().uuidString).mp4")
 
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportError.sessionCreationFailed
         }
-        export.outputURL = fileURL
+        export.outputURL = workingURL
         export.outputFileType = .mp4
+        export.videoComposition = videoComposition
 
         let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             progress(Double(export.progress))
         }
         defer { timer.invalidate() }
 
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            export.exportAsynchronously { cont.resume() }
+        try Task.checkCancellation()
+        // Cancelling the calling task stops the real export instead of letting it run on unseen.
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                export.exportAsynchronously { cont.resume() }
+            }
+        } onCancel: {
+            export.cancelExport()
         }
 
-        if let error = export.error { throw error }
+        guard export.status == .completed, !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: workingURL)
+            if export.status == .cancelled || Task.isCancelled { throw CancellationError() }
+            throw export.error ?? ExportError.sessionCreationFailed
+        }
+        try? FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.moveItem(at: workingURL, to: fileURL)
         progress(1.0)
         return fileURL
     }

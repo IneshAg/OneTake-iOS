@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 07 Audition detail (and 7.0 "just added · 0 of 4" when nothing is done yet).
 struct AuditionDetailView: View {
@@ -7,6 +8,8 @@ struct AuditionDetailView: View {
     @State private var showPackage = false
     @State private var showDelete = false
     @State private var showCallback = false
+    @State private var showEdit = false
+    @State private var showSides = false
 
     var body: some View {
         if let audition = store.audition(auditionID) {
@@ -21,7 +24,7 @@ struct AuditionDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    SectionLabel(text: "\(a.projectType) · reading for \(a.role)")
+                    SectionLabel(text: "\(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
                     Text(a.project).font(.system(size: 40, weight: .bold)).foregroundStyle(OT.labelPrimary)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(a.hoursLeft)").font(.otNumber).foregroundStyle(OT.due)
@@ -79,8 +82,8 @@ struct AuditionDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button { } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
-                    Button { } label: { Label("Edit details", systemImage: "pencil") }
+                    Button { showSides = true } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
+                    Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
                     Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                     Divider()
                     Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
@@ -89,8 +92,10 @@ struct AuditionDetailView: View {
         }
         .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
+        .sheet(isPresented: $showEdit) { EditAuditionSheet(auditionID: a.id) }
+        .sheet(isPresented: $showSides) { RevisedSidesSheet(auditionID: a.id) }
         .confirmationDialog("Delete “\(a.project)”?", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { store.auditions.removeAll { $0.id == a.id }; store.popToRoot() }
+            Button("Delete", role: .destructive) { store.deleteAudition(a.id); store.popToRoot() }
         } message: { Text("Its slate, reader track and any takes are removed from this iPhone. Your headshots stay in Profile.") }
     }
 
@@ -104,7 +109,7 @@ struct AuditionDetailView: View {
                 Text("Your headshot").font(.otTitle)
                 Text("FRONT · LEFT · RIGHT").font(.otCaption).foregroundStyle(OT.labelTertiary)
                 quoteLine("Casting sees this first. A window and a plain wall is all you need.")
-                Button("Take your headshot") { store.push(.headshots) }.buttonStyle(.otPrimary)
+                Button("Take your headshot") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
             } else if next?.kind == .slate || next?.kind == .fullLength {
                 SectionLabel(text: "Up next · \(next?.title ?? "")")
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
@@ -194,7 +199,7 @@ struct PackageSheet: View {
 
     private func open(_ piece: Piece, _ a: Audition) {
         switch piece.kind {
-        case .headshot: store.push(.headshots)
+        case .headshot: store.push(.headshots(for: a.id))
         case .slate, .fullLength: store.push(.shootSetup(a.id))
         case .scene: store.push(.prepare(a.id, sceneIndex: 0))
         }
@@ -205,15 +210,20 @@ struct PackageSheet: View {
 
 struct CallbackSheet: View {
     let audition: Audition
+    @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var due = Date.now.addingTimeInterval(5 * 86400)
     @State private var notes = ""
     @State private var bringReader = true
 
+    private var readerName: String {
+        audition.scenes.first?.lines.first(where: { !$0.isMine })?.character ?? "your reader"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section { LabeledContent(audition.project, value: "Round 2") }
+                Section { LabeledContent(audition.project, value: "Round \((audition.round ?? 1) + 1)") }
                 Section("When is it due?") { DatePicker("Due", selection: $due, in: Date.now...) }
                 Section("Scenes to tape") { ForEach(audition.scenes) { Label("\($0.number) · \($0.title)", systemImage: "checkmark.circle.fill") } }
                 Section {
@@ -223,13 +233,127 @@ struct CallbackSheet: View {
                 } footer: {
                     Text("Shown on Prepare, so you see the adjustment before every take.")
                 }
-                Section { Toggle("Bring over reader track · Maya", isOn: $bringReader) }
+                Section { Toggle("Bring over reader track · \(readerName)", isOn: $bringReader) }
             }
             .navigationTitle("Start a callback").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Create") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        if let id = store.startCallback(from: audition.id, due: due, notes: notes, bringReader: bringReader) {
+                            dismiss()
+                            store.push(.auditionDetail(id))
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+// MARK: - Edit details
+
+struct EditAuditionSheet: View {
+    let auditionID: Audition.ID
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            if let audition = store.binding(for: auditionID) {
+                Form {
+                    Section("Project") {
+                        TextField("Project", text: audition.project)
+                        TextField("Type (film, series, commercial…)", text: audition.projectType)
+                        TextField("Casting office", text: audition.castingOffice)
+                    }
+                    Section("Role") {
+                        TextField("Role", text: audition.role)
+                        TextField("Size (lead, supporting…)", text: audition.roleSize)
+                    }
+                    Section("Due") { DatePicker("Due", selection: audition.due) }
+                    Section("Sending to") {
+                        Picker("Destination", selection: audition.destination) {
+                            ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
+                    Section {
+                        TextField("Notes from casting", text: Binding(
+                            get: { audition.wrappedValue.castingNotes ?? "" },
+                            set: { audition.wrappedValue.castingNotes = $0.isEmpty ? nil : $0 }
+                        ), axis: .vertical)
+                    } footer: { Text("Shown on Prepare before every take.") }
+                }
+                .navigationTitle("Edit details").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            }
+        }
+    }
+}
+
+// MARK: - Revised sides
+
+/// New pages from casting: paste them, import a file, or scan them — the same on-device reading
+/// Add Audition uses — and they replace this audition's scenes.
+struct RevisedSidesSheet: View {
+    let auditionID: Audition.ID
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var showImporter = false
+    @State private var showScanner = false
+    @State private var reading = false
+
+    var body: some View {
+        let role = store.audition(auditionID)?.role ?? ""
+        let parsed = ScriptParser.parseScenes(from: text, myRole: role)
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Paste the new sides", text: $text, axis: .vertical).lineLimit(6...14)
+                    Button { showImporter = true } label: { Label("Import a PDF or text file", systemImage: "doc") }
+                    Button { showScanner = true } label: { Label("Scan the pages", systemImage: "doc.viewfinder") }
+                } footer: {
+                    Text("Read on this iPhone — nothing is uploaded. Your existing takes stay; the new scenes need shooting.")
+                }
+                if reading { Section { HStack { ProgressView(); Text("Reading…") } } }
+                if !text.isEmpty {
+                    Section("Found") {
+                        if let scene = parsed.first {
+                            LabeledContent("Lines", value: "\(scene.lines.count)")
+                            LabeledContent("Yours (\(role))", value: "\(scene.lines.filter(\.isMine).count)")
+                        } else {
+                            Text("Couldn't make out character lines yet — cues should be in CAPS, like “MAYA”.")
+                                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Revised sides").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Replace") { store.replaceSides(of: auditionID, with: parsed); dismiss() }.disabled(parsed.isEmpty)
+                }
+            }
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+            guard case .success(let url) = result else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            if let extracted = NoticeOCR.extractText(fromFileAt: url) { text = extracted }
+            if accessed { url.stopAccessingSecurityScopedResource() }
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            DocumentScannerView { pages in
+                showScanner = false
+                guard !pages.isEmpty else { return }
+                reading = true
+                Task {
+                    let recognized = await NoticeOCR.recognizeText(in: pages)
+                    await MainActor.run { text = recognized; reading = false }
+                }
+            }
+            .ignoresSafeArea()
         }
     }
 }

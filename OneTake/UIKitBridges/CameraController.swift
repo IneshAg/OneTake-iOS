@@ -13,6 +13,7 @@ final class CameraController: NSObject {
     private(set) var elapsed: TimeInterval = 0
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
+    private(set) var isExposureLocked = false
 
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
@@ -20,7 +21,10 @@ final class CameraController: NSObject {
     private let queue = DispatchQueue(label: "onetake.camera")
     private var timer: Timer?
     private var photoHandler: ((UIImage?) -> Void)?
-    private var position: Position = .front
+    /// Called once the movie file is actually finalized on disk — `stopRecording()` returns before that.
+    private var recordingFinishedHandler: ((URL?) -> Void)?
+    private var isStopping = false
+    private(set) var position: Position = .front
 
     // MARK: Permissions
 
@@ -34,6 +38,7 @@ final class CameraController: NSObject {
 
     func configure(position: Position = .front) {
         self.position = position
+        isExposureLocked = false
         queue.async { [weak self] in
             guard let self else { return }
             session.beginConfiguration()
@@ -73,11 +78,29 @@ final class CameraController: NSObject {
 
     func lockExposure() {
         queue.async { [weak self] in
-            guard let device = (self?.session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
-            try? device.lockForConfiguration()
-            if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  device.isExposureModeSupported(.locked),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            device.exposureMode = .locked
             device.unlockForConfiguration()
+            // Only claim "Exposure locked" in the HUD once it really is.
+            Task { @MainActor in self.isExposureLocked = true }
         }
+    }
+
+    /// Flips between the front and back camera — never mid-take, which would end the recording.
+    func switchCamera() {
+        guard state == .ready else { return }
+        configure(position: position == .front ? .back : .front)
+    }
+
+    /// Roughly how many minutes of 1080p30 video still fit on this iPhone (~120 MB a minute).
+    static var recordingMinutesLeft: Int? {
+        let values = try? FileManager.default.temporaryDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let bytes = values?.volumeAvailableCapacityForImportantUsage else { return nil }
+        return Int(bytes / 120_000_000)
     }
 
     func stop() {
@@ -103,8 +126,14 @@ final class CameraController: NSObject {
         Haptics.impact(.rigid)
     }
 
-    func stopRecording() {
-        guard state == .recording else { return }
+    /// Stopping is asynchronous: the file isn't written until AVFoundation calls back, so callers that
+    /// need the recording must use `completion` rather than reading `lastRecording` straight away.
+    /// A second stop while one is already finishing (say, hold-to-stop plus a spoken "Cut") is
+    /// ignored rather than reported as a failed recording — the first stop's completion still fires.
+    func stopRecording(_ completion: ((URL?) -> Void)? = nil) {
+        guard state == .recording, !isStopping else { return }
+        isStopping = true
+        recordingFinishedHandler = completion
         movieOutput.stopRecording()
         timer?.invalidate()
         Haptics.success()
@@ -131,9 +160,18 @@ final class CameraController: NSObject {
 extension CameraController: AVCaptureFileOutputRecordingDelegate {
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL,
                     from connections: [AVCaptureConnection], error: Error?) {
+        // AVFoundation can report an error (e.g. disk nearly full) even though the file was finalized
+        // and is playable — that case is flagged with AVErrorRecordingSuccessfullyFinishedKey.
+        let finished = error == nil
+            || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         Task { @MainActor in
-            self.lastRecording = error == nil ? outputFileURL : nil
+            let url = finished ? outputFileURL : nil
+            self.lastRecording = url
             self.state = .ready
+            self.isStopping = false
+            let handler = self.recordingFinishedHandler
+            self.recordingFinishedHandler = nil
+            handler?(url)
         }
     }
 }

@@ -38,6 +38,8 @@ struct TakesView: View {
     @State private var selected: Take.ID?
     @State private var showOneMore = false
     @State private var notesOpen = false
+    @State private var trimming: Take?
+    @State private var newNote = ""
 
     var body: some View {
         let takes = store.takes.filter { $0.auditionID == auditionID }
@@ -45,7 +47,6 @@ struct TakesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PlayerCard(url: current?.fileURL)
-                PlaybackBar()
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -66,12 +67,21 @@ struct TakesView: View {
                 }
 
                 DisclosureGroup(isExpanded: $notesOpen) {
-                    VStack(alignment: .leading, spacing: 6) { ForEach(current?.notes ?? [], id: \.self) { Text("• \($0)").font(.otCallout) } }
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(current?.notes ?? [], id: \.self) { Text("• \($0)").font(.otCallout) }
+                        if let c = current {
+                            TextField("Add a note to take \(c.number)", text: $newNote)
+                                .submitLabel(.done)
+                                .onSubmit { store.addNote(newNote, to: c.id); newNote = "" }
+                                .padding(10).background(OT.fillField, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 } label: {
                     VStack(alignment: .leading) {
                         Label("Notes to self", systemImage: "square.and.pencil").font(.otBody)
-                        Text("Never sent · " + (current?.notes.joined(separator: " · ") ?? "")).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        Text((current?.notes.isEmpty ?? true) ? "Never sent · nothing yet" : "Never sent · " + (current?.notes.joined(separator: " · ") ?? ""))
+                            .font(.otFootnote).foregroundStyle(OT.labelTertiary).lineLimit(1)
                     }
                 }
                 .tint(OT.labelPrimary)
@@ -85,7 +95,9 @@ struct TakesView: View {
             // Compare Takes is cut from MVP — the loop stays record → check → keep/retake/edit, no
             // side-by-side comparison step.
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { } label: { Image(systemName: "scissors") }.accessibilityLabel("Trim")
+                Button { trimming = current } label: { Image(systemName: "scissors") }
+                    .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
+                    .accessibilityLabel("Trim")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -95,12 +107,21 @@ struct TakesView: View {
             }
             .padding(.horizontal, OT.gutter).padding(.vertical, 8).background(OT.bgCanvas)
         }
+        .sheet(item: $trimming) { take in
+            if let url = take.fileURL {
+                VideoTrimmer(url: url) { edited in
+                    trimming = nil
+                    if let edited { store.replaceTakeFile(take.id, with: edited); Haptics.success() }
+                }
+                .ignoresSafeArea()
+            }
+        }
         .sheet(isPresented: $showOneMore) {
             VStack(spacing: 14) {
                 Text("One more?").font(.otTitle)
                 Text("Takes 1 to \(takes.count) stay right here. Three solid takes is plenty — trust the one you circled.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
-                Button("Record take \(takes.count + 1)") { showOneMore = false; store.camera = .shoot(auditionID) }.buttonStyle(.otPrimary)
+                Button("Record take \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: 0))") { showOneMore = false; store.camera = .shoot(auditionID) }.buttonStyle(.otPrimary)
                 Button("Not now") { showOneMore = false }.buttonStyle(.otSecondary)
             }
             .padding(OT.gutter)
@@ -123,19 +144,6 @@ struct PlayerCard: View {
         }
         .frame(height: 210)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
-// MARK: - v2/Playback Bar
-
-struct PlaybackBar: View {
-    @State private var position = 0.35
-    var body: some View {
-        VStack(spacing: 4) {
-            Slider(value: $position)
-            HStack { Text("0:00"); Spacer(); Text("your lines · tap to jump").foregroundStyle(OT.accent); Spacer(); Text("1:30") }
-                .font(.otCaption).foregroundStyle(OT.labelTertiary)
-        }
     }
 }
 
@@ -169,24 +177,83 @@ struct TakeThumbnail: View {
 struct TapeCheckView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
+    @State private var report: TapeAnalyzer.Report?
     @State private var finding: TapeFinding?
     @State private var passedOpen = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 16) {
-                    ReadinessDial(done: 11, total: 13, size: 84, lineWidth: 8)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Ready to send").font(.otTitle)
-                        Text("\(SampleData.findings.count) things are worth a look. Nothing stops you sending.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+                if let report {
+                    results(report)
+                } else {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Checking framing, light and sound…").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     }
+                    .padding(.top, 24)
                 }
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.bottom, 140)
+        }
+        .otCanvas()
+        .navigationTitle("Tape check").navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 4) {
+                // Checked first, then watched: Preview is the last look before packaging.
+                Button("Preview the tape") { store.push(.preview(auditionID)) }.buttonStyle(.otPrimary)
+                if let first = report?.findings.first(where: { $0.clipURL != nil }) {
+                    Button("Watch the moments") { finding = first }
+                        .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
+                }
+            }
+            .padding(.horizontal, OT.gutter).background(OT.bgCanvas)
+        }
+        // Re-runs whenever what's on the tape changes (a different circled take, a new recording).
+        .task(id: tapeSignature) {
+            report = nil
+            guard let a = store.audition(auditionID) else { return }
+            let takes = store.takes.filter { $0.auditionID == auditionID }
+            let result = await TapeAnalyzer.analyze(a, takes: takes)
+            guard !Task.isCancelled else { return }
+            report = result
+        }
+        .sheet(item: $finding) { f in FindingSheet(finding: f) { finding = nil } }
+    }
+
+    private var tapeSignature: [URL] {
+        guard let a = store.audition(auditionID) else { return [] }
+        return MediaExporter.clips(for: a, takes: store.takes).map(\.url)
+    }
+
+    @ViewBuilder private func results(_ report: TapeAnalyzer.Report) -> some View {
+        if report.clipCount == 0 {
+            Text("Nothing to check yet").font(.otTitle)
+            Text("Record your slate and a take, then come back — Tape Check looks at exactly what goes on the tape.")
+                .font(.otCallout).foregroundStyle(OT.labelSecondary)
+        } else {
+            HStack(spacing: 16) {
+                if report.checkCount > 0 {
+                    ReadinessDial(done: report.passed.count, total: report.checkCount, size: 84, lineWidth: 8)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(report.findings.isEmpty ? "Looks good" : "Ready to send").font(.otTitle)
+                    Text(report.findings.isEmpty
+                         ? "Nothing stood out. Watch it once, then send."
+                         : "\(report.findings.count) thing\(report.findings.count == 1 ? " is" : "s are") worth a look. Nothing stops you sending.")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                }
+            }
+            if !report.findings.isEmpty {
                 SectionLabel(text: "Worth a look")
-                ForEach(SampleData.findings) { f in
+                ForEach(report.findings) { f in
                     Button { finding = f } label: {
                         HStack(spacing: 12) {
-                            HeadshotImage().frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
+                            Group {
+                                if let url = f.clipURL { VideoThumbnail(url: url) } else { Image(systemName: "shippingbox").foregroundStyle(OT.labelSecondary) }
+                            }
+                            .frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(f.category).font(.otCaption.weight(.semibold)).foregroundStyle(OT.warning)
                                 Text(f.title).font(.otBody)
@@ -200,39 +267,60 @@ struct TapeCheckView: View {
                     .buttonStyle(.plain)
                     Divider()
                 }
+            }
+            if !report.passed.isEmpty {
                 DisclosureGroup(isExpanded: $passedOpen) {
-                    Text("Framing, light, slate, format, length, file name, audio sync, eyeline (scene 2), reader level (scene 1), background, focus")
+                    Text(report.passed.joined(separator: ", "))
                         .font(.otFootnote).foregroundStyle(OT.labelSecondary).padding(.top, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Label("11 checks passed", systemImage: "checkmark.seal.fill").foregroundStyle(OT.success)
+                    Label("\(report.passed.count) check\(report.passed.count == 1 ? "" : "s") passed", systemImage: "checkmark.seal.fill").foregroundStyle(OT.success)
                 }
             }
-            .padding(.horizontal, OT.gutter)
-            .padding(.bottom, 140)
+            Label("Checked on this iPhone — nothing is uploaded.", systemImage: "lock.fill")
+                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
         }
-        .otCanvas()
-        .navigationTitle("Tape check").navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 4) {
-                Button("Continue to package") { store.push(.package(auditionID)) }.buttonStyle(.otPrimary)
-                Button("Watch the \(SampleData.findings.count) moments") { finding = SampleData.findings.first }
-                    .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
+    }
+}
+
+/// One finding, with the actual clip cued to the moment it's about.
+private struct FindingSheet: View {
+    let finding: TapeFinding
+    var onDismiss: () -> Void
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(finding.category) · \(finding.where_)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.warning)
+            Text(finding.title).font(.otTitle)
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(height: 210)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            .padding(.horizontal, OT.gutter).background(OT.bgCanvas)
-        }
-        .sheet(item: $finding) { f in
-            VStack(alignment: .leading, spacing: 12) {
-                Text("\(f.category) · \(f.where_)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.warning)
-                Text(f.title).font(.otTitle)
-                PlayerCard(url: nil)
-                Text(f.advice).font(.otCallout).foregroundStyle(OT.labelSecondary)
-                HStack {
-                    Button("Watch 0:41") {}.buttonStyle(.otSecondary)
-                    Button("I meant it") { finding = nil }.buttonStyle(.otSecondary)
+            Text(finding.advice).font(.otCallout).foregroundStyle(OT.labelSecondary)
+            HStack {
+                if let seconds = finding.seconds, player != nil {
+                    Button("Watch \(Int(seconds) / 60):\(String(format: "%02d", Int(seconds) % 60))") { play(from: seconds) }
+                        .buttonStyle(.otSecondary)
                 }
+                Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
             }
-            .padding(OT.gutter)
-            .presentationDetents([.medium, .large])
         }
+        .padding(OT.gutter)
+        .presentationDetents([.medium, .large])
+        .onAppear {
+            guard let url = finding.clipURL else { return }
+            let player = AVPlayer(url: url)
+            player.seek(to: CMTime(seconds: finding.seconds ?? 0, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            self.player = player
+        }
+        .onDisappear { player?.pause() }
+    }
+
+    private func play(from seconds: Double) {
+        // Start a moment early so the finding has context.
+        player?.seek(to: CMTime(seconds: max(0, seconds - 1), preferredTimescale: 600))
+        player?.play()
     }
 }

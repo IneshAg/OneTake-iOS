@@ -28,6 +28,13 @@ struct PrepareView: View {
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
                         }
                     }
+                    if let notes = a.castingNotes {
+                        // Casting's adjustment for this round, seen before every pass at the scene.
+                        Label { Text(notes).font(.otCallout) } icon: { Image(systemName: "quote.opening") }
+                            .foregroundStyle(OT.labelPrimary)
+                            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(OT.scriptHighlight, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                     ForEach(scene.lines) { line in lineView(line) }
                 }
                 .padding(.horizontal, OT.gutter)
@@ -112,7 +119,8 @@ struct DotLabelStyle: LabelStyle {
 struct PrompterSettingsSheet: View {
     @AppStorage("prompter.size") private var size = 1
     @AppStorage("prompter.followVoice") private var followVoice = true
-    @AppStorage("prompter.mirror") private var mirror = true
+    /// Off by default: mirrored text only makes sense behind a beam-splitter glass.
+    @AppStorage("prompter.mirror") private var mirror = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -146,6 +154,9 @@ struct RunLinesView: View {
     @State private var follower = SpeechFollower()
     /// Plays the reader lines you recorded yourself (Record Maya). No synthetic or second-device voices.
     @State private var readerPlayer = ReaderTrackPlayer()
+    /// The pending auto-advance after a reader line. Kept so a manual skip, pause or leaving the
+    /// screen cancels it instead of letting it fire later and skip an extra line.
+    @State private var readerAdvance: Task<Void, Never>?
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
@@ -160,7 +171,7 @@ struct RunLinesView: View {
                 Text("Line \(index + 1) of \(lines.count)").font(.otFootnote).foregroundStyle(OT.labelTertiary)
 
                 if finished {
-                    RunFinishedView(lines: lines) { index = 0; finished = false } onClose: { dismiss() }
+                    RunFinishedView(lines: lines) { index = 0; finished = false; speakIfReader(lines) } onClose: { dismiss() }
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
@@ -181,7 +192,7 @@ struct RunLinesView: View {
                     }
                     Spacer()
                     HStack(spacing: 12) {
-                        Button { finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
+                        Button { stopReader(); finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
                         Button(prompted ? "Whole line" : "Line?") { prompted.toggle(); Haptics.tick() }.buttonStyle(.otPrimary)
                         Button { advance(lines) } label: { Image(systemName: "forward.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
                     }
@@ -195,12 +206,17 @@ struct RunLinesView: View {
             .onChange(of: follower.spokenWordCount) { _, count in
                 if lines[index].isMine, count >= lines[index].text.split(separator: " ").count { advance(lines) }
             }
+            // "Line?" out loud — same as tapping the button, so you never have to touch the phone.
+            .onChange(of: follower.lastCommand) { _, cmd in
+                if cmd?.word == "line", lines[index].isMine, !prompted { prompted = true; Haptics.tick() }
+            }
             .task { if await SpeechFollower.requestAccess() { follower.start() } }
-            .onDisappear { follower.stop(); readerPlayer.stop() }
+            .onDisappear { follower.stop(); stopReader() }
         }
     }
 
     private func advance(_ lines: [ScriptLine]) {
+        stopReader()
         prompted = false
         follower.reset()
         if index + 1 < lines.count { index += 1; speakIfReader(lines) } else { finished = true; Haptics.success() }
@@ -209,10 +225,20 @@ struct RunLinesView: View {
     private func speakIfReader(_ lines: [ScriptLine]) {
         guard !lines[index].isMine else { return }
         let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
-        readerPlayer.play(lineIndex: readerLineIndex)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(lines[index].text.count) * 0.06 + 0.8) {
-            if !lines[index].isMine { advance(lines) }
+        readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
+        readerAdvance?.cancel()
+        let delay = Double(lines[index].text.count) * 0.06 + 0.8
+        readerAdvance = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            advance(lines)
         }
+    }
+
+    private func stopReader() {
+        readerAdvance?.cancel()
+        readerAdvance = nil
+        readerPlayer.stop()
     }
 
     private func firstWords(_ text: String) -> String { text.split(separator: " ").prefix(3).joined(separator: " ") + "…" }
@@ -280,12 +306,12 @@ struct ReaderView: View {
                     Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 } else {
                     ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(forLine: index).path)
+                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: index).path)
                         HStack(spacing: 12) {
                             Button {
                                 if recorded {
                                     if playingLine == index { player.stop(); playingLine = nil }
-                                    else { player.play(lineIndex: index); playingLine = index }
+                                    else { player.play(auditionID: auditionID, sceneIndex: 0, lineIndex: index); playingLine = index }
                                 }
                             } label: {
                                 Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
@@ -343,7 +369,7 @@ struct RecordReaderView: View {
                     Text(recording ? "Tap stop when you've said the line" : "Tap record when you're ready").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
                     RecordButton(isRecording: recording) {
                         if recording { recorder.stop(); lineIndex += 1; Haptics.success() }
-                        else { recorder.start(lineIndex: lineIndex) }
+                        else { recorder.start(auditionID: auditionID, sceneIndex: 0, lineIndex: lineIndex) }
                         recording.toggle()
                     }
                     .frame(maxWidth: .infinity)

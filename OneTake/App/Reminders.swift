@@ -1,0 +1,66 @@
+import Foundation
+import UserNotifications
+
+/// Local reminders, scheduled on this iPhone — no server. Rebuilt from the auditions whenever they
+/// change, so a moved due date, a sent tape or a deleted audition never leaves a stale alert behind.
+/// Which ones are on is the Notifications screen's toggles (`n.*` in UserDefaults).
+enum Reminders {
+    private static let prefix = "onetake."
+
+    private static func isOn(_ key: String, default value: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+
+    static func reschedule(_ auditions: [Audition]) {
+        let morning = isOn("n.morning", default: true)
+        let twoHours = isOn("n.twoHours", default: true)
+        let practice = isOn("n.practice", default: false)
+        let now = Date.now
+        let upcoming = auditions.filter { $0.status != .sent && $0.due > now }
+
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { pending in
+            center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter { $0.hasPrefix(prefix) })
+
+            for a in upcoming {
+                let dueTime = a.due.formatted(date: .omitted, time: .shortened)
+                if morning, let nine = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: a.due), nine > now, nine < a.due {
+                    add(center, id: "\(prefix)morning.\(a.id)", title: "\(a.project) is due today",
+                        body: "Due \(dueTime). Next: \(a.nextAction).", at: nine)
+                }
+                let twoBefore = a.due.addingTimeInterval(-2 * 3600)
+                if twoHours, twoBefore > now {
+                    add(center, id: "\(prefix)twohours.\(a.id)", title: "Two hours left · \(a.project)",
+                        body: "Due \(dueTime). Next: \(a.nextAction).", at: twoBefore)
+                }
+            }
+
+            // One gentle daily nudge at 6 pm toward the soonest audition that has sides to learn.
+            if practice, let next = upcoming.filter({ !$0.scenes.isEmpty }).min(by: { $0.due < $1.due }) {
+                let content = UNMutableNotificationContent()
+                content.title = "Run your lines"
+                content.body = "\(next.role) in \(next.project) — five minutes is enough."
+                let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: 18, minute: 0), repeats: true)
+                center.add(UNNotificationRequest(identifier: "\(prefix)practice", content: content, trigger: trigger))
+            }
+        }
+    }
+
+    /// Immediate alert, for something that finished while the actor was out of the app.
+    static func notifyNow(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "\(prefix)now.\(UUID().uuidString)", content: content, trigger: nil))
+    }
+
+    private static func add(_ center: UNUserNotificationCenter, id: String, title: String, body: String, at date: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
+    }
+}

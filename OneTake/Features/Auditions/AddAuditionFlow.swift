@@ -131,9 +131,11 @@ struct AddAuditionFlow: View {
     private func save() {
         let audition = draft.makeAudition()
         store.add(audition)
-        dismiss()
         store.tab = .auditions
+        // Straight on to the first step; the overview sits underneath only as the back target.
         store.auditionsPath = [.auditionDetail(audition.id)]
+        store.continueAfterAdd = audition.id
+        dismiss()
         requestNotificationsIfFirstAudition()
     }
 
@@ -370,7 +372,7 @@ struct NoticeReviewView: View {
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
-            Button("Save audition", action: onSave).buttonStyle(.otPrimary)
+            Button("Save and start", action: onSave).buttonStyle(.otPrimary)
                 .padding(.horizontal, OT.gutter).padding(.bottom, 8)
                 .background(OT.bgCanvas)
         }

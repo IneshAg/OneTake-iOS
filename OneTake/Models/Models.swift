@@ -54,7 +54,7 @@ enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
         case .actorsAccess:    "H.264 .mp4 · 1080p · under 500 MB"
         case .castingNetworks: "H.264 .mp4 · 1080p · up to 300 MB"
         case .spotlight:       "H.264 .mp4 · 1080p"
-        case .emailOrLink:     "Private link · 30 days"
+        case .emailOrLink:     "Download link · needs Apple or Google sign-in"
         }
     }
 }
@@ -81,6 +81,20 @@ struct Audition: Identifiable, Hashable, Codable {
     var fullLengthVideoURL: URL?
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
+    /// The iCloud download link sent for "Email or link", and when iCloud stops serving it.
+    var shareLink: URL?
+    var shareLinkExpires: Date?
+    /// Callback round (nil = the first audition) and casting's adjustment notes for it. Optional so
+    /// state saved before these existed still decodes.
+    var round: Int?
+    var castingNotes: String?
+
+    /// "22 days" style remaining lifetime of the sent link, or nil if there's no (live) link.
+    var shareLinkTimeLeft: String? {
+        guard shareLink != nil, let expires = shareLinkExpires else { return nil }
+        let days = Int(ceil(expires.timeIntervalSinceNow / 86400))
+        return days > 0 ? "\(days) day\(days == 1 ? "" : "s")" : nil
+    }
 
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }
@@ -88,7 +102,7 @@ struct Audition: Identifiable, Hashable, Codable {
 
     /// The single "Next:" line used on Home and on audition cards.
     var nextAction: String {
-        if status == .sent { return "Sent · link active" }
+        if status == .sent { return shareLinkTimeLeft.map { "Sent · link active \($0)" } ?? "Sent" }
         guard let next = nextPiece else { return "Watch it once, then send" }
         switch next.kind {
         case .headshot:   return "Take your headshot"
@@ -136,6 +150,9 @@ struct TapeFinding: Identifiable, Hashable {
     var title: String
     var where_: String
     var advice: String
+    /// The clip and moment this is about, so Tape Check can play exactly that moment.
+    var clipURL: URL? = nil
+    var seconds: Double? = nil
 }
 
 // MARK: - Practice
