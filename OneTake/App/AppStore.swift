@@ -100,6 +100,7 @@ final class AppStore {
                 a.slateVideoURL = MediaStore.rebased(a.slateVideoURL)
                 a.fullLengthVideoURL = MediaStore.rebased(a.fullLengthVideoURL)
                 a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
+                a.exportedPieceURLs = a.exportedPieceURLs?.compactMap { MediaStore.rebased($0) }
                 return a
             }
             takes = saved.takes.map { t in
@@ -212,8 +213,8 @@ final class AppStore {
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("audition-\(id.uuidString)", isDirectory: true))
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true))
         // Export file names come from role + project, so two auditions can share one; keep it if so.
-        if let export = audition.exportedFileURL,
-           !auditions.contains(where: { $0.id != id && $0.exportedFileURL == export }) {
+        let stillUsed = Set(auditions.filter { $0.id != id }.flatMap(\.exportedFiles))
+        for export in audition.exportedFiles where !stillUsed.contains(export) {
             try? fm.removeItem(at: export)
         }
         for piece in practice where piece.auditionID == id {
@@ -300,9 +301,19 @@ final class AppStore {
         auditions[i].shareLinkExpires = link.expires
     }
 
-    func setExportedFile(_ url: URL, for id: Audition.ID) {
+    /// Records what an export made, and removes the files an earlier export left that this one
+    /// replaced (switching between one file and separate files) — unless another audition with the
+    /// same role and project still points at them.
+    func setExport(_ export: MediaExporter.Output, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
-        auditions[i].exportedFileURL = url
+        let previous = auditions[i].exportedFiles
+        auditions[i].exportedFileURL = export.joined ? export.files.first : nil
+        auditions[i].exportedPieceURLs = export.joined ? nil : export.files
+        auditions[i].exportReducedTo = export.reducedTo
+        let stillUsed = Set(auditions.flatMap(\.exportedFiles))
+        for url in previous where !stillUsed.contains(url) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// Next take number for a scene — one past the highest real take, so numbers never repeat even

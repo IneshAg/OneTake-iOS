@@ -57,6 +57,19 @@ enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
         case .emailOrLink:     "Download link · needs Apple or Google sign-in"
         }
     }
+
+    /// The largest file the site accepts, where it publishes one. It applies to each file sent, and
+    /// is counted in decimal megabytes so it stays under the limit whichever way the site counts.
+    var maxFileBytes: Int64? {
+        switch self {
+        case .actorsAccess:    500_000_000
+        case .castingNetworks: 300_000_000
+        case .spotlight, .emailOrLink: nil
+        }
+    }
+
+    /// Actors Access asks for the slate and each scene as separate files unless casting says otherwise.
+    var prefersSeparateFiles: Bool { self == .actorsAccess }
 }
 
 struct Audition: Identifiable, Hashable, Codable {
@@ -81,6 +94,13 @@ struct Audition: Identifiable, Hashable, Codable {
     var fullLengthVideoURL: URL?
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
+    /// When the tape went out as separate files instead: slate, full length and each scene, in tape
+    /// order. `exportedFileURL` is nil then. Optional (like the two below) so older state decodes.
+    var exportedPieceURLs: [URL]?
+    /// One file per piece instead of one joined tape. nil means whatever the destination asks for.
+    var separateFiles: Bool?
+    /// Set (e.g. "720p") when the last export had to come down from full quality to fit the site's limit.
+    var exportReducedTo: String?
     /// The iCloud download link sent for "Email or link", and when iCloud stops serving it.
     var shareLink: URL?
     var shareLinkExpires: Date?
@@ -95,6 +115,14 @@ struct Audition: Identifiable, Hashable, Codable {
         let days = Int(ceil(expires.timeIntervalSinceNow / 86400))
         return days > 0 ? "\(days) day\(days == 1 ? "" : "s")" : nil
     }
+
+    /// A link is always one file; the casting sites can take either.
+    var sendsSeparateFiles: Bool {
+        destination != .emailOrLink && (separateFiles ?? destination.prefersSeparateFiles)
+    }
+
+    /// Every file the last export made, in tape order.
+    var exportedFiles: [URL] { exportedPieceURLs ?? exportedFileURL.map { [$0] } ?? [] }
 
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }

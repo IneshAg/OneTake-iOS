@@ -4,7 +4,8 @@ import AVKit
 // MARK: - 20 Package · Ready to send
 //
 // There's no casting-site API this app can submit a tape to directly, so "sending" is real:
-// MediaExporter actually composes the slate, full-length and circled takes into one file, and
+// MediaExporter actually composes the slate, full-length and circled takes into one file (or one
+// per piece, under the site's size limit), and
 // handing it off happens through the system share sheet (AirDrop, Mail, Files, or the casting
 // site's own upload if it's installed) — not a simulated network call that claims a third party
 // confirmed receipt it never saw.
@@ -56,7 +57,8 @@ struct PackageView: View {
                 }
             }
             .sheet(isPresented: $showPreview) {
-                if let url = a.exportedFileURL { VideoPlayer(player: AVPlayer(url: url)) }
+                // Separate files play back to back, so this is still the whole tape as exported.
+                if !a.exportedFiles.isEmpty { VideoPlayer(player: AVQueuePlayer(items: a.exportedFiles.map { AVPlayerItem(url: $0) })) }
             }
         }
     }
@@ -72,11 +74,13 @@ struct PackageView: View {
                 TapeStrip(legend: legend)
 
                 VStack(spacing: 0) {
-                    row(symbol: "film", title: a.deliverableFileName(slate: store.slate), detail: "Named the way casting asked · one file", value: nil)
-                    Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: nil, value: exportedSizeLabel(a)) }.buttonStyle(.plain)
+                    let file = fileRow(a)
+                    row(symbol: "film", title: file.title, detail: file.detail, value: nil)
+                    if a.destination != .emailOrLink { separateFilesToggle(a) }
+                    Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: limitDetail(a), value: exportedSizeLabel(a)) }.buttonStyle(.plain)
                     Button { store.push(.tapeCheck(a.id)) } label: { row(symbol: "checkmark.seal.fill", title: "Tape check", detail: nil, value: "Review", tint: OT.success) }.buttonStyle(.plain)
                     row(symbol: "waveform", title: "Audio", detail: nil, value: "From your takes", tint: OT.success)
-                    if a.exportedFileURL != nil {
+                    if !a.exportedFiles.isEmpty {
                         Button { showPreview = true } label: { row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "What's actually in the exported file", value: nil) }.buttonStyle(.plain)
                     } else {
                         row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Available once you've exported it", value: nil)
@@ -132,11 +136,43 @@ struct PackageView: View {
         return "\(total / 60):\(String(format: "%02d", total % 60))"
     }
 
-    private func exportedSizeLabel(_ a: Audition) -> String {
-        guard let url = a.exportedFileURL, let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64 else {
-            return "Not exported yet"
+    /// The deliverable's name: one tape, or one file per piece named after it.
+    private func fileRow(_ a: Audition) -> (title: String, detail: String) {
+        let name = a.deliverableFileName(slate: store.slate)
+        let clips = MediaExporter.clips(for: a, takes: store.takes)
+        guard a.sendsSeparateFiles, let first = clips.first else { return (name, "Named the way casting asked · one file") }
+        let base = (name as NSString).deletingPathExtension
+        let more = clips.count > 1 ? " +\(clips.count - 1)" : ""
+        return ("\(base)_\(first.fileSuffix).mp4\(more)", "Named the way casting asked · \(clips.count) file\(clips.count == 1 ? "" : "s"), one per piece")
+    }
+
+    private func separateFilesToggle(_ a: Audition) -> some View {
+        Toggle(isOn: Binding(get: { a.sendsSeparateFiles }, set: { on in
+            if let i = store.auditions.firstIndex(where: { $0.id == a.id }) { store.auditions[i].separateFiles = on }
+        })) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Separate files").font(.otBody)
+                Text(a.destination.prefersSeparateFiles ? "Slate and each scene on their own — what \(a.destination.rawValue) asks for" : "Slate and each scene on their own")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            }
         }
-        return "\(size / 1_048_576) MB"
+        .tint(OT.accent)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// The site's size limit, and whether the last export had to come down in size to meet it.
+    private func limitDetail(_ a: Audition) -> String? {
+        guard let limit = a.destination.maxFileBytes else { return nil }
+        let base = "Up to \(limit / 1_000_000) MB a file"
+        guard let reduced = a.exportReducedTo, !a.exportedFiles.isEmpty else { return base }
+        return "\(base) · made at \(reduced) to fit — trim takes to keep full quality"
+    }
+
+    private func exportedSizeLabel(_ a: Audition) -> String {
+        let sizes = a.exportedFiles.compactMap { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.size]) as? Int64 }
+        guard let largest = sizes.max() else { return "Not exported yet" }
+        return sizes.count == 1 ? "\(largest / 1_000_000) MB" : "\(sizes.count) files · largest \(largest / 1_000_000) MB"
     }
 
     /// Real export, not a simulated upload: `MediaExporter` composes the actual recorded files, and
@@ -165,12 +201,13 @@ struct PackageView: View {
         exportTask?.cancel()
         exportTask = Task {
             do {
-                let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
+                let output = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
                     // Leave the last stretch of the bar for the iCloud upload when sending a link.
                     Task { @MainActor in progress = asLink ? p * 0.8 : p }
                 }
-                await MainActor.run { store.setExportedFile(url, for: a.id) }
-                if asLink {
+                await MainActor.run { store.setExport(output, for: a.id) }
+                // A link is always one joined file (`sendsSeparateFiles` is never true for it).
+                if asLink, let url = output.files.first {
                     await MainActor.run { uploading = true }
                     let link = try await CloudLink.publish(url)
                     await MainActor.run {
@@ -201,7 +238,7 @@ struct PackageView: View {
     }
 
     /// What the share sheet hands on: the iCloud link (with a line of context) for "Email or link",
-    /// otherwise the exported file itself.
+    /// otherwise the exported file (or files) itself.
     private func shareItems(_ a: Audition) -> [Any]? {
         // The audition headshots go with the tape as photos, named to match it.
         let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
@@ -211,7 +248,8 @@ struct PackageView: View {
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
             return ["\(store.slate.name) — \(a.role), \(a.project).\(expiry)", link] + headshots
         }
-        return a.exportedFileURL.map { [$0] + headshots }
+        let files: [Any] = a.exportedFiles
+        return files.isEmpty ? nil : files + headshots
     }
 
     private func cancelExport() {
@@ -321,10 +359,17 @@ struct SendProgressView: View {
                 Text("%").font(.otTitle)
             }
             ProgressView(value: progress).tint(OT.accent)
-            Text("Joining your slate, full length and circled takes into one file.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            Text(audition.sendsSeparateFiles
+                 ? "Saving your slate, full length and each scene as their own file."
+                 : "Joining your slate, full length and circled takes into one file.")
+                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            if let limit = audition.destination.maxFileBytes {
+                Text("Each file has to be under \(limit / 1_000_000) MB for \(audition.destination.rawValue). If one comes out bigger, it's made again at a smaller size.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            }
             SectionLabel(text: "Steps").padding(.top, 8)
             step("Found your recorded pieces", done: true)
-            step("Composing one file", done: uploading || progress >= 1, active: !uploading && progress < 1)
+            step(audition.sendsSeparateFiles ? "Composing a file for each piece" : "Composing one file", done: uploading || progress >= 1, active: !uploading && progress < 1)
             if audition.destination == .emailOrLink {
                 step("Uploading to your iCloud", done: progress >= 1, active: uploading && progress < 1)
             }

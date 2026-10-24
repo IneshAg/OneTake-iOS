@@ -286,6 +286,7 @@ struct PrivacyView: View {
         store.takes.removeAll()
         for i in store.auditions.indices {
             store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
+            store.auditions[i].exportedPieceURLs = nil; store.auditions[i].exportReducedTo = nil
             // The recordings and headshots behind these pieces are gone, so unsent auditions go back
             // to "not done" rather than claiming to be ready. Sent ones keep their history (and link).
             guard store.auditions[i].status != .sent else { continue }
