@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
 
+# Every xcodebuild is piped through xcpretty, so each step sets pipefail: without it the step
+# reports xcpretty's exit status and a failed build passes.
 jobs:
   build:
     runs-on: macos-15
@@ -15,28 +17,31 @@ jobs:
         run: xcodegen generate
       - name: Build for iOS Simulator
         run: |
+          set -o pipefail
           xcodebuild build \
             -project OneTake.xcodeproj \
             -scheme OneTake \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+            CODE_SIGNING_ALLOWED=NO | xcpretty
       # The camera, preview and photo code only exists in device builds (the Simulator has no
       # camera, so it's behind #if targetEnvironment(simulator)); build for a device too so that
       # code is compiled on every push.
       - name: Build for iOS device
         run: |
+          set -o pipefail
           xcodebuild build \
             -project OneTake.xcodeproj \
             -scheme OneTake \
             -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+            CODE_SIGNING_ALLOWED=NO | xcpretty
       - name: Run unit tests
         run: |
           # Any available iPhone simulator on an iOS 18+ runtime (the deployment target).
           UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | test("iOS-(1[89]|[2-9][0-9])")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
           echo "Testing on simulator $UDID"
+          set -o pipefail
           xcodebuild test \
             -project OneTake.xcodeproj \
             -scheme OneTake \
             -destination "id=$UDID" \
-            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+            CODE_SIGNING_ALLOWED=NO | xcpretty
