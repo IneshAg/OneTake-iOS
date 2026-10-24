@@ -24,9 +24,13 @@ extension WidgetSnapshot {
 }
 
 enum WidgetSync {
-    /// Writes the snapshot and asks WidgetKit to redraw. Cheap; called with every (debounced) save.
+    /// Writes the snapshot and asks WidgetKit to redraw — only when what the widgets show has
+    /// changed. Called with every (debounced) save, and WidgetKit budgets reloads: most saves (a
+    /// note, a circled take, a trim) don't touch the widgets at all.
     static func update(_ auditions: [Audition]) {
-        WidgetSnapshot(auditions: auditions).save()
+        let snapshot = WidgetSnapshot(auditions: auditions)
+        guard snapshot != WidgetSnapshot.load() else { return }
+        snapshot.save()
         WidgetCenter.shared.reloadAllTimelines()
     }
 }
