@@ -38,6 +38,14 @@ struct OneTakeApp: App {
             guard phase == .active else { return }
             WidgetSync.update(store.auditions)
             LiveActivitySync.update(store.auditions)
+            // Anything shared to OneTake while it was closed opens Add audition with it — unless the
+            // actor is mid-shoot or already adding one; it waits in the inbox until next time.
+            if store.isOnboarded, store.camera == nil, !store.showAddAudition, store.incomingShare == nil,
+               let shared = ShareInbox.next() {
+                store.incomingShare = shared
+                store.tab = .auditions
+                store.showAddAudition = true
+            }
         }
     }
 }
@@ -83,7 +91,7 @@ struct RootTabView: View {
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {
-            case .shoot(let id):  ShootFlow(auditionID: id)
+            case .shoot(let id, let scene): ShootFlow(auditionID: id, initialScene: scene)
             case .headshot:       HeadshotFlow()
             case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
             case .practiceTake:   PracticeTakeView()
@@ -101,9 +109,9 @@ private struct RouteDestinations: ViewModifier {
             case .auditionDetail(let id):            AuditionDetailView(auditionID: id)
             case .prepare(let id, let scene):        PrepareView(auditionID: id, sceneIndex: scene)
             case .runLines(let id, let scene):       RunLinesView(auditionID: id, sceneIndex: scene)
-            case .reader(let id):                    ReaderView(auditionID: id)
-            case .recordReader(let id):              RecordReaderView(auditionID: id)
-            case .shootSetup(let id):                ShootSetupView(auditionID: id)
+            case .reader(let id, let scene):         ReaderView(auditionID: id, sceneIndex: scene)
+            case .recordReader(let id, let scene):   RecordReaderView(auditionID: id, sceneIndex: scene)
+            case .shootSetup(let id, let scene):     ShootSetupView(auditionID: id, scene: scene)
             case .takes(let id):                     TakesView(auditionID: id)
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
             case .package(let id):                   PackageView(auditionID: id)

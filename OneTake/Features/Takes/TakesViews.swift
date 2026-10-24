@@ -12,21 +12,30 @@ struct VideoThumbnail: View {
         ZStack {
             if let image { Image(uiImage: image).resizable().scaledToFill() } else { OT.cameraBg }
         }
-        .task(id: url) {
-            guard image == nil else { return }
-            image = await Self.generate(url)
-        }
+        // Runs again when the file changes (a trimmed take gets a new URL), so the frame never goes stale.
+        .task(id: url) { image = await Self.thumbnail(url) }
     }
 
-    private static func generate(_ url: URL) async -> UIImage? {
+    /// Frames are kept in memory, keyed by file and modification date: lists of takes re-render
+    /// often, and a re-recorded slate keeps its file name.
+    private static let cache = NSCache<NSString, UIImage>()
+
+    private static func thumbnail(_ url: URL) async -> UIImage? {
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(url.path)@\(modified?.timeIntervalSince1970 ?? 0)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
-        return try? await withCheckedThrowingContinuation { cont in
+        // Display size, not the full frame: a 4K frame is ~33 MB decoded.
+        generator.maximumSize = CGSize(width: 480, height: 480)
+        let image: UIImage? = try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<UIImage, Error>) in
             generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: CMTime(seconds: 0.1, preferredTimescale: 30))]) { _, cgImage, _, _, error in
                 if let cgImage { cont.resume(returning: UIImage(cgImage: cgImage)) }
                 else { cont.resume(throwing: error ?? NSError(domain: "VideoThumbnail", code: -1)) }
             }
         }
+        if let image { cache.setObject(image, forKey: key) }
+        return image
     }
 }
 
@@ -40,12 +49,28 @@ struct TakesView: View {
     @State private var notesOpen = false
     @State private var trimming: Take?
     @State private var newNote = ""
+    /// Which scene's takes are showing — each scene has its own circled take.
+    @State private var scene: Int?
+
+    private var scenes: [ScriptScene] { store.audition(auditionID)?.scenes ?? [] }
+
+    /// The chosen scene, else the scene of the most recent take, else the first.
+    private var shownScene: Int {
+        scene ?? store.takes.last(where: { $0.auditionID == auditionID })?.sceneIndex ?? 0
+    }
 
     var body: some View {
-        let takes = store.takes.filter { $0.auditionID == auditionID }
+        let takes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == shownScene }
         let current = takes.first { $0.id == (selected ?? takes.first(where: \.isCircled)?.id) } ?? takes.last
+        let circled = takes.first(where: \.isCircled)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if scenes.count > 1 {
+                    Picker("Scene", selection: Binding(get: { shownScene }, set: { scene = $0; selected = nil })) {
+                        ForEach(scenes.indices, id: \.self) { Text(scenes[$0].title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
                 PlayerCard(url: current?.fileURL)
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -59,7 +84,9 @@ struct TakesView: View {
                 }
 
                 HStack {
-                    Text("Take \(takes.first(where: \.isCircled)?.number ?? 0) is circled — that's your send.").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                    Text(circled.map { "Take \($0.number) is circled — that's your send." }
+                         ?? (takes.isEmpty ? "No takes for this scene yet." : "Long-press a take to circle it."))
+                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                     Spacer()
                     if let c = current, !c.isCircled {
                         Button("Circle take \(c.number)") { store.circleOnly(c); Haptics.success() }.font(.otFootnote.weight(.semibold))
@@ -103,7 +130,9 @@ struct TakesView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Go again") { showOneMore = true }.buttonStyle(.otSecondary).frame(width: 130)
-                Button("Send take \(takes.first(where: \.isCircled)?.number ?? 0)") { store.push(.tapeCheck(auditionID)) }.buttonStyle(.otPrimary)
+                Button(scenes.count > 1 ? "Check the tape" : circled.map { "Send take \($0.number)" } ?? "Check the tape") { store.push(.tapeCheck(auditionID)) }
+                    .buttonStyle(.otPrimary)
+                    .disabled(!store.takes.contains { $0.auditionID == auditionID })
             }
             .padding(.horizontal, OT.gutter).padding(.vertical, 8).background(OT.bgCanvas)
         }
@@ -121,7 +150,7 @@ struct TakesView: View {
                 Text("One more?").font(.otTitle)
                 Text("Takes 1 to \(takes.count) stay right here. Three solid takes is plenty — trust the one you circled.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
-                Button("Record take \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: 0))") { showOneMore = false; store.camera = .shoot(auditionID) }.buttonStyle(.otPrimary)
+                Button("Record take \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: shownScene))") { showOneMore = false; store.camera = .shoot(auditionID, scene: shownScene) }.buttonStyle(.otPrimary)
                 Button("Not now") { showOneMore = false }.buttonStyle(.otSecondary)
             }
             .padding(OT.gutter)

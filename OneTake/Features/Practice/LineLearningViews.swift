@@ -79,8 +79,10 @@ struct LineDrillView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var peeked: ScriptLine.ID?
+    /// Mask & Reveal: how much of each of your lines is hidden (1 = a quarter of the words … 4 = all).
+    @State private var maskLevel = 1
 
-    private var displayMode: LineDisplayMode { mode == .firstLetter ? .firstLetters : .hide }
+    private var displayMode: LineDisplayMode { mode == .firstLetter ? .firstLetters : .masked(level: maskLevel) }
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
@@ -98,7 +100,18 @@ struct LineDrillView: View {
             .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                Button("Done") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
+                HStack(spacing: 8) {
+                    if mode == .maskAndReveal {
+                        Button { maskLevel = max(1, maskLevel - 1); Haptics.tick() } label: { Image(systemName: "eye") }
+                            .buttonStyle(.otSecondary).frame(width: 64)
+                            .disabled(maskLevel == 1).accessibilityLabel("Show more words")
+                        Button { maskLevel = min(4, maskLevel + 1); Haptics.tick() } label: { Image(systemName: "eye.slash") }
+                            .buttonStyle(.otSecondary).frame(width: 64)
+                            .disabled(maskLevel == 4).accessibilityLabel("Hide more words")
+                    }
+                    Button("Done") { dismiss() }.buttonStyle(.otPrimary)
+                }
+                .padding(OT.gutter)
             }
         }
     }
@@ -138,8 +151,21 @@ struct AudioWalkView: View {
                 Spacer()
                 Image(systemName: "headphones").font(.system(size: 56)).foregroundStyle(OT.accent)
                 Text(playing ? "Looping \(scene.title)…" : "Ready to loop \(scene.title)").font(.otTitle)
-                Text("Both voices, on repeat. Put your phone away and just listen.")
+                Text("Your recorded reader lines, with a pause the length of each of yours, on repeat. Say your lines into the gaps.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
+                let readerLines = scene.lines.filter { !$0.isMine }.count
+                let recorded = (0..<readerLines).filter {
+                    FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+                }.count
+                if recorded < readerLines {
+                    // Unrecorded reader lines play as silence — say so rather than loop a quiet scene.
+                    Text("\(recorded) of \(readerLines) reader lines recorded — the rest stay silent.")
+                        .font(.otFootnote).foregroundStyle(OT.warning)
+                    Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { Label("Record the reader", systemImage: "mic") }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                }
+                Text("The screen stays on while it loops, so it keeps going in your pocket.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary).multilineTextAlignment(.center)
                 Spacer()
                 Button(playing ? "Stop" : "Start looping") {
                     playing.toggle()
@@ -151,6 +177,8 @@ struct AudioWalkView: View {
             .padding(.horizontal, OT.gutter).padding(.bottom, OT.gutter)
             .otCanvas()
             .navigationTitle("Audio Walk").navigationBarTitleDisplayMode(.inline)
+            // Auto-Lock would suspend the app and stop the loop.
+            .keepScreenAwake()
             .onDisappear { walker.stop() }
         }
     }

@@ -14,6 +14,10 @@ enum ScriptParser {
             .map { $0.trimmingCharacters(in: .whitespaces) }
 
         let roleName = normalizedName(myRole)
+        // Sides often hold more than one scene, each opening on a slugline ("INT. KITCHEN — NIGHT")
+        // or a "SCENE 2" header; each becomes its own scene so it can be prepared and shot alone.
+        var scenes: [(heading: String, lines: [ScriptLine])] = []
+        var heading = "SIDES"
         var lines: [ScriptLine] = []
         var currentCharacter: String?
         var currentText = ""
@@ -26,7 +30,15 @@ enum ScriptParser {
         }
 
         for raw in rawLines {
-            if raw.isEmpty {
+            if isSceneHeading(raw) {
+                flush()
+                currentCharacter = nil
+                if !lines.isEmpty {
+                    scenes.append((heading, lines))
+                    lines = []
+                }
+                heading = raw
+            } else if raw.isEmpty {
                 // End of the dialogue block. A blank line straight after a cue (before any dialogue)
                 // is tolerated, since PDF/OCR text often spaces lines out.
                 if !currentText.isEmpty {
@@ -46,15 +58,33 @@ enum ScriptParser {
             } else if currentCharacter != nil {
                 currentText += (currentText.isEmpty ? "" : " ") + raw
             }
-            // Lines before any cue is found (sluglines like "INT. ROOM — NIGHT", stray header text) are skipped.
+            // Anything before the first cue (stray header text, action lines) is skipped.
         }
         flush()
+        if !lines.isEmpty { scenes.append((heading, lines)) }
 
-        guard !lines.isEmpty else { return [] }
-        // ~150 wpm reading pace is a reasonable estimate for "how long this will take to shoot".
-        let wordCount = lines.reduce(0) { $0 + $1.text.split(separator: " ").count }
-        let estimatedSeconds = max(15, Int(Double(wordCount) / 150.0 * 60))
-        return [ScriptScene(number: 1, title: "Scene 1", heading: "SIDES", lines: lines, estimatedSeconds: estimatedSeconds)]
+        return scenes.enumerated().map { i, scene in
+            // ~150 wpm reading pace is a reasonable estimate for "how long this will take to shoot".
+            let wordCount = scene.lines.reduce(0) { $0 + $1.text.split(separator: " ").count }
+            let estimatedSeconds = max(15, Int(Double(wordCount) / 150.0 * 60))
+            return ScriptScene(number: i + 1, title: "Scene \(i + 1)", heading: scene.heading,
+                               lines: scene.lines, estimatedSeconds: estimatedSeconds)
+        }
+    }
+
+    /// Where a new scene starts: a slugline ("INT. CAFÉ — DAY", "EXT/INT CAR", "I/E") or a scene
+    /// header like "SCENE 2" / "SC. 14".
+    static func isSceneHeading(_ raw: String) -> Bool {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, line.count < 80 else { return false }
+        let upper = line.uppercased()
+        let sluglinePrefixes = ["INT.", "EXT.", "INT/EXT", "EXT/INT", "INT./EXT", "EXT./INT", "I/E", "INT ", "EXT "]
+        if line == upper, sluglinePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
+        // "SCENE 2", "Scene 2:", "SC. 14A — KITCHEN": a number, then nothing or a separator — so a
+        // line of dialogue like "Scene two was better" isn't taken for a heading.
+        guard let match = upper.firstMatch(of: #/^(SCENE|SC\.?)\s*(\d+[A-Z]?)\b/#) else { return false }
+        let rest = upper[match.range.upperBound...].trimmingCharacters(in: .whitespaces)
+        return rest.first.map { ":.-–—(".contains($0) } ?? true
     }
 
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least

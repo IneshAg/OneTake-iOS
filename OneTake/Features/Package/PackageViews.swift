@@ -209,7 +209,8 @@ struct PackageView: View {
         if a.destination == .emailOrLink {
             guard let link = a.shareLink else { return nil }
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
-            return ["\(store.slate.name) — \(a.role), \(a.project).\(expiry)", link] + headshots
+            let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
+            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + headshots
         }
         return a.exportedFileURL.map { [$0] + headshots }
     }

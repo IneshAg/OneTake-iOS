@@ -95,7 +95,7 @@ struct AuditionCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            HeadshotImage(name: audition.headshotAsset, realKey: "front")
+            HeadshotImage(realKey: "front")
                 .frame(width: 88, height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -263,7 +263,11 @@ struct SearchView: View {
                     Section("Practice") {
                         ForEach(practiceHits) { p in
                             Button {
-                                if let a = store.auditions.first { store.push(.runLines(a.id, sceneIndex: 0)) }
+                                // The piece's own audition and scene — not whichever audition happens to be first.
+                                if let id = p.auditionID, let scene = p.sceneIndex,
+                                   store.audition(id)?.scenes.indices.contains(scene) == true {
+                                    store.push(.runLines(id, sceneIndex: scene))
+                                }
                             } label: {
                                 ScheduleRow(eyebrow: "PRACTICE", value: "\(p.linesLearned)/\(p.linesTotal)", title: p.title, detail: p.detail)
                             }
@@ -282,7 +286,7 @@ struct SearchView: View {
             // Profile / Settings Section
             if scope == .all || scope == .profile {
                 let profileItems: [(title: String, detail: String, route: Route)] = [
-                    ("Slate & bio", "\(store.slate.name) · \(store.slate.height) · \(store.slate.basedIn)", .editSlate),
+                    ("Slate & bio", store.slate.isEmpty ? "Name, height, city" : "\(store.slate.name) · \(store.slate.summary)", .editSlate),
                     ("Headshots", "Front, left profile, right profile", .headshots(for: nil)),
                     ("Notifications", "Deadlines, callbacks, tape delivery", .notifications),
                     ("Privacy & data", "Local storage, sent tapes, exports", .privacy)

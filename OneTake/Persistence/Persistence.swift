@@ -14,19 +14,75 @@ struct PersistedState: Codable {
     /// Optional, so state saved before accounts existed still loads (an old `isSignedIn` flag is
     /// simply ignored — it never had a real account behind it).
     var account: Account?
+    /// How many saved records couldn't be read back and were left out. Never written to disk.
+    var droppedRecords = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case auditions, takes, practice, slate, isOnboarded, account
+    }
+}
+
+// In an extension so the memberwise initializer AppStore uses survives.
+extension PersistedState {
+    /// Reads each audition, take and practice piece on its own: one record that no longer decodes
+    /// (a damaged file, or a field a newer version renamed) is left out instead of taking every other
+    /// record — and the onboarding flag — down with it.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var dropped = 0
+        func records<T: Decodable>(_ key: CodingKeys) -> [T] {
+            guard let all = try? c.decodeIfPresent([Lossy<T>].self, forKey: key) else {
+                if c.contains(key) { dropped += 1 }
+                return []
+            }
+            dropped += all.filter { $0.value == nil }.count
+            return all.compactMap(\.value)
+        }
+        auditions = records(.auditions)
+        takes = records(.takes)
+        practice = records(.practice)
+        slate = (try? c.decodeIfPresent(SlateInfo.self, forKey: .slate)) ?? SlateInfo()
+        isOnboarded = (try? c.decodeIfPresent(Bool.self, forKey: .isOnboarded)) ?? false
+        account = try? c.decodeIfPresent(Account.self, forKey: .account)
+        droppedRecords = dropped
+    }
+}
+
+/// One array element that may fail to decode; the failure is kept as nil so the rest still load.
+private struct Lossy<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
 }
 
 enum Persistence {
-    private static var fileURL: URL {
+    private static var directory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("OneTake", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("state.json")
+        return dir
     }
+
+    private static var fileURL: URL { directory.appendingPathComponent("state.json") }
 
     static func load() -> PersistedState? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(PersistedState.self, from: data)
+        return decode(data, keepingUnreadable: keepUnreadableCopy)
+    }
+
+    /// Decodes saved state. Whenever any of it can't be read, `keepingUnreadable` gets the original
+    /// bytes first — the next save replaces state.json, and that must never be the only copy.
+    static func decode(_ data: Data, keepingUnreadable: (Data) -> Void) -> PersistedState? {
+        guard let state = try? JSONDecoder().decode(PersistedState.self, from: data) else {
+            keepingUnreadable(data)
+            return nil
+        }
+        if state.droppedRecords > 0 { keepingUnreadable(data) }
+        return state
+    }
+
+    private static func keepUnreadableCopy(_ data: Data) {
+        let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+        try? data.write(to: directory.appendingPathComponent("state-unreadable-\(stamp).json"), options: .atomic)
     }
 
     static func save(_ state: PersistedState) {
@@ -96,6 +152,11 @@ enum MediaStore {
 // MARK: - Headshots (real captured photos, keyed by angle)
 
 enum HeadshotStore {
+
+    /// Headshots are drawn in list rows that re-render often; decoding the JPEG from disk every time
+    /// made scrolling the auditions list do file I/O per card.
+    private static let cache = NSCache<NSString, UIImage>()
+
     private static func url(for key: String) -> URL {
         MediaStore.directory("headshots").appendingPathComponent("\(key.lowercased()).jpg")
     }
@@ -103,10 +164,14 @@ enum HeadshotStore {
     static func save(_ image: UIImage, key: String) {
         guard let data = image.jpegData(compressionQuality: 0.9) else { return }
         try? data.write(to: url(for: key), options: .atomic)
+        cache.setObject(image, forKey: key.lowercased() as NSString)
     }
 
     static func load(key: String) -> UIImage? {
-        UIImage(contentsOfFile: url(for: key).path)
+        if let cached = cache.object(forKey: key.lowercased() as NSString) { return cached }
+        guard let image = UIImage(contentsOfFile: url(for: key).path) else { return nil }
+        cache.setObject(image, forKey: key.lowercased() as NSString)
+        return image
     }
 
     static func exists(key: String) -> Bool {
@@ -116,6 +181,9 @@ enum HeadshotStore {
     /// The audition headshots that have been taken, in order: front, then left and right profiles.
     static let angles: [(key: String, title: String)] = [("front", "Front"), ("left", "Left profile"), ("right", "Right profile")]
     static var taken: [(key: String, title: String)] { angles.filter { exists(key: $0.key) } }
+
+    /// Call after deleting the headshots folder so stale images aren't drawn from memory.
+    static func clearCache() { cache.removeAllObjects() }
 
     /// Copies of the taken headshots named to match the tape (LAST_FIRST_ROLE_PROJECT_HEADSHOT_FRONT.jpg),
     /// to send alongside it as photos.
