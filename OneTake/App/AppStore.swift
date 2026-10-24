@@ -78,6 +78,8 @@ final class AppStore {
     /// Set when an audition is saved; once the Add sheet has gone, the app continues straight into
     /// that audition's first step instead of stopping on its overview.
     var continueAfterAdd: Audition.ID?
+    /// A notice shared from another app, waiting for Add audition to read it.
+    var incomingShare: ShareInbox.Item?
 
     // Send state
     var sendProgress: Double = 0
