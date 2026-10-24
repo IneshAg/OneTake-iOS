@@ -117,6 +117,7 @@ struct SignInView: View {
     var reason = "Your auditions, reader tracks and takes, on every device you own."
     var onContinue: () -> Void
     @State private var email = ""
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Sign-in gates link sharing, so only a real result counts — a cancelled Apple sheet or an
     /// empty email field must not sign anyone in.
@@ -137,7 +138,7 @@ struct SignInView: View {
             } onCompletion: { result in
                 if case .success = result { onContinue() }
             }
-            .signInWithAppleButtonStyle(.black)
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
             .frame(height: 52).clipShape(Capsule())
             .padding(.top, 8)
 
