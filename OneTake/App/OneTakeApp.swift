@@ -3,6 +3,10 @@ import SwiftUI
 @main
 struct OneTakeApp: App {
     @State private var store = AppStore()
+    @Environment(\.scenePhase) private var scenePhase
+    /// Profile → Appearance: "system" follows the iPhone; "light" / "dark" pin it. Every colour token
+    /// has both a light and a dark value, so either works throughout.
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
         WindowGroup {
@@ -15,6 +19,21 @@ struct OneTakeApp: App {
             }
             .environment(store)
             .tint(OT.accent)
+            .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+            // Widgets and the Live Activity open "onetake://audition/<id>".
+            .onOpenURL { url in
+                guard url.scheme == "onetake", url.host == "audition",
+                      let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
+                store.camera = nil
+                store.tab = .auditions
+                store.auditionsPath = [.auditionDetail(id)]
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Countdowns move on while the app is closed; refresh them whenever it comes back.
+            guard phase == .active else { return }
+            WidgetSync.update(store.auditions)
+            LiveActivitySync.update(store.auditions)
         }
     }
 }

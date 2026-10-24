@@ -121,8 +121,11 @@ final class AppStore {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             Persistence.save(snapshot)
-            // Same debounce: reminders follow due dates, status and deletions.
+            // Same debounce: reminders, widgets and the Live Activity follow due dates, progress,
+            // status and deletions.
             Reminders.reschedule(snapshot.auditions)
+            WidgetSync.update(snapshot.auditions)
+            await LiveActivitySync.update(snapshot.auditions)
         }
     }
 

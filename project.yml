@@ -16,6 +16,7 @@ targets:
     platform: iOS
     sources:
       - path: OneTake
+      - path: Shared
     # iCloud Drive (CloudDocuments) for "Email or link": the exported tape is uploaded to the app's
     # own iCloud container and published as a download link. Needs a development team with this
     # container registered in the Apple Developer portal.
@@ -28,6 +29,11 @@ targets:
           - CloudDocuments
         com.apple.developer.ubiquity-container-identifiers:
           - iCloud.com.onetake.app
+        # Shared with the widget extension, which reads the snapshot the app writes.
+        com.apple.security.application-groups:
+          - group.com.onetake.app
+    dependencies:
+      - target: OneTakeWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app
@@ -35,6 +41,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: OneTake
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSCameraUsageDescription: "OneTake films your self-tapes and headshots. Takes stay on this iPhone until you send them."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "OneTake records your voice for takes and reader tracks."
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "OneTake listens so the prompter can follow your lines and hear “Action” and “Cut”."
@@ -42,6 +49,30 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  # Home Screen / Lock Screen widgets and the Live Activity (Dynamic Island).
+  OneTakeWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: OneTakeWidgets
+      - path: Shared
+      - path: OneTake/DesignSystem/Theme.swift
+    info:
+      path: OneTakeWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: OneTake
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: OneTakeWidgets/OneTakeWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.onetake.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
 schemes:
   OneTake:
     build:

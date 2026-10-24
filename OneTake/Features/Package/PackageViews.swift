@@ -23,6 +23,8 @@ struct PackageView: View {
     @State private var exportTask: Task<Void, Never>?
     /// True while the exported tape is uploading to iCloud for an "Email or link" send.
     @State private var uploading = false
+    /// Last progress pushed to the Live Activity — updates are throttled to 5% steps.
+    @State private var reportedProgress = -1.0
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -35,11 +37,13 @@ struct PackageView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: phase)
+            .onChange(of: progress) { _, p in reportUpload(p) }
             .otCanvas()
             .sheet(isPresented: $showShare) {
                 if let items = shareItems(a) {
                     ShareSheet(items: items) { completed in
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
+                        endUpload()
                     }
                 }
             }
@@ -177,6 +181,7 @@ struct PackageView: View {
                 await MainActor.run {
                     exportErrorMessage = error.localizedDescription
                     phase = .failed
+                    endUpload()
                 }
             }
         }
@@ -197,6 +202,22 @@ struct PackageView: View {
         exportTask?.cancel()
         exportTask = nil
         phase = .review
+        endUpload()
+    }
+
+    /// Link sends show their progress in the Dynamic Island / Lock Screen, so the actor can leave
+    /// the app while a big tape uploads.
+    private func reportUpload(_ p: Double) {
+        guard phase == .sending, let a = store.audition(auditionID), a.destination == .emailOrLink,
+              p - reportedProgress >= 0.05 || p >= 1 else { return }
+        reportedProgress = p
+        LiveActivitySync.setUploadProgress(p, for: a)
+    }
+
+    private func endUpload() {
+        guard reportedProgress >= 0, let a = store.audition(auditionID) else { return }
+        reportedProgress = -1
+        LiveActivitySync.setUploadProgress(nil, for: a)
     }
 }
 

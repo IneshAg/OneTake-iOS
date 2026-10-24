@@ -5,6 +5,7 @@ import AVKit
 
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("appearance") private var appearance = "system"
     @State private var showSignIn = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("cleanNoise") private var cleanNoise = true
@@ -107,6 +108,21 @@ struct ProfileView: View {
                     SectionLabel(text: "More")
 
                     VStack(spacing: 0) {
+                        HStack {
+                            Label("Appearance", systemImage: "circle.lefthalf.filled")
+                                .font(.otBody).foregroundStyle(OT.labelPrimary)
+                            Spacer()
+                            Picker("Appearance", selection: $appearance) {
+                                Text("System").tag("system")
+                                Text("Light").tag("light")
+                                Text("Dark").tag("dark")
+                            }
+                            .labelsHidden()
+                        }
+                        .frame(minHeight: 44)
+
+                        Divider().padding(.vertical, 2)
+
                         Button { store.push(.notifications) } label: {
                             profileRow(symbol: "bell", title: "Notifications")
                         }
@@ -270,6 +286,7 @@ struct PrivacyView: View {
 
 struct NotificationSettingsView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("n.liveActivity") private var liveActivity = true
     @AppStorage("n.morning") private var morning = true
     @AppStorage("n.twoHours") private var twoHours = true
     @AppStorage("n.delivery") private var delivery = true
@@ -280,6 +297,7 @@ struct NotificationSettingsView: View {
             Section {
                 Toggle("Morning it’s due", isOn: $morning)
                 Toggle("Two hours before", isOn: $twoHours)
+                Toggle("Countdown on Lock Screen", isOn: $liveActivity)
             } header: {
                 Text("Deadlines")
             } footer: {
@@ -298,6 +316,7 @@ struct NotificationSettingsView: View {
         .onChange(of: morning) { Reminders.reschedule(store.auditions) }
         .onChange(of: twoHours) { Reminders.reschedule(store.auditions) }
         .onChange(of: practice) { Reminders.reschedule(store.auditions) }
+        .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Notifications")
