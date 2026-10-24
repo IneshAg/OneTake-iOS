@@ -244,9 +244,12 @@ enum TapeAnalyzer {
             }
             guard samplesPerWindow > 0, let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             let length = CMBlockBufferGetDataLength(block)
-            var floats = [Float](repeating: 0, count: length / MemoryLayout<Float>.size)
+            let count = length / MemoryLayout<Float>.size
+            var floats = [Float](repeating: 0, count: count)
+            // `count` is read up front: reading `floats.count` inside its own mutable-bytes closure is an
+            // overlapping access the compiler rejects.
             let status = floats.withUnsafeMutableBytes { raw in
-                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: floats.count * MemoryLayout<Float>.size, destination: raw.baseAddress!)
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: raw.baseAddress!)
             }
             guard status == kCMBlockBufferNoErr else { continue }
             for sample in floats {

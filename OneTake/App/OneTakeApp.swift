@@ -129,10 +129,16 @@ extension View {
 
     @ViewBuilder
     func applySearchTabActivation() -> some View {
+        // `tabViewSearchActivation` only exists in the iOS 26 SDK (Swift 6.2 toolchains); older Xcodes
+        // must still be able to build the app.
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.tabViewSearchActivation(.searchTabSelection)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
