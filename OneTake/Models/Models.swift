@@ -208,14 +208,19 @@ enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// Shared by Prepare's own toggle (`PrepareView.Mode`) and Practice's First-Letter / Mask & Reveal drills,
-/// so the memorization mechanic is implemented exactly once.
-enum LineDisplayMode { case full, firstLetters, hide }
+/// so the memorization mechanic is implemented exactly once. `masked(level:)` hides a growing share
+/// of your words — 1 of every 4 at level 1, every word at level 4.
+enum LineDisplayMode { case full, firstLetters, hide, masked(level: Int) }
 
 func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> String {
     guard line.isMine, !peeked else { return line.text }
     switch mode {
     case .full: return line.text
     case .hide: return "Tap to peek"
+    case .masked(let level):
+        return line.text.split(separator: " ").enumerated().map { i, w in
+            i % 4 < level ? String(repeating: "_", count: min(max(w.count, 2), 8)) : String(w)
+        }.joined(separator: " ")
     case .firstLetters:
         return line.text.split(separator: " ").map { w in
             guard let f = w.first else { return "" }
