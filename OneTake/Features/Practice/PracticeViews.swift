@@ -5,6 +5,7 @@ import AVKit
 
 struct PracticeView: View {
     @Environment(AppStore.self) private var store
+    @State private var sidesAuditionID: Audition.ID?
 
     var body: some View {
         ScrollView {
@@ -36,6 +37,8 @@ struct PracticeView: View {
                     .padding(18).otCard()
                 }
 
+                if !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
+
                 QuickDrillsGrid { mode in start(mode) }
 
                 SectionLabel(text: "Your pieces")
@@ -62,6 +65,30 @@ struct PracticeView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
+            if let id = sidesAuditionID { RevisedSidesSheet(auditionID: id) }
+        }
+    }
+
+    /// Practice works on scenes read from your auditions' sides. With none, say what's missing.
+    private var noScenesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Nothing to practise yet", systemImage: "theatermasks").font(.otHeadline)
+            if store.auditions.isEmpty {
+                Text("Practice uses the sides from your auditions. Add an audition and its scenes show up here.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                Button("Add an audition") { store.showAddAudition = true }.buttonStyle(.otPrimary)
+            } else {
+                Text("These auditions don’t have any sides OneTake could read. Add the pages and the scenes appear here.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                ForEach(store.auditions) { a in
+                    Button { sidesAuditionID = a.id } label: {
+                        IconRow(symbol: "doc.badge.plus", title: "Add sides", detail: "\(a.project) · \(a.role)")
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard()
     }
 
     /// A piece opens its scene in Prepare — as long as the audition it came from still has it.
@@ -89,6 +116,8 @@ struct PracticeView: View {
             sceneIndex = 0
             store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
         } else {
+            // No scene to drill: send them to add sides (or an audition) rather than doing nothing.
+            if let first = store.auditions.first { sidesAuditionID = first.id } else { store.showAddAudition = true }
             return
         }
         switch mode {

@@ -23,7 +23,7 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Button { store.push(.editSlate) } label: {
                         HStack(spacing: 14) {
-                            HeadshotImage(realKey: "front").frame(width: 64, height: 64).clipShape(Circle())
+                            HeadshotImage(realKey: "front").id(store.headshotVersion).frame(width: 64, height: 64).clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
                                 Text(store.slate.summary)
@@ -43,7 +43,7 @@ struct ProfileView: View {
                             Label("Headshots", systemImage: "person.crop.square")
                                 .font(.otBody).foregroundStyle(OT.labelPrimary)
                             Spacer()
-                            Text("\(HeadshotStore.taken.count) of 3").font(.otCallout).foregroundStyle(OT.labelTertiary)
+                            Text("\(HeadshotStore.taken.count) of 3").font(.otCallout).foregroundStyle(OT.labelTertiary).id(store.headshotVersion)
                             Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                         }
                         .frame(minHeight: 44)
@@ -270,6 +270,7 @@ struct PrivacyView: View {
     private func deleteAll() {
         MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
         HeadshotStore.clearCache()
+        store.headshotVersion += 1
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
         for i in store.auditions.indices {
@@ -321,7 +322,7 @@ struct PrivacyPolicyView: View {
 
 struct NotificationSettingsView: View {
     @Environment(AppStore.self) private var store
-    @AppStorage("n.liveActivity") private var liveActivity = true
+    @AppStorage("n.liveActivity") private var liveActivity = false
     @AppStorage("n.morning") private var morning = true
     @AppStorage("n.twoHours") private var twoHours = true
     @AppStorage("n.delivery") private var delivery = true
@@ -391,6 +392,7 @@ struct HeadshotsView: View {
             .padding(.horizontal, OT.gutter)
             .padding(.bottom, 120)
         }
+        .id(store.headshotVersion)
         .otCanvas()
         .navigationTitle("Headshots")
         .safeAreaInset(edge: .bottom) {
@@ -448,6 +450,7 @@ struct HeadshotFlow: View {
     @Environment(AppStore.self) private var store
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
+    @State private var voiceAllowed = false
     @State private var angle: Angle = .front
     @State private var justCaptured = false
     @State private var captureFailed = false
@@ -456,7 +459,8 @@ struct HeadshotFlow: View {
         ZStack {
             CameraBackground(controller: camera)
             // Alignment overlay — ghost outline to position against, shifted per angle.
-            Ellipse().stroke(OT.due, lineWidth: 1.5).frame(width: 200, height: 270)
+            Ellipse().stroke(guide.aligned ? OT.success : OT.due, lineWidth: guide.aligned ? 3 : 1.5).frame(width: 200, height: 270)
+                .animation(.easeOut(duration: 0.15), value: guide.aligned)
                 .rotation3DEffect(.degrees(angle == .front ? 0 : 8), axis: (x: 0, y: 1, z: 0))
                 .offset(x: angle == .left ? -14 : angle == .right ? 14 : 0, y: -20)
 
@@ -486,26 +490,46 @@ struct HeadshotFlow: View {
 
                 Spacer()
 
-                Text(angle == .front ? "Hold still — you’re centred" : "Hold still — that’s your profile")
-                    .font(.otHeadline).foregroundStyle(.white)
-                Text("Tap, or say “Now”").font(.otFootnote).foregroundStyle(.white.opacity(0.7))
+                Text(guide.message)
+                    .font(.otHeadline).foregroundStyle(guide.aligned ? OT.success : .white)
+                Text(follower.isListening ? "Tap, or say “Now”" : "Voice is off — tap the shutter").font(.otFootnote).foregroundStyle(.white.opacity(0.7))
 
-                Button { capture() } label: {
-                    Circle().fill(.white).frame(width: 66, height: 66).overlay(Circle().stroke(.white, lineWidth: 4).frame(width: 78, height: 78))
+                ZStack {
+                    Button { capture() } label: {
+                        Circle().fill(.white).frame(width: 66, height: 66).overlay(Circle().stroke(.white, lineWidth: 4).frame(width: 78, height: 78))
+                    }
+                    .scaleEffect(justCaptured ? 0.88 : 1)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: justCaptured)
+                    .accessibilityLabel("Take photo")
+
+                    HStack {
+                        Spacer()
+                        Button {
+                            camera.switchCamera()
+                            Haptics.tick()
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera").foregroundStyle(.white)
+                                .frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
+                        }
+                        .disabled(camera.state != .ready)
+                        .accessibilityLabel("Switch camera")
+                    }
                 }
-                .scaleEffect(justCaptured ? 0.88 : 1)
-                .animation(.spring(response: 0.2, dampingFraction: 0.6), value: justCaptured)
-                .accessibilityLabel("Take photo")
                 .padding(.bottom, 12)
             }
             .padding(.horizontal, OT.gutter)
         }
         .preferredColorScheme(.dark)
         .task {
-            if await CameraController.requestAccess() { camera.configure(position: .front) }
+            camera.wantsFaceGuidance = true
+            if await CameraController.requestVideoAccess() { camera.configure(position: .front) }
             // Voice shutter — reuses the same "Talk to OneTake" recognizer the recording flow uses,
             // just with a capture command added to its vocabulary. Gesture trigger is a v1.1 candidate.
-            if await SpeechFollower.requestAccess() { follower.start() }
+            voiceAllowed = await SpeechFollower.requestAccess()
+            if voiceAllowed { follower.start() }
+        }
+        .onChange(of: camera.state) { _, state in
+            if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
             if cmd?.word == "now" || cmd?.word == "action" { capture() }
@@ -518,8 +542,36 @@ struct HeadshotFlow: View {
         .alert("Couldn’t take that photo", isPresented: $captureFailed) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("The camera wasn’t ready. Give it a second, then try again.")
+            Text(failureMessage)
         }
+    }
+
+    private var failureMessage: String {
+        switch camera.state {
+        case .failed(let reason): reason
+        case .idle: "The camera hasn’t started. Check Settings › OneTake › Camera is on, then reopen this screen."
+        default: "The camera wasn’t ready. Give it a second, then try again."
+        }
+    }
+
+    /// Live coaching from face detection: is the face framed, the right size, and turned the right amount?
+    private var guide: (message: String, aligned: Bool) {
+        guard let f = camera.face else { return ("Show your face to the camera", false) }
+        if f.height < 0.2 { return ("Move closer", false) }
+        if f.height > 0.5 { return ("Move back a little", false) }
+        if f.centerX < 0.4 { return ("Too far left — move right", false) }
+        if f.centerX > 0.6 { return ("Too far right — move left", false) }
+        if f.centerY < 0.3 { return ("Tilt the phone up a little", false) }
+        if f.centerY > 0.56 { return ("Tilt the phone down a little", false) }
+        let yaw = abs(f.yaw ?? 0)
+        switch angle {
+        case .front:
+            if yaw > 0.22 { return ("Look straight at the camera", false) }
+        case .left, .right:
+            if f.yaw == nil || yaw < 0.35 { return ("Turn your head a little more to the side", false) }
+            if yaw > 1.0 { return ("Turn back a little", false) }
+        }
+        return ("Hold still — that’s it", true)
     }
 
     private var referenceThumbnail: some View {
@@ -549,6 +601,7 @@ struct HeadshotFlow: View {
             // Nothing captured means nothing saved and no moving on — never a stand-in photo.
             guard let image else { captureFailed = true; Haptics.warning(); return }
             HeadshotStore.save(image, key: angle.rawValue)
+            store.headshotVersion += 1
             Haptics.success()
             if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
                 angle = next

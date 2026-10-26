@@ -12,6 +12,7 @@ struct PrepareView: View {
     @State private var mode: Mode = .full
     @State private var peeked: ScriptLine.ID?
     @State private var showPrompterSettings = false
+    @State private var showSides = false
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
@@ -50,6 +51,21 @@ struct PrepareView: View {
             }
             .safeAreaInset(edge: .bottom) { bottomBar(a) }
             .sheet(isPresented: $showPrompterSettings) { PrompterSettingsSheet().presentationDetents([.medium]) }
+        } else {
+            // No scenes were read from what was added — say so and offer the fix instead of a blank page.
+            VStack(spacing: 14) {
+                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundStyle(OT.labelTertiary)
+                Text("No sides yet").font(.otLargeTitle)
+                Text("OneTake couldn’t find any character lines in what was added. Paste, import or scan the pages and it will split them into scenes. Cues work as NAME on its own line, or “Maya: line”.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
+                Button("Add sides") { showSides = true }.buttonStyle(.otPrimary)
+            }
+            .padding(OT.gutter)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .otCanvas()
+            .navigationTitle("Sides")
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showSides) { RevisedSidesSheet(auditionID: auditionID) }
         }
     }
 

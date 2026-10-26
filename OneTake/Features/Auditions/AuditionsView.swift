@@ -92,10 +92,11 @@ struct AuditionsView: View {
 struct AuditionCard: View {
     let audition: Audition
     var onNext: () -> Void
+    @Environment(AppStore.self) private var store
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            HeadshotImage(realKey: "front")
+            HeadshotImage(realKey: "front").id(store.headshotVersion)
                 .frame(width: 88, height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 

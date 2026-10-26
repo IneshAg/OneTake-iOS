@@ -162,6 +162,7 @@ struct ShootFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
+    @State private var voiceAllowed = false
     @State private var stage: Stage = .check
     /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
     @State private var sceneIndex = 0
@@ -203,8 +204,15 @@ struct ShootFlow: View {
         .keepScreenAwake()
         .task {
             sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
+            camera.wantsFaceGuidance = true   // live framing + light check on the "Camera check" screen
             if await CameraController.requestAccess() { camera.configure(position: .front) }
-            if await SpeechFollower.requestAccess() { follower.start() }
+            voiceAllowed = await SpeechFollower.requestAccess()
+            if voiceAllowed { follower.start() }
+        }
+        // The camera session reconfigures the shared audio session when it starts or flips; make sure
+        // the listener is running again afterwards.
+        .onChange(of: camera.state) { _, state in
+            if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
             if cmd?.word == "action", camera.state == .ready { roll() }
@@ -223,6 +231,8 @@ struct ShootFlow: View {
                   lines[lineIndex].isMine, count >= lines[lineIndex].text.split(separator: " ").count else { return }
             advanceLine()
         }
+        // Face detection is only for the pre-shoot check; don't spend CPU on it while filming.
+        .onChange(of: stage) { _, newStage in camera.faceGuidanceActive = (newStage == .check) }
         .onChange(of: camera.state) { _, state in
             if state == .recording, stage == .scene { startScene() } else if state != .recording { stopReader() }
         }
@@ -269,9 +279,11 @@ struct ShootFlow: View {
     @ViewBuilder private func overlay(for a: Audition) -> some View {
         switch stage {
         case .check:
-            // Nothing measures these before the take (Tape Check does, afterwards), so they're a
-            // reminder, not ticks.
-            chip("viewfinder", "Check framing, eyeline, light and sound")
+            VStack(spacing: 8) {
+                ForEach(Array(liveChecks.enumerated()), id: \.offset) { _, row in
+                    liveCheckRow(row.text, ok: row.ok)
+                }
+            }
             scenePicker(a)
         case .slate:
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
@@ -315,10 +327,48 @@ struct ShootFlow: View {
         }
     }
 
+    /// Live pre-shoot check from the camera itself: face found, framing, distance and light.
+    private var liveChecks: [(text: String, ok: Bool)] {
+        guard camera.state == .ready else { return [("Starting the camera…", false)] }
+        var rows: [(text: String, ok: Bool)] = []
+        if let f = camera.face {
+            rows.append(("Face in frame", true))
+            if f.centerX < 0.4 { rows.append(("Off to the left — move right", false)) }
+            else if f.centerX > 0.6 { rows.append(("Off to the right — move left", false)) }
+            else { rows.append(("Centred", true)) }
+            if f.centerY < 0.2 { rows.append(("Too much floor — tilt the phone up", false)) }
+            else if f.centerY > 0.5 { rows.append(("Not enough headroom — tilt the phone down", false)) }
+            else { rows.append(("Headroom looks right", true)) }
+            if f.height < 0.1 { rows.append(("Too far away — move closer", false)) }
+            else if f.height > 0.4 { rows.append(("Too close — step back", false)) }
+            else { rows.append(("Good distance", true)) }
+        } else {
+            rows.append(("Can’t see your face — step into the frame", false))
+        }
+        if let light = camera.lightLevel {
+            if light < 0.22 { rows.append(("Too dark — face a window or a lamp", false)) }
+            else if light > 0.85 { rows.append(("Too bright — move away from direct light", false)) }
+            else { rows.append(("Light is fine", true)) }
+        }
+        return rows
+    }
+
+    private func liveCheckRow(_ text: String, ok: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(ok ? OT.success : OT.due)
+            Text(text).font(.otCaption.weight(.semibold)).foregroundStyle(.white)
+            Spacer()
+        }
+        .padding(.horizontal, 12).frame(height: 32)
+        .background(.black.opacity(0.55), in: Capsule())
+    }
+
     private var hud: some View {
         HStack(spacing: 6) {
             // Real values only: the session preset, whether exposure is actually locked, free space.
             chip(nil, "1080p · 30")
+            chip(follower.isListening ? "mic.fill" : "mic.slash", follower.isListening ? "Listening" : "Voice off")
             if camera.isExposureLocked { chip("lock.fill", "Exposure locked") }
             if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
         }
@@ -347,7 +397,7 @@ struct ShootFlow: View {
             case .slateDone, .saved:
                 Color.clear.frame(height: 78)
             default:
-                RecordButton(isRecording: camera.state == .recording, holdToStop: stage == .scene) {
+                RecordButton(isRecording: camera.state == .recording, holdToStop: false) {
                     camera.state == .recording ? cut() : roll()
                 }
             }

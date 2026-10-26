@@ -14,6 +14,16 @@ enum ScriptParser {
             .map { $0.trimmingCharacters(in: .whitespaces) }
 
         let roleName = normalizedName(myRole)
+
+        // Mixed-case "Maya: Hello" cues (emails, Word files, OCR) aren't all-caps, so they used to be
+        // skipped and the sides came out empty. A name counts as a speaker when it speaks more than
+        // once or is the actor's own role, so one-off labels ("Note: …") stay out.
+        var speakerCounts: [String: Int] = [:]
+        for raw in rawLines {
+            guard let colon = raw.firstIndex(of: ":"), let key = speakerKey(String(raw[..<colon])) else { continue }
+            speakerCounts[key, default: 0] += 1
+        }
+        let speakers = Set(speakerCounts.filter { $0.value >= 2 || isSameCharacter(normalizedName($0.key), roleName) }.keys)
         // Sides often hold more than one scene, each opening on a slugline ("INT. KITCHEN — NIGHT")
         // or a "SCENE 2" header; each becomes its own scene so it can be prepared and shot alone.
         var scenes: [(heading: String, lines: [ScriptLine])] = []
@@ -48,7 +58,8 @@ enum ScriptParser {
             } else if isTransition(raw) {
                 flush()
                 currentCharacter = nil
-            } else if let colon = raw.firstIndex(of: ":"), isLikelyCue(String(raw[..<colon])) {
+            } else if let colon = raw.firstIndex(of: ":"),
+                      isLikelyCue(String(raw[..<colon])) || speakerKey(String(raw[..<colon])).map({ speakers.contains($0) }) == true {
                 flush()
                 currentCharacter = cueName(String(raw[..<colon]))
                 currentText = String(raw[raw.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
@@ -98,6 +109,25 @@ enum ScriptParser {
         if trimmed.hasPrefix("INT.") || trimmed.hasPrefix("EXT.") || trimmed.hasPrefix("INT/EXT") { return false }
         if isTransition(trimmed) || cueName(trimmed).isEmpty { return false }
         return true
+    }
+
+    /// "Maya" / "Dr. Rao" / "Maya Kapoor" before a colon — a short, capitalised name, not a label like
+    /// "Note" or "Due". Returns the upper-cased key used to count how often someone speaks.
+    private static func speakerKey(_ raw: String) -> String? {
+        let name = cueName(raw.trimmingCharacters(in: .whitespaces))
+        guard name.count >= 2, name.count <= 24 else { return nil }
+        let words = name.split(separator: " ")
+        guard (1...3).contains(words.count) else { return nil }
+        let allowed = CharacterSet.letters.union(CharacterSet(charactersIn: "'.-"))
+        for word in words {
+            guard word.unicodeScalars.allSatisfy({ allowed.contains($0) }), word.first?.isUppercase == true else { return nil }
+        }
+        let key = name.uppercased()
+        let labels: Set<String> = ["ROLE", "PROJECT", "TITLE", "DUE", "DATE", "TIME", "NOTE", "NOTES", "LOCATION", "SIDES",
+                                   "SCENE", "SUBJECT", "FROM", "TO", "CC", "RE", "DEADLINE", "CASTING", "CASTING DIRECTOR",
+                                   "DESTINATION", "FORMAT", "LENGTH", "SLATE", "SUBMIT", "CHARACTER", "PART", "PLAYING",
+                                   "NB", "PS", "P.S.", "STEP", "OPTION", "SENT", "HEIGHT", "AGE", "EMAIL", "PHONE"]
+        return labels.contains(key) ? nil : key
     }
 
     /// Scene transitions and page furniture: all-caps and short like a cue, but nobody says them.

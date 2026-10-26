@@ -133,29 +133,24 @@ enum MediaExporter {
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportError.sessionCreationFailed
         }
-        export.outputURL = workingURL
-        export.outputFileType = .mp4
         export.videoComposition = videoComposition
 
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            progress(Double(export.progress))
-        }
-        defer { timer.invalidate() }
-
         try Task.checkCancellation()
-        // Cancelling the calling task stops the real export instead of letting it run on unseen.
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                export.exportAsynchronously { cont.resume() }
+        // Progress comes from the export's own state stream (iOS 18+).
+        let progressTask = Task { @MainActor in
+            for await state in export.states(updateInterval: 0.1) {
+                if case .exporting(let exportProgress) = state { progress(exportProgress.fractionCompleted) }
             }
-        } onCancel: {
-            export.cancelExport()
         }
+        defer { progressTask.cancel() }
 
-        guard export.status == .completed, !Task.isCancelled else {
+        // Cancelling the calling task stops the real export instead of letting it run on unseen.
+        do {
+            try await export.export(to: workingURL, as: .mp4)
+        } catch {
             try? FileManager.default.removeItem(at: workingURL)
-            if export.status == .cancelled || Task.isCancelled { throw CancellationError() }
-            throw export.error ?? ExportError.sessionCreationFailed
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
         }
         try? FileManager.default.removeItem(at: fileURL)
         try FileManager.default.moveItem(at: workingURL, to: fileURL)

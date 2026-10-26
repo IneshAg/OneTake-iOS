@@ -1,6 +1,7 @@
 import AVFoundation
 import SwiftUI
 import UIKit
+import Vision
 
 /// AVFoundation capture pipeline for takes and headshots.
 /// SwiftUI has no camera view, so this is the main place OneTake drops to UIKit/AVFoundation.
@@ -14,6 +15,28 @@ final class CameraController: NSObject {
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
     private(set) var isExposureLocked = false
+
+    /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
+    struct FaceReading: Equatable {
+        var centerX: CGFloat
+        var centerY: CGFloat
+        var height: CGFloat
+        /// Head turn in radians (0 = facing the camera).
+        var yaw: Double?
+    }
+    /// Live face position for headshot alignment. nil = no face found. Only updates when
+    /// `wantsFaceGuidance` was set before `configure`.
+    private(set) var face: FaceReading?
+    /// Average brightness of the frame, 0…1 (updates alongside `face`).
+    private(set) var lightLevel: Double?
+    @ObservationIgnored var wantsFaceGuidance = false
+    /// Pause detection (e.g. once recording starts) without tearing the output down.
+    @ObservationIgnored var faceGuidanceActive = true
+    @ObservationIgnored private let faceOutput = AVCaptureVideoDataOutput()
+    @ObservationIgnored private let faceQueue = DispatchQueue(label: "onetake.camera.face")
+    @ObservationIgnored private var lastFaceCheck = Date.distantPast
+    @ObservationIgnored private var faceBufferIsUpright = false
+    @ObservationIgnored private var photoRequestID = 0
 
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
@@ -35,6 +58,11 @@ final class CameraController: NSObject {
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
 
     // MARK: Permissions
+
+    /// Headshots only need the camera, not the microphone.
+    static func requestVideoAccess() async -> Bool {
+        await AVCaptureDevice.requestAccess(for: .video)
+    }
 
     static func requestAccess() async -> Bool {
         let video = await AVCaptureDevice.requestAccess(for: .video)
@@ -72,6 +100,23 @@ final class CameraController: NSObject {
             }
             if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
             if !session.outputs.contains(photoOutput), session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
+
+            if wantsFaceGuidance {
+                if !session.outputs.contains(faceOutput), session.canAddOutput(faceOutput) {
+                    faceOutput.alwaysDiscardsLateVideoFrames = true
+                    faceOutput.setSampleBufferDelegate(self, queue: faceQueue)
+                    session.addOutput(faceOutput)
+                }
+                // Connections are rebuilt whenever the camera input changes, so set these every time.
+                if let conn = faceOutput.connection(with: .video) {
+                    faceBufferIsUpright = conn.isVideoRotationAngleSupported(90)
+                    if faceBufferIsUpright { conn.videoRotationAngle = 90 }
+                    if conn.isVideoMirroringSupported {
+                        conn.automaticallyAdjustsVideoMirroring = false
+                        conn.isVideoMirrored = (position == .front)   // match the mirrored selfie preview
+                    }
+                }
+            }
 
             // Lock exposure once framed so the light doesn't pump mid-take ("Exposure locked" pill in the HUD).
             try? camera.lockForConfiguration()
@@ -207,8 +252,17 @@ final class CameraController: NSObject {
         }
         prepareOutput(connection)
         photoHandler = completion
+        photoRequestID += 1
+        let requestID = photoRequestID
         photoOutput.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
         Haptics.impact(.medium)
+        // If AVFoundation never calls back, don't leave the shutter stuck.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, self.photoRequestID == requestID, let handler = self.photoHandler else { return }
+            self.photoHandler = nil
+            handler(nil)
+        }
         #endif
     }
 
@@ -297,5 +351,52 @@ struct CameraBackground: View {
             #endif
         }
         .ignoresSafeArea()
+    }
+}
+
+// MARK: - Live face detection (headshot alignment)
+
+extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let now = Date()
+        guard faceGuidanceActive, now.timeIntervalSince(lastFaceCheck) > 0.15,
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        lastFaceCheck = now
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: faceBufferIsUpright ? .up : .right, options: [:])
+        try? handler.perform([request])
+        let best = (request.results ?? []).max {
+            $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
+        }
+        let reading = best.map {
+            FaceReading(centerX: $0.boundingBox.midX, centerY: 1 - $0.boundingBox.midY,
+                        height: $0.boundingBox.height, yaw: $0.yaw?.doubleValue)
+        }
+        let luma = Self.averageLuma(buffer)
+        Task { @MainActor in
+            self.face = reading
+            self.lightLevel = luma
+        }
+    }
+
+    /// Mean brightness of the luma plane, sampled sparsely (cheap enough to run several times a second).
+    private static func averageLuma(_ buffer: CVPixelBuffer) -> Double? {
+        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let pixels = base.assumingMemoryBound(to: UInt8.self)
+        var sum = 0
+        var count = 0
+        for y in Swift.stride(from: 0, to: height, by: 24) {
+            for x in Swift.stride(from: 0, to: width, by: 24) {
+                sum += Int(pixels[y * rowBytes + x])
+                count += 1
+            }
+        }
+        return count > 0 ? Double(sum) / Double(count) / 255 : nil
     }
 }

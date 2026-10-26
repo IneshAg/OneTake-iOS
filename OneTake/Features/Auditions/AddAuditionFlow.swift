@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import VisionKit
 import UniformTypeIdentifiers
 import UserNotifications
 
@@ -15,6 +16,7 @@ struct AddAuditionFlow: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var showFileImporter = false
     @State private var showScanner = false
+    @State private var scannerUnavailable = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -24,7 +26,7 @@ struct AddAuditionFlow: View {
                     case .reading:      NoticeReadingView(notice: notice) { result in draft = result; path.append(result.due == nil ? .missingDate : .review) }
                     case .missingDate:  MissingDateView(draft: $draft) { path.append(.review) }
                     case .review:       NoticeReviewView(draft: $draft) { save() }
-                    case .couldNotRead: NoticeErrorView(onRetry: { path = [.reading] }, onScan: { showScanner = true }, onType: { draft = .blank; path = [.review] })
+                    case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
                     }
                 }
         }
@@ -35,7 +37,7 @@ struct AddAuditionFlow: View {
                 Task {
                     let text = await NoticeOCR.recognizeText(in: pages)
                     await MainActor.run {
-                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { path = [.couldNotRead] }
+                        if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] }
                         else { notice = text; path = [.reading] }
                     }
                 }
@@ -48,11 +50,16 @@ struct AddAuditionFlow: View {
                 let accessed = url.startAccessingSecurityScopedResource()
                 let text = NoticeOCR.extractText(fromFileAt: url)
                 if accessed { url.stopAccessingSecurityScopedResource() }
-                if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notice = text; path = [.reading] }
+                if let text, NoticeOCR.looksReadable(text) { notice = text; path = [.reading] }
                 else { path = [.couldNotRead] }
             case .failure:
                 path = [.couldNotRead]
             }
+        }
+        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
         }
         // Something shared to OneTake from another app (see ShareInbox): read it like any other notice.
         .task { await readSharedNotice() }
@@ -65,11 +72,16 @@ struct AddAuditionFlow: View {
                 }
                 let text = await NoticeOCR.recognizeText(in: [image])
                 await MainActor.run {
-                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { path = [.couldNotRead] }
+                    if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] }
                     else { notice = text; path = [.reading] }
                 }
             }
         }
+    }
+
+    private func openScanner() {
+        // VisionKit's scanner needs a real camera; it isn't available in the Simulator.
+        if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
     }
 
     private func readSharedNotice() async {
@@ -82,7 +94,7 @@ struct AddAuditionFlow: View {
         if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { path = [.couldNotRead] } else { notice = text; path = [.reading] }
+        if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] } else { notice = text; path = [.reading] }
     }
 
     // MARK: 06 capture-first sheet
@@ -126,7 +138,7 @@ struct AddAuditionFlow: View {
                 SectionLabel(text: "Or bring it in")
                 HStack {
                     PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
-                    Button { showScanner = true } label: { way("doc.viewfinder", "Scan") }
+                    Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
                     Button { showFileImporter = true } label: { way("folder", "File") }
                     Button { draft = NoticeParser.Draft.blank; path.append(.review) } label: { way("keyboard", "Type it") }
                 }
@@ -176,6 +188,7 @@ enum NoticeParser {
     struct Draft: Hashable {
         var project = ""
         var role = ""
+        var castingOffice = ""
         var projectType = "Feature film"
         var due: Date?
         var scenes = 1
@@ -206,67 +219,132 @@ enum NoticeParser {
                 }
             }
             return Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
-                            role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: "Casting office",
+                            role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: castingOffice.isEmpty ? "Casting office" : castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
                             destination: destination, status: .due)
         }
     }
 
-    static func parse(_ text: String) -> Draft {
+    static func parse(_ rawText: String) -> Draft {
         var d = Draft()
-        d.sourceText = text
+        d.sourceText = rawText
+        // OCR joins lines oddly and swaps quotes/dashes; work on a tidied copy for field detection.
+        let text = tidy(rawText)
         let lower = text.lowercased()
 
         d.due = detectDate(in: text)
         if let role = detectRole(in: text) { d.role = role }
         if let project = detectProject(in: text) { d.project = project }
-        d.scenes = max(detectSceneCount(in: text) ?? 1, 1)
+        if let office = labeled(["casting director", "casting office", "casting company", "casting", "agency"], in: text) {
+            d.castingOffice = office
+        }
+        if let explicit = detectSceneCount(in: text) {
+            d.scenes = max(explicit, 1)
+        } else {
+            d.scenes = max(ScriptParser.parseScenes(from: rawText, myRole: d.role).count, 1)
+        }
 
-        if lower.contains("slate") { d.asks.append("Slate first") }
-        if lower.contains("landscape") { d.asks.append("Landscape") }
-        if lower.contains("full-length") || lower.contains("full length") { d.asks.append("Full length") }
-        if lower.contains("under 3") { d.asks.append("Under 3 min") }
+        func ask(_ s: String) { if !d.asks.contains(s) { d.asks.append(s) } }
+        if lower.contains("slate") { ask("Slate first") }
+        if lower.contains("landscape") || lower.contains("horizontal") { ask("Landscape") }
+        if lower.contains("full-length") || lower.contains("full length") || lower.contains("full body") || lower.contains("full-body") {
+            ask("Full length")
+        }
+        if let minutes = detectLengthLimit(in: text) { ask("Under \(minutes) min") }
         if lower.contains("feature") { d.projectType = "Feature film" }
         else if lower.contains("series") || lower.contains("episod") { d.projectType = "Series" }
         else if lower.contains("theatre") || lower.contains("theater") { d.projectType = "Theatre" }
         for dest in Destination.allCases where lower.contains(dest.rawValue.lowercased()) {
             d.destination = dest
-            d.asks.append(dest.rawValue)
+            ask(dest.rawValue)
         }
         return d
     }
 
-    /// NSDataDetector finds real dates in arbitrary text — "by Fri 9 Oct, 10am", "due 10/12", etc.
+    /// Normalises OCR output: unified quotes/dashes/newlines, no zero-width characters.
+    private static func tidy(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "“", with: "\"").replacingOccurrences(of: "”", with: "\"")
+            .replacingOccurrences(of: "‘", with: "'").replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "–", with: "-").replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "\u{200B}", with: "")
+    }
+
+    private static func firstMatch(_ pattern: String, in text: String, group: Int = 1, options: NSRegularExpression.Options = []) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              match.range(at: group).location != NSNotFound,
+              let r = Range(match.range(at: group), in: text) else { return nil }
+        return String(text[r])
+    }
+
+    private static func clean(_ s: String) -> String {
+        s.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'*_.,;:-"))
+    }
+
+    /// "Role: Maya", "Project - The Last Summer" — a label at the start of a line, then its value.
+    private static func labeled(_ labels: [String], in text: String) -> String? {
+        for label in labels {
+            let pattern = #"^[\s>*•\-]*"# + NSRegularExpression.escapedPattern(for: label) + #"\s*[:\-]\s*(.+)$"#
+            if let value = firstMatch(pattern, in: text, options: [.caseInsensitive, .anchorsMatchLines]) {
+                let cleaned = clean(value)
+                if !cleaned.isEmpty, cleaned.count <= 60 { return cleaned }
+            }
+        }
+        return nil
+    }
+
+    /// Prefers a date near "due / deadline / submit / by" over the first date anywhere in the notice.
     private static func detectDate(in text: String) -> Date? {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return nil }
         let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let keywords = ["due", "deadline", "submit", "submission", "no later", "before", "by "]
+        for match in matches {
+            guard let date = match.date, let r = Range(match.range, in: text) else { continue }
+            let line = text.lineRange(for: r)
+            let context = text[line].lowercased()
+            if keywords.contains(where: { context.contains($0) }) { return date }
+        }
         return matches.first?.date
     }
 
-    /// "self-tape for ARJUN", "reading for the role of MAYA" — the all-caps word(s) right after "for".
+    /// Labeled "Role:" first, then phrases like "for the role of Maya in …", then the old ALL-CAPS cue.
     private static func detectRole(in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[r]).capitalized
+        if let v = labeled(["role", "character", "part", "playing"], in: text) { return v.capitalized }
+        let name = #"([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,2}?)"#
+        let stop = #"(?=\s+(?:in|on|by|for|from|at|to)\b|\s*[,.;:\n(]|\s*$)"#
+        let lead = #"\b(?:role\s+of|part\s+of|character\s+of|playing|audition(?:ing)?\s+for|reading\s+for|self-?tape\s+for|submitting\s+for)\s+(?:the\s+)?(?:role\s+of\s+)?"#
+        if let v = firstMatch(lead + name + stop, in: text, options: [.caseInsensitive, .anchorsMatchLines]) {
+            let cleaned = clean(v)
+            if !cleaned.isEmpty { return cleaned.capitalized }
+        }
+        if let v = firstMatch(#"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#, in: text) { return v.capitalized }
+        return nil
     }
 
-    /// "in THE LAST SUMMER (feature)" — the capitalised run between "in" and the next punctuation.
+    /// Labeled "Project:" / "Title:", then a quoted title, then "in THE LAST SUMMER (feature)".
     private static func detectProject(in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?:\s*[\(.,]|\s+by\s|$)"#) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
-        let candidate = String(text[r]).trimmingCharacters(in: .whitespaces)
-        return candidate.isEmpty ? nil : candidate.capitalized
+        if let v = labeled(["project", "title", "production", "film", "series", "show"], in: text) { return v.capitalized }
+        if let v = firstMatch(#""([^"\n]{3,60})""#, in: text) { return clean(v).capitalized }
+        if let v = firstMatch(#"\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?:\s*[\(.,]|\s+by\s|$)"#, in: text) {
+            let cleaned = clean(v)
+            return cleaned.isEmpty ? nil : cleaned.capitalized
+        }
+        return nil
     }
 
     /// "Sides attached (2 scenes)" — any "<N> scene(s)" mention.
     private static func detectSceneCount(in text: String) -> Int? {
-        guard let regex = try? NSRegularExpression(pattern: #"(\d+)\s+scenes?"#, options: .caseInsensitive) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range), let r = Range(match.range(at: 1), in: text) else { return nil }
-        return Int(text[r])
+        guard let v = firstMatch(#"(\d+)\s+scenes?"#, in: text, options: .caseInsensitive) else { return nil }
+        return Int(v)
+    }
+
+    /// "under 3 minutes", "no more than 2 min", "max 5 minutes".
+    private static func detectLengthLimit(in text: String) -> Int? {
+        let pattern = #"(?:under|less than|no more than|max(?:imum)?(?: of)?|up to|within)\s+(\d{1,2})\s*(?:min|minute)"#
+        guard let v = firstMatch(pattern, in: text, options: .caseInsensitive) else { return nil }
+        return Int(v)
     }
 }
 
@@ -382,6 +460,7 @@ struct NoticeReviewView: View {
                 Group {
                     TextField("Project", text: $draft.project)
                     TextField("Role", text: $draft.role)
+                    TextField("Casting office", text: $draft.castingOffice)
                     Stepper("Scenes: \(draft.scenes)", value: $draft.scenes, in: 0...6)
                 }
                 .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -415,8 +494,7 @@ struct NoticeReviewView: View {
         case "Slate first": "person.text.rectangle"
         case "Landscape": "iphone.landscape"
         case "Full length": "figure.stand"
-        case "Under 3 min": "timer"
-        default: "paperplane"
+        default: ask.hasPrefix("Under") ? "timer" : "paperplane"
         }
     }
 }
@@ -432,9 +510,9 @@ struct NoticeErrorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 34)).foregroundStyle(OT.warning)
             Text("We couldn't read this notice").font(.otLargeTitle)
-            Text("It looks like an image of a PDF with very small text. Nothing was lost — pick how to continue.")
+            Text("No readable text was found — it may be a photo without text, blurry, or very small print. Nothing was lost — pick how to continue.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
-            Button(action: onRetry) { IconRow(symbol: "arrow.clockwise", title: "Try again", detail: "Reads it once more on this iPhone") }.buttonStyle(.plain)
+            Button(action: onRetry) { IconRow(symbol: "arrow.clockwise", title: "Try again", detail: "Go back and pick the photo, scan or file again") }.buttonStyle(.plain)
             Button(action: onScan) { IconRow(symbol: "doc.viewfinder", title: "Scan the pages instead", detail: "Clearer than a screenshot") }.buttonStyle(.plain)
             Button(action: onType) { IconRow(symbol: "keyboard", title: "Type the details", detail: "Name, role and due date — 30 seconds") }.buttonStyle(.plain)
             Spacer()

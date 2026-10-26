@@ -44,7 +44,7 @@ enum WidgetSync {
 enum LiveActivitySync {
     /// Only start the countdown when the deadline is close enough to matter.
     private static let window: TimeInterval = 24 * 3600
-    private static var isEnabled: Bool { UserDefaults.standard.object(forKey: "n.liveActivity") as? Bool ?? true }
+    private static var isEnabled: Bool { UserDefaults.standard.object(forKey: "n.liveActivity") as? Bool ?? false }   // opt-in: starts only after the person turns it on in Profile › Notifications
 
     static func update(_ auditions: [Audition]) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }

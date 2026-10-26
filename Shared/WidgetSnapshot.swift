@@ -31,7 +31,7 @@ struct WidgetSnapshot: Codable, Hashable {
     /// Unsent auditions, soonest first.
     var upcoming: [Item]
 
-    static let appGroup = "group.com.onetake.app"
+    static let appGroup = "group.com.srmist.onetake"
 
     private static var fileURL: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?

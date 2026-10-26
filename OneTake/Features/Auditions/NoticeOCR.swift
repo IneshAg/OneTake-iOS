@@ -22,14 +22,55 @@ enum NoticeOCR {
     }
 
     private static func recognizeText(in image: UIImage) -> String {
-        guard let cgImage = image.cgImage else { return "" }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: CGImagePropertyOrientation(image.imageOrientation))
-        try? handler.perform([request])
-        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-        return lines.joined(separator: "\n")
+        guard let cgImage = normalizedCGImage(image) else {
+            print("[NoticeOCR] no CGImage for this UIImage")
+            return ""
+        }
+        // .accurate first; if it errors (it does on some Simulators: "Could not create inference
+        // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
+        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = level == .accurate
+            request.recognitionLanguages = ["en-US"]
+            // The image is already drawn upright by `normalizedCGImage`.
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
+            do {
+                try handler.perform([request])
+            } catch {
+                print("[NoticeOCR] \(level == .accurate ? "accurate" : "fast") failed: \(error)")
+                continue
+            }
+            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            if !lines.isEmpty { return lines.joined(separator: "\n") }
+        }
+        return ""
+    }
+
+    /// Redraws the image upright at a size Vision handles well. Photos from the camera roll carry an
+    /// EXIF rotation and can be 12 MP+; scans are already upright.
+    private static func normalizedCGImage(_ image: UIImage) -> CGImage? {
+        let longest = max(image.size.width, image.size.height)
+        let scale = longest > 3000 ? 3000 / longest : 1
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        guard size.width > 0, size.height > 0 else { return image.cgImage }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let redrawn = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return redrawn.cgImage ?? image.cgImage
+    }
+
+    /// True when OCR output looks like real writing rather than nothing or noise from a photo with no
+    /// text in it (a landscape, a selfie): at least three words that contain letters.
+    static func looksReadable(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .filter { $0.filter(\.isLetter).count >= 2 }
+        return words.count >= 3
     }
 
     /// Extracts text from a file the user picked with the file importer: PDF via PDFKit, RTF via

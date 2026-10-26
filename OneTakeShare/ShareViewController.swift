@@ -1,3 +1,5 @@
+// xcode: set sdk=iOS
+
 import UIKit
 import SwiftUI
 import UniformTypeIdentifiers

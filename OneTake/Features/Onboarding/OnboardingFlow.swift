@@ -164,7 +164,8 @@ struct SignInView: View {
                 .disabled(working || !AccountAuth.isGoogleConfigured)
                 .opacity(AccountAuth.isGoogleConfigured ? 1 : 0.5)
             }
-            .padding(.top, 28)
+            // Well below the title, away from where a thumb lands first, so a stray tap can't start sign-in.
+            .padding(.top, 140)
 
             if working { ProgressView().frame(maxWidth: .infinity).padding(.top, 16) }
             if let errorMessage {

@@ -50,6 +50,9 @@ enum AppTab: Hashable { case auditions, practice, profile, search }
 @Observable
 final class AppStore {
     // Session — didSet persists to disk (debounced) so none of this is lost on relaunch.
+    /// Bumped whenever a headshot file is saved or removed, so views that draw headshots from disk
+    /// (which SwiftUI can't observe) refresh.
+    var headshotVersion = 0
     var isOnboarded = false { didSet { persist() } }
     /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
     /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock

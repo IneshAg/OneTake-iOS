@@ -27,18 +27,9 @@ targets:
     entitlements:
       path: OneTake/OneTake.entitlements
       properties:
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.onetake.app
-        com.apple.developer.icloud-services:
-          - CloudDocuments
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.onetake.app
         # Shared with the widget extension, which reads the snapshot the app writes.
         com.apple.security.application-groups:
-          - group.com.onetake.app
-        # Sign in with Apple (sign-in is only asked for when sending a tape as a link).
-        com.apple.developer.applesignin:
-          - Default
+          - group.com.srmist.onetake
     # Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE): Google's client ID and the
     # URL schemes for Google's sign-in redirect and the widgets' onetake:// links.
     info:
@@ -55,7 +46,7 @@ targets:
         product: GoogleSignIn
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake
         # From Google Cloud Console → Credentials → OAuth client ID (iOS). Until these are real,
         # the Google button stays disabled rather than crashing.
         GOOGLE_CLIENT_ID: YOUR_CLIENT_ID.apps.googleusercontent.com
@@ -70,6 +61,7 @@ targets:
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "OneTake listens so the prompter can follow your lines and hear “Action” and “Cut”."
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Save finished tapes to Photos."
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
   # Home Screen / Lock Screen widgets and the Live Activity (Dynamic Island).
@@ -93,10 +85,10 @@ targets:
       path: OneTakeWidgets/OneTakeWidgets.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.onetake.app
+          - group.com.srmist.onetake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.widgets
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   # "Share to OneTake" from Mail, WhatsApp, Safari, Photos and Files. Drops what's shared into the
@@ -128,10 +120,10 @@ targets:
       path: OneTakeShare/OneTakeShare.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.onetake.app
+          - group.com.srmist.onetake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.share
+        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.share
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   OneTakeTests:
@@ -143,7 +135,7 @@ targets:
       - target: OneTake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.onetake.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   OneTake:
