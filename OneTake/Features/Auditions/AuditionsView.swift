@@ -59,7 +59,7 @@ struct AuditionsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Auditions").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
                 Text("Your audition library").font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -70,7 +70,7 @@ struct AuditionsView: View {
             } label: {
                 Label(filter.rawValue, systemImage: "chevron.down").labelStyle(TrailingIconLabelStyle())
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, 14).frame(height: 44)
+                    .padding(.horizontal, 12).frame(height: 44)
                     .background(OT.fillField, in: Capsule())
             }
             Button { store.showAddAudition = true } label: {
@@ -79,6 +79,7 @@ struct AuditionsView: View {
                     .frame(width: 44, height: 44).background(OT.accent, in: Circle())
             }
             .accessibilityLabel("Add an audition")
+            ProfileButton { store.showProfile = true }
         }
         .padding(.horizontal, OT.gutter)
         .padding(.bottom, 6)

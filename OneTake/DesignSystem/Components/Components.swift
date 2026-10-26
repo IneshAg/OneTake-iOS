@@ -276,6 +276,40 @@ struct HeadshotImage: View {
     }
 }
 
+// MARK: - Top bar Profile button
+
+struct ProfileButton: View {
+    var action: () -> Void
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if let front = HeadshotStore.load(key: "front") {
+                    Image(uiImage: front)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(OT.separator, lineWidth: 1))
+                } else {
+                    Circle()
+                        .fill(OT.fillField)
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .id(store.headshotVersion)
+        .accessibilityLabel("Profile")
+    }
+}
+
 // MARK: - Date helpers
 
 extension Date {

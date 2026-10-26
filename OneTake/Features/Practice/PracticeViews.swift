@@ -10,16 +10,6 @@ struct PracticeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text("Practice").font(.otLargeTitle)
-                    Spacer()
-                    Button { store.push(.practiceSetup) } label: {
-                        Image(systemName: "plus").font(.title3.weight(.semibold)).foregroundStyle(OT.labelOnAccent)
-                            .frame(width: 44, height: 44).background(OT.accent, in: Circle())
-                    }
-                    .accessibilityLabel("Practise a new scene")
-                }
-                Text("Nothing due? Run a scene anyway.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                 // Time/duration tracking is cut for MVP — a real stats view (practice history, time
                 // invested) comes later, rather than a partial number shown ad hoc here.
 
@@ -64,10 +54,31 @@ struct PracticeView: View {
             .padding(.bottom, 120)
         }
         .otCanvas()
+        .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
             if let id = sidesAuditionID { RevisedSidesSheet(auditionID: id) }
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Practice").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
+                Text("Nothing due? Run a scene anyway.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            }
+            Spacer()
+            Button { store.push(.practiceSetup) } label: {
+                Image(systemName: "plus").font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(OT.labelOnAccent)
+                    .frame(width: 44, height: 44).background(OT.accent, in: Circle())
+            }
+            .accessibilityLabel("Practise a new scene")
+            ProfileButton { store.showProfile = true }
+        }
+        .padding(.horizontal, OT.gutter)
+        .padding(.bottom, 6)
+        .background(OT.bgCanvas)
     }
 
     /// Practice works on scenes read from your auditions' sides. With none, say what's missing.

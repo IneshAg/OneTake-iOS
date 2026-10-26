@@ -5,6 +5,7 @@ import AVFoundation
 /// Every pushed screen in the app. One enum keeps the flow testable and mirrors the Figma prototype keys.
 enum Route: Hashable {
     case auditionDetail(Audition.ID)
+    case profile
     case prepare(Audition.ID, sceneIndex: Int)
     case runLines(Audition.ID, sceneIndex: Int)
     case reader(Audition.ID, sceneIndex: Int)
@@ -82,6 +83,7 @@ final class AppStore {
     var searchQuery: String = ""
     var camera: CameraFlow?
     var showAddAudition = false
+    var showProfile = false
     /// Set when an audition is saved; once the Add sheet has gone, the app continues straight into
     /// that audition's first step instead of stopping on its overview.
     var continueAfterAdd: Audition.ID?
@@ -406,8 +408,12 @@ final class AppStore {
         practice.insert(updated, at: 0)
     }
 
-    /// Push a route on the currently selected tab's stack.
+    /// Push a route on the currently selected tab's stack (or the profile sheet stack if open).
     func push(_ route: Route) {
+        if showProfile {
+            profilePath.append(route)
+            return
+        }
         switch tab {
         case .auditions: auditionsPath.append(route)
         case .search:    searchPath.append(route)
@@ -424,6 +430,10 @@ final class AppStore {
             path.removeSubrange(path.index(after: i)...)
             return true
         }
+        if showProfile {
+            if !trim(&profilePath) { profilePath.append(route) }
+            return
+        }
         let found: Bool
         switch tab {
         case .auditions: found = trim(&auditionsPath)
@@ -435,6 +445,10 @@ final class AppStore {
     }
 
     func popToRoot() {
+        if showProfile {
+            profilePath.removeAll()
+            return
+        }
         switch tab {
         case .auditions: auditionsPath.removeAll()
         case .search:    searchPath.removeAll()

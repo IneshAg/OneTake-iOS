@@ -14,9 +14,17 @@ struct ProfileView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 // Header
-                HStack {
+                HStack(alignment: .center) {
                     Text("Profile").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
                     Spacer()
+                    Button("Done") {
+                        store.showProfile = false
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .padding(.horizontal, 16)
+                    .frame(height: 36)
+                    .background(OT.fillField, in: Capsule())
                 }
 
                 // Slate & Headshot Card

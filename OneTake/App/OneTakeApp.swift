@@ -68,11 +68,6 @@ struct RootTabView: View {
                     PracticeView().withRoutes()
                 }
             }
-            Tab("Profile", systemImage: "person.crop.circle.fill", value: AppTab.profile) {
-                NavigationStack(path: $store.profilePath) {
-                    ProfileView().withRoutes()
-                }
-            }
             Tab(value: AppTab.search, role: .search) {
                 NavigationStack(path: $store.searchPath) {
                     SearchView().withRoutes()
@@ -81,6 +76,15 @@ struct RootTabView: View {
         }
         .searchable(text: $store.searchQuery, prompt: "Search auditions, practice, profile...")
         .applySearchTabActivation()
+        .sheet(isPresented: $store.showProfile, onDismiss: {
+            store.profilePath.removeAll()
+        }) {
+            NavigationStack(path: $store.profilePath) {
+                ProfileView()
+                    .withRoutes()
+            }
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $store.showAddAudition, onDismiss: {
             // Presenting the next screen only after the sheet is fully gone (a camera cover can't
             // present over a sheet that's still dismissing).
@@ -118,6 +122,7 @@ private struct RouteDestinations: ViewModifier {
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
             case .package(let id):                   PackageView(auditionID: id)
             case .preview(let id):                   TapePreviewView(auditionID: id)
+            case .profile:                           ProfileView()
             case .headshots(let id):                 HeadshotsView(auditionID: id)
             case .editSlate:                         EditSlateView()
             case .privacy:                           PrivacyView()
