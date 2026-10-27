@@ -58,17 +58,17 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
-            Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
+            Tab("\u{2003}\u{2003}\u{2003}Auditions\u{2003}\u{2003}\u{2003}", systemImage: "movieclapper.fill", value: AppTab.auditions) {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView().withRoutes()
                 }
             }
-            Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
+            Tab("\u{2003}\u{2003}\u{2003}Practice\u{2003}\u{2003}\u{2003}", systemImage: "theatermasks.fill", value: AppTab.practice) {
                 NavigationStack(path: $store.practicePath) {
                     PracticeView().withRoutes()
                 }
             }
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
+            Tab(value: AppTab.search, role: .search) {
                 NavigationStack(path: $store.searchPath) {
                     SearchView().withRoutes()
                 }
