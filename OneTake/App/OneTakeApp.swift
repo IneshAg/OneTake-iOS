@@ -68,7 +68,7 @@ struct RootTabView: View {
                     PracticeView().withRoutes()
                 }
             }
-            Tab(value: AppTab.search, role: .search) {
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
                 NavigationStack(path: $store.searchPath) {
                     SearchView().withRoutes()
                 }
