@@ -55,6 +55,11 @@ struct OneTakeApp: App {
 struct RootTabView: View {
     @Environment(AppStore.self) private var store
 
+    /// In empty state (no auditions yet), search is hidden until there is content to query.
+    private var isSearchAvailable: Bool {
+        !store.auditions.isEmpty
+    }
+
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
@@ -68,14 +73,20 @@ struct RootTabView: View {
                     PracticeView().withRoutes()
                 }
             }
-            Tab(value: AppTab.search, role: .search) {
-                NavigationStack(path: $store.searchPath) {
-                    SearchView().withRoutes()
+            if isSearchAvailable {
+                Tab(value: AppTab.search, role: .search) {
+                    NavigationStack(path: $store.searchPath) {
+                        SearchView().withRoutes()
+                    }
                 }
             }
         }
-        .searchable(text: $store.searchQuery, prompt: "Search auditions, practice, profile...")
-        .applySearchTabActivation()
+        .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
+        .onChange(of: isSearchAvailable) { _, available in
+            if !available && store.tab == .search {
+                store.tab = .auditions
+            }
+        }
         .sheet(isPresented: $store.showProfile, onDismiss: {
             store.profilePath.removeAll()
         }) {
@@ -137,6 +148,16 @@ private struct RouteDestinations: ViewModifier {
 
 extension View {
     func withRoutes() -> some View { modifier(RouteDestinations()) }
+
+    @ViewBuilder
+    func applySearch(enabled: Bool, text: Binding<String>) -> some View {
+        if enabled {
+            self.searchable(text: text, prompt: "Search auditions, practice, profile...")
+                .applySearchTabActivation()
+        } else {
+            self
+        }
+    }
 
     @ViewBuilder
     func applySearchTabActivation() -> some View {
