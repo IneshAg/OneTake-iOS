@@ -26,6 +26,7 @@ struct ProfileView: View {
                     .frame(height: 36)
                     .background(OT.fillField, in: Capsule())
                 }
+                .padding(.top, 30)
 
                 // Slate & Headshot Card
                 VStack(alignment: .leading, spacing: 14) {
