@@ -291,14 +291,15 @@ struct ProfileButton: View {
                         .scaledToFill()
                         .frame(width: 44, height: 44)
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(OT.separator, lineWidth: 1))
+                        .overlay(Circle().stroke(OT.accent.opacity(0.4), lineWidth: 1.5))
                 } else {
                     Circle()
-                        .fill(OT.fillField)
+                        .fill(OT.accentSoft)
                         .frame(width: 44, height: 44)
+                        .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
                     Image(systemName: "person.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(OT.labelPrimary)
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(OT.accent)
                 }
             }
             .frame(width: 44, height: 44)
