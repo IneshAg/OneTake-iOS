@@ -71,6 +71,23 @@ Profile, account, headshots, and app settings are directly accessible from the p
 
 ---
 
+## 5. Profile & Privacy/Data Enhancements (Sign In Relocation & Account Deletion)
+
+### Rationale
+- **Sign In Relocation**: In `ProfileView`, the "Sign in" button was previously embedded inside the general "More" settings card alongside Appearance and Notifications. Moving it down into its own dedicated "Account" card creates a clean, standard settings hierarchy separating device-level app preferences from user authentication.
+- **Delete Account Option in Privacy & Data**: Apple App Store Review Guideline 5.1.1(v) requires apps that offer account sign-in to provide an explicit account deletion mechanism within the app. Adding "Delete account" in `PrivacyView` gives users full data sovereignty to revoke authentication, disconnect provider sessions (Apple / Google OAuth), and clear credential caches.
+
+### Implementation
+- **Profile Screen Hierarchy**:
+  - `ProfileView` now places Appearance, Notifications, and Privacy & data inside "More".
+  - Created a separate `SectionLabel(text: "Account")` card below "More" holding the "Sign in" action (when signed out) or user identity card with "Sign out" (when signed in).
+- **Privacy & Data Screen**:
+  - Added an "Account" section in `PrivacyView` showing connection status (`Signed in with Apple/Google` or `Guest (no account)`).
+  - Added a destructive `Delete account` button with confirmation alert.
+  - Implemented `store.deleteAccount()` in `AppStore.swift` and `AccountAuth.deleteAccount(_:)` in `AccountAuth.swift` to disconnect provider tokens and clear local state.
+
+---
+
 ## File Reference
 
 - [OneTake/App/OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/App/OneTakeApp.swift): `RootTabView`, dynamic search tab inclusion, conditional search activation.

@@ -80,6 +80,13 @@ enum AccountAuth {
         if account?.provider == .google { GIDSignIn.sharedInstance.signOut() }
     }
 
+    static func deleteAccount(_ account: Account?) {
+        if account?.provider == .google {
+            GIDSignIn.sharedInstance.disconnect()
+        }
+        signOut(account)
+    }
+
     /// Apple can revoke the app's access (Settings → Apple ID → Sign in with Apple). Checked on
     /// launch so a revoked account doesn't stay signed in.
     static func isStillValid(_ account: Account) async -> Bool {

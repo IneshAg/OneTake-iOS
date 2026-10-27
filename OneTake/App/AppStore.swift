@@ -147,6 +147,12 @@ final class AppStore {
         account = nil
     }
 
+    func deleteAccount() {
+        AccountAuth.deleteAccount(account)
+        account = nil
+        persist()
+    }
+
     /// Drops an Apple account the person has revoked from Settings since last launch.
     @MainActor
     func validateAccount() async {

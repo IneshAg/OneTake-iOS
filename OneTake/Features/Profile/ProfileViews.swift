@@ -129,9 +129,16 @@ struct ProfileView: View {
                             profileRow(symbol: "hand.raised", title: "Privacy & data")
                         }
                         .buttonStyle(.plain)
+                    }
+                    .padding(18)
+                    .otCard(radius: 20)
+                }
 
-                        Divider().padding(.vertical, 2)
+                // Account section (moved down)
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Account")
 
+                    VStack(spacing: 0) {
                         if let account = store.account {
                             HStack {
                                 Label {
@@ -222,6 +229,7 @@ struct EditSlateView: View {
 struct PrivacyView: View {
     @Environment(AppStore.self) private var store
     @State private var showConfirmDelete = false
+    @State private var showConfirmDeleteAccount = false
 
     private var takesSize: Int64 {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path) else { return 0 }
@@ -258,6 +266,26 @@ struct PrivacyView: View {
                 LabeledContent("Links", value: "Hosted in your iCloud · expiry shown per tape")
             }
             Section {
+                if let account = store.account {
+                    LabeledContent("Signed in with", value: account.providerName)
+                    LabeledContent("Account", value: account.name ?? account.email ?? "Connected")
+                    Button("Delete account", role: .destructive) {
+                        showConfirmDeleteAccount = true
+                    }
+                } else {
+                    LabeledContent("Account status", value: "Guest (no account)")
+                    Button("Delete account", role: .destructive) {
+                        showConfirmDeleteAccount = true
+                    }
+                }
+            } header: {
+                Text("Account")
+            } footer: {
+                Text(store.isSignedIn
+                     ? "Deleting your account disconnects your sign-in credentials and revokes cloud link sharing."
+                     : "You are using OneTake as a guest without an account. Deleting clears any cached session data.")
+            }
+            Section {
                 NavigationLink("Privacy policy") { PrivacyPolicyView() }
                 Button("Delete all local data", role: .destructive) { showConfirmDelete = true }
             } footer: {
@@ -267,6 +295,17 @@ struct PrivacyView: View {
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Privacy & data")
+        .confirmationDialog("Delete account?", isPresented: $showConfirmDeleteAccount, titleVisibility: .visible) {
+            Button("Delete account", role: .destructive) {
+                store.deleteAccount()
+                Haptics.success()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(store.isSignedIn
+                 ? "Are you sure you want to delete your account? This will permanently delete your account connection from OneTake on this device."
+                 : "Are you sure you want to clear your guest session data?")
+        }
         .confirmationDialog("Delete all local data?", isPresented: $showConfirmDelete, titleVisibility: .visible) {
             Button("Delete everything", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
