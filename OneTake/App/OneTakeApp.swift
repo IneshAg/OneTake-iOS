@@ -152,7 +152,7 @@ extension View {
     @ViewBuilder
     func applySearch(enabled: Bool, text: Binding<String>) -> some View {
         if enabled {
-            self.searchable(text: text, prompt: "Search auditions, practice, profile...")
+            self.searchable(text: text, prompt: "Search auditions, sides, practice...")
                 .applySearchTabActivation()
         } else {
             self

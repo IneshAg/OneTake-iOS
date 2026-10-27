@@ -186,7 +186,6 @@ struct SearchView: View {
         case all = "All"
         case auditions = "Auditions"
         case practice = "Practice"
-        case profile = "Profile"
         var id: String { rawValue }
     }
 
@@ -284,29 +283,6 @@ struct SearchView: View {
                     }
                 }
             }
-
-            // Profile / Settings Section
-            if scope == .all || scope == .profile {
-                let profileItems: [(title: String, detail: String, route: Route)] = [
-                    ("Slate & bio", store.slate.isEmpty ? "Name, height, city" : "\(store.slate.name) · \(store.slate.summary)", .editSlate),
-                    ("Headshots", "Front, left profile, right profile", .headshots(for: nil)),
-                    ("Notifications", "Deadlines, callbacks, tape delivery", .notifications),
-                    ("Privacy & data", "Local storage, sent tapes, exports", .privacy)
-                ]
-                let filteredProfile = profileItems.filter {
-                    query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.detail.localizedCaseInsensitiveContains(query)
-                }
-                if !filteredProfile.isEmpty {
-                    Section("Profile & Settings") {
-                        ForEach(filteredProfile, id: \.title) { item in
-                            Button { store.push(item.route) } label: {
-                                ScheduleRow(eyebrow: "SETTINGS", value: "Edit", title: item.title, detail: item.detail)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
@@ -316,7 +292,7 @@ struct SearchView: View {
                 hasSetInitialScope = true
                 switch store.lastActiveTab {
                 case .practice:  scope = .practice
-                case .profile:   scope = .profile
+                case .profile:   scope = .all
                 case .auditions: scope = .auditions
                 case .search:    scope = .all
                 }

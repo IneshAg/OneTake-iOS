@@ -55,6 +55,22 @@ On first launch or whenever the audition library has no entries (`store.audition
 
 ---
 
+## 4. Search Scope & Results Clean-up (Profile Removed)
+
+### Rationale
+Profile, account, headshots, and app settings are directly accessible from the persistent high-contrast `ProfileButton` in the top-right header. Including "Profile & Settings" inside global search diluted the actor-focused nature of the tool (actors search for project titles, character roles, lines in sides, and practice pieces).
+
+### Implementation
+- **Removed Profile Scope:**
+  - Removed `.profile` case from `SearchScope` in `SearchView` (`OneTake/Features/Auditions/AuditionsView.swift`).
+  - Scopes are now strictly creative: `All`, `Auditions`, `Practice`.
+- **Removed Profile & Settings Search Section:**
+  - Removed hardcoded settings list (`Slate & bio`, `Headshots`, `Notifications`, `Privacy & data`) from search results.
+- **Updated Search Prompt:**
+  - Changed search placeholder in `OneTakeApp.swift` from `"Search auditions, practice, profile..."` to `"Search auditions, sides, practice..."`.
+
+---
+
 ## File Reference
 
 - [OneTake/App/OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/App/OneTakeApp.swift): `RootTabView`, dynamic search tab inclusion, conditional search activation.
