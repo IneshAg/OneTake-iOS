@@ -282,6 +282,10 @@ struct ProfileButton: View {
     var action: () -> Void
     @Environment(AppStore.self) private var store
 
+    private var strokeColor: Color {
+        Color(UIColor(light: 0x1E1A22, dark: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.85))
+    }
+
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -291,12 +295,12 @@ struct ProfileButton: View {
                         .scaledToFill()
                         .frame(width: 44, height: 44)
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(OT.accent.opacity(0.4), lineWidth: 1.5))
+                        .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
                 } else {
                     Circle()
                         .fill(OT.accentSoft)
                         .frame(width: 44, height: 44)
-                        .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
+                        .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
                     Image(systemName: "person.fill")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(OT.accent)
