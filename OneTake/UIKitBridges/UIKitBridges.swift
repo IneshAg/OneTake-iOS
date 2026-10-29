@@ -74,6 +74,80 @@ struct VideoTrimmer: UIViewControllerRepresentable {
 
 // MARK: - Document scanner (VisionKit, UIKit-only)
 
+/// Helper view added to VisionKit's document camera hierarchy to monitor layout passes
+/// and ensure the Save/Checkmark tick button stays positioned at the bottom right.
+final class DocumentScannerLayoutHelperView: UIView {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+enum DocumentScannerCustomizer {
+    static func findView(in root: UIView, className: String) -> UIView? {
+        if String(describing: type(of: root)).contains(className) { return root }
+        for sub in root.subviews {
+            if let found = findView(in: sub, className: className) { return found }
+        }
+        return nil
+    }
+
+    /// Recursively searches a view controller and its child hierarchy for the VisionKit Save/Checkmark button.
+    static func findSaveButton(in vc: UIViewController) -> UIButton? {
+        _ = vc.view
+        if let btn = findView(in: vc.view, className: "SaveButton") as? UIButton {
+            return btn
+        }
+        for child in vc.children {
+            _ = child.view
+            if let btn = findView(in: child.view, className: "SaveButton") as? UIButton {
+                return btn
+            }
+            if let nav = child as? UINavigationController {
+                for childVC in nav.viewControllers {
+                    _ = childVC.view
+                    if let btn = findView(in: childVC.view, className: "SaveButton") as? UIButton {
+                        return btn
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Positions the Save / Checkmark tick button at the bottom-right corner of the camera viewport
+    /// for convenient one-handed thumb reach, aligned horizontally with the shutter and thumbnail.
+    static func reposition(saveButton: UIButton, in sv: UIView) {
+        guard sv.bounds.height > sv.bounds.width else { return } // portrait only
+
+        let thumb = findView(in: sv, className: "Thumbnail")
+        let shutter = findView(in: sv, className: "ShutterButton")
+
+        let thumbLeading = thumb?.frame.origin.x ?? 28.0
+        let margin: CGFloat = (thumbLeading > 0 && thumbLeading < 100) ? thumbLeading : 28.0
+
+        let halfH = sv.bounds.height / 2.0
+        let shutterY = (shutter != nil && shutter!.frame.origin.y > halfH) ? shutter!.center.y : 0
+        let thumbY = (thumb != nil && thumb!.frame.origin.y > halfH) ? thumb!.center.y : 0
+        let fallbackY = sv.bounds.height - max(sv.safeAreaInsets.bottom, 20.0) - 45.0
+        let centerY = shutterY > 0 ? shutterY : (thumbY > 0 ? thumbY : fallbackY)
+
+        let w = saveButton.bounds.width > 0 ? saveButton.bounds.width : 54.0
+        let h = saveButton.bounds.height > 0 ? saveButton.bounds.height : 54.0
+
+        let newX = sv.bounds.width - margin - w
+        let newY = centerY - (h / 2.0)
+        let targetFrame = CGRect(x: newX, y: newY, width: w, height: h)
+
+        if saveButton.frame != targetFrame {
+            saveButton.frame = targetFrame
+        }
+        sv.bringSubviewToFront(saveButton)
+    }
+}
+
 /// "Scan the pages" for printed sides. Returns recognised page images.
 struct DocumentScannerView: UIViewControllerRepresentable {
     var onFinish: ([UIImage]) -> Void
@@ -83,13 +157,69 @@ struct DocumentScannerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
         let vc = VNDocumentCameraViewController()
         vc.delegate = context.coordinator
+        context.coordinator.attachCustomizer(to: vc)
         return vc
     }
-    func updateUIViewController(_ vc: VNDocumentCameraViewController, context: Context) {}
+    func updateUIViewController(_ vc: VNDocumentCameraViewController, context: Context) {
+        context.coordinator.attachCustomizer(to: vc)
+    }
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onFinish: ([UIImage]) -> Void
+        private var frameObservation: NSKeyValueObservation?
+        private var hiddenObservation: NSKeyValueObservation?
+        private var boundsObservation: NSKeyValueObservation?
+        private var isRepositioning = false
+
         init(onFinish: @escaping ([UIImage]) -> Void) { self.onFinish = onFinish }
+
+        func attachCustomizer(to vc: VNDocumentCameraViewController) {
+            guard let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc),
+                  let root = saveBtn.superview else {
+                return
+            }
+
+            // Layout helper to react to parent layoutSubviews
+            if root.subviews.first(where: { $0 is DocumentScannerLayoutHelperView }) == nil {
+                let helper = DocumentScannerLayoutHelperView()
+                helper.isUserInteractionEnabled = false
+                helper.isHidden = false
+                helper.frame = root.bounds
+                helper.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                helper.onLayout = { [weak self, weak root, weak saveBtn] in
+                    guard let self, let root, let saveBtn else { return }
+                    self.performReposition(saveButton: saveBtn, in: root)
+                }
+                root.addSubview(helper)
+            }
+
+            // KVO on bounds to react to screen rotation or resizing
+            boundsObservation = root.observe(\.bounds, options: [.new]) { [weak self, weak saveBtn] sv, _ in
+                guard let self, let saveBtn else { return }
+                self.performReposition(saveButton: saveBtn, in: sv)
+            }
+
+            // KVO on frame
+            frameObservation = saveBtn.observe(\.frame, options: [.new]) { [weak self, weak root] btn, _ in
+                guard let self, let root else { return }
+                self.performReposition(saveButton: btn, in: root)
+            }
+
+            // KVO on isHidden
+            hiddenObservation = saveBtn.observe(\.isHidden, options: [.new]) { [weak self, weak root] btn, _ in
+                guard let self, let root else { return }
+                self.performReposition(saveButton: btn, in: root)
+            }
+
+            performReposition(saveButton: saveBtn, in: root)
+        }
+
+        private func performReposition(saveButton: UIButton, in sv: UIView) {
+            guard !isRepositioning else { return }
+            isRepositioning = true
+            defer { isRepositioning = false }
+            DocumentScannerCustomizer.reposition(saveButton: saveButton, in: sv)
+        }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
             onFinish((0..<scan.pageCount).map { scan.imageOfPage(at: $0) })

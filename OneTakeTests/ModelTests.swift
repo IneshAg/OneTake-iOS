@@ -1,3 +1,4 @@
+import VisionKit
 import XCTest
 @testable import OneTake
 
@@ -88,4 +89,31 @@ final class ModelTests: XCTestCase {
         follower.finishCurrentUtterance()
         XCTAssertEqual(follower.lastCommand?.word, "cut")
     }
+
+    @MainActor
+    func testDocumentScannerSaveButtonRepositionedToBottomRight() {
+        let coordinator = DocumentScannerView.Coordinator { _ in }
+        let vc = VNDocumentCameraViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = vc
+        window.makeKeyAndVisible()
+
+        coordinator.attachCustomizer(to: vc)
+
+        guard let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc),
+              let root = saveBtn.superview else {
+            XCTFail("Save button or superview not found in VNDocumentCameraViewController")
+            return
+        }
+
+        vc.view.setNeedsLayout()
+        vc.view.layoutIfNeeded()
+
+        DocumentScannerCustomizer.reposition(saveButton: saveBtn, in: root)
+
+        // Button should be positioned in bottom right corner
+        XCTAssertGreaterThan(saveBtn.frame.origin.x, 250, "Save button should be near trailing edge")
+        XCTAssertGreaterThan(saveBtn.frame.origin.y, 700, "Save button should be near bottom edge")
+    }
 }
+
