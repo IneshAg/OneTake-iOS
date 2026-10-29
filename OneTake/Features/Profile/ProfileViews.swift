@@ -191,6 +191,7 @@ struct ProfileView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .sheet(isPresented: $showSignIn) {
             SignInView { account in store.account = account; showSignIn = false }
         }
@@ -229,14 +230,18 @@ struct EditSlateView: View {
 
 struct PrivacyView: View {
     @Environment(AppStore.self) private var store
-    @State private var showConfirmDelete = false
-    @State private var showConfirmDeleteAccount = false
+    @State private var showConfirmDeleteAll = false
+    @State private var showConfirmDisconnectAccount = false
+    @State private var showConfirmClearExports = false
+    @State private var showConfirmClearReader = false
+    @State private var storageRefreshID = UUID()
 
-    private var takesSize: Int64 {
+    private var rawTakesSize: Int64 {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path) else { return 0 }
-        let takeFolders = entries.filter { $0.hasPrefix("audition-") || $0.hasPrefix("practice-") || $0 == "Exports" }
+        let takeFolders = entries.filter { ($0.hasPrefix("audition-") || $0.hasPrefix("practice-") || $0 == "takes") && $0 != "Exports" }
         return takeFolders.reduce(Int64(0)) { $0 + MediaStore.sizeOnDisk($1) }
     }
+    private var exportsSize: Int64 { MediaStore.sizeOnDisk("Exports") }
     private var headshotsSize: Int64 { MediaStore.sizeOnDisk("headshots") }
     private var readerSize: Int64 { MediaStore.sizeOnDisk(ReaderTrackPlayer.folder) + legacyReaderFiles.reduce(Int64(0)) { total, url in
         total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
@@ -247,72 +252,147 @@ struct PrivacyView: View {
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path)) ?? []
         return entries.filter { $0.hasPrefix("reader-line-") }.map { MediaStore.documentsURL.appendingPathComponent($0) }
     }
-    private var totalSize: Int64 { takesSize + headshotsSize + readerSize }
+    private var totalSize: Int64 { rawTakesSize + exportsSize + headshotsSize + readerSize }
 
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
 
     var body: some View {
         List {
+            // Privacy Architecture Overview
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text("ON THIS IPHONE").font(.otEyebrow).foregroundStyle(OT.labelTertiary); Spacer(); Text(mb(totalSize)).font(.otHeadline) }
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(OT.accent)
+                            .font(.title3)
+                        Text("100% OFFLINE & PRIVATE")
+                            .font(.otEyebrow)
+                            .foregroundStyle(OT.labelTertiary)
+                        Spacer()
+                        Text(mb(totalSize))
+                            .font(.otHeadline)
+                    }
+                    Text("All auditions, sides, takes, reader tracks and headshots remain in private on-device storage on this iPhone. OneTake has no servers, no ads, and no tracking.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
                 }
+                .padding(.vertical, 4)
             }
+
+            // Cloud Delivery Overview
             Section {
-                LabeledContent("Takes & recordings", value: mb(takesSize))
+                LabeledContent("iCloud Drive", value: CloudLink.isAvailable ? "Available" : "Not connected")
+                if let account = store.account {
+                    LabeledContent("Sign-in Provider", value: account.providerName)
+                }
+            } header: {
+                Text("Cloud Delivery")
+            } footer: {
+                Text("Casting sites receive files through your Share Sheet. “Email or link” uploads deliverables directly to your personal iCloud Drive container. There is no OneTake server.")
+            }
+
+            // Local Storage Breakdown and Actions
+            Section {
+                LabeledContent("Takes & auditions", value: mb(rawTakesSize))
                 LabeledContent("Headshots", value: mb(headshotsSize))
-                LabeledContent("Reader recordings", value: mb(readerSize))
+                LabeledContent("Reader tracks", value: mb(readerSize))
+                LabeledContent("Exported deliverables", value: mb(exportsSize))
+
+                if exportsSize > 0 {
+                    Button("Clear exported deliverables cache") {
+                        showConfirmClearExports = true
+                    }
+                    .foregroundStyle(OT.accent)
+                }
+                if readerSize > 0 {
+                    Button("Clear practice reader audio") {
+                        showConfirmClearReader = true
+                    }
+                    .foregroundStyle(OT.accent)
+                }
+            } header: {
+                Text("On this iPhone")
+            } footer: {
+                Text("Clearing exported deliverables frees storage space on this device. Your raw takes and sides remain intact so you can re-export anytime.")
             }
-            Section("Sent tapes") {
-                LabeledContent("Links", value: "Hosted in your iCloud · expiry shown per tape")
-            }
+
+            // Account & Session Section
             Section {
                 if let account = store.account {
-                    LabeledContent("Signed in with", value: account.providerName)
-                    LabeledContent("Account", value: account.name ?? account.email ?? "Connected")
-                    Button("Delete account", role: .destructive) {
-                        showConfirmDeleteAccount = true
+                    LabeledContent("Connected as", value: account.name ?? account.email ?? "Signed in")
+                    Button("Disconnect account", role: .destructive) {
+                        showConfirmDisconnectAccount = true
                     }
                 } else {
-                    LabeledContent("Account status", value: "Guest (no account)")
-                    Button("Delete account", role: .destructive) {
-                        showConfirmDeleteAccount = true
-                    }
+                    LabeledContent("Account mode", value: "Guest (No account)")
                 }
             } header: {
                 Text("Account")
             } footer: {
                 Text(store.isSignedIn
-                     ? "Deleting your account disconnects your sign-in credentials and revokes cloud link sharing."
-                     : "You are using OneTake as a guest without an account. Deleting clears any cached session data.")
+                     ? "Disconnecting removes your sign-in credentials from this iPhone."
+                     : "You are using OneTake as a guest. An account is only requested when uploading an audition link.")
             }
+
+            // Legal and Data Wipe
             Section {
                 NavigationLink("Privacy policy") { PrivacyPolicyView() }
-                Button("Delete all local data", role: .destructive) { showConfirmDelete = true }
+                Button("Delete all local data", role: .destructive) { showConfirmDeleteAll = true }
             } footer: {
-                Text("Clears headshots, reader tracks and every take on this iPhone. Sent tapes already delivered aren’t affected.")
+                Text("Removes headshots, reader tracks and every take on this iPhone. Sent tapes already delivered aren’t affected.")
             }
         }
+        .id(storageRefreshID)
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Privacy & data")
-        .confirmationDialog("Delete account?", isPresented: $showConfirmDeleteAccount, titleVisibility: .visible) {
-            Button("Delete account", role: .destructive) {
+        .confirmationDialog("Clear exported deliverables?", isPresented: $showConfirmClearExports, titleVisibility: .visible) {
+            Button("Clear deliverables cache", role: .destructive) {
+                clearExports()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes rendered export files from disk to free storage space. Your raw takes and auditions are safe and can be re-exported anytime.")
+        }
+        .confirmationDialog("Clear reader audio?", isPresented: $showConfirmClearReader, titleVisibility: .visible) {
+            Button("Clear reader recordings", role: .destructive) {
+                clearReader()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes all practice reader recordings while preserving your script scenes and lines.")
+        }
+        .confirmationDialog("Disconnect account?", isPresented: $showConfirmDisconnectAccount, titleVisibility: .visible) {
+            Button("Disconnect", role: .destructive) {
                 store.deleteAccount()
                 Haptics.success()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(store.isSignedIn
-                 ? "Are you sure you want to delete your account? This will permanently delete your account connection from OneTake on this device."
-                 : "Are you sure you want to clear your guest session data?")
+            Text("This disconnects your account session from OneTake on this device.")
         }
-        .confirmationDialog("Delete all local data?", isPresented: $showConfirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete all local data?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
             Button("Delete everything", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes every take, headshot and reader recording from this iPhone. It can't be undone.")
         }
+    }
+
+    private func clearExports() {
+        MediaStore.deleteAll(["Exports"])
+        for i in store.auditions.indices {
+            store.auditions[i].exportedFileURL = nil
+        }
+        storageRefreshID = UUID()
+        Haptics.success()
+    }
+
+    private func clearReader() {
+        MediaStore.deleteAll([ReaderTrackPlayer.folder])
+        for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
+        storageRefreshID = UUID()
+        Haptics.success()
     }
 
     private func deleteAll() {
@@ -330,6 +410,7 @@ struct PrivacyView: View {
             store.auditions[i].status = .due
         }
         for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
+        storageRefreshID = UUID()
         Haptics.success()
     }
 }
@@ -370,14 +451,59 @@ struct PrivacyPolicyView: View {
 
 struct NotificationSettingsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("n.liveActivity") private var liveActivity = false
     @AppStorage("n.morning") private var morning = true
     @AppStorage("n.twoHours") private var twoHours = true
     @AppStorage("n.delivery") private var delivery = true
     @AppStorage("n.practice") private var practice = false
 
+    @State private var authStatus: UNAuthorizationStatus = .notDetermined
+    @State private var testScheduled = false
+
     var body: some View {
         Form {
+            if authStatus == .denied {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Notifications Disabled in Settings", systemImage: "bell.slash.fill")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.warning)
+                        Text("iOS is blocking notifications for OneTake. To get morning and deadline alerts, enable notifications in iOS Settings.")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelSecondary)
+                        Button("Open iOS Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.accent)
+                        .padding(.top, 4)
+                    }
+                    .padding(.vertical, 4)
+                }
+            } else if authStatus == .notDetermined {
+                Section {
+                    Button {
+                        Task {
+                            let granted = await Reminders.requestAuthorization()
+                            await refreshStatus()
+                            if granted { Reminders.reschedule(store.auditions) }
+                        }
+                    } label: {
+                        HStack {
+                            Label("Enable Deadline Reminders", systemImage: "bell.badge.fill")
+                                .font(.otBody.weight(.medium))
+                            Spacer()
+                            Image(systemName: "chevron.forward").font(.footnote).foregroundStyle(OT.labelTertiary)
+                        }
+                    }
+                } footer: {
+                    Text("Allow OneTake to alert you on deadline mornings and 2 hours before submission.")
+                }
+            }
+
             Section {
                 Toggle("Morning it’s due", isOn: $morning)
                 Toggle("Two hours before", isOn: $twoHours)
@@ -387,7 +513,7 @@ struct NotificationSettingsView: View {
             } footer: {
                 Text("Scheduled on this iPhone, and updated whenever a due date changes or a tape is sent.")
             }
-            // No "from casting" alerts: there's no server that could hear from them.
+
             Section {
                 Toggle("Link ready", isOn: $delivery)
                 Toggle("Practice nudges · 6 pm", isOn: $practice)
@@ -396,14 +522,53 @@ struct NotificationSettingsView: View {
             } footer: {
                 Text("“Link ready” lets you know if an iCloud link finishes uploading while you're out of the app.")
             }
+
+            Section {
+                Button {
+                    Reminders.sendTestNotification()
+                    testScheduled = true
+                    Haptics.success()
+                } label: {
+                    HStack {
+                        Label(testScheduled ? "Test Alert Scheduled (arrives in 3s)" : "Send Test Notification", systemImage: "bell.and.waveform")
+                            .font(.otBody)
+                        Spacer()
+                    }
+                }
+            } footer: {
+                Text("Triggers a test reminder in 3 seconds to verify alerts and sounds on your device.")
+            }
         }
-        .onChange(of: morning) { Reminders.reschedule(store.auditions) }
-        .onChange(of: twoHours) { Reminders.reschedule(store.auditions) }
-        .onChange(of: practice) { Reminders.reschedule(store.auditions) }
+        .task { await refreshStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await refreshStatus() }
+            }
+        }
+        .onChange(of: morning) { checkAndReschedule() }
+        .onChange(of: twoHours) { checkAndReschedule() }
+        .onChange(of: practice) { checkAndReschedule() }
         .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Notifications")
+    }
+
+    private func refreshStatus() async {
+        let status = await Reminders.authorizationStatus()
+        await MainActor.run { self.authStatus = status }
+    }
+
+    private func checkAndReschedule() {
+        if authStatus == .notDetermined {
+            Task {
+                await Reminders.requestAuthorization()
+                await refreshStatus()
+                Reminders.reschedule(store.auditions)
+            }
+        } else {
+            Reminders.reschedule(store.auditions)
+        }
     }
 }
 

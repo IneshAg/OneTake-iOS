@@ -11,6 +11,10 @@ struct OneTakeApp: App {
     /// has both a light and a dark value, so either works throughout.
     @AppStorage("appearance") private var appearance = "system"
 
+    init() {
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -59,6 +63,7 @@ struct OneTakeApp: App {
 
 struct RootTabView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("appearance") private var appearance = "system"
 
     /// In empty state (no auditions yet), search is hidden until there is content to query.
     private var isSearchAvailable: Bool {
@@ -102,6 +107,7 @@ struct RootTabView: View {
                     .withRoutes()
             }
             .presentationDragIndicator(.visible)
+            .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
         .sheet(isPresented: $store.showAddAudition, onDismiss: {
             // Presenting the next screen only after the sheet is fully gone (a camera cover can't
@@ -113,6 +119,7 @@ struct RootTabView: View {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
                 .presentationDetents([.large])
+                .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {

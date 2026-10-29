@@ -1,6 +1,19 @@
 import Foundation
 import UserNotifications
 
+/// Handles notification presentation so alerts show banner and sound in the foreground too.
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge, .list])
+    }
+}
+
 /// Local reminders, scheduled on this iPhone — no server. Rebuilt from the auditions whenever they
 /// change, so a moved due date, a sent tape or a deleted audition never leaves a stale alert behind.
 /// Which ones are on is the Notifications screen's toggles (`n.*` in UserDefaults).
@@ -9,6 +22,30 @@ enum Reminders {
 
     private static func isOn(_ key: String, default value: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+
+    static func authorizationStatus() async -> UNAuthorizationStatus {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return settings.authorizationStatus
+    }
+
+    @discardableResult
+    static func requestAuthorization() async -> Bool {
+        do {
+            return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            return false
+        }
+    }
+
+    static func sendTestNotification() {
+        let content = UNMutableNotificationContent()
+        content.title = "OneTake Deadline Reminder"
+        content.body = "Your reminders are active. You’ll hear from OneTake when an audition is due."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
+        let request = UNNotificationRequest(identifier: "\(prefix)test.\(UUID().uuidString)", content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request)
     }
 
     static func reschedule(_ auditions: [Audition]) {
