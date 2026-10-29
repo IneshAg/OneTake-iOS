@@ -36,6 +36,12 @@ targets:
       path: OneTake/Info.plist
       properties:
         GIDClientID: $(GOOGLE_CLIENT_ID)
+        # Sign in with Apple is implemented with Apple's own AuthenticationServices framework (no
+        # package). The capability itself — `com.apple.developer.applesignin` — is only available to
+        # paid Apple Developer accounts, so this open build leaves it off and disables the button
+        # instead of failing Apple's authorization request on a phone. When a paid team exists, add
+        # the entitlement under `entitlements.properties` above and set this to true.
+        AppleSignInEnabled: false
         CFBundleURLTypes:
           - CFBundleURLSchemes: [onetake]
           - CFBundleURLSchemes: [$(GOOGLE_REVERSED_CLIENT_ID)]

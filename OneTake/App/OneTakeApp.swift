@@ -112,7 +112,7 @@ struct RootTabView: View {
         }) {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
-                .presentationDetents([.height(460)])
+                .presentationDetents([.large])
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {

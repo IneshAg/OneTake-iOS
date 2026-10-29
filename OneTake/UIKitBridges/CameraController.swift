@@ -15,6 +15,7 @@ final class CameraController: NSObject {
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
     private(set) var isExposureLocked = false
+    private(set) var zoomFactor: CGFloat = 1
 
     /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
     struct FaceReading: Equatable {
@@ -75,6 +76,7 @@ final class CameraController: NSObject {
     func configure(position: Position = .front) {
         self.position = position
         isExposureLocked = false
+        zoomFactor = 1
         queue.async { [weak self] in
             guard let self else { return }
             session.beginConfiguration()
@@ -187,6 +189,27 @@ final class CameraController: NSObject {
             // Only claim "Exposure locked" in the HUD once it really is.
             Task { @MainActor in self.isExposureLocked = true }
         }
+    }
+
+    func setZoomFactor(_ factor: CGFloat) {
+        queue.async { [weak self] in
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            let zoom = min(max(factor, 1), min(device.activeFormat.videoMaxZoomFactor, 5))
+            device.videoZoomFactor = zoom
+            device.unlockForConfiguration()
+            Task { @MainActor in self.zoomFactor = zoom }
+        }
+    }
+
+    func cycleZoom() {
+        let next: CGFloat
+        if zoomFactor < 1.25 { next = 1.5 }
+        else if zoomFactor < 1.75 { next = 2 }
+        else { next = 1 }
+        setZoomFactor(next)
     }
 
     /// Flips between the front and back camera — never mid-take, which would end the recording.

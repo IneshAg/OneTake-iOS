@@ -146,8 +146,6 @@ struct AddAuditionFlow: View {
 
                 Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
                     .font(.otFootnote).foregroundStyle(OT.accent)
-                Label("Read on this iPhone. Nothing is uploaded.", systemImage: "lock.fill")
-                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             }
             .padding(OT.gutter)
         }

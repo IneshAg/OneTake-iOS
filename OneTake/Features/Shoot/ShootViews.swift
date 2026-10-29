@@ -167,6 +167,8 @@ struct ShootFlow: View {
     /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
     @State private var sceneIndex = 0
     @State private var countdown: Int?
+    @State private var timerEnabled = true
+    @State private var pinchStartZoom: CGFloat?
     @State private var lineIndex = 0
     @State private var takeNumber = 1
     @State private var saveError: String?
@@ -199,6 +201,15 @@ struct ShootFlow: View {
             }
             .padding(.horizontal, OT.gutter)
         }
+        .simultaneousGesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    let start = pinchStartZoom ?? camera.zoomFactor
+                    pinchStartZoom = start
+                    camera.setZoomFactor(start * value)
+                }
+                .onEnded { _ in pinchStartZoom = nil }
+        )
         .preferredColorScheme(.dark)
         .statusBarHidden(camera.state == .recording)
         .keepScreenAwake()
@@ -377,7 +388,12 @@ struct ShootFlow: View {
 
     private var bottomControls: some View {
         HStack {
-            Color.clear.frame(width: 44, height: 44)
+            HStack(spacing: 8) {
+                cameraChoice("\(zoomLabel)") { camera.cycleZoom() }
+                    .disabled(camera.state != .ready || countdown != nil)
+                cameraChoice(timerEnabled ? "Timer 3s" : "Timer off") { timerEnabled.toggle(); Haptics.tick() }
+                    .disabled(camera.state == .recording || countdown != nil)
+            }
             Spacer()
             switch stage {
             case .check:
@@ -415,6 +431,10 @@ struct ShootFlow: View {
             .accessibilityLabel("Switch camera")
         }
         .padding(.bottom, 8)
+    }
+
+    private var zoomLabel: String {
+        camera.zoomFactor == 1 ? "1×" : String(format: "%.1f×", camera.zoomFactor)
     }
 
     /// Picks up where this audition left off: once the slate is in, "Next" goes straight to the scene
@@ -539,7 +559,13 @@ struct ShootFlow: View {
         // A tap or "Action" during the countdown must not start a second, overlapping one.
         guard countdown == nil else { return }
         Task {
-            for n in [3, 2, 1] { withAnimation(.easeOut(duration: 0.3)) { countdown = n }; Haptics.tick(); try? await Task.sleep(for: .seconds(1)) }
+            if timerEnabled {
+                for n in [3, 2, 1] {
+                    withAnimation(.easeOut(duration: 0.3)) { countdown = n }
+                    Haptics.tick()
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
             withAnimation { countdown = nil }
             camera.startRecording()
         }

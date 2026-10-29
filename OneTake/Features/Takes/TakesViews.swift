@@ -228,6 +228,7 @@ struct TapeCheckView: View {
         }
         .otCanvas()
         .navigationTitle("Tape check").navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {
                 // Checked first, then watched: Preview is the last look before packaging.
@@ -243,7 +244,7 @@ struct TapeCheckView: View {
         .task(id: tapeSignature) {
             report = nil
             guard let a = store.audition(auditionID) else { return }
-            let takes = store.takes.filter { $0.auditionID == auditionID }
+            let takes = finalizedTakes
             let result = await TapeAnalyzer.analyze(a, takes: takes)
             guard !Task.isCancelled else { return }
             report = result
@@ -253,7 +254,11 @@ struct TapeCheckView: View {
 
     private var tapeSignature: [URL] {
         guard let a = store.audition(auditionID) else { return [] }
-        return MediaExporter.clips(for: a, takes: store.takes).map(\.url)
+        return MediaExporter.clips(for: a, takes: finalizedTakes).map(\.url)
+    }
+
+    private var finalizedTakes: [Take] {
+        store.takes.filter { $0.auditionID == auditionID && $0.isCircled }
     }
 
     @ViewBuilder private func results(_ report: TapeAnalyzer.Report) -> some View {

@@ -148,6 +148,13 @@ struct PackageView: View {
         let asLink = a.destination == .emailOrLink
         // Account first (Apple or Google), then iCloud, which hosts the file.
         if asLink && store.account == nil {
+            // In a build without either capability there is no sign-in screen that could help;
+            // say so here instead of presenting a dead end.
+            guard AccountAuth.canSignIn else {
+                exportErrorMessage = "Sending a link needs an Apple or Google account, and sign-in isn't set up in this build. Choose Files or a casting site to hand over the tape instead."
+                phase = .failed
+                return
+            }
             showSignIn = true
             return
         }
@@ -287,8 +294,9 @@ struct DestinationSheet: View {
                                     Text(d.rawValue).font(.otBody)
                                     Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                     if d == .emailOrLink {
-                                        Text(CloudLink.isAvailable ? "Uploads to your iCloud Drive" : "Needs iCloud — sign in from Settings")
-                                            .font(.otFootnote).foregroundStyle(CloudLink.isAvailable ? OT.labelTertiary : OT.warning)
+                                        let link = linkStatus
+                                        Text(link.text)
+                                            .font(.otFootnote).foregroundStyle(link.color)
                                     }
                                 }
                                 Spacer()
@@ -296,6 +304,10 @@ struct DestinationSheet: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        // A link needs a sign-in provider as well as iCloud. With neither provider
+                        // in this build the option would fail on tap, so it isn't selectable.
+                        .disabled(d == .emailOrLink && !AccountAuth.canSignIn)
+                        .opacity(d == .emailOrLink && !AccountAuth.canSignIn ? 0.55 : 1)
                     }
                 } footer: {
                     Text("We match the file name each site asks for. Casting sites get the file through your Share Sheet; a link is hosted in your own iCloud — there's no OneTake server.")
@@ -303,6 +315,16 @@ struct DestinationSheet: View {
             }
             .navigationTitle("Where’s it going?").navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private var linkStatus: (text: String, color: Color) {
+        if !AccountAuth.canSignIn {
+            return ("Not available in this build — needs Apple or Google sign-in", OT.warning)
+        }
+        if !CloudLink.isAvailable {
+            return ("Needs iCloud — sign in from Settings", OT.warning)
+        }
+        return ("Uploads to your iCloud Drive", OT.labelTertiary)
     }
 }
 

@@ -135,13 +135,17 @@ struct SignInView: View {
             .padding(.top, 4)
 
             VStack(spacing: 16) {
-                SignInWithAppleButton(.continue) { request in
-                    request.requestedScopes = [.fullName, .email]
-                } onCompletion: { result in
-                    finish { try AccountAuth.account(from: result, previous: store.account) }
+                if AccountAuth.isAppleConfigured {
+                    SignInWithAppleButton(.continue) { request in
+                        request.requestedScopes = [.fullName, .email]
+                    } onCompletion: { result in
+                        finish { try AccountAuth.account(from: result, previous: store.account) }
+                    }
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(height: 54).clipShape(Capsule())
+                } else {
+                    unavailableProviderRow(symbol: "apple.logo", title: "Continue with Apple")
                 }
-                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                .frame(height: 54).clipShape(Capsule())
 
                 Button {
                     working = true
@@ -163,9 +167,21 @@ struct SignInView: View {
                 .buttonStyle(.plain)
                 .disabled(working || !AccountAuth.isGoogleConfigured)
                 .opacity(AccountAuth.isGoogleConfigured ? 1 : 0.5)
+
+                if !AccountAuth.canSignIn {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Sign-in isn't available in this build", systemImage: "info.circle")
+                            .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.labelSecondary)
+                        Text("Apple sign-in needs a paid Apple Developer account, and Google needs OAuth credentials. Everything else in OneTake works as a guest; only sending a tape as a link needs an account.")
+                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
             }
             // Well below the title, away from where a thumb lands first, so a stray tap can't start sign-in.
-            .padding(.top, 140)
+            .padding(.top, 120)
 
             if working { ProgressView().frame(maxWidth: .infinity).padding(.top, 16) }
             if let errorMessage {
@@ -173,7 +189,9 @@ struct SignInView: View {
                     .font(.otFootnote).foregroundStyle(OT.danger).padding(.top, 16)
             }
 
-            Text("New here? Either one creates your account. By continuing you agree to the Terms and Privacy Policy.")
+            Text(AccountAuth.canSignIn
+                 ? "New here? Either one creates your account. By continuing you agree to the Terms and Privacy Policy."
+                 : "By continuing you agree to the Terms and Privacy Policy.")
                 .font(.otCaption).foregroundStyle(OT.labelTertiary)
                 .padding(.top, 20).padding(.horizontal, 4)
             Spacer()
@@ -181,6 +199,25 @@ struct SignInView: View {
         .padding(.horizontal, 20)
         .padding(.top, 24)
         .otCanvas()
+    }
+
+    /// The Apple button can't be offered without Apple's capability, so show the same shape
+    /// disabled and say why rather than hiding the option or letting Apple reject the request.
+    private func unavailableProviderRow(symbol: String, title: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 18, weight: .medium))
+            Text(title).font(.system(size: 17, weight: .semibold)).tracking(-0.4)
+            Text("Unavailable")
+                .font(.otCaption.weight(.semibold))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(OT.separator.opacity(0.5), in: Capsule())
+        }
+        .foregroundStyle(OT.labelSecondary)
+        .frame(maxWidth: .infinity, minHeight: 54)
+        .background(OT.surfaceCard, in: Capsule())
+        .overlay(Capsule().strokeBorder(OT.separator, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). Unavailable in this build.")
     }
 
     private func finish(_ make: () throws -> Account) {
