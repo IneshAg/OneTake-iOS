@@ -40,16 +40,19 @@ sign-up — everything stays on the iPhone until you send it.
 
 ### Shoot
 - Front or back camera at 1080p, recorded upright however the phone is held and never mirrored.
-- Slate, optional full length, then each scene — with a scene picker and "Next: Scene N".
+- Pinch to zoom or tap the zoom control to cycle through 1×, 1.5× and 2× framing.
+- A visible timer control enables or disables the 3-second countdown before recording.
+- Slate, optional full length, then each scene — with a scene picker and “Next: Scene N”.
 - Hands-free: say "Action" / "Cut" (only when said on their own), or use a volume button, Camera Control
   or an AirPods stem press. The prompter follows your voice and plays your reader lines.
 - Hold-to-stop while rolling, so a stray tap can't end an emotional take.
 
 ### Takes, Tape Check and sending
 - Takes per scene, circle your send take, trim, and private notes.
-- **Tape Check** analyses the actual tape on-device: face in frame, distance, headroom, centring, head turn,
-  lighting, silence, quiet voice, clipping, plus the package itself (slate, every scene shot, length,
-  orientation, file name).
+- **Tape Check** analyses only the finalized/circled clips that will be sent: face in frame, distance,
+  headroom, centring, head turn, lighting, silence, quiet voice, clipping, plus the package itself
+  (slate, every scene shot, length, orientation, file name). The navigation bar is hidden to keep the
+  check focused on the results.
 - **Preview** the whole tape, then **package** it into one `.mp4` named `LAST_FIRST_ROLE_PROJECT.mp4`,
   with the slate at the start or the end.
 - Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) or as an **iCloud download

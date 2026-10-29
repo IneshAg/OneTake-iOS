@@ -361,7 +361,8 @@ Do Not Disturb tick. Solo-only for MVP (multi-device pairing was cut).
 It resumes at `.scene` if the slate piece is already done. Controls:
 
 - Record button: tap to start; while rolling, hold 0.8 s to stop.
-- 3-2-1 countdown before every roll.
+- A visible Timer button toggles the 3-second countdown before every roll on or off.
+- Pinch-to-zoom works directly on the preview; the zoom button cycles through 1×, 1.5× and 2×.
 - Hands-free: speech "Action"/"Cut" (only when said on their own, after a pause), volume buttons,
   Camera Control and AirPods stem via AVKit's `onCameraCaptureEvent`.
 - Prompter advances on the actor's spoken words when `prompter.followVoice` is on; tap/swipe to
@@ -378,8 +379,10 @@ marks the scene done (only if a take exists) and routes to Takes or back to the 
 - `TakesView`: per-scene segmented picker, player, horizontal thumbnails, tap to select, long-press
   to circle, "Circle take N", trim, and private notes ("never sent"). Thumbnails are real frames,
   cached by URL + modification date.
-- `TapeCheckView` re-runs whenever the tape's clip URLs change. `TapeAnalyzer` analyses exactly
-  `MediaExporter.clips`:
+- `TapeCheckView` hides the navigation bar and re-runs whenever the finalized tape's clip URLs
+  change. It passes only circled takes to `TapeAnalyzer`, matching the clips that will be sent;
+  unselected retakes are not analyzed or shown.
+- `TapeAnalyzer` analyses exactly `MediaExporter.clips` for those finalized takes:
   - **Video** (≈1 frame/s, 3–20 frames, skipping the first 0.5 s): Vision face detection + luma.
     Findings: no face for long stretches, too far away, headroom cut / too much space, off-centre,
     head turned (eyeline), too dark, overexposed, backlit.
