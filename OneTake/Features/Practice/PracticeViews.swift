@@ -8,53 +8,58 @@ struct PracticeView: View {
     @State private var sidesAuditionID: Audition.ID?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                // Time/duration tracking is cut for MVP — a real stats view (practice history, time
-                // invested) comes later, rather than a partial number shown ad hoc here.
+        Group {
+            if store.practice.isEmpty {
+                EmptyPracticeView()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        // Time/duration tracking is cut for MVP — a real stats view (practice history, time
+                        // invested) comes later, rather than a partial number shown ad hoc here.
 
-                if let piece = store.practice.first {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(text: "Pick up where you left off")
-                        Text(piece.title).font(.otTitle)
-                        Text("\(piece.detail) · \(piece.takesRecorded == 0 ? "no takes yet" : "\(piece.takesRecorded) take\(piece.takesRecorded == 1 ? "" : "s") so far")").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                        ReadinessDashes(done: piece.linesLearned, total: piece.linesTotal)
-                        HStack {
-                            Button { if let id = piece.auditionID, let scene = piece.sceneIndex { store.push(.runLines(id, sceneIndex: scene)) } } label: { Label("Run lines", systemImage: "play.fill") }.buttonStyle(.otPrimary)
-                            Button("Record a take") { store.camera = .practiceTake }.buttonStyle(.otSecondary)
-                        }
-                    }
-                    .padding(18).otCard()
-                }
-
-                if !store.auditions.isEmpty && !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
-
-                QuickDrillsGrid { mode in start(mode) }
-
-                if !store.practice.isEmpty {
-                    SectionLabel(text: "Your pieces")
-                    ForEach(store.practice) { p in
-                        Button { open(p) } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(p.title).font(.otBody).foregroundStyle(OT.labelPrimary)
-                                    Text("\(p.detail) · \(p.linesLearned) of \(p.linesTotal) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        if let piece = store.practice.first {
+                            VStack(alignment: .leading, spacing: 10) {
+                                SectionLabel(text: "Pick up where you left off")
+                                Text(piece.title).font(.otTitle)
+                                Text("\(piece.detail) · \(piece.takesRecorded == 0 ? "no takes yet" : "\(piece.takesRecorded) take\(piece.takesRecorded == 1 ? "" : "s") so far")").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                ReadinessDashes(done: piece.linesLearned, total: piece.linesTotal)
+                                HStack {
+                                    Button { if let id = piece.auditionID, let scene = piece.sceneIndex { store.push(.runLines(id, sceneIndex: scene)) } } label: { Label("Run lines", systemImage: "play.fill") }.buttonStyle(.otPrimary)
+                                    Button("Record a take") { store.camera = .practiceTake }.buttonStyle(.otSecondary)
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
                             }
-                            .frame(minHeight: 56)
-                            .contentShape(Rectangle())
+                            .padding(18).otCard()
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!canOpen(p))
-                        Divider()
+
+                        if !store.auditions.isEmpty && !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
+
+                        QuickDrillsGrid { mode in start(mode) }
+
+                        SectionLabel(text: "Your pieces")
+                        ForEach(store.practice) { p in
+                            Button { open(p) } label: {
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(p.title).font(.otBody).foregroundStyle(OT.labelPrimary)
+                                        Text("\(p.detail) · \(p.linesLearned) of \(p.linesTotal) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+                                }
+                                .frame(minHeight: 56)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canOpen(p))
+                            Divider()
+                        }
                     }
+                    .padding(.horizontal, OT.gutter)
+                    .padding(.bottom, 120)
                 }
             }
-            .padding(.horizontal, OT.gutter)
-            .padding(.bottom, 120)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
@@ -131,6 +136,29 @@ struct PracticeView: View {
         case .audioGap:                    store.push(.runLines(auditionID, sceneIndex: sceneIndex))
         case .handsFreeWalk:               store.push(.audioWalk(auditionID, sceneIndex: sceneIndex))
         }
+    }
+}
+
+// MARK: - 24a Empty
+
+struct EmptyPracticeView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image("onetake-practice-illustration")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 340, maxHeight: 300)
+                .accessibilityLabel("No practice pieces yet illustration")
+
+            Text("No practice pieces yet")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(OT.labelPrimary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
