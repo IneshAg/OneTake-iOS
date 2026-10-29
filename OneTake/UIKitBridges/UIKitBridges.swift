@@ -123,6 +123,7 @@ final class SpeechFollower {
     }
 
     private(set) var spokenWordCount = 0
+    private(set) var transcript = ""
     private(set) var lastCommand: Command?
     private(set) var isListening = false
 
@@ -288,6 +289,7 @@ final class SpeechFollower {
             pendingTask = nil
         }
         totalWords = words.count
+        transcript = words.joined(separator: " ")
         spokenWordCount = max(0, words.count - wordOffset)
 
         let currentIndex = words.count - 1
@@ -339,6 +341,7 @@ final class SpeechFollower {
         totalWords = 0
         wordOffset = 0
         spokenWordCount = 0
+        transcript = ""
         lastCommand = nil
         pendingWord = nil
         pendingIndex = -1

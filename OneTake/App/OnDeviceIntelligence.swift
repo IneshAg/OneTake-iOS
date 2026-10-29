@@ -4,6 +4,33 @@ import FoundationModels
 #endif
 
 enum OnDeviceIntelligence {
+    enum TalkbackIntent: String {
+        case lineComplete
+        case repeatLine
+        case nextLine
+        case pause
+        case unknown
+    }
+
+    static func talkbackIntent(spoken: String, expectedLine: String) async -> TalkbackIntent {
+        let prompt = """
+        Classify the actor's spoken text for a rehearsal talkback.
+        Return exactly one label: lineComplete, repeatLine, nextLine, pause, or unknown.
+        lineComplete means the actor delivered the expected line, including a natural paraphrase.
+        repeatLine means they ask to hear the reader line again. nextLine means they ask to skip.
+        pause means they ask the rehearsal to pause. Use unknown if unclear.
+
+        Expected line: \(expectedLine)
+        Actor speech: \(spoken)
+        """
+        guard let answer = await respond(to: prompt)?.lowercased() else { return .unknown }
+        if answer.contains("repeatline") { return .repeatLine }
+        if answer.contains("nextline") { return .nextLine }
+        if answer.contains("pause") { return .pause }
+        if answer.contains("linecomplete") { return .lineComplete }
+        return .unknown
+    }
+
     static func noticeGuidance(_ notice: String, parsed: NoticeParser.Draft) async -> String? {
         let prompt = """
         Read this casting notice and explain the practical recording checklist for the actor.

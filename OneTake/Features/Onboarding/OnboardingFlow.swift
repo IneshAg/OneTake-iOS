@@ -56,7 +56,6 @@ struct WelcomeView: View {
 
             Spacer().frame(height: 40)
             Button("Get started", action: onStart).buttonStyle(.otPrimary)
-            Text("No account needed to start.").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
         }
         .padding(.horizontal, OT.gutter + 4)
         .otCanvas()

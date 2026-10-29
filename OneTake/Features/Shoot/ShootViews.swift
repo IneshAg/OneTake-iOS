@@ -176,6 +176,7 @@ struct ShootFlow: View {
     /// Your own recorded reader lines, played during a take so they land under your voice.
     @State private var reader = ReaderTrackPlayer()
     @State private var readerAdvance: Task<Void, Never>?
+    @State private var talkbackTask: Task<Void, Never>?
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
     // Teleprompter settings from Prepare — applied to the in-camera prompter.
     @AppStorage("prompter.size") private var prompterSize = 1
@@ -240,16 +241,17 @@ struct ShootFlow: View {
         }
         // The prompter follows your voice: once you've said your line, it moves on to the next one.
         .onChange(of: follower.spokenWordCount) { _, count in
-            guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex),
-                  lines[lineIndex].isMine, count >= lines[lineIndex].text.split(separator: " ").count else { return }
-            advanceLine()
+            guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines,
+                  lines.indices.contains(lineIndex), lines[lineIndex].isMine,
+                  count >= max(2, lines[lineIndex].text.split(separator: " ").count / 2) else { return }
+            interpretTalkback(lines[lineIndex], wordCount: count)
         }
         // Face detection is only for the pre-shoot check; don't spend CPU on it while filming.
         .onChange(of: stage) { _, newStage in camera.faceGuidanceActive = (newStage == .check) }
         .onChange(of: camera.state) { _, state in
             if state == .recording, stage == .scene { startScene() } else if state != .recording { stopReader() }
         }
-        .onDisappear { camera.stop(); follower.stop(); stopReader() }
+        .onDisappear { talkbackTask?.cancel(); camera.stop(); follower.stop(); stopReader() }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -529,6 +531,33 @@ struct ShootFlow: View {
         guard let lines = sceneLines, lineIndex + 1 < lines.count else { return }
         lineIndex += 1
         speakIfReader()
+    }
+
+    private func interpretTalkback(_ line: ScriptLine, wordCount: Int) {
+        let spoken = follower.transcript
+        let expectedWords = line.text.split(separator: " ").count
+        talkbackTask?.cancel()
+        talkbackTask = Task { @MainActor in
+            let intent = await OnDeviceIntelligence.talkbackIntent(spoken: spoken, expectedLine: line.text)
+            guard !Task.isCancelled, camera.state == .recording, sceneLines?.indices.contains(lineIndex) == true else { return }
+            switch intent {
+            case .lineComplete, .nextLine:
+                advanceLine()
+            case .repeatLine:
+                replayReaderBeforeCurrent()
+            case .pause:
+                break
+            case .unknown:
+                if wordCount >= expectedWords { advanceLine() }
+            }
+        }
+    }
+
+    private func replayReaderBeforeCurrent() {
+        guard let lines = sceneLines else { return }
+        let previousReaderCount = lines[..<lineIndex].filter { !$0.isMine }.count
+        guard previousReaderCount > 0 else { return }
+        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: previousReaderCount - 1, volume: readerGain)
     }
 
     /// Plays your recorded reader line at the chosen volume, then moves on to your next line once it
