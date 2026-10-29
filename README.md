@@ -59,11 +59,17 @@ and deterministic guidance.
   headroom, centring, head turn, lighting, silence, quiet voice, clipping, plus the package itself
   (slate, every scene shot, length, orientation, file name). The navigation bar is hidden to keep the
   check focused on the results.
-- **Preview** the whole tape, then **package** it into one `.mp4` named `LAST_FIRST_ROLE_PROJECT.mp4`,
-  with the slate at the start or the end.
-- Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) or as an **iCloud download
-  link** from your own iCloud Drive. Sending a link is the one place OneTake asks you to sign in, with
-  Apple or Google; headshots go along as photos.
+- **Preview** the whole tape with accurate chapter durations (real duration for slate and scene chapters)
+  and quick chapter actions to change headshots, retake the slate or full-length tape, and open takes for
+  a specific scene.
+- **Package** generates a merged `.mp4` (`LAST_FIRST_ROLE_PROJECT.mp4`) plus a separate `.zip` archive
+  containing finalized clips and headshots via custom zero-dependency streaming. Tapping the Audio row
+  opens Tape Check, and "Preview the whole tape" opens the local tape preview.
+- **Sent screen** shows a destination-aware headline, persisted send date, actual destination, scene count,
+  merged video and separate ZIP deliverables, and link expiration when applicable.
+- Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) sharing both the merged MP4 and
+  separate ZIP archive, or as an **iCloud download link** from your own iCloud Drive. Sending a link is the
+  one place OneTake asks you to sign in, with Apple or Google; headshots go along as photos.
 
 ### Profile and the rest
 - Slate details, front / left / right headshots with a guide overlay, reader volume, appearance.

@@ -413,13 +413,16 @@ struct SentView: View {
                     Spacer()
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(OT.success)
                 }
-                Text(audition.deliverableFileName(slate: slate)).font(.otFootnote.weight(.semibold))
-                Text("Merged video · separate clips ZIP · \(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")")
-                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                Text("Merged video · \(audition.deliverableFileName(slate: slate))")
+                    .font(.otFootnote.weight(.semibold)).lineLimit(2)
+                Text("Separate clips · \(separateArchiveName)")
+                    .font(.otFootnote).foregroundStyle(OT.labelSecondary).lineLimit(2)
+                Text("\(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")")
+                    .font(.otCaption).foregroundStyle(OT.labelTertiary)
             }
             .padding(16).otCard(radius: 18).rotationEffect(.degrees(1.5)).padding(.top, 30)
 
-            Text(audition.destination == .emailOrLink ? "Your link is ready." : "It’s on its way.")
+            Text(audition.destination == .emailOrLink ? "Your link is ready." : "Shared for \(audition.destination.rawValue).")
                 .font(.system(size: 38, weight: .bold))
             HStack(alignment: .firstTextBaseline) {
                 Text(earlyText).font(.otTitle).foregroundStyle(OT.success)
@@ -444,4 +447,9 @@ struct SentView: View {
     }
 
     private var sentDate: Date { audition.sentDate ?? .now }
+
+    private var separateArchiveName: String {
+        let base = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+        return "\(base)_SEPARATE.zip"
+    }
 }

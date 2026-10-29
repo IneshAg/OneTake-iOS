@@ -3,7 +3,7 @@
 > Written as a reference for picking this work back up later. It describes how the app is put
 > together, the invariants worth not breaking, and the rough edges to check before shipping.
 >
-> Snapshot: commit `d436de3` (Oct 2026), working tree clean.
+> Snapshot: commit `ce7aeeb` (Oct 2026), with the ZIP streaming and Sent screen follow-up changes noted below.
 
 ---
 
@@ -72,7 +72,7 @@ OneTake/
   DesignSystem/   Theme.swift (Velvet tokens, fonts, canvas/card modifiers)
                   Components/Components.swift (shared UI)
   Features/       Auditions, Onboarding, Prepare, Practice, Shoot, Takes,
-                  Package, Profile
+                  Package (MediaExporter, ZipArchive, CloudLink, Preview), Profile
   Models/         Models.swift, ScriptParser.swift
   Persistence/    Persistence.swift (state.json, MediaStore, HeadshotStore)
   UIKitBridges/   CameraController.swift, UIKitBridges.swift
@@ -398,17 +398,25 @@ marks the scene done (only if a take exists) and routes to Takes or back to the 
 
 The last look before sending: headshot photos as clickable chapter 1, then the tape played from the
 local clips (no export needed) with chapter scrubbing. Sits between Tape Check and Package.
+- Real chapter durations: the slate and scene chapters display their accurate asset durations loaded via `asset.load(.duration)`.
+- Chapter actions: includes "Change headshots" (opens `HeadshotsView`), retaking the slate (`start: .slate`), retaking the full-length tape (`start: .fullLength`), and opening takes for a specific scene (`takes(auditionID, sceneIndex:)`).
 
 ### Package and send (`Features/Package/`)
 
 - `PackageView` phases: review → sending → failed → sent.
 - Review shows tape order (`TapeStrip`), deliverable file name, destination, Tape Check entry, audio
   source, and preview when an export exists. Also "Choose different takes".
-- A successful package produces both the merged deliverable MP4 and a ZIP of the separate finalized
-  clips plus headshots. The share sheet offers both files; the iCloud link continues to publish the
-  merged MP4.
+- Tapping the **Audio** row opens Tape Check (`store.push(.tapeCheck(a.id))`).
+- Tapping **Preview the whole tape** opens the local tape preview (`store.push(.preview(a.id))`).
+- A successful package produces both the merged deliverable MP4 (`LAST_FIRST_ROLE_PROJECT.mp4`) and a
+  custom ZIP archive of separate finalized clips plus headshots (`<baseName>_SEPARATE.zip`) without external dependencies.
+  The custom ZIP writer (`ZipArchive.swift`) streams clips from disk with CRC32 chunking, avoiding a full-video memory
+  copy, and fails the package if a selected clip is missing. The share sheet offers both files; the
+  iCloud link continues to publish the merged MP4.
 - `SentView` uses the persisted send date, destination, scene count, and deliverable names rather
-  than placeholder current-time or fixed-content text.
+  than placeholder current-time or fixed-content text. Its headline names the selected destination
+  (or says the link is ready: "Your link is ready." vs "Shared for <Destination>."), and its output card
+  names both the merged MP4 and separate ZIP alongside the scene count and link expiration date when applicable.
 - `DestinationSheet` changes destination and explains each spec.
 - `send()`:
   - "Email or link" requires an account (Apple/Google) and available iCloud. `DestinationSheet`
@@ -489,7 +497,7 @@ findings.
 
 ### `MediaExporter` (`Features/Package/MediaExporter.swift`)
 
-- `clips(...)`: slate, full length, then per scene the circled take (or first), respecting
+- `clips(...)`: slate, full length, then only the circled take per scene, respecting
   `slateAtStart`. Shared by preview, check and export.
 - `build(...)`: `AVMutableComposition` + `AVMutableVideoComposition`; re-applies each clip's preferred
   transform (portrait/front-camera mirroring) and uses the first clip's oriented size as render size.
@@ -715,7 +723,7 @@ Add audition (paste/photo/scan/file/share)
   → Takes: circle the send take, trim, notes
   → Tape Check (framing/light/sound/package)
   → Preview (headshots + whole tape with chapters)
-  → Package: MediaExporter → one .mp4 named LAST_FIRST_ROLE_PROJECT.mp4
+  → Package: MediaExporter → merged .mp4 + ZipArchive → separate clips/headshots .zip
       ├─ casting site → share sheet with the file + headshots
       └─ Email or link → sign in → iCloud upload → publish link → share sheet
   → markSent → Sent
