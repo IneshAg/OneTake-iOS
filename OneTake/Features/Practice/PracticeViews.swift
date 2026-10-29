@@ -65,10 +65,9 @@ struct PracticeView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Practice").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-                Text("Nothing due? Run a scene anyway.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-            }
+            Text("Practice")
+                .font(.otLargeTitle)
+                .foregroundStyle(OT.labelPrimary)
             Spacer()
             Button { store.push(.practiceSetup) } label: {
                 Image(systemName: "plus").font(.system(size: 20, weight: .semibold))

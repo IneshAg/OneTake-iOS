@@ -44,6 +44,7 @@ struct AuditionsView: View {
                 .scrollContentBackground(.hidden)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
@@ -60,10 +61,9 @@ struct AuditionsView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Auditions").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
-                Text("Your audition library").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-            }
+            Text("Auditions")
+                .font(.otLargeTitle)
+                .foregroundStyle(OT.labelPrimary)
             Spacer()
             Menu {
                 Picker("Show", selection: $filter) { ForEach(Filter.allCases) { Text($0.rawValue).tag($0) } }
@@ -170,7 +170,7 @@ struct EmptyAuditionsView: View {
             Image("onetake-empty-auditions-illustration")
                 .resizable()
                 .scaledToFit()
-                .frame(maxWidth: 280, maxHeight: 260)
+                .frame(maxWidth: 340, maxHeight: 300)
                 .accessibilityLabel("No auditions yet illustration")
 
             Text("No auditions yet")
@@ -180,6 +180,7 @@ struct EmptyAuditionsView: View {
             Spacer()
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, OT.gutter)
     }
 }
