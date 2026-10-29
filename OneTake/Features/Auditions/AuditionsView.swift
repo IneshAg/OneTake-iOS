@@ -164,52 +164,23 @@ struct EmptyAuditionsView: View {
     var onAdd: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Spacer().frame(height: 16)
+        VStack(spacing: 16) {
+            Spacer()
 
-                Image("onetake-empty-auditions-illustration")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 240, maxHeight: 220)
-                    .accessibilityLabel("No auditions yet illustration")
+            Image("onetake-empty-auditions-illustration")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 280, maxHeight: 260)
+                .accessibilityLabel("No auditions yet illustration")
 
-                VStack(spacing: 8) {
-                    Text("No auditions yet")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(OT.labelPrimary)
+            Text("No auditions yet")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(OT.labelPrimary)
 
-                    Text("Share a casting notice from Mail, Safari, or WhatsApp, or add it here. OneTake creates your slate, reader tracks, and scene checklist.")
-                        .font(.otCallout)
-                        .foregroundStyle(OT.labelSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                        .padding(.horizontal, 8)
-                }
-
-                Button(action: onAdd) {
-                    Label("Add your first audition", systemImage: "plus")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.otPrimary)
-                .padding(.top, 4)
-
-                // Feature Highlights Footer
-                HStack(spacing: 14) {
-                    Label("Auto Slate", systemImage: "sparkles")
-                    Text("·").foregroundStyle(OT.labelTertiary.opacity(0.6))
-                    Label("AI Reader", systemImage: "waveform")
-                    Text("·").foregroundStyle(OT.labelTertiary.opacity(0.6))
-                    Label("Tape Check", systemImage: "checkmark.seal")
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(OT.labelTertiary)
-                .padding(.top, 8)
-                .padding(.bottom, 32)
-            }
-            .padding(.horizontal, OT.gutter)
+            Spacer()
+            Spacer()
         }
+        .padding(.horizontal, OT.gutter)
     }
 }
 
