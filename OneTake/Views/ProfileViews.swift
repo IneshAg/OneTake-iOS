@@ -12,7 +12,7 @@ struct ProfileView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 18) {
                 // Header
                 HStack(alignment: .center) {
                     Text("Profile").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
@@ -64,17 +64,13 @@ struct ProfileView: View {
 
                 // Every time you record
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionLabel(text: "Every time you record")
+                    SectionLabel(text: "Recording")
 
                     VStack(spacing: 0) {
                         // "Room noise" and "Export" settings used to sit here; nothing ever applied
                         // them, so they're gone until there's processing behind them.
                         Toggle(isOn: $slateAtStart) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Slate at the start").font(.otBody).foregroundStyle(OT.labelPrimary)
-                                Text(slateAtStart ? "Slate and full length open the tape" : "Slate and full length close the tape")
-                                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                            }
+                            Text("Slate at the start").font(.otBody).foregroundStyle(OT.labelPrimary)
                         }
                             .tint(OT.accent)
                             .frame(minHeight: 48)
@@ -82,10 +78,7 @@ struct ProfileView: View {
                         Divider().padding(.vertical, 4)
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Reader volume").font(.otBody).foregroundStyle(OT.labelPrimary)
-                                Text("Casting should hear you first").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                            }
+                            Text("Reader volume").font(.otBody).foregroundStyle(OT.labelPrimary)
                             Spacer()
                             Picker("Reader volume", selection: $readerVolume) {
                                 ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) }
@@ -172,7 +165,7 @@ struct ProfileView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Label("Sign in", systemImage: "person.crop.circle.badge.plus")
                                             .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
-                                        Text("With Apple or Google. Only needed to send a tape as a link — everything else works without it.")
+                                        Text("Needed only to send an iCloud link.")
                                             .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                     }
                                     Spacer()
@@ -217,7 +210,7 @@ struct EditSlateView: View {
         Form {
             Section("Name") { TextField("Name", text: $store.slate.name) }
             Section { HStack { TextField("Height", text: $store.slate.height); TextField("Based in", text: $store.slate.basedIn) } } header: { Text("Height · Based in") }
-            Section { TextField("Self-represented", text: $store.slate.representation) } header: { Text("Representation") } footer: { Text("Said at the start of every tape, in this order. Change it any time.") }
+            Section { TextField("Self-represented", text: $store.slate.representation) } header: { Text("Representation") }
             Section { Text(store.slate.spoken).font(.otHeadline) } header: { Text("Preview") }
         }
         .scrollContentBackground(.hidden)
@@ -272,7 +265,7 @@ struct PrivacyView: View {
                         Text(mb(totalSize))
                             .font(.otHeadline)
                     }
-                    Text("All auditions, sides, takes, reader tracks and headshots remain in private on-device storage on this iPhone. OneTake has no servers, no ads, and no tracking.")
+                    Text("Your work stays on this iPhone. OneTake has no ads or tracking.")
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelSecondary)
                 }
@@ -287,8 +280,6 @@ struct PrivacyView: View {
                 }
             } header: {
                 Text("Cloud Delivery")
-            } footer: {
-                Text("Casting sites receive files through your Share Sheet. “Email or link” uploads deliverables directly to your personal iCloud Drive container. There is no OneTake server.")
             }
 
             // Local Storage Breakdown and Actions
@@ -312,8 +303,6 @@ struct PrivacyView: View {
                 }
             } header: {
                 Text("On this iPhone")
-            } footer: {
-                Text("Clearing exported deliverables frees storage space on this device. Your raw takes and sides remain intact so you can re-export anytime.")
             }
 
             // Account & Session Section
@@ -330,8 +319,8 @@ struct PrivacyView: View {
                 Text("Account")
             } footer: {
                 Text(store.isSignedIn
-                     ? "Disconnecting removes your sign-in credentials from this iPhone."
-                     : "You are using OneTake as a guest. An account is only requested when uploading an audition link.")
+                     ? "Disconnects sign-in on this iPhone."
+                     : "Sign in only to send an iCloud link.")
             }
 
             // Legal and Data Wipe
@@ -339,7 +328,7 @@ struct PrivacyView: View {
                 NavigationLink("Privacy policy") { PrivacyPolicyView() }
                 Button("Delete all local data", role: .destructive) { showConfirmDeleteAll = true }
             } footer: {
-                Text("Removes headshots, reader tracks and every take on this iPhone. Sent tapes already delivered aren’t affected.")
+                Text("Sent tapes are not affected.")
             }
         }
         .id(storageRefreshID)
@@ -352,7 +341,7 @@ struct PrivacyView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes rendered export files from disk to free storage space. Your raw takes and auditions are safe and can be re-exported anytime.")
+            Text("Original takes stay on this iPhone.")
         }
         .confirmationDialog("Clear reader audio?", isPresented: $showConfirmClearReader, titleVisibility: .visible) {
             Button("Clear reader recordings", role: .destructive) {
@@ -360,7 +349,7 @@ struct PrivacyView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes all practice reader recordings while preserving your script scenes and lines.")
+            Text("Scripts and scenes stay on this iPhone.")
         }
         .confirmationDialog("Disconnect account?", isPresented: $showConfirmDisconnectAccount, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) {
@@ -368,14 +357,12 @@ struct PrivacyView: View {
                 Haptics.success()
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This disconnects your account session from OneTake on this device.")
         }
         .confirmationDialog("Delete all local data?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
             Button("Delete everything", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes every take, headshot and reader recording from this iPhone. It can't be undone.")
+            Text("This can’t be undone.")
         }
     }
 
@@ -423,14 +410,14 @@ struct PrivacyPolicyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                section("No servers, no tracking", "OneTake has no server. It doesn't collect analytics, show ads or track you, and nothing you add or record is sent to us.")
-                section("Signing in", "You never need an account to add auditions, record or export. Signing in with Apple or Google is only asked for when you send a tape as a link. OneTake keeps the name and email that Apple or Google share on this iPhone to show who's signed in; it isn't sent anywhere else. Sign out from Profile at any time.")
-                section("What stays on this iPhone", "Your auditions, sides, takes, slate, headshots, reader recordings and practice are stored in OneTake's own storage on this iPhone. Your iPhone's backups (iCloud Backup, or a computer) include them, the same as any app's data.")
-                section("Reading notices and sides", "Text in photos, scans and PDFs is read on this iPhone with Apple's Vision and PDFKit. Nothing is uploaded to do it.")
-                section("Voice commands and the prompter", "Speech recognition runs on this iPhone where it's supported. On iPhones that can't do it on the device, Apple's speech recognition service processes the audio under Apple's privacy policy. OneTake only listens on the camera, Run Lines and drill screens.")
-                section("Sending a tape", "A tape only leaves this iPhone when you send it. Through the Share Sheet it goes to the app or person you pick. \"Email or link\" uploads it to your own iCloud Drive and makes a download link; anyone with the link can download the tape until iCloud expires it.")
-                section("Reminders and widgets", "Deadline reminders are scheduled on this iPhone. Widgets and the Lock Screen countdown read a small summary (project, role, due date, progress) that OneTake keeps on this iPhone for them.")
-                section("Deleting your data", "Privacy & data → Delete all local data removes every take, headshot and reader recording. Deleting the app removes everything OneTake stored. Links you've already sent stay in your iCloud Drive until you delete them there.")
+                section("Private by design", "OneTake has no ads, analytics or tracking. Your work stays on this iPhone unless you share it.")
+                section("Signing in", "An account is optional. Sign in only to send a tape as an iCloud link.")
+                section("On-device data", "Auditions, sides, takes, slate, headshots and practice are stored on this iPhone and included in its backups.")
+                section("Reading sides", "Photos, scans and PDFs are read on-device with Apple Vision and PDFKit.")
+                section("Speech recognition", "Voice commands use on-device recognition when available. Otherwise Apple may process speech under its privacy policy.")
+                section("Sharing", "A tape leaves this iPhone only when you share it. iCloud links can be downloaded until they expire.")
+                section("Reminders and widgets", "These use audition details stored on this iPhone.")
+                section("Deleting data", "Delete local data in Profile → Privacy & data. Previously shared iCloud links remain in your iCloud Drive.")
             }
             .padding(.horizontal, OT.gutter)
             .padding(.vertical, 12)
@@ -469,7 +456,7 @@ struct NotificationSettingsView: View {
                         Label("Notifications Disabled in Settings", systemImage: "bell.slash.fill")
                             .font(.otHeadline)
                             .foregroundStyle(OT.warning)
-                        Text("iOS is blocking notifications for OneTake. To get morning and deadline alerts, enable notifications in iOS Settings.")
+                        Text("Allow notifications in iOS Settings to receive reminders.")
                             .font(.otFootnote)
                             .foregroundStyle(OT.labelSecondary)
                         Button("Open iOS Settings") {
@@ -499,8 +486,6 @@ struct NotificationSettingsView: View {
                             Image(systemName: "chevron.forward").font(.footnote).foregroundStyle(OT.labelTertiary)
                         }
                     }
-                } footer: {
-                    Text("Allow OneTake to alert you on deadline mornings and 2 hours before submission.")
                 }
             }
 
@@ -510,8 +495,6 @@ struct NotificationSettingsView: View {
                 Toggle("Countdown on Lock Screen", isOn: $liveActivity)
             } header: {
                 Text("Deadlines")
-            } footer: {
-                Text("Scheduled on this iPhone, and updated whenever a due date changes or a tape is sent.")
             }
 
             Section {
@@ -520,7 +503,7 @@ struct NotificationSettingsView: View {
             } header: {
                 Text("Your tapes")
             } footer: {
-                Text("“Link ready” lets you know if an iCloud link finishes uploading while you're out of the app.")
+                Text("Alerts you when an iCloud upload finishes.")
             }
 
             Section {
@@ -536,7 +519,7 @@ struct NotificationSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Triggers a test reminder in 3 seconds to verify alerts and sounds on your device.")
+                Text("Sends a test alert in 3 seconds.")
             }
         }
         .task { await refreshStatus() }
@@ -587,7 +570,7 @@ struct HeadshotsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Front is what casting sees first. Profiles help on commercial calls.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+                Text("Front headshot first; profiles are optional.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                 HStack(spacing: 10) {
                     slot("Front", done: taken >= 1, big: true)
                         .frame(maxWidth: .infinity)
@@ -656,7 +639,7 @@ struct HeadshotsView: View {
         var body: some View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Auto-frame photos").font(.otTitle)
-                Text("Vision keeps the largest face near the center, then crops every saved headshot to the selected ratio. Originals are replaced.")
+                Text("Centers the largest face and replaces saved photos with the crop.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 Picker("Ratio", selection: $ratio) {
                     ForEach(FramingRatio.allCases) { Text($0.rawValue).tag($0) }
@@ -670,8 +653,6 @@ struct HeadshotsView: View {
                 }
                 .padding(12)
                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                Text("Use the fields for a custom width:height crop.")
-                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 Spacer()
                 Button("Apply") {
                     let width = CGFloat(Double(customWidth) ?? 0)

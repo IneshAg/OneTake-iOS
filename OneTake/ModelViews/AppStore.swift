@@ -106,6 +106,7 @@ final class AppStore {
 
     init() {
         isLoading = true
+        var removedLegacyDemoData = false
         if let saved = Persistence.load() {
             auditions = saved.auditions.map { a in
                 var a = a
@@ -124,6 +125,32 @@ final class AppStore {
             slate = saved.slate == SlateInfo.legacyPlaceholder ? SlateInfo() : saved.slate
             isOnboarded = saved.isOnboarded
             account = saved.account
+
+            // Remove the old generic simulator fixture without touching other saved auditions.
+            // This exact fingerprint came from the demo profile shown in early builds.
+            let isDemoProfile = slate.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("Jane Actor") == .orderedSame
+            let demoAuditions = auditions.filter {
+                $0.project.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Hamlet") == .orderedSame
+                    && $0.projectType.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Theatre") == .orderedSame
+                    && $0.role.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Ophelia") == .orderedSame
+            }
+            if isDemoProfile, !demoAuditions.isEmpty {
+                let demoIDs = Set(demoAuditions.map(\.id))
+                let demoTakes = takes.filter { $0.auditionID.map(demoIDs.contains) ?? false }
+                for url in demoTakes.compactMap(\.fileURL)
+                    + demoAuditions.flatMap({ [$0.slateVideoURL, $0.fullLengthVideoURL, $0.exportedFileURL, $0.separateArchiveURL].compactMap { $0 } }) {
+                    try? FileManager.default.removeItem(at: MediaStore.rebased(url) ?? url)
+                }
+                for id in demoIDs { MediaStore.deleteAll(["audition-\(id.uuidString)", "practice-\(id.uuidString)"]) }
+                auditions.removeAll { demoIDs.contains($0.id) }
+                takes.removeAll { $0.auditionID.map(demoIDs.contains) ?? false }
+                practice.removeAll { $0.auditionID.map(demoIDs.contains) ?? false }
+                slate = SlateInfo()
+                HeadshotStore.clearCache()
+                MediaStore.deleteAll(["headshots"])
+                removedLegacyDemoData = true
+            }
         }
         if ProcessInfo.processInfo.arguments.contains("-practice") {
             tab = .practice
@@ -136,6 +163,7 @@ final class AppStore {
             camera = .headshot
         }
         isLoading = false
+        if removedLegacyDemoData { persist() }
     }
 
     /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke.

@@ -213,8 +213,8 @@ continues straight into its first step without presenting a camera over a dismis
   (optional only for previews/tests; real takes always set both).
 - `PracticePiece` — practice progress (`linesLearned` / `linesTotal`, `takesRecorded`) optionally
   linked back to a real audition scene (`auditionID`, `sceneIndex`, `scene`).
-- `SlateInfo` — name/height/basedIn/representation. Empty by default; the old mockup persona
-  (`legacyPlaceholder`, "Kabir Sharma") is cleared on load.
+- `SlateInfo` — name/height/basedIn/representation. Empty by default; old mockup data is cleared on
+  load (`legacyPlaceholder`, "Kabir Sharma", and the exact Jane Actor / Hamlet / Ophelia demo fixture).
 - `Destination` — Actors Access, Casting Networks, Spotlight, Email or link, each with its spec text.
 - `LineLearningMode` — firstLetter, maskAndReveal, audioGap, handsFreeWalk.
 - `otLineDisplay(_:mode:peeked:)` — the single implementation of first-letter / hide / masked line
@@ -441,7 +441,7 @@ real device path uses `AVCapturePhotoOutput`.
 
 ### Profile, privacy, notifications
 
-- Profile sheet: slate/headshot card, "Every time you record" (`slateAtStart`, `readerVolume`),
+- Profile sheet: slate/headshot card, concise recording settings (`slateAtStart`, `readerVolume`),
   appearance, account card (sign in with Apple/Google, sign out — delete account lives under Privacy
   & data), headshots, privacy & data, notification settings.
 - Privacy & data reports real on-disk sizes per category and can delete everything; the privacy

@@ -26,8 +26,7 @@ struct OnboardingFlow: View {
     }
 
     private func finish() {
-        // First run: Auditions shows the real empty state, "Add your first audition" — no sample project.
-        store.auditions = []
+        // First run opens the empty Auditions state; never discard locally saved audition data here.
         store.isOnboarded = true
     }
 }
