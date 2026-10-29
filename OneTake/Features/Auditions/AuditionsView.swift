@@ -16,18 +16,42 @@ struct AuditionsView: View {
             } else {
                 List {
                     ForEach(items) { audition in
-                        Button { store.push(.auditionDetail(audition.id)) } label: {
-                            AuditionCard(audition: audition) { store.continueAudition(audition.id) }
+                        VStack(spacing: 8) {
+                            Button { store.push(.auditionDetail(audition.id)) } label: {
+                                AuditionCard(audition: audition) { store.continueAudition(audition.id) }
+                            }
+                            .buttonStyle(PressableCardStyle())
+
+                            if pendingDelete?.id == audition.id {
+                                inlineDeleteConfirmation(for: audition)
+                            }
                         }
-                        .buttonStyle(PressableCardStyle())
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 6, leading: OT.gutter, bottom: 6, trailing: OT.gutter))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) { pendingDelete = audition } label: { Label("Delete", systemImage: "trash") }
+                            Button(role: .destructive) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    pendingDelete = (pendingDelete?.id == audition.id ? nil : audition)
+                                }
+                            } label: { Label("Delete", systemImage: "trash") }
                             if audition.status != .sent {
                                 Button { store.markSent(audition.id); Haptics.success() } label: { Label("Mark sent", systemImage: "paperplane.fill") }
                                     .tint(OT.success)
+                            }
+                        }
+                        .contextMenu {
+                            if audition.status != .sent {
+                                Button { store.markSent(audition.id); Haptics.success() } label: {
+                                    Label("Mark sent", systemImage: "paperplane.fill")
+                                }
+                            }
+                            Button(role: .destructive) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    pendingDelete = audition
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
                         }
                     }
@@ -40,15 +64,81 @@ struct AuditionsView: View {
         .otCanvas()
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
-        .confirmationDialog("Delete “\(pendingDelete?.project ?? "")”?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let a = pendingDelete { store.deleteAudition(a.id) }
-                pendingDelete = nil
+    }
+
+    private func inlineDeleteConfirmation(for audition: Audition) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "trash.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(OT.danger)
+                Text("Delete “\(audition.project)”?")
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.labelPrimary)
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        pendingDelete = nil
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(OT.labelTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss delete confirmation")
             }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text("Its slate, reader track and any takes are removed from this iPhone. Your headshots stay in Profile.")
+
+            Text("Its slate, reader track and any takes are removed from this iPhone.")
+                .font(.otFootnote)
+                .foregroundStyle(OT.labelSecondary)
+
+            HStack(spacing: 10) {
+                Button(role: .destructive) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        store.deleteAudition(audition.id)
+                        pendingDelete = nil
+                    }
+                    Haptics.success()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash")
+                        Text("Delete")
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .background(OT.danger, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        pendingDelete = nil
+                    }
+                } label: {
+                    Text("Cancel")
+                        .font(.otSubhead.weight(.medium))
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(14)
+        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(OT.danger.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.horizontal, 4)
+        .transition(.asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.95, anchor: .top))
+        ))
     }
 
     private var header: some View {
