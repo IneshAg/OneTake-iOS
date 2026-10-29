@@ -417,7 +417,9 @@ struct SentView: View {
                     .font(.otFootnote.weight(.semibold)).lineLimit(2)
                 Text("Separate clips · \(separateArchiveName)")
                     .font(.otFootnote).foregroundStyle(OT.labelSecondary).lineLimit(2)
-                Text("\(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")")
+                Text(audition.scenes.isEmpty
+                     ? "No scripted scenes"
+                     : "\(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")")
                     .font(.otCaption).foregroundStyle(OT.labelTertiary)
             }
             .padding(16).otCard(radius: 18).rotationEffect(.degrees(1.5)).padding(.top, 30)

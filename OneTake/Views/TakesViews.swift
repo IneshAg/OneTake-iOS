@@ -207,6 +207,7 @@ struct TakeThumbnail: View {
 struct TapeCheckView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
     @State private var report: TapeAnalyzer.Report?
     @State private var finding: TapeFinding?
     @State private var passedOpen = false
@@ -214,6 +215,25 @@ struct TapeCheckView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    Button { dismiss() } label: {
+                        Label("Back", systemImage: "chevron.left")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Returns to the previous screen")
+                    Spacer()
+                    Text("Tape check")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                    Spacer()
+                    // Balance the title against the leading Back control.
+                    Color.clear.frame(width: 58, height: 44).accessibilityHidden(true)
+                }
+
                 if let report {
                     results(report)
                 } else {

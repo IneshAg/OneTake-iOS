@@ -653,6 +653,10 @@ Command Line Tools, so `xcodebuild` from the terminal fails until Xcode is selec
   are real (and its URL scheme config in `project.yml` is filled in).
 - **Simulator**: no camera; camera screens show a silhouette/placeholder; recording and real export
   need a device. VisionKit scanning is unavailable (`VNDocumentCameraViewController.isSupported`).
+- **Mixed-orientation export needs device testing**: build and play a tape containing clips with
+  different orientations (for example, a portrait slate followed by landscape scenes). Confirm
+  each clip is scaled and framed correctly in both the merged MP4 and preview; the first clip sets
+  the composition's render size, so inspect the actual output before treating this as a defect.
 
 ### Deliberate MVP cuts (comments in code say so)
 
