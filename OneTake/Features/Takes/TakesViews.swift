@@ -281,6 +281,11 @@ struct TapeCheckView: View {
                 }
             }
             if !report.findings.isEmpty {
+                if let guidance = report.aiGuidance {
+                    Label(guidance, systemImage: "sparkles")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                        .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
                 SectionLabel(text: "Worth a look")
                 ForEach(report.findings) { f in
                     Button { finding = f } label: {
@@ -302,6 +307,11 @@ struct TapeCheckView: View {
                     .buttonStyle(.plain)
                     Divider()
                 }
+            }
+            if report.findings.isEmpty, let guidance = report.aiGuidance {
+                Label(guidance, systemImage: "sparkles")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                    .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             if !report.passed.isEmpty {
                 DisclosureGroup(isExpanded: $passedOpen) {

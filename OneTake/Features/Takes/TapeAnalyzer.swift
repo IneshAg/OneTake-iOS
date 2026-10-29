@@ -12,6 +12,7 @@ enum TapeAnalyzer {
     struct Report {
         var findings: [TapeFinding] = []
         var passed: [String] = []
+        var aiGuidance: String?
         /// Clips that were actually analyzed (0 means nothing has been recorded yet).
         var clipCount = 0
         var checkCount: Int { findings.count + passed.count }
@@ -52,6 +53,7 @@ enum TapeAnalyzer {
         report.passed = passed
         report.findings += package
         report.passed.append("File name")
+        report.aiGuidance = await OnDeviceIntelligence.tapeGuidance(audition, report: report)
         return report
     }
 

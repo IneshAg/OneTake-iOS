@@ -167,6 +167,10 @@ enum HeadshotStore {
         cache.setObject(image, forKey: key.lowercased() as NSString)
     }
 
+    static func replace(_ image: UIImage, key: String) {
+        save(image, key: key)
+    }
+
     static func load(key: String) -> UIImage? {
         if let cached = cache.object(forKey: key.lowercased() as NSString) { return cached }
         guard let image = UIImage(contentsOfFile: url(for: key).path) else { return nil }

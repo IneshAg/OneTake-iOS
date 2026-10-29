@@ -49,4 +49,43 @@ final class ModelTests: XCTestCase {
         let last = MediaExporter.clips(for: a, takes: [other, take], slateAtStart: false).map(\.kind)
         XCTAssertEqual(last, [.scene(0), .slate, .fullLength])
     }
+
+    @MainActor
+    func testSpeechFollowerDetectsNowAndSynonyms() {
+        let follower = SpeechFollower()
+        follower.handle(["no"])
+        XCTAssertNil(follower.lastCommand)
+        follower.handle(["now"])
+        follower.finishCurrentUtterance()
+        XCTAssertEqual(follower.lastCommand?.word, "now")
+
+        follower.reset()
+        XCTAssertNil(follower.lastCommand)
+
+        follower.handle(["shoot"])
+        follower.finishCurrentUtterance()
+        XCTAssertEqual(follower.lastCommand?.word, "now")
+    }
+
+    @MainActor
+    func testSpeechFollowerSuppressesCommandsInContinuousSpeech() {
+        let follower = SpeechFollower()
+        follower.handle(["now"])
+        follower.handle(["now", "listen"])
+        follower.finishCurrentUtterance()
+        XCTAssertNil(follower.lastCommand)
+    }
+
+    @MainActor
+    func testSpeechFollowerDetectsActionAndCut() {
+        let follower = SpeechFollower()
+        follower.handle(["action"])
+        follower.finishCurrentUtterance()
+        XCTAssertEqual(follower.lastCommand?.word, "action")
+
+        follower.reset()
+        follower.handle(["cut"])
+        follower.finishCurrentUtterance()
+        XCTAssertEqual(follower.lastCommand?.word, "cut")
+    }
 }

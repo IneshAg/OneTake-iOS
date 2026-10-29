@@ -135,15 +135,28 @@ final class SpeechFollower {
     private var totalWords = 0
     private var wordOffset = 0
 
-    /// Command words also turn up in dialogue ("…I said cut", "Now listen"). A word only counts as a
-    /// command when it's said on its own: a pause before it and no more speech straight after.
-    private static let commandWords: Set<String> = ["action", "cut", "line", "now"]
-    private static let commandPause: TimeInterval = 0.5
-    private var latestWords: [String] = []
-    private var lastWordAt = Date.distantPast
-    /// Word count up to which a command has already fired, so re-sent partial results can't repeat it.
-    private var firedThroughWord = 0
-    private var pendingCommand: Task<Void, Never>?
+    /// Command words and natural synonyms. A word triggers as a command when followed by a brief
+    /// pause or the end of the utterance so dialogue words ("Now listen...") don't misfire.
+    private var pendingWord: String?
+    private var pendingIndex: Int = -1
+    private var lastFiredIndex: Int = -1
+    private var pendingTask: Task<Void, Never>?
+
+    static func canonicalCommand(for raw: String) -> String? {
+        let word = raw.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        switch word {
+        case "now", "capture", "shoot", "snap", "cheese":
+            return "now"
+        case "action", "roll", "rolling":
+            return "action"
+        case "cut", "stop":
+            return "cut"
+        case "line":
+            return "line"
+        default:
+            return nil
+        }
+    }
 
     /// Speech recognition *and* the microphone — the follower can't hear anything without both.
     static func requestAccess() async -> Bool {
@@ -187,6 +200,7 @@ final class SpeechFollower {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { return false }
+        input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
         }
@@ -204,7 +218,6 @@ final class SpeechFollower {
         guard let recognizer else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         self.request = request
         let generation = self.generation
 
@@ -219,7 +232,10 @@ final class SpeechFollower {
             // Recognition ends on its own — a final result, a long silence, the system's time limit.
             // While still meant to be listening, start a fresh one so commands keep working all shoot.
             if error != nil || result?.isFinal == true {
-                Task { @MainActor in await self.restartRecognition(from: generation) }
+                Task { @MainActor in
+                    self.finishCurrentUtterance()
+                    await self.restartRecognition(from: generation)
+                }
             }
         }
     }
@@ -233,10 +249,11 @@ final class SpeechFollower {
         // A new recognition counts words from zero again.
         totalWords = 0
         wordOffset = 0
-        latestWords = []
-        firedThroughWord = 0
-        pendingCommand?.cancel()
-        pendingCommand = nil
+        lastFiredIndex = -1
+        pendingWord = nil
+        pendingIndex = -1
+        pendingTask?.cancel()
+        pendingTask = nil
         // Brief pause so an immediately-failing recognizer can't spin.
         try? await Task.sleep(for: .milliseconds(300))
         guard isListening else { return }
@@ -244,28 +261,59 @@ final class SpeechFollower {
     }
 
     @MainActor
-    private func handle(_ words: [String]) {
-        let now = Date()
-        if words.count > totalWords {
-            let silenceBefore = now.timeIntervalSince(lastWordAt)
-            // Any new speech means a pending command wasn't said on its own.
-            pendingCommand?.cancel()
-            pendingCommand = nil
-            if words.count == totalWords + 1, words.count > firedThroughWord,
-               let last = words.last, Self.commandWords.contains(last), silenceBefore >= Self.commandPause {
-                let count = words.count
-                pendingCommand = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(Self.commandPause))
-                    guard let self, !Task.isCancelled, self.latestWords.count == count, self.latestWords.last == last else { return }
-                    self.firedThroughWord = count
-                    self.lastCommand = Command(word: last)
-                }
-            }
-            lastWordAt = now
+    func fireCommand(_ word: String, at index: Int) {
+        guard index > lastFiredIndex else { return }
+        lastFiredIndex = index
+        pendingWord = nil
+        pendingIndex = -1
+        pendingTask?.cancel()
+        pendingTask = nil
+        lastCommand = Command(word: word)
+    }
+
+    @MainActor
+    func finishCurrentUtterance() {
+        if let word = pendingWord, pendingIndex > lastFiredIndex {
+            fireCommand(word, at: pendingIndex)
         }
-        latestWords = words
+    }
+
+    @MainActor
+    func handle(_ words: [String]) {
+        if words.count < totalWords {
+            lastFiredIndex = -1
+            pendingWord = nil
+            pendingIndex = -1
+            pendingTask?.cancel()
+            pendingTask = nil
+        }
         totalWords = words.count
         spokenWordCount = max(0, words.count - wordOffset)
+
+        let currentIndex = words.count - 1
+        guard currentIndex >= 0, currentIndex > lastFiredIndex else { return }
+        let last = words[currentIndex]
+
+        guard let cmd = Self.canonicalCommand(for: last) else {
+            // New speech arrived and it's not a command: cancel any pending command
+            if pendingWord != nil {
+                pendingTask?.cancel()
+                pendingTask = nil
+                pendingWord = nil
+                pendingIndex = -1
+            }
+            return
+        }
+
+        // A command word was spoken. Schedule it to fire if no speech continues.
+        pendingWord = cmd
+        pendingIndex = currentIndex
+        pendingTask?.cancel()
+        pendingTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled else { return }
+            self.fireCommand(cmd, at: currentIndex)
+        }
     }
 
     func stop() {
@@ -280,19 +328,23 @@ final class SpeechFollower {
         task?.cancel()
         totalWords = 0
         wordOffset = 0
-        latestWords = []
-        lastWordAt = .distantPast
-        firedThroughWord = 0
-        pendingCommand?.cancel()
-        pendingCommand = nil
+        lastFiredIndex = -1
+        pendingWord = nil
+        pendingIndex = -1
+        pendingTask?.cancel()
+        pendingTask = nil
     }
 
     func reset() {
-        wordOffset = totalWords
+        totalWords = 0
+        wordOffset = 0
         spokenWordCount = 0
         lastCommand = nil
-        pendingCommand?.cancel()
-        pendingCommand = nil
+        pendingWord = nil
+        pendingIndex = -1
+        pendingTask?.cancel()
+        pendingTask = nil
+        lastFiredIndex = -1
     }
 }
 

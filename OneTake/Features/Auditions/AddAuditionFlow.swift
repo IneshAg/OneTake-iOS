@@ -191,6 +191,7 @@ enum NoticeParser {
         var due: Date?
         var scenes = 1
         var asks: [String] = []
+        var aiGuidance = ""
         var destination: Destination = .actorsAccess
         /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
         /// sides out of it instead of substituting a canned scene.
@@ -418,6 +419,7 @@ struct NoticeReadingView: View {
     let notice: String
     var onDone: (NoticeParser.Draft) -> Void
     private let draft: NoticeParser.Draft
+    @State private var guidance: String?
 
     init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void) {
         self.notice = notice
@@ -442,6 +444,11 @@ struct NoticeReadingView: View {
             Text(notice).font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(4)
                 .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             SectionLabel(text: "Found in notice").padding(.top, 6)
+            if let guidance {
+                Label(guidance, systemImage: "sparkles")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                    .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
             ForEach(rows, id: \.0) { row in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -463,8 +470,10 @@ struct NoticeReadingView: View {
         .padding(.horizontal, OT.gutter)
         .otCanvas()
         .task {
-            try? await Task.sleep(for: .milliseconds(400))
-            onDone(draft)
+            guidance = await OnDeviceIntelligence.noticeGuidance(notice, parsed: draft)
+            var updated = draft
+            updated.aiGuidance = guidance ?? ""
+            onDone(updated)
         }
     }
 }
@@ -518,6 +527,11 @@ struct NoticeReviewView: View {
                 }
 
                 SectionLabel(text: "They asked for")
+                if !draft.aiGuidance.isEmpty {
+                    Label(draft.aiGuidance, systemImage: "sparkles")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                        .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
                     field("person.2", "\(draft.role.isEmpty ? "Role" : draft.role) · \(draft.scenes) scenes", "Your lines found")
                     ForEach(draft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }

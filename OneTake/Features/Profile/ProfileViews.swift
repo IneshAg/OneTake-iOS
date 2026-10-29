@@ -413,6 +413,7 @@ struct HeadshotsView: View {
     /// Set when opened from an audition's checklist, so the screen can continue to its next step.
     var auditionID: Audition.ID? = nil
     @Environment(AppStore.self) private var store
+    @State private var framingRatio: FramingRatio?
 
     /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
     /// headshot showed as taken before it ever was.
@@ -435,6 +436,10 @@ struct HeadshotsView: View {
                     tip("square.split.bottomrightquarter", "Face a window", "not a lamp")
                     tip("rectangle", "Plain wall", "an arm’s length behind")
                     tip("iphone", "Eye level", "a little above is fine")
+                }
+                if taken > 0 {
+                    Button("Auto-frame headshots") { framingRatio = .photo }
+                        .buttonStyle(.otSecondary)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -459,6 +464,58 @@ struct HeadshotsView: View {
             .padding(OT.gutter)
         }
         .onAppear { store.syncHeadshotPieces() }
+        .sheet(item: $framingRatio) { ratio in
+            FramingRatioSheet(ratio: ratio) { selectedRatio in
+                for angle in HeadshotStore.taken {
+                    if let image = HeadshotStore.load(key: angle.key),
+                       let framed = ImageFramer.crop(image, ratio: selectedRatio) {
+                        HeadshotStore.replace(framed, key: angle.key)
+                    }
+                }
+                store.headshotVersion += 1
+                framingRatio = nil
+            }
+        }
+    }
+
+    private struct FramingRatioSheet: View {
+        @Environment(\.dismiss) private var dismiss
+        @State var ratio: FramingRatio
+        let apply: (CGFloat) -> Void
+        @State private var customWidth = "4"
+        @State private var customHeight = "3"
+        @State private var useCustom = false
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Auto-frame photos").font(.otTitle)
+                Text("Vision keeps the largest face near the center, then crops every saved headshot to the selected ratio. Originals are replaced.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                Picker("Ratio", selection: $ratio) {
+                    ForEach(FramingRatio.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Toggle("Use custom ratio", isOn: $useCustom)
+                HStack {
+                    TextField("Width", text: $customWidth).keyboardType(.numberPad)
+                    Text(":").foregroundStyle(OT.labelTertiary)
+                    TextField("Height", text: $customHeight).keyboardType(.numberPad)
+                }
+                .padding(12)
+                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Text("Use the fields for a custom width:height crop.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                Spacer()
+                Button("Apply") {
+                    let width = CGFloat(Double(customWidth) ?? 0)
+                    let height = CGFloat(Double(customHeight) ?? 0)
+                    apply(useCustom && width > 0 && height > 0 ? width / height : ratio.value)
+                }.buttonStyle(.otPrimary)
+                Button("Cancel") { dismiss() }.buttonStyle(.otSecondary)
+            }
+            .padding(OT.gutter)
+            .presentationDetents([.height(300)])
+        }
     }
 
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {

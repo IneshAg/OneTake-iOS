@@ -228,7 +228,7 @@ struct ShootFlow: View {
             if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
-            if cmd?.word == "action", camera.state == .ready { roll() }
+            if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready { roll() }
             if cmd?.word == "cut", camera.state == .recording { cut() }
         }
         // Volume buttons, Camera Control, and AirPods stem presses (camera remote) start and stop a
