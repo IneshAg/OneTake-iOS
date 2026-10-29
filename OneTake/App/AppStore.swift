@@ -124,6 +124,9 @@ final class AppStore {
             isOnboarded = saved.isOnboarded
             account = saved.account
         }
+        if ProcessInfo.processInfo.arguments.contains("-practice") {
+            tab = .practice
+        }
         isLoading = false
     }
 

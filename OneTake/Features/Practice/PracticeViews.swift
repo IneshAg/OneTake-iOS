@@ -159,6 +159,7 @@ struct EmptyPracticeView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, OT.gutter)
     }
 }
 

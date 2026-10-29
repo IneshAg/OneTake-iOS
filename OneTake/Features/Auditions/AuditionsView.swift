@@ -162,7 +162,6 @@ struct EmptyAuditionsView: View {
                 .foregroundStyle(OT.labelPrimary)
 
             Spacer()
-            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, OT.gutter)
