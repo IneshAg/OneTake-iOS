@@ -234,7 +234,7 @@ enum NoticeParser {
         d.due = detectDate(in: text)
         if let role = detectRole(in: text) { d.role = role }
         if let project = detectProject(in: text) { d.project = project }
-        if let office = labeled(["casting director", "casting office", "casting company", "casting", "agency"], in: text) {
+        if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
         }
         if let explicit = detectSceneCount(in: text) {
@@ -248,6 +248,11 @@ enum NoticeParser {
         if lower.contains("landscape") || lower.contains("horizontal") { ask("Landscape") }
         if lower.contains("full-length") || lower.contains("full length") || lower.contains("full body") || lower.contains("full-body") {
             ask("Full length")
+        }
+        if lower.contains("intro video") || lower.contains("intro") { ask("Intro video") }
+        if lower.contains("picture") || lower.contains("photo") || lower.contains("headshot") { ask("Headshots") }
+        if let email = firstMatch(#"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})"#, in: text) {
+            ask("Email: \(email)")
         }
         if let minutes = detectLengthLimit(in: text) { ask("Under \(minutes) min") }
         if lower.contains("feature") { d.projectType = "Feature film" }
@@ -271,14 +276,14 @@ enum NoticeParser {
 
     private static func firstMatch(_ pattern: String, in text: String, group: Int = 1, options: NSRegularExpression.Options = []) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.range(at: group).location != NSNotFound,
-              let r = Range(match.range(at: group), in: text) else { return nil }
+          let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+          match.range(at: group).location != NSNotFound,
+          let r = Range(match.range(at: group), in: text) else { return nil }
         return String(text[r])
     }
 
     private static func clean(_ s: String) -> String {
-        s.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'*_.,;:-"))
+        s.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'*_.,;:-#“"))
     }
 
     /// "Role: Maya", "Project - The Last Summer" — a label at the start of a line, then its value.
@@ -307,9 +312,30 @@ enum NoticeParser {
         return matches.first?.date
     }
 
-    /// Labeled "Role:" first, then phrases like "for the role of Maya in …", then the old ALL-CAPS cue.
+    /// Labeled "Role:" first, then common role types, phrases like "for the role of Maya in …", then the old ALL-CAPS cue.
     private static func detectRole(in text: String) -> String? {
         if let v = labeled(["role", "character", "part", "playing"], in: text) { return v.capitalized }
+
+        if let v = firstMatch(#"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#, in: text, options: .caseInsensitive) {
+            var res = clean(v).capitalized
+            if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                res += " (\(clean(age)))"
+            }
+            return res
+        }
+
+        let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
+        if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
+            let cleaned = clean(v)
+            if !cleaned.isEmpty {
+                var res = cleaned.capitalized
+                if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                    res += " (\(clean(age)))"
+                }
+                return res
+            }
+        }
+
         let name = #"([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,2}?)"#
         let stop = #"(?=\s+(?:in|on|by|for|from|at|to)\b|\s*[,.;:\n(]|\s*$)"#
         let lead = #"\b(?:role\s+of|part\s+of|character\s+of|playing|audition(?:ing)?\s+for|reading\s+for|self-?tape\s+for|submitting\s+for)\s+(?:the\s+)?(?:role\s+of\s+)?"#
@@ -321,13 +347,53 @@ enum NoticeParser {
         return nil
     }
 
-    /// Labeled "Project:" / "Title:", then a quoted title, then "in THE LAST SUMMER (feature)".
+    /// Labeled "Project:" / "Title:", explicit project folder, then a quoted title, then "in THE LAST SUMMER (feature)".
     private static func detectProject(in text: String) -> String? {
+        if let v = firstMatch(#"(?:project\s+folder|project(?:\s+name)?|title)\s*[:\-]?\s*["“]([^"”\n]+)["”]"#, in: text, options: .caseInsensitive) {
+            return clean(v).capitalized
+        }
         if let v = labeled(["project", "title", "production", "film", "series", "show"], in: text) { return v.capitalized }
-        if let v = firstMatch(#""([^"\n]{3,60})""#, in: text) { return clean(v).capitalized }
+
+        let genericHeadlines = ["casting call", "audition", "auditions", "casting notice", "urgent casting", "casting", "notice", "open call"]
+        if let regex = try? NSRegularExpression(pattern: #"["“]([^"”\n]{3,60})["”]"#) {
+            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let r = Range(m.range(at: 1), in: text) {
+                    let candidate = clean(String(text[r]))
+                    if !genericHeadlines.contains(candidate.lowercased()) {
+                        return candidate.capitalized
+                    }
+                }
+            }
+        }
+
         if let v = firstMatch(#"\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?:\s*[\(.,]|\s+by\s|$)"#, in: text) {
             let cleaned = clean(v)
             return cleaned.isEmpty ? nil : cleaned.capitalized
+        }
+        return nil
+    }
+
+    private static func detectCastingOffice(in text: String) -> String? {
+        if let office = labeled(["casting director", "casting office", "casting company", "casting", "agency"], in: text) {
+            return office
+        }
+        let ignoredLines = ["casting", "casting call", "casting notice", "urgent casting", "open casting", "open call"]
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = clean(rawLine)
+            let lower = line.lowercased()
+            if lower.hasSuffix("casting") && !ignoredLines.contains(lower) {
+                return line
+            }
+        }
+        if let v = firstMatch(#"\b([A-Za-z0-9\-]+\s*[-.]?\s*Casting)\b"#, in: text, options: .caseInsensitive) {
+            let cleaned = clean(v).replacingOccurrences(of: ".", with: "-")
+            if !ignoredLines.contains(cleaned.lowercased()) {
+                return cleaned.capitalized
+            }
+        }
+        if let v = firstMatch(#"@([A-Za-z0-9\-]+casting)\.[a-z]+"#, in: text, options: .caseInsensitive) {
+            return clean(v).capitalized
         }
         return nil
     }
@@ -351,7 +417,6 @@ enum NoticeParser {
 struct NoticeReadingView: View {
     let notice: String
     var onDone: (NoticeParser.Draft) -> Void
-    @State private var found = 0
     private let draft: NoticeParser.Draft
 
     init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void) {
@@ -360,31 +425,35 @@ struct NoticeReadingView: View {
         self.draft = NoticeParser.parse(notice)
     }
 
-    private var rows: [(String, String)] {
+    private var rows: [(String, String, Bool)] {
         [
-            ("Project", draft.project.isEmpty ? "Not found — type it in" : draft.project),
-            ("Your role", draft.role.isEmpty ? "Not found — type it in" : draft.role),
-            ("Due", draft.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not found — pick a date"),
-            ("Sides", draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes"),
-            ("What they asked for", "\(draft.asks.count) things")
+            ("Project", draft.project.isEmpty ? "Not found in notice" : draft.project, !draft.project.isEmpty),
+            ("Your role", draft.role.isEmpty ? "Not found in notice" : draft.role, !draft.role.isEmpty),
+            ("Due", draft.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not specified in notice", draft.due != nil),
+            ("Sides", draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes", true),
+            ("What they asked for", draft.asks.isEmpty ? "None specified" : "\(draft.asks.count) requirement\(draft.asks.count == 1 ? "" : "s")", !draft.asks.isEmpty)
         ]
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Reading the notice…").font(.otLargeTitle)
-            Text("Usually a few seconds. Nothing leaves your iPhone.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+            Text("Parsed on-device. Nothing leaves your iPhone.").font(.otCallout).foregroundStyle(OT.labelSecondary)
             Text(notice).font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(4)
                 .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            SectionLabel(text: "Found so far").padding(.top, 6)
-            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+            SectionLabel(text: "Found in notice").padding(.top, 6)
+            ForEach(rows, id: \.0) { row in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.0).font(.otBody)
-                        Text(i < found ? row.1 : "reading…").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        Text(row.1).font(.otFootnote).foregroundStyle(row.2 ? OT.labelSecondary : OT.labelTertiary)
                     }
                     Spacer()
-                    if i < found { Image(systemName: "checkmark").foregroundStyle(OT.accent) } else { ProgressView() }
+                    if row.2 {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent)
+                    } else {
+                        Image(systemName: "info.circle").foregroundStyle(OT.labelTertiary)
+                    }
                 }
                 .padding(.vertical, 6)
                 Divider()
@@ -394,8 +463,7 @@ struct NoticeReadingView: View {
         .padding(.horizontal, OT.gutter)
         .otCanvas()
         .task {
-            for i in 1...rows.count { try? await Task.sleep(for: .milliseconds(450)); found = i; Haptics.tick() }
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(400))
             onDone(draft)
         }
     }
