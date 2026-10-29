@@ -28,6 +28,11 @@ struct OneTakeApp: App {
             .onOpenURL { url in
                 // Google's sign-in redirect comes back through here too.
                 if GIDSignIn.sharedInstance.handle(url) { return }
+                if url.scheme == "onetake", url.host == "tab" {
+                    if url.lastPathComponent == "auditions" { store.tab = .auditions }
+                    else if url.lastPathComponent == "practice" { store.tab = .practice }
+                    return
+                }
                 guard url.scheme == "onetake", url.host == "audition",
                       let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
                 store.camera = nil
@@ -81,6 +86,8 @@ struct RootTabView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(OT.bgCanvas.ignoresSafeArea())
         .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
         .onChange(of: isSearchAvailable) { _, available in
             if !available && store.tab == .search {
@@ -105,6 +112,7 @@ struct RootTabView: View {
         }) {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
+                .presentationDetents([.height(460)])
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {

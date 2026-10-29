@@ -1,20 +1,12 @@
 import SwiftUI
 
-/// 05 Auditions — light, single column library with an "Active ▾" filter and swipe actions.
+/// 05 Auditions — light, single column library with swipe actions.
 struct AuditionsView: View {
-    enum Filter: String, CaseIterable, Identifiable { case active = "Active", dueThisWeek = "Due this week", sent = "Sent", all = "All"; var id: String { rawValue } }
-
     @Environment(AppStore.self) private var store
-    @State private var filter: Filter = .active
     @State private var pendingDelete: Audition?
 
     private var items: [Audition] {
-        switch filter {
-        case .active:      store.active + store.sent
-        case .dueThisWeek: store.active.filter { $0.due.timeIntervalSinceNow < 7 * 86400 }
-        case .sent:        store.sent
-        case .all:         store.auditions
-        }
+        store.active + store.sent
     }
 
     var body: some View {
@@ -65,14 +57,6 @@ struct AuditionsView: View {
                 .font(.otLargeTitle)
                 .foregroundStyle(OT.labelPrimary)
             Spacer()
-            Menu {
-                Picker("Show", selection: $filter) { ForEach(Filter.allCases) { Text($0.rawValue).tag($0) } }
-            } label: {
-                Label(filter.rawValue, systemImage: "chevron.down").labelStyle(TrailingIconLabelStyle())
-                    .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, 12).frame(height: 44)
-                    .background(OT.fillField, in: Capsule())
-            }
             Button { store.showAddAudition = true } label: {
                 Image(systemName: "plus").font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(OT.labelOnAccent)
