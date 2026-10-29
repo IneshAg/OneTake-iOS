@@ -162,17 +162,54 @@ struct AuditionCard: View {
 
 struct EmptyAuditionsView: View {
     var onAdd: () -> Void
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: "doc.on.doc").font(.system(size: 54, weight: .light)).foregroundStyle(OT.labelTertiary)
-                .padding(.top, 30)
-            Text("No auditions yet").font(.otTitle).foregroundStyle(OT.labelPrimary)
-            Text("Share the notice to OneTake from Mail, Safari or WhatsApp, or add it here. OneTake builds your slate, headshot and scene checklist from it.")
-                .font(.otCallout).foregroundStyle(OT.labelSecondary)
-            Button(action: onAdd) { Label("Add your first audition", systemImage: "plus") }.buttonStyle(.otPrimary)
-            Spacer()
+        ScrollView {
+            VStack(spacing: 20) {
+                Spacer().frame(height: 16)
+
+                Image("onetake-empty-auditions-illustration")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 240, maxHeight: 220)
+                    .accessibilityLabel("No auditions yet illustration")
+
+                VStack(spacing: 8) {
+                    Text("No auditions yet")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(OT.labelPrimary)
+
+                    Text("Share a casting notice from Mail, Safari, or WhatsApp, or add it here. OneTake creates your slate, reader tracks, and scene checklist.")
+                        .font(.otCallout)
+                        .foregroundStyle(OT.labelSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 8)
+                }
+
+                Button(action: onAdd) {
+                    Label("Add your first audition", systemImage: "plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.otPrimary)
+                .padding(.top, 4)
+
+                // Feature Highlights Footer
+                HStack(spacing: 14) {
+                    Label("Auto Slate", systemImage: "sparkles")
+                    Text("·").foregroundStyle(OT.labelTertiary.opacity(0.6))
+                    Label("AI Reader", systemImage: "waveform")
+                    Text("·").foregroundStyle(OT.labelTertiary.opacity(0.6))
+                    Label("Tape Check", systemImage: "checkmark.seal")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(OT.labelTertiary)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
+            }
+            .padding(.horizontal, OT.gutter)
         }
-        .padding(.horizontal, OT.gutter)
     }
 }
 
