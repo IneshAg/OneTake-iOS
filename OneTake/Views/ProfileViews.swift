@@ -590,10 +590,12 @@ struct HeadshotsView: View {
                 Text("Front is what casting sees first. Profiles help on commercial calls.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                 HStack(spacing: 10) {
                     slot("Front", done: taken >= 1, big: true)
+                        .frame(maxWidth: .infinity)
                     VStack(spacing: 10) {
                         slot("Left profile", done: taken >= 2, big: false)
                         slot("Right profile", done: taken >= 3, big: false)
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 .frame(height: 300)
 
@@ -698,6 +700,7 @@ struct HeadshotsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 

@@ -96,6 +96,19 @@ enum ZipArchive {
         try manager.moveItem(at: scratch, to: url)
     }
 
+    static func write(_ entries: [(name: String, data: Data)], to url: URL) throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("zip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        var fileEntries: [Entry] = []
+        for (name, data) in entries {
+            let fileURL = tempDir.appendingPathComponent(name.replacingOccurrences(of: "/", with: "_"))
+            try data.write(to: fileURL)
+            fileEntries.append(Entry(name: name, fileURL: fileURL))
+        }
+        try write(fileEntries, to: url)
+    }
+
     private static func createEmptyFile(at url: URL) throws -> URL {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         return url
@@ -109,7 +122,20 @@ enum ZipArchive {
         }
     }
 
-    private static func crc32(of url: URL) throws -> UInt32 {
+    static func crc32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xffffffff
+        for byte in data {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = (crc & 1 != 0) ? ((crc >> 1) ^ 0xedb88320) : (crc >> 1) }
+        }
+        return ~crc
+    }
+
+    static func crc32(of data: Data) -> UInt32 {
+        crc32(data)
+    }
+
+    static func crc32(of url: URL) throws -> UInt32 {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
         var crc: UInt32 = 0xffffffff

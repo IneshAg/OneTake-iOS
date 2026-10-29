@@ -94,13 +94,14 @@ struct RootTabView: View {
                 Tab(value: AppTab.search, role: .search) {
                     NavigationStack(path: $store.searchPath) {
                         SearchView().withRoutes()
+                            .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(OT.bgCanvas.ignoresSafeArea())
-        .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
+        .applySearchTabActivation()
         .onChange(of: isSearchAvailable) { _, available in
             if !available && store.tab == .search {
                 store.tab = .auditions

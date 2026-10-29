@@ -268,7 +268,11 @@ struct HeadshotImage: View {
 
     var body: some View {
         if let realKey, let real = HeadshotStore.load(key: realKey) {
-            Image(uiImage: real).resizable().scaledToFill()
+            Image(uiImage: real)
+                .resizable()
+                .scaledToFill()
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .clipped()
         } else {
             LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
                 .overlay(Image(systemName: "person.fill").font(.system(size: 40)).foregroundStyle(.white.opacity(0.35)))
