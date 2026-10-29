@@ -276,7 +276,7 @@ final class SpeechFollower {
     static func canonicalCommand(for raw: String) -> String? {
         let word = raw.lowercased().trimmingCharacters(in: .punctuationCharacters)
         switch word {
-        case "now", "capture", "shoot", "snap", "cheese":
+        case "now", "capture", "shoot", "snap", "cheese", "click", "photo", "picture", "take":
             return "now"
         case "action", "roll", "rolling":
             return "action"
@@ -487,15 +487,21 @@ final class CameraGuidanceSpeaker {
     private var lastSpokenAt = Date.distantPast
     private var lastMessage = ""
 
-    func speak(_ message: String) {
-        guard !message.isEmpty,
-              message != lastMessage,
-              Date().timeIntervalSince(lastSpokenAt) >= 4 else { return }
+    func speak(_ message: String, minInterval: TimeInterval = 2.0, repeatInterval: TimeInterval = 4.5) {
+        guard !message.isEmpty else { return }
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastSpokenAt)
+        if message == lastMessage {
+            guard elapsed >= repeatInterval else { return }
+        } else {
+            guard elapsed >= minInterval else { return }
+        }
         lastMessage = message
-        lastSpokenAt = Date()
+        lastSpokenAt = now
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: message)
         utterance.rate = 0.48
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         synthesizer.speak(utterance)
     }
 

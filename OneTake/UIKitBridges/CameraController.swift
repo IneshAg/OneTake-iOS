@@ -111,8 +111,15 @@ final class CameraController: NSObject {
                 }
                 // Connections are rebuilt whenever the camera input changes, so set these every time.
                 if let conn = faceOutput.connection(with: .video) {
-                    faceBufferIsUpright = conn.isVideoRotationAngleSupported(90)
-                    if faceBufferIsUpright { conn.videoRotationAngle = 90 }
+                    let defaultAngle: CGFloat = (position == .front) ? 270 : 90
+                    let uprightAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? defaultAngle
+                    if conn.isVideoRotationAngleSupported(uprightAngle) {
+                        conn.videoRotationAngle = uprightAngle
+                        faceBufferIsUpright = true
+                    } else if conn.isVideoRotationAngleSupported(90) {
+                        conn.videoRotationAngle = 90
+                        faceBufferIsUpright = true
+                    }
                     if conn.isVideoMirroringSupported {
                         conn.automaticallyAdjustsVideoMirroring = false
                         conn.isVideoMirrored = (position == .front)   // match the mirrored selfie preview
@@ -151,10 +158,22 @@ final class CameraController: NSObject {
         let coordinator = AVCaptureDevice.RotationCoordinator(device: videoDevice, previewLayer: previewLayer)
         rotationCoordinator = coordinator
         applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+        applyFaceOutputRotation(coordinator.videoRotationAngleForHorizonLevelCapture)
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, change in
             guard let angle = change.newValue else { return }
-            Task { @MainActor in self?.applyPreviewRotation(angle) }
+            Task { @MainActor in
+                self?.applyPreviewRotation(angle)
+                if let captureAngle = self?.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture {
+                    self?.applyFaceOutputRotation(captureAngle)
+                }
+            }
         }
+    }
+
+    private func applyFaceOutputRotation(_ angle: CGFloat) {
+        guard let conn = faceOutput.connection(with: .video), conn.isVideoRotationAngleSupported(angle) else { return }
+        conn.videoRotationAngle = angle
+        faceBufferIsUpright = true
     }
 
     @MainActor
@@ -386,9 +405,18 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFaceCheck = now
         let request = VNDetectFaceRectanglesRequest()
+        request.revision = VNDetectFaceRectanglesRequestRevision3
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: faceBufferIsUpright ? .up : .right, options: [:])
         try? handler.perform([request])
-        let best = (request.results ?? []).max {
+        var results = request.results ?? []
+        if results.isEmpty {
+            // Orientation fallback in case sensor orientation or device flip inverts the buffer
+            let fallbackOrientation: CGImagePropertyOrientation = faceBufferIsUpright ? .down : .left
+            let fallbackHandler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: fallbackOrientation, options: [:])
+            try? fallbackHandler.perform([request])
+            results = request.results ?? []
+        }
+        let best = results.max {
             $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
         }
         let reading = best.map {

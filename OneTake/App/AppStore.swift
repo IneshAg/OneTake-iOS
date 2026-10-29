@@ -127,6 +127,13 @@ final class AppStore {
         if ProcessInfo.processInfo.arguments.contains("-practice") {
             tab = .practice
         }
+        if ProcessInfo.processInfo.arguments.contains("-onboarded") {
+            isOnboarded = true
+        }
+        if ProcessInfo.processInfo.arguments.contains("-headshot") {
+            isOnboarded = true
+            camera = .headshot
+        }
         isLoading = false
     }
 

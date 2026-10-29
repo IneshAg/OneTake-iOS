@@ -720,7 +720,11 @@ struct HeadshotFlow: View {
     @Environment(AppStore.self) private var store
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
+    @State private var cameraSpeaker = CameraGuidanceSpeaker()
     @State private var voiceAllowed = false
+    @State private var voiceGuidanceEnabled = true
+    @State private var showMatchGuide = false
+    @State private var showGhostOverlay = true
     @State private var angle: Angle = .front
     @State private var justCaptured = false
     @State private var captureFailed = false
@@ -728,11 +732,11 @@ struct HeadshotFlow: View {
     var body: some View {
         ZStack {
             CameraBackground(controller: camera)
+
             // Alignment overlay — ghost outline to position against, shifted per angle.
-            Ellipse().stroke(guide.aligned ? OT.success : OT.due, lineWidth: guide.aligned ? 3 : 1.5).frame(width: 200, height: 270)
-                .animation(.easeOut(duration: 0.15), value: guide.aligned)
-                .rotation3DEffect(.degrees(angle == .front ? 0 : 8), axis: (x: 0, y: 1, z: 0))
-                .offset(x: angle == .left ? -14 : angle == .right ? 14 : 0, y: -20)
+            if showGhostOverlay {
+                ghostAlignmentOverlay
+            }
 
             VStack {
                 HStack {
@@ -752,7 +756,7 @@ struct HeadshotFlow: View {
 
                     Spacer()
 
-                    // Reference model — a small example of this angle, to match against.
+                    // Reference model button — tap to inspect target headshot reference & standards.
                     referenceThumbnail
                 }
                 .frame(height: 44)
@@ -760,9 +764,14 @@ struct HeadshotFlow: View {
 
                 Spacer()
 
+                // Live status chips (lighting & angle)
+                statusChips
+                    .padding(.bottom, 6)
+
                 Text(guide.message)
                     .font(.otHeadline).foregroundStyle(guide.aligned ? OT.success : .white)
-                Text(follower.isListening ? "Tap, or say “Now”" : "Voice is off — tap the shutter").font(.otFootnote).foregroundStyle(.white.opacity(0.7))
+                Text(follower.isListening ? "Tap, or say “Now”" : "Voice is off — tap the shutter")
+                    .font(.otFootnote).foregroundStyle(.white.opacity(0.7))
 
                 ZStack {
                     Button { capture() } label: {
@@ -773,7 +782,24 @@ struct HeadshotFlow: View {
                     .accessibilityLabel("Take photo")
 
                     HStack {
+                        // Voice guidance speaker toggle (symmetric with camera flip)
+                        Button {
+                            voiceGuidanceEnabled.toggle()
+                            Haptics.tick()
+                            if voiceGuidanceEnabled {
+                                cameraSpeaker.speak("Voice guidance on", minInterval: 0.1)
+                            } else {
+                                cameraSpeaker.stop()
+                            }
+                        } label: {
+                            Image(systemName: voiceGuidanceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                .foregroundStyle(voiceGuidanceEnabled ? OT.due : .white.opacity(0.7))
+                                .frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
+                        }
+                        .accessibilityLabel(voiceGuidanceEnabled ? "Mute voice guidance" : "Turn on voice guidance")
+
                         Spacer()
+
                         Button {
                             camera.switchCamera()
                             Haptics.tick()
@@ -790,16 +816,52 @@ struct HeadshotFlow: View {
             .padding(.horizontal, OT.gutter)
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showMatchGuide) {
+            HeadshotReferenceGuideSheet(
+                angle: angle,
+                showGhostOverlay: $showGhostOverlay,
+                voiceGuidanceEnabled: $voiceGuidanceEnabled
+            )
+        }
         .task {
             camera.wantsFaceGuidance = true
             if await CameraController.requestVideoAccess() { camera.configure(position: .front) }
-            // Voice shutter — reuses the same "Talk to OneTake" recognizer the recording flow uses,
-            // just with a capture command added to its vocabulary. Gesture trigger is a v1.1 candidate.
             voiceAllowed = await SpeechFollower.requestAccess()
             if voiceAllowed { follower.start() }
+            if voiceGuidanceEnabled {
+                let initialPrompt: String
+                switch angle {
+                case .front: initialPrompt = "Front headshot. Look straight at the camera."
+                case .left:  initialPrompt = "Left profile. Turn your head to your left."
+                case .right: initialPrompt = "Right profile. Turn your head to your right."
+                }
+                cameraSpeaker.speak(initialPrompt, minInterval: 0.8)
+            }
+            // Continuous guidance speaker loop to keep assisting actors whose heads are turned
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2.5))
+                if voiceGuidanceEnabled, camera.state == .ready {
+                    speakCurrentGuidance()
+                }
+            }
         }
         .onChange(of: camera.state) { _, state in
             if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
+        }
+        .onChange(of: guide.message) { _, _ in
+            speakCurrentGuidance()
+        }
+        .onChange(of: angle) { _, newAngle in
+            follower.reset()
+            if voiceGuidanceEnabled {
+                let prompt: String
+                switch newAngle {
+                case .front: prompt = "Front headshot. Look straight at the camera."
+                case .left:  prompt = "Left profile. Turn your head to your left."
+                case .right: prompt = "Right profile. Turn your head to your right."
+                }
+                cameraSpeaker.speak(prompt, minInterval: 0.1)
+            }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
             if cmd?.word == "now" || cmd?.word == "action" { capture() }
@@ -808,12 +870,94 @@ struct HeadshotFlow: View {
         .onCameraCaptureEvent { event in
             if event.phase == .ended { capture() }
         }
-        .onDisappear { camera.stop(); follower.stop(); store.syncHeadshotPieces() }
+        .onDisappear {
+            cameraSpeaker.stop()
+            camera.stop()
+            follower.stop()
+            store.syncHeadshotPieces()
+        }
         .alert("Couldn’t take that photo", isPresented: $captureFailed) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(failureMessage)
         }
+    }
+
+    private var ghostAlignmentOverlay: some View {
+        ZStack {
+            Ellipse()
+                .stroke(guide.aligned ? OT.success : OT.due, lineWidth: guide.aligned ? 3 : 1.5)
+                .frame(width: 200, height: 270)
+                .rotation3DEffect(.degrees(angle == .front ? 0 : 8), axis: (x: 0, y: 1, z: 0))
+
+            // Eye-line alignment notches inside the ellipse
+            HStack {
+                Rectangle()
+                    .fill(guide.aligned ? OT.success : OT.due)
+                    .frame(width: 32, height: 2)
+                Spacer()
+                Rectangle()
+                    .fill(guide.aligned ? OT.success : OT.due)
+                    .frame(width: 32, height: 2)
+            }
+            .frame(width: 170)
+            .offset(y: -24)
+        }
+        .offset(x: angle == .left ? -14 : angle == .right ? 14 : 0, y: -20)
+        .animation(.easeOut(duration: 0.15), value: guide.aligned)
+    }
+
+    private var statusChips: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(lightColor)
+                    .frame(width: 6, height: 6)
+                Text(lightText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(.black.opacity(0.55), in: Capsule())
+
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(guide.aligned ? OT.success : OT.due)
+                    .frame(width: 6, height: 6)
+                Text(angleStatusText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(.black.opacity(0.55), in: Capsule())
+        }
+    }
+
+    private var lightColor: Color {
+        guard let luma = camera.lightLevel else { return OT.success }
+        return (luma < 0.22 || luma > 0.85) ? OT.due : OT.success
+    }
+
+    private var lightText: String {
+        guard let luma = camera.lightLevel else { return "Light: Good" }
+        if luma < 0.22 { return "Low light" }
+        if luma > 0.85 { return "Direct glare" }
+        return "Light: Soft & even"
+    }
+
+    private var angleStatusText: String {
+        switch angle {
+        case .front: return guide.aligned ? "Angle: Square" : "Face forward"
+        case .left:  return guide.aligned ? "Angle: 90° profile" : "Turn left"
+        case .right: return guide.aligned ? "Angle: 90° profile" : "Turn right"
+        }
+    }
+
+    private func speakCurrentGuidance(immediate: Bool = false) {
+        guard voiceGuidanceEnabled, camera.state == .ready else { return }
+        cameraSpeaker.speak(guide.spoken, minInterval: immediate ? 0.2 : 2.0, repeatInterval: 4.5)
     }
 
     private var failureMessage: String {
@@ -825,34 +969,119 @@ struct HeadshotFlow: View {
     }
 
     /// Live coaching from face detection: is the face framed, the right size, and turned the right amount?
-    private var guide: (message: String, aligned: Bool) {
-        guard let f = camera.face else { return ("Show your face to the camera", false) }
-        if f.height < 0.2 { return ("Move closer", false) }
-        if f.height > 0.5 { return ("Move back a little", false) }
-        if f.centerX < 0.4 { return ("Too far left — move right", false) }
-        if f.centerX > 0.6 { return ("Too far right — move left", false) }
-        if f.centerY < 0.3 { return ("Tilt the phone up a little", false) }
-        if f.centerY > 0.56 { return ("Tilt the phone down a little", false) }
-        let yaw = abs(f.yaw ?? 0)
+    private var guide: (message: String, spoken: String, aligned: Bool) {
+        guard let f = camera.face else {
+            return ("Show your face to the camera", "Step into the frame so your face is visible", false)
+        }
+        if f.height < 0.20 {
+            return ("Move closer", "Move closer to the camera", false)
+        }
+        if f.height > 0.52 {
+            return ("Move back a little", "Move back a little", false)
+        }
+        if f.centerX < 0.38 {
+            return ("Too far left — move right", "Move to your right", false)
+        }
+        if f.centerX > 0.62 {
+            return ("Too far right — move left", "Move to your left", false)
+        }
+        if f.centerY < 0.28 {
+            return ("Tilt the phone up a little", "Tilt the phone up a little", false)
+        }
+        if f.centerY > 0.58 {
+            return ("Tilt the phone down a little", "Tilt the phone down a little", false)
+        }
+        let yaw = f.yaw ?? 0
         switch angle {
         case .front:
-            if yaw > 0.22 { return ("Look straight at the camera", false) }
-        case .left, .right:
-            if f.yaw == nil || yaw < 0.35 { return ("Turn your head a little more to the side", false) }
-            if yaw > 1.0 { return ("Turn back a little", false) }
+            if abs(yaw) > 0.25 {
+                return ("Look straight at the camera", "Look straight at the camera", false)
+            }
+        case .left:
+            if f.yaw != nil && abs(yaw) < 0.25 {
+                return ("Turn your head to your left", "Turn your head to your left", false)
+            }
+            if abs(yaw) > 1.15 {
+                return ("Turn back a little", "Turn back a little", false)
+            }
+        case .right:
+            if f.yaw != nil && abs(yaw) < 0.25 {
+                return ("Turn your head to your right", "Turn your head to your right", false)
+            }
+            if abs(yaw) > 1.15 {
+                return ("Turn back a little", "Turn back a little", false)
+            }
         }
-        return ("Hold still — that’s it", true)
+        return ("Hold still — that’s it", "Hold still — say Now to shoot", true)
     }
 
     private var referenceThumbnail: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.12))
-                Image(systemName: referenceSymbol).font(.system(size: 18)).foregroundStyle(.white.opacity(0.85))
+        Button {
+            showMatchGuide = true
+            Haptics.tick()
+        } label: {
+            VStack(spacing: 3) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.white.opacity(0.14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(showMatchGuide ? OT.due : .white.opacity(0.28), lineWidth: 1.5)
+                        )
+
+                    if let img = thumbnailImageForCurrentOrPriorAngle() {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 44, height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        Image(systemName: referenceSymbol)
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+
+                    // Mini "info" indicator badge in bottom right corner of the thumbnail
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(OT.due)
+                                .background(Circle().fill(.black.opacity(0.7)))
+                                .offset(x: 3, y: 3)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                }
+                .frame(width: 44, height: 44)
+
+                HStack(spacing: 2) {
+                    Text("Match this")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(.white)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             }
-            .frame(width: 44, height: 44)
-            Text("Match this").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Match this reference guide for \(angle.rawValue)")
+    }
+
+    private func thumbnailImageForCurrentOrPriorAngle() -> UIImage? {
+        if let current = HeadshotStore.load(key: angle.rawValue) {
+            return current
+        }
+        if angle == .left, let front = HeadshotStore.load(key: "Front") {
+            return front
+        }
+        if angle == .right {
+            return HeadshotStore.load(key: "Left") ?? HeadshotStore.load(key: "Front")
+        }
+        return nil
     }
 
     private var referenceSymbol: String {
@@ -866,19 +1095,196 @@ struct HeadshotFlow: View {
     private func capture() {
         guard !justCaptured else { return }
         justCaptured = true
+        cameraSpeaker.stop()
         camera.capturePhoto { image in
             justCaptured = false
-            // Nothing captured means nothing saved and no moving on — never a stand-in photo.
             guard let image else { captureFailed = true; Haptics.warning(); return }
             HeadshotStore.save(image, key: angle.rawValue)
             store.headshotVersion += 1
             Haptics.success()
             if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
+                let saved = angle.rawValue
+                let nextName = next.rawValue
                 angle = next
                 follower.reset()
+                if voiceGuidanceEnabled {
+                    let prompt = next == .left ? "\(saved) photo saved. Now turn to your left profile." : "\(saved) photo saved. Now turn to your right profile."
+                    cameraSpeaker.speak(prompt, minInterval: 0.1)
+                }
             } else {
+                if voiceGuidanceEnabled {
+                    cameraSpeaker.speak("All headshots saved!", minInterval: 0.1)
+                }
                 dismiss()
             }
         }
+    }
+}
+
+// MARK: - Match Reference Guide Sheet
+
+struct HeadshotReferenceGuideSheet: View {
+    let angle: HeadshotFlow.Angle
+    @Binding var showGhostOverlay: Bool
+    @Binding var voiceGuidanceEnabled: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header Card with angle illustration / preview
+                    VStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.06))
+                                .frame(height: 200)
+
+                            if let saved = HeadshotStore.load(key: angle.rawValue) {
+                                Image(uiImage: saved)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(height: 180)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            } else {
+                                referencePoseIllustration
+                            }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+
+                        Text(angleTitle)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+
+                        Text(angleSummary)
+                            .font(.otSubhead)
+                            .foregroundStyle(OT.labelSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                    }
+                    .padding(.top, 8)
+
+                    // Casting Standards Checklist
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Casting Standards")
+                            .font(.otHeadline)
+                            .foregroundStyle(.white)
+
+                        guideRow(icon: "eye.fill", title: "Eye-line Alignment", desc: "Align eyes level with the horizontal guide notches. Look straight at the camera lens.")
+                        guideRow(icon: "arrow.triangle.2.circlepath", title: "Head Angle", desc: angleAngleDesc)
+                        guideRow(icon: "sun.max.fill", title: "Soft & Even Lighting", desc: "Face a window or soft key light. Avoid harsh backlights, hard shadows, or overhead glare.")
+                        guideRow(icon: "viewfinder", title: "Framing & Distance", desc: "Hold phone 2–3 feet away at chin level. Head and shoulders should fill the frame with 1–2 inches headroom.")
+                    }
+                    .padding(16)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    // Overlay & Voice Guidance Toggles
+                    VStack(spacing: 12) {
+                        Toggle(isOn: $showGhostOverlay) {
+                            Label("Show Alignment Overlay", systemImage: "viewfinder")
+                                .font(.otSubhead.weight(.medium))
+                        }
+                        .tint(OT.due)
+
+                        Divider().overlay(Color.white.opacity(0.1))
+
+                        Toggle(isOn: $voiceGuidanceEnabled) {
+                            Label("Spoken Voice Guidance", systemImage: "speaker.wave.2.fill")
+                                .font(.otSubhead.weight(.medium))
+                        }
+                        .tint(OT.due)
+                    }
+                    .padding(16)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Got it — Start Matching")
+                            .font(.otHeadline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(OT.due, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(OT.gutter)
+            }
+            .background(Color(white: 0.08).ignoresSafeArea())
+            .navigationTitle("Match Reference")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(OT.due)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var angleTitle: String {
+        switch angle {
+        case .front: "Front Headshot"
+        case .left:  "Left 90° Profile"
+        case .right: "Right 90° Profile"
+        }
+    }
+
+    private var angleSummary: String {
+        switch angle {
+        case .front: "Direct front-facing portrait. Shoulders square, eyes looking straight at the camera with chin level."
+        case .left:  "Full 90-degree turn to your left. Your left ear, nose profile, and jawline should be clearly defined."
+        case .right: "Full 90-degree turn to your right. Your right ear, nose profile, and jawline should be clearly defined."
+        }
+    }
+
+    private var angleAngleDesc: String {
+        switch angle {
+        case .front: "Face the lens squarely. Keep head level without tilting left or right."
+        case .left:  "Turn head 90° to your left until only your left profile is visible. Keep chin parallel to ground."
+        case .right: "Turn head 90° to your right until only your right profile is visible. Keep chin parallel to ground."
+        }
+    }
+
+    private func guideRow(icon: String, title: String, desc: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(OT.due)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text(desc)
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var referencePoseIllustration: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .stroke(OT.due.opacity(0.4), lineWidth: 2)
+                    .frame(width: 90, height: 90)
+
+                Image(systemName: angle == .front ? "person.crop.circle" : "person.crop.circle.badge.checkmark")
+                    .font(.system(size: 48))
+                    .foregroundStyle(OT.due)
+                    .scaleEffect(x: angle == .left ? -1 : 1, y: 1)
+            }
+            Text("Reference Pose Guide")
+                .font(.otCaption.weight(.semibold))
+                .foregroundStyle(OT.labelTertiary)
+        }
+        .frame(height: 180)
     }
 }

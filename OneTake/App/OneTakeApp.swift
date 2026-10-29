@@ -37,6 +37,10 @@ struct OneTakeApp: App {
                     else if url.lastPathComponent == "practice" { store.tab = .practice }
                     return
                 }
+                if url.scheme == "onetake", url.host == "headshot" {
+                    store.camera = .headshot
+                    return
+                }
                 guard url.scheme == "onetake", url.host == "audition",
                       let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
                 store.camera = nil

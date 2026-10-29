@@ -66,6 +66,13 @@ final class ModelTests: XCTestCase {
         follower.handle(["shoot"])
         follower.finishCurrentUtterance()
         XCTAssertEqual(follower.lastCommand?.word, "now")
+
+        for syn in ["click", "photo", "picture", "take", "snap", "cheese", "capture"] {
+            follower.reset()
+            follower.handle([syn])
+            follower.finishCurrentUtterance()
+            XCTAssertEqual(follower.lastCommand?.word, "now", "Expected \(syn) to map to 'now'")
+        }
     }
 
     @MainActor
@@ -114,6 +121,16 @@ final class ModelTests: XCTestCase {
         // Button should be positioned in bottom right corner
         XCTAssertGreaterThan(saveBtn.frame.origin.x, 250, "Save button should be near trailing edge")
         XCTAssertGreaterThan(saveBtn.frame.origin.y, 700, "Save button should be near bottom edge")
+    }
+
+    @MainActor
+    func testCameraGuidanceSpeakerRepeatsAndThrottles() {
+        let speaker = CameraGuidanceSpeaker()
+        speaker.speak("Move closer", minInterval: 0.1, repeatInterval: 0.2)
+        speaker.stop()
+        // verify stop resets speech
+        speaker.speak("Turn left", minInterval: 0.1, repeatInterval: 0.2)
+        speaker.stop()
     }
 }
 
