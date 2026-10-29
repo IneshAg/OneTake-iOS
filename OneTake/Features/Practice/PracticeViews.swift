@@ -27,27 +27,29 @@ struct PracticeView: View {
                     .padding(18).otCard()
                 }
 
-                if !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
+                if !store.auditions.isEmpty && !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
 
                 QuickDrillsGrid { mode in start(mode) }
 
-                SectionLabel(text: "Your pieces")
-                ForEach(store.practice) { p in
-                    Button { open(p) } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(p.title).font(.otBody).foregroundStyle(OT.labelPrimary)
-                                Text("\(p.detail) · \(p.linesLearned) of \(p.linesTotal) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                if !store.practice.isEmpty {
+                    SectionLabel(text: "Your pieces")
+                    ForEach(store.practice) { p in
+                        Button { open(p) } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(p.title).font(.otBody).foregroundStyle(OT.labelPrimary)
+                                    Text("\(p.detail) · \(p.linesLearned) of \(p.linesTotal) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
                             }
-                            Spacer()
-                            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+                            .frame(minHeight: 56)
+                            .contentShape(Rectangle())
                         }
-                        .frame(minHeight: 56)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .disabled(!canOpen(p))
+                        Divider()
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!canOpen(p))
-                    Divider()
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -81,22 +83,16 @@ struct PracticeView: View {
         .background(OT.bgCanvas)
     }
 
-    /// Practice works on scenes read from your auditions' sides. With none, say what's missing.
+    /// Practice works on scenes read from your auditions' sides. When auditions exist without sides, prompt to add them.
     private var noScenesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Nothing to practise yet", systemImage: "theatermasks").font(.otHeadline)
-            if store.auditions.isEmpty {
-                Text("Practice uses the sides from your auditions. Add an audition and its scenes show up here.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                Button("Add an audition") { store.showAddAudition = true }.buttonStyle(.otPrimary)
-            } else {
-                Text("These auditions don’t have any sides OneTake could read. Add the pages and the scenes appear here.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                ForEach(store.auditions) { a in
-                    Button { sidesAuditionID = a.id } label: {
-                        IconRow(symbol: "doc.badge.plus", title: "Add sides", detail: "\(a.project) · \(a.role)")
-                    }.buttonStyle(.plain)
-                }
+            Text("These auditions don’t have any sides OneTake could read. Add the pages and the scenes appear here.")
+                .font(.otCallout).foregroundStyle(OT.labelSecondary)
+            ForEach(store.auditions) { a in
+                Button { sidesAuditionID = a.id } label: {
+                    IconRow(symbol: "doc.badge.plus", title: "Add sides", detail: "\(a.project) · \(a.role)")
+                }.buttonStyle(.plain)
             }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard()
