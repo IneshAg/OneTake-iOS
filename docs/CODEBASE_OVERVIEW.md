@@ -36,7 +36,7 @@ files under the right folder), then run `xcodegen generate`; don't hand-edit `On
 | Target | Type | Bundle ID | Sources |
 | --- | --- | --- | --- |
 | `OneTake` | app | `com.srmist.onetake` | `OneTake/`, `Shared/` |
-| `OneTakeWidgets` | widget extension | `com.srmist.onetake.widgets` | `OneTakeWidgets/`, `Shared/`, `OneTake/DesignSystem/Theme.swift` |
+| `OneTakeWidgets` | widget extension | `com.srmist.onetake.widgets` | `OneTakeWidgets/`, `Shared/`, `OneTake/Views/Theme.swift` |
 | `OneTakeShare` | share extension | `com.srmist.onetake.share` | `OneTakeShare/`, `Shared/ShareInbox.swift`, `Shared/WidgetSnapshot.swift` |
 | `OneTakeTests` | unit-test bundle | `com.srmist.onetake.tests` | `OneTakeTests/` |
 
@@ -67,16 +67,11 @@ Source layout:
 
 ```
 OneTake/
-  App/            AppStore (state + navigation), app entry + route table,
-                  AccountAuth, Reminders, WidgetSync/LiveActivitySync
-  DesignSystem/   Theme.swift (Velvet tokens, fonts, canvas/card modifiers)
-                  Components/Components.swift (shared UI)
-  Features/       Auditions, Onboarding, Prepare, Practice, Shoot, Takes,
-                  Package (MediaExporter, ZipArchive, CloudLink, Preview), Profile
-  Models/         Models.swift, ScriptParser.swift
-  Persistence/    Persistence.swift (state.json, MediaStore, HeadshotStore)
-  UIKitBridges/   CameraController.swift, UIKitBridges.swift
-  Resources/      Assets, PrivacyInfo.xcprivacy
+  Models/         Audition, Take, Scene, Slate, ScriptParser, persistence and media storage
+  Views/          SwiftUI screens, design system, reusable components, asset catalog
+  ModelViews/     AppStore, account/reminder/widget services, camera, analysis, export and ZIP
+  Info.plist      App configuration
+  OneTake.entitlements
 OneTakeWidgets/   NextAuditionWidget, AuditionLiveActivity, bundle entry
 OneTakeShare/     ShareViewController + ShareView
 Shared/           WidgetSnapshot, ShareInbox, AuditionActivity (App Group contracts)
@@ -123,7 +118,7 @@ Rules of thumb:
 
 ## 4. State, navigation and lifecycle
 
-### AppStore (`OneTake/App/AppStore.swift`)
+### AppStore (`OneTake/ModelViews/AppStore.swift`)
 
 `@Observable final class AppStore` is created once in `OneTakeApp` and injected with
 `.environment(store)`.
@@ -182,8 +177,7 @@ Full-screen covers outside tab navigation, presented from `RootTabView`'s
 ### Tabs and sheets
 
 `RootTabView` has Auditions and Practice tabs, plus a search tab that only exists once there is at
-least one audition. The tab titles are padded with em-space characters so the selected pill stays
-wide (see `docs/NAVIGATION_CHANGES.md` for that design history). Search uses
+least one audition. The tabs use the system's default labels and navigation bar sizing. Search uses
 `.searchable(...)` and `tabViewSearchActivation` behind a compiler/availability guard.
 
 Sheets on the root: Profile (`showProfile`) and Add audition (`showAddAudition`). The Add sheet's
@@ -245,7 +239,7 @@ Invariants to preserve:
 
 ## 6. Persistence and files
 
-`OneTake/Persistence/Persistence.swift`.
+`OneTake/Models/Persistence.swift`.
 
 ### Structured state
 
@@ -283,13 +277,13 @@ Invariants to preserve:
 
 ## 7. Feature flows
 
-### Onboarding (`Features/Onboarding/OnboardingFlow.swift`)
+### Onboarding (`Views/OnboardingFlow.swift`)
 
 Welcome → optional slate details → straight in as a guest. No sign-in step and no permission prompts.
 Finishing sets `isOnboarded` and clears any auditions (first run shows the real empty state, not a
 sample project). `SignInView` exists but is used only from the link-send path.
 
-### Add an audition (`Features/Auditions/AddAuditionFlow.swift`)
+### Add an audition (`Views/AddAuditionFlow.swift`)
 
 Capture screen offers: system `PasteButton`, Photos picker, VisionKit scanner, file importer
 (PDF/plain text/RTF), or "Type it". A share received from another app is picked up in `.task` and
@@ -320,14 +314,14 @@ Recognises two real-side conventions: an ALL-CAPS cue line followed by dialogue,
 (`INT.`/`EXT.`), `SCENE N` headers and transitions start new scenes. A blank line ends a dialogue
 block. It skips rather than guesses.
 
-### Audition detail (`Features/Auditions/AuditionDetailView.swift`)
+### Audition detail (`Views/AuditionDetailView.swift`)
 
 Header (project, hours left, due, asks), package summary + steps bar, "Up next" card for the actual
 next piece (headshot / slate / full length / scene / everything in), and a "Then" line. Menu:
 revised sides, edit details, start a callback, delete. Sheets: package list, callback, edit, revised
 sides. Tapping a piece opens the right screen rather than a generic flow.
 
-### Prepare, Run lines, Reader (`Features/Prepare/PrepareViews.swift`)
+### Prepare, Run lines, Reader (`Views/PrepareViews.swift`)
 
 - **Prepare**: full lines / first letters / hide mine, tap-to-peek, casting notes, prompter settings,
   and entry points to Run lines / Reader / Shoot.
@@ -340,7 +334,7 @@ sides. Tapping a piece opens the right screen rather than a generic flow.
 
 Speech/recognition details live in `SpeechFollower` (below).
 
-### Practice (`Features/Practice/`)
+### Practice (`Views/PracticeViews.swift`, `Views/LineLearningViews.swift`)
 
 - "Pick up where you left off" card (most recent `PracticePiece`), Run lines / Record a take.
 - Quick Drills grid: First-Letter Prompts and Mask & Reveal reuse `otLineDisplay` in
@@ -351,7 +345,7 @@ Speech/recognition details live in `SpeechFollower` (below).
 - `PracticeTakeView` is a no-slate take that is never sent; recording one increments
   `takesRecorded`.
 
-### Shoot (`Features/Shoot/ShootViews.swift`)
+### Shoot (`Views/ShootViews.swift`)
 
 `ShootSetupView` ("Before you roll") reflects real device state: camera, speech authorisation,
 microphone route, how many reader lines are recorded, free recording minutes, and the actor's own
@@ -374,7 +368,7 @@ mark slate done; full length → `fulllength.mov`; scene → `take-N-<uuid>.mov`
 `audition-<id>/scene-N`, add a `Take`. A failed save stays on the same stage with an alert. `finish`
 marks the scene done (only if a take exists) and routes to Takes or back to the audition.
 
-### Takes and Tape Check (`Features/Takes/`)
+### Takes and Tape Check (`Views/TakesViews.swift`, `ModelViews/TapeAnalyzer.swift`)
 
 - `TakesView`: per-scene segmented picker, player, horizontal thumbnails, tap to select, long-press
   to circle, "Circle take N", trim, and private notes ("never sent"). Thumbnails are real frames,
@@ -394,14 +388,14 @@ marks the scene done (only if a take exists) and routes to Takes or back to the 
     analysis is not cached. Findings are advisory; nothing blocks sending.
 - Finding rows open a sheet that plays the exact clip/moment.
 
-### Preview (`Features/Package/TapePreviewView.swift`)
+### Preview (`Views/TapePreviewView.swift`)
 
 The last look before sending: headshot photos as clickable chapter 1, then the tape played from the
 local clips (no export needed) with chapter scrubbing. Sits between Tape Check and Package.
 - Real chapter durations: the slate and scene chapters display their accurate asset durations loaded via `asset.load(.duration)`.
 - Chapter actions: includes "Change headshots" (opens `HeadshotsView`), retaking the slate (`start: .slate`), retaking the full-length tape (`start: .fullLength`), and opening takes for a specific scene (`takes(auditionID, sceneIndex:)`).
 
-### Package and send (`Features/Package/`)
+### Package and send (`Views/PackageViews.swift` and `ModelViews` package services)
 
 - `PackageView` phases: review → sending → failed → sent.
 - Review shows tape order (`TapeStrip`), deliverable file name, destination, Tape Check entry, audio
@@ -436,7 +430,7 @@ local clips (no export needed) with chapter scrubbing. Sits between Tape Check a
   - If the app is backgrounded when the link finishes and `n.delivery` is on, an immediate local
     notification says the link is ready.
 
-### Headshots (`Features/Profile/ProfileViews.swift`)
+### Headshots (`Views/ProfileViews.swift`)
 
 `HeadshotsView` lists front/left/right from `HeadshotStore`; `HeadshotFlow` captures front → left →
 right with guides and a crop step, saves JPEGs, bumps `store.headshotVersion`, then calls
@@ -456,7 +450,7 @@ real device path uses `AVCapturePhotoOutput`.
 
 ## 8. On-device engines
 
-### `CameraController` (`OneTake/UIKitBridges/CameraController.swift`)
+### `CameraController` (`OneTake/ModelViews/CameraController.swift`)
 
 `@Observable` AVFoundation pipeline used by Shoot, Headshot and Practice take.
 
@@ -488,14 +482,14 @@ Continuous `SFSpeechRecognizer` (en-US) + `AVAudioEngine`, on-device when suppor
 `ReaderTrackPlayer` plays one recorded reader line per call; a missing file means a silent cue.
 `ReaderLineRecorder` writes 44.1 kHz mono AAC `.m4a` to the per-audition/scene/line URL.
 
-### `TapeAnalyzer` (`Features/Takes/TapeAnalyzer.swift`)
+### `TapeAnalyzer` (`ModelViews/TapeAnalyzer.swift`)
 
 Covered above. Important implementation notes: `CIContext` with software rendering off; Rec. 601
 luma via `CIAreaAverage`; face bounding boxes from Vision are bottom-left origin and converted for
 luma regions; actor is `ResultCache`; long work checks `Task.isCancelled` and returns partial
 findings.
 
-### `MediaExporter` (`Features/Package/MediaExporter.swift`)
+### `MediaExporter` (`ModelViews/MediaExporter.swift`)
 
 - `clips(...)`: slate, full length, then only the circled take per scene, respecting
   `slateAtStart`. Shared by preview, check and export.
@@ -507,7 +501,7 @@ findings.
   the session and removes the scratch file.
 - File name comes from `Audition.deliverableFileName(slate:)`: `LAST_FIRST_ROLE_PROJECT.mp4`.
 
-### `CloudLink` (`Features/Package/CloudLink.swift`)
+### `CloudLink` (`ModelViews/CloudLink.swift`)
 
 - `isAvailable` = `ubiquityIdentityToken != nil`.
 - Copies the export into a fresh `Documents/Tapes/<uuid>/` folder in the app's ubiquity container
@@ -516,7 +510,7 @@ findings.
 - Cancellation is forwarded into the detached task and removes the folder if publishing fails.
 - A fresh folder per send preserves the expected file name and doesn't disturb earlier links.
 
-### `Reminders` (`App/Reminders.swift`)
+### `Reminders` (`ModelViews/Reminders.swift`)
 
 Rebuilds all `onetake.*` requests from current auditions on every debounced save: morning-of at 09:00,
 two hours before, and an optional repeating 6 pm practice nudge for the soonest audition with sides.
@@ -545,7 +539,7 @@ reloads timelines **only when the snapshot changed** (WidgetKit budgets reloads)
   deep link.
 - `WidgetBundle` registers both.
 
-### Live Activity sync (`App/WidgetSync.swift`)
+### Live Activity sync (`ModelViews/WidgetSync.swift`)
 
 - Opt-in via `n.liveActivity` (default **false**).
 - Starts only for the soonest unsent audition due within 24 h; ends when that audition is sent,
@@ -566,7 +560,7 @@ reloads timelines **only when the snapshot changed** (WidgetKit budgets reloads)
 
 ## 10. Design system
 
-`OneTake/DesignSystem/Theme.swift`:
+`OneTake/Views/Theme.swift`:
 
 - `OT` colour tokens are all dynamic light/dark pairs generated from the Figma "Velvet" collection.
   Accent is aubergine (`OT.accent`); **amber (`OT.due`) means time only**; `OT.reader` is the
@@ -692,21 +686,21 @@ Command Line Tools, so `xcodebuild` from the terminal fails until Xcode is selec
 
 | Want to… | Look at |
 | --- | --- |
-| Add a screen/route | `Route` + `RouteDestinations` in `App/OneTakeApp.swift`, `AppStore.push` |
+| Add a screen/route | `Route` + `RouteDestinations` in `Views/OneTakeApp.swift`, `AppStore.push` |
 | Add persisted model state | `Models/Models.swift`, `PersistedState`, `AppStore` properties/mutations |
 | Change the checklist or "Next" logic | `Audition.pieces` / `nextPiece`, `AppStore.continueAudition`, `AuditionDetailView.upNext` |
-| Tune notice parsing | `NoticeParser` in `Features/Auditions/AddAuditionFlow.swift` |
+| Tune notice parsing | `NoticeParser` in `Views/AddAuditionFlow.swift` |
 | Tune sides parsing | `Models/ScriptParser.swift` + tests |
-| Camera behaviour/recording | `UIKitBridges/CameraController.swift`, `ShootFlow` |
+| Camera behaviour/recording | `ModelViews/CameraController.swift`, `ShootFlow` |
 | Voice commands / prompter follow | `SpeechFollower`, `ShootFlow` onChange handlers |
 | Reader recordings | `ReaderTrackPlayer` / `ReaderLineRecorder`, `RecordReaderView` |
-| Tape Check rules | `Features/Takes/TapeAnalyzer.swift` |
+| Tape Check rules | `ModelViews/TapeAnalyzer.swift` |
 | Export composition/naming | `MediaExporter`, `Audition.deliverableFileName` |
 | iCloud link sending | `CloudLink`, `PackageView.send` |
-| Widgets / Live Activity | `Shared/WidgetSnapshot.swift`, `Shared/AuditionActivity.swift`, `OneTakeWidgets/`, `App/WidgetSync.swift` |
+| Widgets / Live Activity | `Shared/WidgetSnapshot.swift`, `Shared/AuditionActivity.swift`, `OneTakeWidgets/`, `ModelViews/WidgetSync.swift` |
 | Share extension / inbox | `OneTakeShare/`, `Shared/ShareInbox.swift`, `AddAuditionFlow.readSharedNotice` |
-| Reminders | `App/Reminders.swift`, `NotificationSettingsView` |
-| Colours/typography/components | `DesignSystem/Theme.swift`, `DesignSystem/Components/Components.swift` |
+| Reminders | `ModelViews/Reminders.swift`, `NotificationSettingsView` |
+| Colours/typography/components | `Views/Theme.swift`, `Views/Components.swift` |
 | Project config, targets, entitlements | `project.yml` (then `xcodegen generate`) |
 
 ---

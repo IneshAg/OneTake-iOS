@@ -77,12 +77,12 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
-            Tab("\u{2003}\u{2003}\u{2003}Auditions\u{2003}\u{2003}\u{2003}", systemImage: "movieclapper.fill", value: AppTab.auditions) {
+            Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView().withRoutes()
                 }
             }
-            Tab("\u{2003}\u{2003}\u{2003}Practice\u{2003}\u{2003}\u{2003}", systemImage: "theatermasks.fill", value: AppTab.practice) {
+            Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
                 NavigationStack(path: $store.practicePath) {
                     PracticeView().withRoutes()
                 }

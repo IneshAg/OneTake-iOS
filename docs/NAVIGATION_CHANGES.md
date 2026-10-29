@@ -22,19 +22,15 @@ The profile button needed to be clearly accessible across main views (`Auditions
 
 ---
 
-## 2. Bottom Navigation Architecture (`2 and 1` Layout)
+## 2. Bottom Navigation Architecture (System Default Sizing)
 
 ### Design Goal
-Preserve Apple's iOS 18 floating navigation language while giving the primary navigation pill more visual presence without awkwardly merging all actions together.
+Use Apple's native iOS 18 floating navigation with the system's default tab label sizing.
 
 ### Implementation
-- **Layout Separation:**
-  - **The 2-Tab Floating Pill:** Houses primary destinations (`Auditions` and `Practice`).
-  - **The 1 Detached Circle:** Dedicated circular `[ 🔍 ]` search button anchored to the trailing edge.
-- **Width Customization:**
-  - In iOS 18 native `TabView`, frame modifiers on `Tab` labels are ignored by UIKit's floating bar engine.
-  - Applied balanced typographic em-spacing (`\u{2003}\u{2003}\u{2003}`) to each tab title.
-  - Increased pill width from **~188 pt (563 px)** to **~245 pt (736 px)**, closing the excessive void between the pill and the search button while keeping the selection highlight capsule symmetric and fluid.
+- The native tab bar contains `Auditions`, `Practice`, and the system search tab when auditions exist.
+- Tab labels use plain titles without typographic padding or width adjustments.
+- Search remains conditional on there being at least one audition.
 
 ---
 
@@ -62,7 +58,7 @@ Profile, account, headshots, and app settings are directly accessible from the p
 
 ### Implementation
 - **Removed Profile Scope:**
-  - Removed `.profile` case from `SearchScope` in `SearchView` (`OneTake/Features/Auditions/AuditionsView.swift`).
+  - Removed `.profile` case from `SearchScope` in `SearchView` (`OneTake/Views/AuditionsView.swift`).
   - Scopes are now strictly creative: `All`, `Auditions`, `Practice`.
 - **Removed Profile & Settings Search Section:**
   - Removed hardcoded settings list (`Slate & bio`, `Headshots`, `Notifications`, `Privacy & data`) from search results.
@@ -94,15 +90,15 @@ Profile, account, headshots, and app settings are directly accessible from the p
 When opening the Profile modal (`ProfileView`), the custom header (`"Profile"` large title and `"Done"` capsule button) was rendered at the very top edge of the sheet's `ScrollView`. Because `.toolbar(.hidden, for: .navigationBar)` is active, there was no native navigation bar inset, causing the header elements to hug the top safe area boundary directly beneath the `.presentationDragIndicator(.visible)` grab handle.
 
 ### Implementation
-- Added explicit `.padding(.top, 30)` to the header `HStack` in `ProfileView` (`OneTake/Features/Profile/ProfileViews.swift`).
+- Added explicit `.padding(.top, 30)` to the header `HStack` in `ProfileView` (`OneTake/Views/ProfileViews.swift`).
 - This offsets the title and Done button by ~30 pt, providing clean visual separation from the sheet drag indicator and matching native modal sheet ergonomics.
 
 ---
 
 ## File Reference
 
-- [OneTake/App/OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/App/OneTakeApp.swift): `RootTabView`, dynamic search tab inclusion, conditional search activation.
-- [OneTake/DesignSystem/Components/Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/DesignSystem/Components/Components.swift): `ProfileButton` definition with 44×44 pt touch frame and white stroke border.
-- [OneTake/Features/Auditions/AuditionsView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Features/Auditions/AuditionsView.swift): Top-right header actions with `ProfileButton` and `+` button.
-- [OneTake/Features/Practice/PracticeViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Features/Practice/PracticeViews.swift): Consistent top-right header `ProfileButton` integration.
-- [OneTake/Features/Profile/ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Features/Profile/ProfileViews.swift): Profile modal layout, header top padding (30pt), account section separation, and privacy/data account deletion.
+- [OneTake/Views/OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift): `RootTabView`, dynamic search tab inclusion, conditional search activation.
+- [OneTake/Views/Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift): `ProfileButton` definition with 44×44 pt touch frame and white stroke border.
+- [OneTake/Views/AuditionsView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionsView.swift): Top-right header actions with `ProfileButton` and `+` button.
+- [OneTake/Views/PracticeViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PracticeViews.swift): Consistent top-right header `ProfileButton` integration.
+- [OneTake/Views/ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift): Profile modal layout, header top padding (30pt), account section separation, and privacy/data account deletion.

@@ -77,7 +77,7 @@ targets:
     sources:
       - path: OneTakeWidgets
       - path: Shared
-      - path: OneTake/DesignSystem/Theme.swift
+      - path: OneTake/Views/Theme.swift
     info:
       path: OneTakeWidgets/Info.plist
       properties:

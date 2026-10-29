@@ -83,14 +83,9 @@ and deterministic guidance.
 
 ```
 OneTake/
-├── App/            AppStore (state + navigation), app entry & routes, Reminders, WidgetSync
-├── DesignSystem/   Velvet colour tokens (light/dark) and shared components
-├── Models/         Audition, Take, Scene, Slate… and ScriptParser
-├── Persistence/    JSON state on disk (tolerant of damaged records), media and headshot storage
-├── Features/       Auditions, Onboarding, Prepare, Practice, Shoot, Takes (incl. TapeAnalyzer),
-│                   Package (MediaExporter, CloudLink, Preview), Profile
-├── UIKitBridges/   CameraController (AVFoundation), speech follower, reader audio, trimmer, scanner
-└── Resources/      Asset catalog, PrivacyInfo.xcprivacy
+├── Models/         Audition, Take, Scene, Slate, script parsing, persistence
+├── Views/          SwiftUI screens, design system, and asset catalog
+└── ModelViews/     AppStore, navigation state, camera, analysis and export services
 OneTakeWidgets/     Widgets and the Live Activity
 OneTakeShare/       "Share to OneTake" extension
 Shared/             Code shared with the extensions (widget snapshot, share inbox)
