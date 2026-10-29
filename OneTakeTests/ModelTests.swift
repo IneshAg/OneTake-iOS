@@ -21,6 +21,16 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(audition().deliverableFileName(slate: SlateInfo()), "ACTOR_MAYA_THELASTSUMMER.mp4")
     }
 
+    func testDeadlineUnderOneHourRoundsUpInsteadOfShowingZero() {
+        var a = audition()
+        a.due = .now.addingTimeInterval(45 * 60)
+        XCTAssertEqual(a.hoursLeft, 1)
+        a.due = .now.addingTimeInterval(2 * 3600 + 10 * 60)
+        XCTAssertEqual(a.hoursLeft, 2)
+        a.due = .now.addingTimeInterval(-10)
+        XCTAssertEqual(a.hoursLeft, 0)
+    }
+
     func testLegacyPlaceholderIsTheMockupPersona() {
         XCTAssertEqual(SlateInfo.legacyPlaceholder.name, "Kabir Sharma")
         XCTAssertNotEqual(SlateInfo(), SlateInfo.legacyPlaceholder)

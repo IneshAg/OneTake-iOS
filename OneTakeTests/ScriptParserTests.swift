@@ -68,4 +68,23 @@ final class ScriptParserTests: XCTestCase {
     func testNothingReadableGivesNoScenes() {
         XCTAssertTrue(ScriptParser.parseScenes(from: "Please send your tape by Friday.", myRole: "Maya").isEmpty)
     }
+
+    func testRoleCanBeCorrectedAfterScenesWereParsed() {
+        let parsed = ScriptParser.parseScenes(from: """
+        MAYA
+        I have the letter.
+
+        MAYA
+        I still have it.
+
+        ARJUN
+        Give it to me.
+        """, myRole: "Female Lead")
+        XCTAssertFalse(parsed[0].lines[0].isMine)
+
+        let corrected = ScriptParser.reclassify(parsed, myRole: "Maya")
+        XCTAssertTrue(corrected[0].lines[0].isMine)
+        XCTAssertTrue(corrected[0].lines[1].isMine)
+        XCTAssertFalse(corrected[0].lines[2].isMine)
+    }
 }

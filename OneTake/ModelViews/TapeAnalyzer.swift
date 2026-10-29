@@ -25,16 +25,34 @@ enum TapeAnalyzer {
         let context = CIContext(options: [.useSoftwareRenderer: false])
 
         var totalSeconds = 0.0
+        var measurementsComplete = true
         var allLandscape = true
         var allHD = true
         var framingOK = true, lightOK = true, eyelineOK = true, audioOK = true
+        var videoAnalyzed = true
+        var audioAnalyzed = clips.contains { $0.kind != .fullLength }
 
         for clip in clips {
             if Task.isCancelled { return report }
-            guard let result = await measure(clip, context: context) else { continue }
+            guard let result = await measure(clip, context: context) else {
+                measurementsComplete = false
+                videoAnalyzed = false
+                audioAnalyzed = false
+                report.findings.append(TapeFinding(
+                    category: "Video analysis", title: "Couldn't read this clip", where_: clip.label,
+                    advice: "This file couldn't be opened for Tape Check. Try playing it in Takes; if it won't play, record the clip again.",
+                    clipURL: clip.url
+                ))
+                continue
+            }
             totalSeconds += result.duration
             if !result.isLandscape { allLandscape = false }
             if !result.isHD { allHD = false }
+            if result.video.contains(where: { $0.category == "Video analysis" }) {
+                videoAnalyzed = false
+                measurementsComplete = false
+            }
+            if result.audio.contains(where: { $0.category == "Audio analysis" }) { audioAnalyzed = false }
             if result.video.contains(where: { $0.category == "Framing" }) { framingOK = false }
             if result.video.contains(where: { $0.category == "Light" }) { lightOK = false }
             if result.video.contains(where: { $0.category == "Eyeline" }) { eyelineOK = false }
@@ -43,12 +61,13 @@ enum TapeAnalyzer {
         }
         guard !clips.isEmpty else { return report }
 
-        if framingOK { report.passed.append("Framing") }
-        if lightOK { report.passed.append("Light") }
-        if eyelineOK { report.passed.append("Facing camera") }
-        if audioOK { report.passed.append("Sound level") }
+        if videoAnalyzed && framingOK { report.passed.append("Framing") }
+        if videoAnalyzed && lightOK { report.passed.append("Light") }
+        if videoAnalyzed && eyelineOK { report.passed.append("Facing camera") }
+        if audioAnalyzed && audioOK { report.passed.append("Sound level") }
         var passed = report.passed
         let package = packageFindings(audition, clips: clips, totalSeconds: totalSeconds,
+                                      measurementsComplete: measurementsComplete,
                                       allLandscape: allLandscape, allHD: allHD, passed: &passed)
         report.passed = passed
         report.findings += package
@@ -132,7 +151,11 @@ enum TapeAnalyzer {
             guard let cgImage = try? await generator.image(at: CMTime(seconds: t, preferredTimescale: 600)).image else { continue }
             samples.append(sample(cgImage, at: t, context: context))
         }
-        guard !samples.isEmpty else { return [] }
+        guard !samples.isEmpty else {
+            return [TapeFinding(category: "Video analysis", title: "Couldn't check the picture", where_: clip.label,
+                                advice: "No video frames could be read. Try playing this clip; if it won't play, record it again.",
+                                clipURL: clip.url)]
+        }
 
         var findings: [TapeFinding] = []
         func add(_ category: String, _ title: String, at time: Double, _ advice: String) {
@@ -220,9 +243,17 @@ enum TapeAnalyzer {
 
     private static func audioFindings(for clip: MediaExporter.Clip, asset: AVURLAsset) async -> [TapeFinding] {
         // The full length is usually silent by design; only spoken clips are level-checked.
-        guard clip.kind != .fullLength,
-              let track = try? await asset.loadTracks(withMediaType: .audio).first,
-              let windows = audioWindows(asset, track: track), !windows.isEmpty else { return [] }
+        guard clip.kind != .fullLength else { return [] }
+
+        func finding(_ category: String, _ title: String, _ advice: String) -> TapeFinding {
+            TapeFinding(category: category, title: title, where_: clip.label, advice: advice, clipURL: clip.url)
+        }
+        guard let track = try? await asset.loadTracks(withMediaType: .audio).first else {
+            return [finding("Sound", "There's no sound", "This clip has no microphone audio track. Re-record it with the microphone enabled.")]
+        }
+        guard let windows = audioWindows(asset, track: track), !windows.isEmpty else {
+            return [finding("Audio analysis", "Couldn't check the sound", "The audio couldn't be decoded for Tape Check. Try playing the clip; if it won't play, record it again.")]
+        }
 
         var findings: [TapeFinding] = []
         func add(_ title: String, at time: Double, _ advice: String) {
@@ -302,7 +333,8 @@ enum TapeAnalyzer {
     // MARK: Package
 
     private static func packageFindings(_ a: Audition, clips: [MediaExporter.Clip], totalSeconds: Double,
-                                        allLandscape: Bool, allHD: Bool, passed: inout [String]) -> [TapeFinding] {
+                                        measurementsComplete: Bool, allLandscape: Bool, allHD: Bool,
+                                        passed: inout [String]) -> [TapeFinding] {
         var findings: [TapeFinding] = []
         func add(_ title: String, _ advice: String) {
             findings.append(TapeFinding(category: "Package", title: title, where_: a.project, advice: advice))
@@ -325,16 +357,18 @@ enum TapeAnalyzer {
         if missing.isEmpty { if !a.scenes.isEmpty { passed.append("Every scene shot") } }
         else { add("\(missing.map { a.scenes[$0].title }.joined(separator: ", ")) not shot yet", "Every scene they sent goes on the tape. Record a take for it before sending.") }
 
-        if a.asks.contains("Under 3 min") {
+        if measurementsComplete, a.asks.contains("Under 3 min") {
             if totalSeconds <= 180 { passed.append("Under 3 minutes") }
             else { add("The tape runs \(timestamp(totalSeconds))", "They asked for under 3 minutes. Pick shorter takes or trim the start and end.") }
         }
-        if a.asks.contains("Landscape") {
+        if measurementsComplete, a.asks.contains("Landscape") {
             if allLandscape { passed.append("Landscape") }
             else { add("Some of it is portrait", "They asked for landscape. Turn the phone sideways and re-record the portrait clips.") }
         }
-        if allHD { passed.append("1080p") }
-        else { add("Lower than 1080p", "Casting sites expect 1080p. Re-record on this iPhone's camera rather than a screen recording or import.") }
+        if measurementsComplete {
+            if allHD { passed.append("1080p") }
+            else { add("Lower than 1080p", "Casting sites expect 1080p. Re-record on this iPhone's camera rather than a screen recording or import.") }
+        }
         return findings
     }
 

@@ -47,4 +47,22 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(loaded.isOnboarded)
         XCTAssertTrue(loaded.slate.isEmpty)
     }
+
+    func testISO8601DateStringsDecodeAlongsideTheAppDateFormat() throws {
+        let a = audition("ISO dates")
+        let state = PersistedState(auditions: [a], isOnboarded: true)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        var auditions = try XCTUnwrap(json["auditions"] as? [[String: Any]])
+        var record = try XCTUnwrap(auditions.first)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        record["due"] = formatter.string(from: a.due)
+        auditions[0] = record
+        json["auditions"] = auditions
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let loaded = try XCTUnwrap(Persistence.decode(data) { _ in })
+        XCTAssertEqual(loaded.auditions.first?.due, a.due)
+        XCTAssertTrue(loaded.isOnboarded)
+    }
 }

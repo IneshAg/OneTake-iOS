@@ -221,6 +221,7 @@ enum NoticeParser {
                             role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: castingOffice.isEmpty ? "Casting office" : castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
+                            scriptText: sourceText.isEmpty ? nil : sourceText,
                             destination: destination, status: .due)
         }
     }

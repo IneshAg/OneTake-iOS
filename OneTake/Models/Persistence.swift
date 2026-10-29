@@ -72,7 +72,21 @@ enum Persistence {
     /// Decodes saved state. Whenever any of it can't be read, `keepingUnreadable` gets the original
     /// bytes first — the next save replaces state.json, and that must never be the only copy.
     static func decode(_ data: Data, keepingUnreadable: (Data) -> Void) -> PersistedState? {
-        guard let state = try? JSONDecoder().decode(PersistedState.self, from: data) else {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let seconds = try? value.decode(Double.self) {
+                return Date(timeIntervalSinceReferenceDate: seconds)
+            }
+            let string = try value.decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: string) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: string) { return date }
+            throw DecodingError.dataCorruptedError(in: value, debugDescription: "Unsupported date format: \(string)")
+        }
+        guard let state = try? decoder.decode(PersistedState.self, from: data) else {
             keepingUnreadable(data)
             return nil
         }

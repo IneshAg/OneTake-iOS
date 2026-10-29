@@ -49,6 +49,9 @@ struct OneTakeApp: App {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                store.flushPersistence()
+            }
             // Countdowns move on while the app is closed; refresh them whenever it comes back.
             guard phase == .active else { return }
             WidgetSync.update(store.auditions)

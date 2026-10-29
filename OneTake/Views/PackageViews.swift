@@ -172,8 +172,11 @@ struct PackageView: View {
                     // Leave the last stretch of the bar for the iCloud upload when sending a link.
                     Task { @MainActor in progress = asLink ? p * 0.8 : p }
                 }
-                _ = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
-                await MainActor.run { store.setExportedFile(url, for: a.id) }
+                let archiveURL = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
+                await MainActor.run {
+                    store.setExportedFile(url, for: a.id)
+                    store.setSeparateArchive(archiveURL, for: a.id)
+                }
                 if asLink {
                     await MainActor.run { uploading = true }
                     let link = try await CloudLink.publish(url)
@@ -208,22 +211,22 @@ struct PackageView: View {
     /// otherwise the exported file itself.
     private func shareItems(_ a: Audition) -> [Any]? {
         // The audition headshots go with the tape as photos, named to match it.
-        let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
+        let archiveURL = a.separateArchiveURL ?? MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
+        let baseName = archiveURL.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_SEPARATE", with: "")
         let headshots: [Any] = HeadshotStore.deliverables(baseName: baseName)
         if a.destination == .emailOrLink {
             guard let link = a.shareLink else { return nil }
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
             let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
             let video = a.exportedFileURL.map { [$0] } ?? []
-            let zip = MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
-            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + video + [zip] + headshots
+            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + video + [archiveURL] + headshots
         }
         guard let video = a.exportedFileURL else { return nil }
-        let zip = MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
-        return [video, zip] + headshots
+        return [video, archiveURL] + headshots
     }
 
     private func separateArchiveName(_ a: Audition) -> String {
+        if let url = a.separateArchiveURL { return url.lastPathComponent }
         let base = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
         return "\(base)_SEPARATE.zip"
     }
@@ -451,6 +454,7 @@ struct SentView: View {
     private var sentDate: Date { audition.sentDate ?? .now }
 
     private var separateArchiveName: String {
+        if let url = audition.separateArchiveURL { return url.lastPathComponent }
         let base = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
         return "\(base)_SEPARATE.zip"
     }

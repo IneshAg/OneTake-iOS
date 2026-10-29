@@ -70,6 +70,9 @@ struct Audition: Identifiable, Hashable, Codable {
     var asks: [String]
     var pieces: [Piece]
     var scenes: [ScriptScene]
+    /// Original sides text lets role edits re-identify the actor's cues without losing lines that
+    /// were initially treated as one-off speakers. Optional for older saved auditions.
+    var scriptText: String? = nil
     var destination: Destination
     var status: AuditionStatus
     var sentDate: Date?
@@ -80,6 +83,8 @@ struct Audition: Identifiable, Hashable, Codable {
     var fullLengthVideoURL: URL?
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
+    /// The separate-clip archive created alongside the merged deliverable.
+    var separateArchiveURL: URL?
     /// The iCloud download link sent for "Email or link", and when iCloud stops serving it.
     var shareLink: URL?
     var shareLinkExpires: Date?
@@ -111,7 +116,10 @@ struct Audition: Identifiable, Hashable, Codable {
         }
     }
 
-    var hoursLeft: Int { max(0, Int(due.timeIntervalSinceNow / 3600)) }
+    var hoursLeft: Int {
+        let remaining = due.timeIntervalSinceNow
+        return remaining <= 0 ? 0 : max(1, Int(remaining / 3600))
+    }
 
     /// The filename casting sites expect: LASTNAME_FIRSTNAME_ROLE_PROJECT.mp4, computed from the
     /// real slate and role instead of a hardcoded example.

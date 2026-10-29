@@ -286,7 +286,14 @@ struct EditAuditionSheet: View {
                     } footer: { Text("Shown on Prepare before every take.") }
                 }
                 .navigationTitle("Edit details").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            store.reclassifyRole(for: auditionID)
+                            dismiss()
+                        }
+                    }
+                }
             }
         }
     }
@@ -315,7 +322,7 @@ struct RevisedSidesSheet: View {
                     Button { showImporter = true } label: { Label("Import a PDF or text file", systemImage: "doc") }
                     Button { showScanner = true } label: { Label("Scan the pages", systemImage: "doc.viewfinder") }
                 } footer: {
-                    Text("Read on this iPhone — nothing is uploaded. Your existing takes stay; the new scenes need shooting.")
+                    Text("Read on this iPhone — nothing is uploaded. Existing takes stay to watch; record and circle takes for these revised scenes before packaging.")
                 }
                 if reading { Section { HStack { ProgressView(); Text("Reading…") } } }
                 if !text.isEmpty {
@@ -334,7 +341,10 @@ struct RevisedSidesSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Replace") { store.replaceSides(of: auditionID, with: parsed); dismiss() }.disabled(parsed.isEmpty)
+                    Button("Replace") {
+                        store.replaceSides(of: auditionID, with: parsed, sourceText: text)
+                        dismiss()
+                    }.disabled(parsed.isEmpty)
                 }
             }
         }

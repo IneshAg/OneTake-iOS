@@ -163,9 +163,16 @@ struct TakesView: View {
 /// AVKit player (UIKit-backed `AVPlayerViewController` via SwiftUI `VideoPlayer`).
 struct PlayerCard: View {
     let url: URL?
+    @State private var player: AVPlayer?
+
+    init(url: URL?) {
+        self.url = url
+        _player = State(initialValue: url.map { AVPlayer(url: $0) })
+    }
+
     var body: some View {
         ZStack {
-            if let url { VideoPlayer(player: AVPlayer(url: url)) }
+            if url != nil, let player { VideoPlayer(player: player) }
             else {
                 HeadshotImage()
                 Image(systemName: "play.fill").font(.title).foregroundStyle(.white)
@@ -174,6 +181,10 @@ struct PlayerCard: View {
         }
         .frame(height: 210)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onChange(of: url) { _, newURL in
+            player?.pause()
+            player = newURL.map { AVPlayer(url: $0) }
+        }
     }
 }
 

@@ -112,12 +112,27 @@ enum MediaExporter {
                 try? videoTrack.insertTimeRange(range, of: vTrack, at: cursor)
                 if let loaded = try? await vTrack.load(.naturalSize, .preferredTransform) {
                     let (naturalSize, transform) = loaded
-                    layerInstruction.setTransform(transform, at: cursor)
+                    let orientedRect = CGRect(origin: .zero, size: naturalSize).applying(transform).standardized
                     if renderSize == nil {
-                        let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
-                        renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
+                        renderSize = CGSize(width: abs(orientedRect.width), height: abs(orientedRect.height))
                     }
-
+                    let canvas = renderSize ?? CGSize(width: 1080, height: 1920)
+                    let clipWidth = max(orientedRect.width, 1)
+                    let clipHeight = max(orientedRect.height, 1)
+                    let scale = min(canvas.width / clipWidth, canvas.height / clipHeight)
+                    let offsetX = (canvas.width - clipWidth * scale) / 2
+                    let offsetY = (canvas.height - clipHeight * scale) / 2
+                    // Normalize each preferred transform's origin, then aspect-fit it into the
+                    // first clip's canvas so portrait and landscape material isn't stretched/cropped.
+                    let fitted = CGAffineTransform(
+                        a: transform.a * scale,
+                        b: transform.b * scale,
+                        c: transform.c * scale,
+                        d: transform.d * scale,
+                        tx: (transform.tx - orientedRect.minX) * scale + offsetX,
+                        ty: (transform.ty - orientedRect.minY) * scale + offsetY
+                    )
+                    layerInstruction.setTransform(fitted, at: cursor)
                 }
             }
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {

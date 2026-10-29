@@ -112,6 +112,7 @@ final class AppStore {
                 a.slateVideoURL = MediaStore.rebased(a.slateVideoURL)
                 a.fullLengthVideoURL = MediaStore.rebased(a.fullLengthVideoURL)
                 a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
+                a.separateArchiveURL = MediaStore.rebased(a.separateArchiveURL)
                 return a
             }
             takes = saved.takes.map { t in
@@ -145,13 +146,33 @@ final class AppStore {
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            Persistence.save(snapshot)
-            // Same debounce: reminders, widgets and the Live Activity follow due dates, progress,
-            // status and deletions.
-            Reminders.reschedule(snapshot.auditions)
-            WidgetSync.update(snapshot.auditions)
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                Self.writeSnapshot(snapshot)
+            }
             await LiveActivitySync.update(snapshot.auditions)
         }
+    }
+
+    /// Commits the current value immediately when iOS is about to suspend the app.
+    @MainActor
+    func flushPersistence() {
+        guard !isLoading else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
+        Self.writeSnapshot(snapshot)
+        Task.detached(priority: .utility) {
+            await LiveActivitySync.update(snapshot.auditions)
+        }
+    }
+
+    @MainActor
+    private static func writeSnapshot(_ snapshot: PersistedState) {
+        Persistence.save(snapshot)
+        // Reminders and widgets follow due dates, progress, status and deletions.
+        Reminders.reschedule(snapshot.auditions)
+        WidgetSync.update(snapshot.auditions)
     }
 
     // MARK: Account
@@ -255,9 +276,27 @@ final class AppStore {
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("audition-\(id.uuidString)", isDirectory: true))
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true))
         // Export file names come from role + project, so two auditions can share one; keep it if so.
+        let otherAuditions = auditions.filter { $0.id != id }
         if let export = audition.exportedFileURL,
-           !auditions.contains(where: { $0.id != id && $0.exportedFileURL == export }) {
+           !otherAuditions.contains(where: { $0.exportedFileURL?.standardizedFileURL == export.standardizedFileURL }) {
             try? fm.removeItem(at: export)
+        }
+        let exports = MediaStore.directory("Exports")
+        let archiveURL = audition.separateArchiveURL ?? exports.appendingPathComponent(
+            "\((audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension)_SEPARATE.zip"
+        )
+        let archiveBase = archiveURL.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_SEPARATE", with: "")
+        let sameNamedExportStillUsed = otherAuditions.contains { other in
+            let otherArchive = other.separateArchiveURL ?? exports.appendingPathComponent(
+                "\((other.deliverableFileName(slate: slate) as NSString).deletingPathExtension)_SEPARATE.zip"
+            )
+            return otherArchive.standardizedFileURL == archiveURL.standardizedFileURL
+        }
+        if !sameNamedExportStillUsed {
+            try? fm.removeItem(at: archiveURL)
+            for angle in HeadshotStore.angles {
+                try? fm.removeItem(at: exports.appendingPathComponent("\(archiveBase)_HEADSHOT_\(angle.key.uppercased()).jpg"))
+            }
         }
         for piece in practice where piece.auditionID == id {
             try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("practice-\(piece.id.uuidString)", isDirectory: true))
@@ -269,17 +308,40 @@ final class AppStore {
 
     /// Revised sides: swaps in the new scenes and resets the scene pieces (the old takes stay, but the
     /// new pages need shooting). Practice pieces for this audition follow the new text.
-    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene]) {
+    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene], sourceText: String? = nil) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].scenes = scenes
+        auditions[i].scriptText = sourceText
         auditions[i].pieces.removeAll { $0.kind == .scene }
         auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: "Revised sides", isDone: false) }
         if auditions[i].status == .ready { auditions[i].status = .due }
+        // Existing recordings remain available to watch, but can no longer be selected for the
+        // revised script until the actor explicitly circles a take from this round.
+        for index in takes.indices where takes[index].auditionID == id {
+            takes[index].isCircled = false
+        }
         for p in practice.indices where practice[p].auditionID == id {
             guard let s = practice[p].sceneIndex, scenes.indices.contains(s) else { continue }
             practice[p].scene = scenes[s]
             practice[p].linesTotal = scenes[s].lines.filter(\.isMine).count
             practice[p].linesLearned = min(practice[p].linesLearned, practice[p].linesTotal)
+        }
+    }
+
+    func reclassifyRole(for id: Audition.ID) {
+        guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if let scriptText = auditions[index].scriptText, !scriptText.isEmpty {
+            auditions[index].scenes = ScriptParser.parseScenes(from: scriptText, myRole: auditions[index].role)
+        } else {
+            auditions[index].scenes = ScriptParser.reclassify(auditions[index].scenes, myRole: auditions[index].role)
+        }
+        for practiceIndex in practice.indices where practice[practiceIndex].auditionID == id {
+            guard let sceneIndex = practice[practiceIndex].sceneIndex,
+                  auditions[index].scenes.indices.contains(sceneIndex) else { continue }
+            let scene = auditions[index].scenes[sceneIndex]
+            practice[practiceIndex].scene = scene
+            practice[practiceIndex].linesTotal = scene.lines.filter(\.isMine).count
+            practice[practiceIndex].linesLearned = min(practice[practiceIndex].linesLearned, practice[practiceIndex].linesTotal)
         }
     }
 
@@ -348,6 +410,11 @@ final class AppStore {
         auditions[i].exportedFileURL = url
     }
 
+    func setSeparateArchive(_ url: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].separateArchiveURL = url
+    }
+
     /// Next take number for a scene — one past the highest real take, so numbers never repeat even
     /// after a take is removed (a count-based number would collide with an existing take).
     func nextTakeNumber(auditionID: Audition.ID, sceneIndex: Int) -> Int {
@@ -359,7 +426,7 @@ final class AppStore {
     func addTake(_ take: Take) {
         var take = take
         if let id = take.auditionID, let scene = take.sceneIndex,
-           !takes.contains(where: { $0.auditionID == id && $0.sceneIndex == scene }) {
+           !takes.contains(where: { $0.auditionID == id && $0.sceneIndex == scene && $0.isCircled }) {
             take.isCircled = true
         }
         takes.append(take)
@@ -446,7 +513,14 @@ final class AppStore {
     /// the Takes screen you came from instead of stacking a second one); pushes it otherwise.
     func popTo(_ route: Route) {
         func trim(_ path: inout [Route]) -> Bool {
-            guard let i = path.lastIndex(of: route) else { return false }
+            let exact = path.lastIndex(of: route)
+            let match = exact ?? path.lastIndex { existing in
+                if case let (.takes(existingID, _), .takes(targetID, _)) = (existing, route) {
+                    return existingID == targetID
+                }
+                return false
+            }
+            guard let i = match else { return false }
             path.removeSubrange(path.index(after: i)...)
             return true
         }

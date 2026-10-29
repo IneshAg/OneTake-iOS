@@ -566,6 +566,10 @@ struct ShootFlow: View {
         let expectedWords = line.text.split(separator: " ").count
         talkbackTask?.cancel()
         talkbackTask = Task { @MainActor in
+            // Let a short pause settle the transcript before spending time on an on-device model
+            // request. Continuous speech updates cancel this task, coalescing them into one query.
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
             let intent = await OnDeviceIntelligence.talkbackIntent(spoken: spoken, expectedLine: line.text)
             guard !Task.isCancelled, camera.state == .recording, sceneLines?.indices.contains(lineIndex) == true else { return }
             switch intent {

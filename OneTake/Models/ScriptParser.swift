@@ -6,6 +6,20 @@ import Foundation
 /// and "CHARACTER: dialogue" on one line. Anything that doesn't look like either is skipped rather than
 /// guessed at.
 enum ScriptParser {
+    /// Reclassifies the already parsed dialogue when the actor corrects their role name.
+    static func reclassify(_ scenes: [ScriptScene], myRole: String) -> [ScriptScene] {
+        let roleName = normalizedName(myRole)
+        return scenes.map { scene in
+            var scene = scene
+            scene.lines = scene.lines.map { line in
+                var line = line
+                line.isMine = isSameCharacter(normalizedName(line.character), roleName)
+                return line
+            }
+            return scene
+        }
+    }
+
     static func parseScenes(from text: String, myRole: String) -> [ScriptScene] {
         // Blank lines are kept: in screenplay format a blank line ends a dialogue block, and whatever
         // follows (action, description) belongs to no one until the next cue.

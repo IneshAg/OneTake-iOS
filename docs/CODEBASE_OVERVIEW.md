@@ -130,19 +130,21 @@ Session/navigation properties (not persisted): `tab`, `lastActiveTab`, `audition
 `practicePath`, `profilePath`, `searchPath`, `searchQuery`, `camera`, `showAddAudition`,
 `showProfile`, `continueAfterAdd`, `incomingShare`, `sendProgress`, `headshotVersion`.
 
-`persist()` debounces 300 ms on a detached utility task, then saves and refreshes:
-`Reminders.reschedule`, `WidgetSync.update`, `LiveActivitySync.update`. `isLoading` suppresses the
-save triggered while `init` applies the loaded snapshot.
+`persist()` debounces 300 ms, then saves and refreshes `Reminders`, widgets and the Live Activity.
+Pending changes are flushed synchronously when the scene becomes inactive or backgrounded.
+`isLoading` suppresses the save triggered while `init` applies the loaded snapshot.
 
 Lookups/mutations worth knowing:
 
 - `audition(_:)`, `binding(for:)` (re-resolves the index on set, so inserts/deletes can't stale it).
 - `nextPriority`, `active`, `sent`.
-- `add`, `deleteAudition` (cascades takes, reader tracks, practice pieces, audition media, export if
-  not shared by another audition; **does not** delete the iCloud copy behind an already-sent link).
+- `add`, `deleteAudition` (cascades takes, reader tracks, practice pieces, audition media, merged
+  exports, separate ZIPs and named headshot copies when not shared by another audition; **does not**
+  delete the iCloud copy behind an already-sent link).
 - `syncHeadshotPieces` — a real front headshot marks the headshot piece done on every unsent audition.
 - `sceneToShoot`, `sceneIndex(for:in:)`, `continueAudition` (single "Next" used everywhere).
-- `replaceSides` (revised sides: swaps scenes, resets scene pieces, updates practice pieces),
+- `replaceSides` (revised sides: swaps scenes, un-circles old takes, resets scene pieces, updates
+  practice pieces),
   `startCallback` (new round, keeps scenes/asks, can copy reader audio).
 - `markDone`, `markSent`, `circleOnly` (scoped to audition + scene), `addTake` (first take of a scene
   is auto-circled), `replaceTakeFile`, `addNote`, `nextTakeNumber` (max + 1, never reuses numbers),
@@ -494,8 +496,9 @@ findings.
 - `clips(...)`: slate, full length, then only the circled take per scene, respecting
   `slateAtStart`. Shared by preview, check and export.
 - `build(...)`: `AVMutableComposition` + `AVMutableVideoComposition`; re-applies each clip's preferred
-  transform (portrait/front-camera mirroring) and uses the first clip's oriented size as render size.
-  Produces chapters with start/duration.
+  transform (portrait/front-camera mirroring), aspect-fits mixed orientations into the first clip's
+  oriented render size, and produces chapters with start/duration. Confirm the framing in a rendered
+  mixed-orientation export before shipping.
 - `export(...)`: `AVAssetExportSession` highest quality, `.mp4`, real progress, writes to
   `Exports/exporting-<uuid>.mp4` and only replaces the deliverable on success; cancellation stops
   the session and removes the scratch file.
