@@ -163,6 +163,7 @@ struct ShootFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
     @State private var follower = SpeechFollower()
+    @State private var cameraSpeaker = CameraGuidanceSpeaker()
     @State private var voiceAllowed = false
     @State private var stage: Stage = .check
     /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
@@ -228,6 +229,14 @@ struct ShootFlow: View {
         .onChange(of: camera.state) { _, state in
             if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
         }
+        .onChange(of: cameraGuidanceKey) { _, key in
+            guard stage == .check, camera.state == .ready, let key else { return }
+            Task { @MainActor in
+                let spoken = await OnDeviceIntelligence.cameraGuidance(fact: key) ?? key
+                guard stage == .check, camera.state == .ready else { return }
+                cameraSpeaker.speak(spoken)
+            }
+        }
         .onChange(of: follower.lastCommand) { _, cmd in
             if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready { roll() }
             if cmd?.word == "cut", camera.state == .recording { cut() }
@@ -251,7 +260,7 @@ struct ShootFlow: View {
         .onChange(of: camera.state) { _, state in
             if state == .recording, stage == .scene { startScene() } else if state != .recording { stopReader() }
         }
-        .onDisappear { talkbackTask?.cancel(); camera.stop(); follower.stop(); stopReader() }
+        .onDisappear { talkbackTask?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -360,12 +369,31 @@ struct ShootFlow: View {
         } else {
             rows.append(("Can’t see your face — step into the frame", false))
         }
+
         if let light = camera.lightLevel {
             if light < 0.22 { rows.append(("Too dark — face a window or a lamp", false)) }
             else if light > 0.85 { rows.append(("Too bright — move away from direct light", false)) }
             else { rows.append(("Light is fine", true)) }
         }
         return rows
+    }
+
+    private var cameraGuidanceKey: String? {
+        guard camera.state == .ready else { return nil }
+        if camera.face == nil { return "Step into the frame so your face is visible." }
+        if let face = camera.face {
+            if face.centerX < 0.4 { return "Move a little to your right." }
+            if face.centerX > 0.6 { return "Move a little to your left." }
+            if face.centerY < 0.2 { return "Tilt the phone slightly down." }
+            if face.centerY > 0.5 { return "Tilt the phone slightly up." }
+            if face.height < 0.1 { return "Move closer to the phone." }
+            if face.height > 0.4 { return "Step back from the phone." }
+        }
+        if let light = camera.lightLevel {
+            if light < 0.22 { return "Face a window or a brighter light." }
+            if light > 0.85 { return "Move away from the direct light." }
+        }
+        return nil
     }
 
     private func liveCheckRow(_ text: String, ok: Bool) -> some View {

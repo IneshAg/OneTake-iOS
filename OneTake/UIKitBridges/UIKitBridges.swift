@@ -351,6 +351,30 @@ final class SpeechFollower {
     }
 }
 
+@Observable
+final class CameraGuidanceSpeaker {
+    private let synthesizer = AVSpeechSynthesizer()
+    private var lastSpokenAt = Date.distantPast
+    private var lastMessage = ""
+
+    func speak(_ message: String) {
+        guard !message.isEmpty,
+              message != lastMessage,
+              Date().timeIntervalSince(lastSpokenAt) >= 4 else { return }
+        lastMessage = message
+        lastSpokenAt = Date()
+        synthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: message)
+        utterance.rate = 0.48
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        synthesizer.stopSpeaking(at: .immediate)
+        lastMessage = ""
+    }
+}
+
 // MARK: - Reader track playback (your own recorded voice only)
 
 /// Plays the reader lines the actor recorded in "Record Maya". One file per line, saved by RecordReaderView.

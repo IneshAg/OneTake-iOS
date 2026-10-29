@@ -63,6 +63,15 @@ enum OnDeviceIntelligence {
         return await respond(to: prompt)
     }
 
+    static func cameraGuidance(fact: String) async -> String? {
+        let prompt = """
+        Turn this measured camera-framing instruction into one short spoken instruction for an actor.
+        Do not add a new measurement or instruction. Use plain language and no greeting.
+        Measured instruction: \(fact)
+        """
+        return await respond(to: prompt)
+    }
+
     private static func respond(to prompt: String) async -> String? {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
