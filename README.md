@@ -55,6 +55,8 @@ sign-up — everything stays on the iPhone until you send it.
   check focused on the results.
 - **Preview** the whole tape, then **package** it into one `.mp4` named `LAST_FIRST_ROLE_PROJECT.mp4`,
   with the slate at the start or the end.
+- Packaging also creates a ZIP containing the separate finalized slate, full-length clip, scene clips,
+  and headshots, so the merged video and the individual source files are both available in Files.
 - Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) or as an **iCloud download
   link** from your own iCloud Drive. Sending a link is the one place OneTake asks you to sign in, with
   Apple or Google; headshots go along as photos.

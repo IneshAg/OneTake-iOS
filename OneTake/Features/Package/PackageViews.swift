@@ -1,5 +1,4 @@
 import SwiftUI
-import AVKit
 
 // MARK: - 20 Package · Ready to send
 //
@@ -17,7 +16,6 @@ struct PackageView: View {
     @State private var phase: Phase = .review
     @State private var showDestination = false
     @State private var showShare = false
-    @State private var showPreview = false
     @State private var progress = 0.0
     @State private var exportErrorMessage: String?
     @State private var exportTask: Task<Void, Never>?
@@ -55,9 +53,6 @@ struct PackageView: View {
                     send()
                 }
             }
-            .sheet(isPresented: $showPreview) {
-                if let url = a.exportedFileURL { VideoPlayer(player: AVPlayer(url: url)) }
-            }
         }
     }
 
@@ -73,14 +68,15 @@ struct PackageView: View {
 
                 VStack(spacing: 0) {
                     row(symbol: "film", title: a.deliverableFileName(slate: store.slate), detail: "Named the way casting asked · one file", value: nil)
+                    row(symbol: "archivebox", title: separateArchiveName(a), detail: "Separate finalized clips + headshots", value: "ZIP")
                     Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: nil, value: exportedSizeLabel(a)) }.buttonStyle(.plain)
                     Button { store.push(.tapeCheck(a.id)) } label: { row(symbol: "checkmark.seal.fill", title: "Tape check", detail: nil, value: "Review", tint: OT.success) }.buttonStyle(.plain)
-                    row(symbol: "waveform", title: "Audio", detail: nil, value: "From your takes", tint: OT.success)
-                    if a.exportedFileURL != nil {
-                        Button { showPreview = true } label: { row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "What's actually in the exported file", value: nil) }.buttonStyle(.plain)
-                    } else {
-                        row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Available once you've exported it", value: nil)
-                    }
+                    Button { store.push(.tapeCheck(a.id)) } label: {
+                        row(symbol: "waveform", title: "Audio", detail: "Review sound levels from your takes", value: "Review", tint: OT.success)
+                    }.buttonStyle(.plain)
+                    Button { store.push(.preview(a.id)) } label: {
+                        row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Plays the selected clips before export", value: nil)
+                    }.buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -176,6 +172,7 @@ struct PackageView: View {
                     // Leave the last stretch of the bar for the iCloud upload when sending a link.
                     Task { @MainActor in progress = asLink ? p * 0.8 : p }
                 }
+                _ = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
                 await MainActor.run { store.setExportedFile(url, for: a.id) }
                 if asLink {
                     await MainActor.run { uploading = true }
@@ -217,9 +214,18 @@ struct PackageView: View {
             guard let link = a.shareLink else { return nil }
             let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
             let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
-            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + headshots
+            let video = a.exportedFileURL.map { [$0] } ?? []
+            let zip = MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
+            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + video + [zip] + headshots
         }
-        return a.exportedFileURL.map { [$0] + headshots }
+        guard let video = a.exportedFileURL else { return nil }
+        let zip = MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
+        return [video, zip] + headshots
+    }
+
+    private func separateArchiveName(_ a: Audition) -> String {
+        let base = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
+        return "\(base)_SEPARATE.zip"
     }
 
     private func cancelExport() {
@@ -402,17 +408,19 @@ struct SentView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("SHARED · \(Date.now.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())")
+                    Text("SHARED · \(sentDate.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())")
                         .font(.otCaption.weight(.semibold)).foregroundStyle(OT.success)
                     Spacer()
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(OT.success)
                 }
                 Text(audition.deliverableFileName(slate: slate)).font(.otFootnote.weight(.semibold))
-                Text("Headshot · slate · \(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                Text("Merged video · separate clips ZIP · \(audition.scenes.count) scene\(audition.scenes.count == 1 ? "" : "s")")
+                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
             }
             .padding(16).otCard(radius: 18).rotationEffect(.degrees(1.5)).padding(.top, 30)
 
-            Text("It’s on its way.").font(.system(size: 38, weight: .bold))
+            Text(audition.destination == .emailOrLink ? "Your link is ready." : "It’s on its way.")
+                .font(.system(size: 38, weight: .bold))
             HStack(alignment: .firstTextBaseline) {
                 Text(earlyText).font(.otTitle).foregroundStyle(OT.success)
                 Text("Break a leg.").font(.otHeadline).foregroundStyle(OT.labelSecondary)
@@ -431,7 +439,9 @@ struct SentView: View {
     }
 
     private var earlyText: String {
-        let h = audition.hoursLeft
+        let h = max(0, Int(audition.due.timeIntervalSince(sentDate) / 3600))
         return h >= 1 ? "\(h) hours early." : "Right on time."
     }
+
+    private var sentDate: Date { audition.sentDate ?? .now }
 }

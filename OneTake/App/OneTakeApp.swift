@@ -116,7 +116,7 @@ struct RootTabView: View {
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {
-            case .shoot(let id, let scene): ShootFlow(auditionID: id, initialScene: scene)
+            case .shoot(let id, let scene, let start): ShootFlow(auditionID: id, initialScene: scene, initialStage: start)
             case .headshot:       HeadshotFlow()
             case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
             case .practiceTake:   PracticeTakeView()
@@ -137,7 +137,7 @@ private struct RouteDestinations: ViewModifier {
             case .reader(let id, let scene):         ReaderView(auditionID: id, sceneIndex: scene)
             case .recordReader(let id, let scene):   RecordReaderView(auditionID: id, sceneIndex: scene)
             case .shootSetup(let id, let scene):     ShootSetupView(auditionID: id, scene: scene)
-            case .takes(let id):                     TakesView(auditionID: id)
+            case .takes(let id, let sceneIndex):     TakesView(auditionID: id, initialScene: sceneIndex)
             case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
             case .package(let id):                   PackageView(auditionID: id)
             case .preview(let id):                   TapePreviewView(auditionID: id)

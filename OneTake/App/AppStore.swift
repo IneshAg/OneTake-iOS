@@ -12,7 +12,7 @@ enum Route: Hashable {
     case recordReader(Audition.ID, sceneIndex: Int)
     /// `scene` picks which scene the camera opens on; nil lets it pick the next one still to shoot.
     case shootSetup(Audition.ID, scene: Int? = nil)
-    case takes(Audition.ID)
+    case takes(Audition.ID, sceneIndex: Int? = nil)
     case tapeCheck(Audition.ID)
     case package(Audition.ID)
     /// 20.0 — the whole tape with chapters, after Tape Check and before Package.
@@ -31,14 +31,18 @@ enum Route: Hashable {
 
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
 enum CameraFlow: Identifiable, Hashable {
-    case shoot(Audition.ID, scene: Int? = nil)  // camera check → slate → full length → scene → take saved
+    enum ShootStart: String, Hashable {
+        case check, slate, fullLength
+    }
+
+    case shoot(Audition.ID, scene: Int? = nil, start: ShootStart = .check)  // camera check → slate → full length → scene → take saved
     case headshot                    // front → left → right → crop
     case scanSides
     case practiceTake
 
     var id: String {
         switch self {
-        case .shoot(let id, _): "shoot-\(id)"
+        case .shoot(let id, _, let start): "shoot-\(id)-\(start.rawValue)"
         case .headshot:      "headshot"
         case .scanSides:     "scan"
         case .practiceTake:  "practice"

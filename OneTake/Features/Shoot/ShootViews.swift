@@ -158,6 +158,7 @@ struct ShootFlow: View {
     let auditionID: Audition.ID
     /// Which scene to open on; nil picks the next one still to shoot.
     var initialScene: Int? = nil
+    var initialStage: CameraFlow.ShootStart = .check
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
@@ -215,6 +216,7 @@ struct ShootFlow: View {
         .keepScreenAwake()
         .task {
             sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
+            stage = initialStage == .slate ? .slate : initialStage == .fullLength ? .fullLength : .check
             camera.wantsFaceGuidance = true   // live framing + light check on the "Camera check" screen
             if await CameraController.requestAccess() { camera.configure(position: .front) }
             voiceAllowed = await SpeechFollower.requestAccess()

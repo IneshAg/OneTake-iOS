@@ -404,6 +404,11 @@ local clips (no export needed) with chapter scrubbing. Sits between Tape Check a
 - `PackageView` phases: review → sending → failed → sent.
 - Review shows tape order (`TapeStrip`), deliverable file name, destination, Tape Check entry, audio
   source, and preview when an export exists. Also "Choose different takes".
+- A successful package produces both the merged deliverable MP4 and a ZIP of the separate finalized
+  clips plus headshots. The share sheet offers both files; the iCloud link continues to publish the
+  merged MP4.
+- `SentView` uses the persisted send date, destination, scene count, and deliverable names rather
+  than placeholder current-time or fixed-content text.
 - `DestinationSheet` changes destination and explains each spec.
 - `send()`:
   - "Email or link" requires an account (Apple/Google) and available iCloud. `DestinationSheet`

@@ -67,6 +67,27 @@ enum MediaExporter {
         return slateAtStart ? slate + clips : clips + slate
     }
 
+    /// Writes the individual finalized clips and headshots beside the merged export so casting
+    /// materials can also be handed off as one ordinary ZIP file.
+    static func makeSeparateArchive(_ audition: Audition, takes: [Take], slate: SlateInfo) throws -> URL {
+        let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+        let archiveURL = MediaStore.directory("Exports").appendingPathComponent("\(baseName)_SEPARATE.zip")
+        var entries: [(String, Data)] = []
+        for clip in clips(for: audition, takes: takes) {
+            guard let data = try? Data(contentsOf: clip.url) else { continue }
+            let ext = clip.url.pathExtension.isEmpty ? "mov" : clip.url.pathExtension
+            let name = clip.label.replacingOccurrences(of: " · ", with: " - ").replacingOccurrences(of: " ", with: "_")
+            entries.append(("Videos/\(name).\(ext)", data))
+        }
+        for url in HeadshotStore.deliverables(baseName: baseName) {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            entries.append(("Headshots/\(url.lastPathComponent)", data))
+        }
+        guard !entries.isEmpty else { throw ExportError.nothingToExport }
+        try ZipArchive.write(entries, to: archiveURL)
+        return archiveURL
+    }
+
     /// Joins the clips into one composition. Used for the instant Preview and for the export.
     static func build(_ clips: [Clip]) async throws -> Tape {
         let composition = AVMutableComposition()
@@ -95,6 +116,7 @@ enum MediaExporter {
                         let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
                         renderSize = CGSize(width: abs(rect.width), height: abs(rect.height))
                     }
+
                 }
             }
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {

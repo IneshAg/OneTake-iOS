@@ -43,6 +43,7 @@ struct VideoThumbnail: View {
 
 struct TakesView: View {
     let auditionID: Audition.ID
+    var initialScene: Int? = nil
     @Environment(AppStore.self) private var store
     @State private var selected: Take.ID?
     @State private var showOneMore = false
@@ -56,7 +57,7 @@ struct TakesView: View {
 
     /// The chosen scene, else the scene of the most recent take, else the first.
     private var shownScene: Int {
-        scene ?? store.takes.last(where: { $0.auditionID == auditionID })?.sceneIndex ?? 0
+        scene ?? initialScene ?? store.takes.last(where: { $0.auditionID == auditionID })?.sceneIndex ?? 0
     }
 
     var body: some View {

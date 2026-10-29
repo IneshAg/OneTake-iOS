@@ -169,22 +169,40 @@ struct TapePreviewView: View {
                     .padding(.vertical, 6).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                Button("Change headshots") {
+                    player?.pause()
+                    store.push(.headshots(for: auditionID))
+                }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(OT.accent)
             }
             ForEach(Array(tape.chapters.enumerated()), id: \.element.id) { index, chapter in
-                Button { seek(to: chapter.start) } label: {
+                Button { open(chapter) } label: {
                     HStack(spacing: 12) {
                         Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
                         Text(chapter.label)
                             .font(!showingPhotos && isCurrent(chapter) ? .otHeadline : .otBody)
                             .foregroundStyle(OT.cameraLabel)
                         Spacer()
-                        Text(clock(chapter.start)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
+                        Text(clock(chapter.duration)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
                     }
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    private func open(_ chapter: MediaExporter.Chapter) {
+        player?.pause()
+        switch chapter.kind {
+        case .slate:
+            store.camera = .shoot(auditionID, start: .slate)
+        case .fullLength:
+            store.camera = .shoot(auditionID, start: .fullLength)
+        case .scene(let index):
+            store.push(.takes(auditionID, sceneIndex: index))
         }
     }
 
