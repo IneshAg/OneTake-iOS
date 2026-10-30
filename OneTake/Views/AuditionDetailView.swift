@@ -97,6 +97,7 @@ struct AuditionDetailView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
         .sheet(isPresented: $showEdit) { EditAuditionSheet(auditionID: a.id) }
@@ -237,7 +238,20 @@ struct CallbackSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Start a callback", backLabel: "Cancel", onBack: { dismiss() }) {
+                Button("Create") {
+                    if let id = store.startCallback(from: audition.id, due: due, notes: notes, bringReader: bringReader) {
+                        dismiss()
+                        store.push(.auditionDetail(id))
+                    }
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+
             Form {
                 Section { LabeledContent(audition.project, value: "Round \((audition.round ?? 1) + 1)") }
                 Section("When is it due?") { DatePicker("Due", selection: $due, in: Date.now...) }
@@ -251,19 +265,9 @@ struct CallbackSheet: View {
                 }
                 Section { Toggle("Bring over reader track · \(readerName)", isOn: $bringReader) }
             }
-            .navigationTitle("Start a callback").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        if let id = store.startCallback(from: audition.id, due: due, notes: notes, bringReader: bringReader) {
-                            dismiss()
-                            store.push(.auditionDetail(id))
-                        }
-                    }
-                }
-            }
+            .scrollContentBackground(.hidden)
         }
+        .otCanvas()
     }
 }
 
@@ -275,7 +279,18 @@ struct EditAuditionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Edit details", backLabel: "Cancel", onBack: { dismiss() }) {
+                Button("Done") {
+                    store.reclassifyRole(for: auditionID)
+                    dismiss()
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+
             if let audition = store.binding(for: auditionID) {
                 Form {
                     Section("Project") {
@@ -300,17 +315,10 @@ struct EditAuditionSheet: View {
                         ), axis: .vertical)
                     } footer: { Text("Shown on Prepare before every take.") }
                 }
-                .navigationTitle("Edit details").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
-                            store.reclassifyRole(for: auditionID)
-                            dismiss()
-                        }
-                    }
-                }
+                .scrollContentBackground(.hidden)
             }
         }
+        .otCanvas()
     }
 }
 
@@ -330,7 +338,19 @@ struct RevisedSidesSheet: View {
     var body: some View {
         let role = store.audition(auditionID)?.role ?? ""
         let parsed = ScriptParser.parseScenes(from: text, myRole: role)
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Revised sides", backLabel: "Cancel", onBack: { dismiss() }) {
+                Button("Replace") {
+                    store.replaceSides(of: auditionID, with: parsed, sourceText: text)
+                    dismiss()
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+                .disabled(parsed.isEmpty)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+
             Form {
                 Section {
                     TextField("Paste the new sides", text: $text, axis: .vertical).lineLimit(6...14)
@@ -352,17 +372,9 @@ struct RevisedSidesSheet: View {
                     }
                 }
             }
-            .navigationTitle("Revised sides").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Replace") {
-                        store.replaceSides(of: auditionID, with: parsed, sourceText: text)
-                        dismiss()
-                    }.disabled(parsed.isEmpty)
-                }
-            }
+            .scrollContentBackground(.hidden)
         }
+        .otCanvas()
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()

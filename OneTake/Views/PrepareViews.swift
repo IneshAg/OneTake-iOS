@@ -67,6 +67,7 @@ struct PrepareView: View {
             }
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .safeAreaInset(edge: .bottom) { bottomBar(a) }
             .sheet(isPresented: $showPrompterSettings) { PrompterSettingsSheet().presentationDetents([.medium]) }
         } else {
@@ -86,6 +87,7 @@ struct PrepareView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .sheet(isPresented: $showSides) { RevisedSidesSheet(auditionID: auditionID) }
         }
     }
@@ -257,6 +259,7 @@ struct RunLinesView: View {
             .padding(.horizontal, OT.gutter)
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .onAppear { speakIfReader(lines) }
             .onChange(of: follower.transcript) { _, transcript in
                 guard !finished, lines[index].isMine,
@@ -455,6 +458,7 @@ struct ReaderView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             Button("Continue") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
         }
@@ -552,6 +556,7 @@ struct RecordReaderView: View {
             .padding(OT.gutter)
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .task {
                 microphoneAllowed = await AVAudioApplication.requestRecordPermission()
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {

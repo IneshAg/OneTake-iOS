@@ -64,6 +64,7 @@ struct AuditionsView: View {
         .otCanvas()
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func inlineDeleteConfirmation(for audition: Audition) -> some View {
@@ -371,7 +372,8 @@ struct SearchView: View {
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
-        .navigationTitle("Search")
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .onAppear {
             if !hasSetInitialScope {
                 hasSetInitialScope = true

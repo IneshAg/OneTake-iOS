@@ -47,6 +47,7 @@ struct TapePreviewView: View {
         }
         .background(OT.cameraBg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 Button("Looks right — package it") { player?.pause(); store.push(.package(auditionID)) }

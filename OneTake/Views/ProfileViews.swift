@@ -218,6 +218,7 @@ struct ProfileView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .sheet(isPresented: $showSignIn) {
             SignInView { account in store.account = account; showSignIn = false }
@@ -244,7 +245,11 @@ private struct HandsFreeGestureSettingsView: View {
     @AppStorage("camera.gestureHoldDuration") private var holdDuration = 1.2
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Hands-free gestures", backLabel: "Done", onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 16)
+
             Form {
                 Section {
                     Toggle("Use hand gestures", isOn: $enabled)
@@ -257,12 +262,10 @@ private struct HandsFreeGestureSettingsView: View {
                 } footer: {
                     Text("Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on. Tap Record to finish a take.")
                 }
-
             }
-            .navigationTitle("Hands-free gestures")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .scrollContentBackground(.hidden)
         }
+        .otCanvas()
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }
@@ -363,6 +366,7 @@ struct EditSlateView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -497,6 +501,7 @@ struct PrivacyView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
             importBackup(result)
         }
@@ -815,6 +820,7 @@ struct PrivacyPolicyView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func section(_ title: String, _ body: String) -> some View {
@@ -932,6 +938,7 @@ struct NotificationSettingsView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func refreshStatus() async {
@@ -1007,6 +1014,7 @@ struct HeadshotsView: View {
         .id(store.headshotVersion)
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {
                 if let auditionID, taken > 0, let a = store.audition(auditionID) {
@@ -1532,7 +1540,11 @@ struct HeadshotReferenceGuideSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Match Reference", backLabel: "Done", onDark: true, onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 16)
+
             ScrollView {
                 VStack(spacing: 20) {
                     // Header Card with angle illustration / preview
@@ -1616,16 +1628,8 @@ struct HeadshotReferenceGuideSheet: View {
                 }
                 .padding(OT.gutter)
             }
-            .background(Color(white: 0.08).ignoresSafeArea())
-            .navigationTitle("Match Reference")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(OT.due)
-                }
-            }
         }
+        .background(Color(white: 0.08).ignoresSafeArea())
         .preferredColorScheme(.dark)
     }
 

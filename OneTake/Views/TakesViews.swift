@@ -134,6 +134,7 @@ struct TakesView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Go again") { showOneMore = true }.buttonStyle(.otSecondary).frame(width: 130)
@@ -250,6 +251,7 @@ struct TapeCheckView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {
                 // Checked first, then watched: Preview is the last look before packaging.

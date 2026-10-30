@@ -144,28 +144,35 @@ struct RootTabView: View {
 private struct RouteDestinations: ViewModifier {
     func body(content: Content) -> some View {
         content.navigationDestination(for: Route.self) { route in
-            switch route {
-            case .auditionDetail(let id):            AuditionDetailView(auditionID: id)
-            case .prepare(let id, let scene):        PrepareView(auditionID: id, sceneIndex: scene)
-            case .runLines(let id, let scene):       RunLinesView(auditionID: id, sceneIndex: scene)
-            case .reader(let id, let scene):         ReaderView(auditionID: id, sceneIndex: scene)
-            case .recordReader(let id, let scene):   RecordReaderView(auditionID: id, sceneIndex: scene)
-            case .shootSetup(let id, let scene):     ShootSetupView(auditionID: id, scene: scene)
-            case .takes(let id, let sceneIndex):     TakesView(auditionID: id, initialScene: sceneIndex)
-            case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
-            case .package(let id):                   PackageView(auditionID: id)
-            case .preview(let id):                   TapePreviewView(auditionID: id)
-            case .profile:                           ProfileView()
-            case .headshots(let id):                 HeadshotsView(auditionID: id)
-            case .editSlate:                         EditSlateView()
-            case .privacy:                           PrivacyView()
-            case .notifications:                     NotificationSettingsView()
-            case .practiceSetup:                     PracticeSetupView()
-            case .standalonePractice(let id):        StandalonePracticeView(pieceID: id)
-            case .practiceSample:                    StandalonePracticeView(pieceID: nil, isSample: true)
-            case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)
-            case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
-            }
+            destination(for: route)
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationBarBackButtonHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for route: Route) -> some View {
+        switch route {
+        case .auditionDetail(let id):            AuditionDetailView(auditionID: id)
+        case .prepare(let id, let scene):        PrepareView(auditionID: id, sceneIndex: scene)
+        case .runLines(let id, let scene):       RunLinesView(auditionID: id, sceneIndex: scene)
+        case .reader(let id, let scene):         ReaderView(auditionID: id, sceneIndex: scene)
+        case .recordReader(let id, let scene):   RecordReaderView(auditionID: id, sceneIndex: scene)
+        case .shootSetup(let id, let scene):     ShootSetupView(auditionID: id, scene: scene)
+        case .takes(let id, let sceneIndex):     TakesView(auditionID: id, initialScene: sceneIndex)
+        case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
+        case .package(let id):                   PackageView(auditionID: id)
+        case .preview(let id):                   TapePreviewView(auditionID: id)
+        case .profile:                           ProfileView()
+        case .headshots(let id):                 HeadshotsView(auditionID: id)
+        case .editSlate:                         EditSlateView()
+        case .privacy:                           PrivacyView()
+        case .notifications:                     NotificationSettingsView()
+        case .practiceSetup:                     PracticeSetupView()
+        case .standalonePractice(let id):        StandalonePracticeView(pieceID: id)
+        case .practiceSample:                    StandalonePracticeView(pieceID: nil, isSample: true)
+        case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)
+        case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
         }
     }
 }

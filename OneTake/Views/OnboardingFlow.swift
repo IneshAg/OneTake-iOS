@@ -18,9 +18,13 @@ struct OnboardingFlow: View {
         NavigationStack(path: $path) {
             WelcomeView { path.append(.slate) }
                 .navigationDestination(for: Step.self) { step in
-                    switch step {
-                    case .slate: SlateDetailsView { finish() }
+                    Group {
+                        switch step {
+                        case .slate: SlateDetailsView(onBack: { path = [] }, onContinue: { finish() })
+                        }
                     }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .navigationBarBackButtonHidden(true)
                 }
         }
     }
@@ -59,6 +63,7 @@ struct WelcomeView: View {
         .padding(.horizontal, OT.gutter + 4)
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 }
 
@@ -262,12 +267,35 @@ private struct GoogleMark: View {
 // MARK: - 03 Your slate
 
 struct SlateDetailsView: View {
+    var onBack: (() -> Void)? = nil
     var onContinue: () -> Void
     @Environment(AppStore.self) private var store
 
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                if let onBack {
+                    Button(action: onBack) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text("Back")
+                                .font(.otHeadline)
+                        }
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+                Button("Skip", action: onContinue)
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.accent)
+                    .frame(minHeight: 44)
+            }
+            .padding(.top, 4)
+
             Text("How casting meets you").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
             Text("Said at the start of every tape. Tap a line to change it.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
@@ -297,7 +325,9 @@ struct SlateDetailsView: View {
         }
         .padding(.horizontal, OT.gutter)
         .otCanvas()
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Skip", action: onContinue) } }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func slateField(_ text: Binding<String>, placeholder: String, hint: String) -> some View {

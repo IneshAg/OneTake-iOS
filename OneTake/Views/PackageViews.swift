@@ -40,6 +40,7 @@ struct PackageView: View {
             .onChange(of: progress) { _, p in reportUpload(p) }
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .sheet(isPresented: $showShare) {
                 if let items = shareItems(a) {
                     ShareSheet(items: items) { completed in
@@ -337,7 +338,11 @@ struct DestinationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Where’s it going?", backLabel: "Done", onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 16)
+
             List {
                 Section {
                     ForEach(Destination.allCases) { d in
@@ -369,8 +374,9 @@ struct DestinationSheet: View {
                     Text("We match the file name each site asks for. Casting sites get the file through your Share Sheet; a link is hosted in your own iCloud — there's no OneTake server.")
                 }
             }
-            .navigationTitle("Where’s it going?").navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden)
         }
+        .otCanvas()
     }
 
     private var linkStatus: (text: String, color: Color) {

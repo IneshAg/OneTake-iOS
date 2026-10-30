@@ -112,6 +112,7 @@ struct LineDrillView: View {
             }
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .onChange(of: displayMode) { _, _ in peeked = nil }
         }
     }
@@ -204,6 +205,7 @@ struct AudioWalkView: View {
             .padding(.horizontal, OT.gutter).padding(.bottom, OT.gutter)
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             // Auto-Lock would suspend the app and stop the loop.
             .keepScreenAwake()
             .onDisappear { walker.stop() }

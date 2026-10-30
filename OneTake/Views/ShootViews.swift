@@ -128,6 +128,7 @@ struct ShootSetupView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             Button { store.camera = .shoot(auditionID, scene: shootScene) } label: { Label("Open the camera", systemImage: "camera.fill") }
                 .buttonStyle(.otPrimary)
@@ -913,22 +914,27 @@ private struct SlateTrimReviewView: View {
     let keepTrimmed: () -> Void
     let keepOriginal: () -> Void
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Review slate trim").font(.otLargeTitle)
-                Text("Long silent edges were trimmed with a short pause kept before and after. Your original is saved and can be restored from Package.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                VideoPlayer(player: AVPlayer(url: trimmed))
-                    .frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 18))
-                Text("Removed about \(removedLeading, specifier: "%.1f") s at the start and \(removedTrailing, specifier: "%.1f") s at the end.")
-                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                Button("Keep trimmed slate", action: keepTrimmed).buttonStyle(.otPrimary)
-                Button("Use original slate", action: keepOriginal).buttonStyle(.otSecondary)
-                Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Spacer()
+                Button("Use original", action: keepOriginal)
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.accent)
             }
-            .padding(OT.gutter)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Use original") { keepOriginal() } } }
+            .padding(.top, 16)
+
+            Text("Review slate trim").font(.otLargeTitle)
+            Text("Long silent edges were trimmed with a short pause kept before and after. Your original is saved and can be restored from Package.")
+                .font(.otCallout).foregroundStyle(OT.labelSecondary)
+            VideoPlayer(player: AVPlayer(url: trimmed))
+                .frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 18))
+            Text("Removed about \(removedLeading, specifier: "%.1f") s at the start and \(removedTrailing, specifier: "%.1f") s at the end.")
+                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            Button("Keep trimmed slate", action: keepTrimmed).buttonStyle(.otPrimary)
+            Button("Use original slate", action: keepOriginal).buttonStyle(.otSecondary)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, OT.gutter)
         .presentationDetents([.large])
         .interactiveDismissDisabled()
     }

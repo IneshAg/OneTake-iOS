@@ -23,12 +23,16 @@ struct AddAuditionFlow: View {
         NavigationStack(path: $path) {
             capture
                 .navigationDestination(for: Step.self) { step in
-                    switch step {
-                    case .reading:      NoticeReadingView(notice: notice, onDone: acceptParsedDraft)
-                    case .missingDetails: MissingDetailsView(draft: $draft) { path.append(.review) }
-                    case .review:       NoticeReviewView(draft: $draft, onSave: save)
-                    case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
+                    Group {
+                        switch step {
+                        case .reading:      NoticeReadingView(notice: notice, onDone: acceptParsedDraft, onBack: { path = [] })
+                        case .missingDetails: MissingDetailsView(draft: $draft, onContinue: { path.append(.review) }, onBack: { if !path.isEmpty { path.removeLast() } })
+                        case .review:       NoticeReviewView(draft: $draft, onSave: save, onBack: { if !path.isEmpty { path.removeLast() } })
+                        case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
+                        }
                     }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .navigationBarBackButtonHidden(true)
                 }
         }
         .presentationDetents(path.isEmpty ? [.height(420)] : [.large])
@@ -157,6 +161,7 @@ struct AddAuditionFlow: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func way(_ symbol: String, _ title: String) -> some View {
@@ -439,12 +444,14 @@ enum NoticeParser {
 struct NoticeReadingView: View {
     let notice: String
     var onDone: (NoticeParser.Draft) -> Void
+    var onBack: (() -> Void)? = nil
     private let draft: NoticeParser.Draft
     @State private var guidance: String?
 
-    init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void) {
+    init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void, onBack: (() -> Void)? = nil) {
         self.notice = notice
         self.onDone = onDone
+        self.onBack = onBack
         self.draft = NoticeParser.parse(notice)
     }
 
@@ -460,6 +467,10 @@ struct NoticeReadingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if let onBack {
+                InContentNavHeader(backLabel: "Back", onBack: onBack)
+                    .padding(.top, 4)
+            }
             Text("Reading the notice…").font(.otLargeTitle)
             Text("Parsed on-device. Nothing leaves your iPhone.").font(.otCallout).foregroundStyle(OT.labelSecondary)
             Text(notice).font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(4)
@@ -504,6 +515,7 @@ struct NoticeReadingView: View {
 struct MissingDetailsView: View {
     @Binding var draft: NoticeParser.Draft
     var onContinue: () -> Void
+    var onBack: (() -> Void)? = nil
     @State private var picked: Date = .now.addingTimeInterval(86400)
     @State private var requestedFields: [String] = []
 
@@ -516,6 +528,10 @@ struct MissingDetailsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let onBack {
+                    InContentNavHeader(backLabel: "Back", onBack: onBack)
+                        .padding(.top, 4)
+                }
                 Text(missing.isEmpty ? "All set" : missing.count == 1 ? "One thing missing" : "A few details missing")
                     .font(.otLargeTitle)
                 Text(missing.isEmpty
@@ -570,6 +586,7 @@ struct MissingDetailsView: View {
 struct NoticeReviewView: View {
     @Binding var draft: NoticeParser.Draft
     var onSave: (AddAuditionFlow.ReaderAudioPlan) -> Void
+    var onBack: (() -> Void)? = nil
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .later
 
     private var hasReaderLines: Bool {
@@ -580,6 +597,10 @@ struct NoticeReviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if let onBack {
+                    InContentNavHeader(backLabel: "Back", onBack: onBack)
+                        .padding(.top, 4)
+                }
                 Text("Here's what they want").font(.otLargeTitle)
                 Text(draft.asks.isEmpty
                      ? "No recording requirements were detected. Review the details, then save."
@@ -675,6 +696,9 @@ struct NoticeErrorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            InContentNavHeader(backLabel: "Back", onBack: onRetry)
+                .padding(.top, 4)
+
             Image(systemName: "exclamationmark.triangle").font(.system(size: 34)).foregroundStyle(OT.warning)
             Text("We couldn't read this notice").font(.otLargeTitle)
             Text("No readable text was found — it may be a photo without text, blurry, or very small print. Nothing was lost — pick how to continue.")

@@ -72,6 +72,7 @@ struct PracticeView: View {
         .otCanvas()
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
             if let id = sidesAuditionID { RevisedSidesSheet(auditionID: id) }
         }
@@ -269,6 +270,7 @@ struct PracticeSetupView: View {
         }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in
                 showScanner = false
@@ -435,6 +437,7 @@ struct StandalonePracticeView: View {
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func displayText(for line: ScriptLine) -> String {
