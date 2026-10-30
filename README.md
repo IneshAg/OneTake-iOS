@@ -56,12 +56,17 @@ and deterministic guidance.
 ### Takes, Tape Check and sending
 - Takes per scene, circle your send take, trim, and private notes.
 - **Tape Check** analyses only the finalized/circled clips that will be sent: face in frame, distance,
-  headroom, centring, head turn, lighting, silence, quiet voice, clipping, plus the package itself
-  (slate, every scene shot, length, orientation, file name). The navigation bar is hidden to keep the
-  check focused on the results.
+  headroom, centring, head turn, lighting, quiet voice, clipping, long pauses and a possible clipped
+  opening, plus the package itself (slate, every scene shot, length, orientation, file name). Opening
+  and pause flags cue optional review; they are not automatic judgments. The readiness dial counts
+  technical checks only; optional timing prompts do not lower it, and it never blocks sending.
+  Retakes save as new takes, keeping the selected send take unchanged.
+  The navigation bar is hidden to keep the check focused on the results.
 - **Preview** the whole tape with accurate chapter durations (real duration for slate and scene chapters)
   and quick chapter actions to change headshots, retake the slate or full-length tape, and open takes for
   a specific scene.
+- Slate recording can suggest trimming long silent edges with padding; you review the preview before applying, and can restore the saved original from Package.
+- Camera setup has an optional on-device pose guide for shoulder centering and level alignment; it does not save or upload pose data.
 - **Package** generates a merged `.mp4` (`LAST_FIRST_ROLE_PROJECT.mp4`) plus a separate `.zip` archive
   containing finalized clips and headshots via custom zero-dependency streaming. Tapping the Audio row
   opens Tape Check, and "Preview the whole tape" opens the local tape preview.

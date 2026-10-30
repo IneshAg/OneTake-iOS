@@ -8,12 +8,13 @@ import Vision
 @Observable
 final class CameraController: NSObject {
     enum Position { case front, back }
-    enum State: Equatable { case idle, ready, recording, failed(String) }
+    enum State: Equatable { case idle, ready, recording, paused, failed(String) }
 
     private(set) var state: State = .idle
     private(set) var elapsed: TimeInterval = 0
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
+    private(set) var openPalmDetected = false
     private(set) var isExposureLocked = false
     private(set) var zoomFactor: CGFloat = 1
 
@@ -28,9 +29,17 @@ final class CameraController: NSObject {
     /// Live face position for headshot alignment. nil = no face found. Only updates when
     /// `wantsFaceGuidance` was set before `configure`.
     private(set) var face: FaceReading?
+    /// On-device body-pose landmarks used only for the optional setup coach.
+    struct BodyPoseReading: Equatable {
+        var shoulderCenterX: CGFloat
+        var shoulderTiltDegrees: Double
+    }
+    private(set) var bodyPose: BodyPoseReading?
     /// Average brightness of the frame, 0…1 (updates alongside `face`).
     private(set) var lightLevel: Double?
     @ObservationIgnored var wantsFaceGuidance = false
+    @ObservationIgnored var wantsBodyPoseGuidance = false
+    @ObservationIgnored var wantsHandGesture = false
     /// Pause detection (e.g. once recording starts) without tearing the output down.
     @ObservationIgnored var faceGuidanceActive = true
     @ObservationIgnored private let faceOutput = AVCaptureVideoDataOutput()
@@ -38,6 +47,9 @@ final class CameraController: NSObject {
     @ObservationIgnored private var lastFaceCheck = Date.distantPast
     @ObservationIgnored private var faceBufferIsUpright = false
     @ObservationIgnored private var photoRequestID = 0
+
+    func clearBodyPose() { bodyPose = nil }
+    func clearHandGestureDetection() { openPalmDetected = false }
 
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
@@ -159,12 +171,13 @@ final class CameraController: NSObject {
         rotationCoordinator = coordinator
         applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
         applyFaceOutputRotation(coordinator.videoRotationAngleForHorizonLevelCapture)
-        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, change in
+        let controllerReference = WeakCameraControllerReference(self)
+        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { _, change in
             guard let angle = change.newValue else { return }
             Task { @MainActor in
-                self?.applyPreviewRotation(angle)
-                if let captureAngle = self?.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture {
-                    self?.applyFaceOutputRotation(captureAngle)
+                controllerReference.value?.applyPreviewRotation(angle)
+                if let captureAngle = controllerReference.value?.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture {
+                    controllerReference.value?.applyFaceOutputRotation(captureAngle)
                 }
             }
         }
@@ -260,7 +273,8 @@ final class CameraController: NSObject {
         state = .recording
         elapsed = 0
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.elapsed += 0.1
+            guard let self, self.state == .recording else { return }
+            self.elapsed += 0.1
         }
         Haptics.impact(.rigid)
     }
@@ -270,12 +284,32 @@ final class CameraController: NSObject {
     /// A second stop while one is already finishing (say, hold-to-stop plus a spoken "Cut") is
     /// ignored rather than reported as a failed recording — the first stop's completion still fires.
     func stopRecording(_ completion: ((URL?) -> Void)? = nil) {
-        guard state == .recording, !isStopping else { return }
+        guard state == .recording || state == .paused, !isStopping else { return }
         isStopping = true
         recordingFinishedHandler = completion
         movieOutput.stopRecording()
         timer?.invalidate()
         Haptics.success()
+    }
+
+    func pauseRecording() {
+        guard state == .recording, movieOutput.isRecording else { return }
+        movieOutput.pauseRecording()
+        timer?.invalidate()
+        timer = nil
+        state = .paused
+        Haptics.tick()
+    }
+
+    func resumeRecording() {
+        guard state == .paused, movieOutput.isRecording else { return }
+        movieOutput.resumeRecording()
+        state = .recording
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self, self.state == .recording else { return }
+            self.elapsed += 0.1
+        }
+        Haptics.tick()
     }
 
     // MARK: Photo (headshots)
@@ -319,6 +353,14 @@ final class CameraController: NSObject {
         }
     }
     #endif
+}
+
+/// A main-actor-isolated weak handle lets AVFoundation's Sendable KVO callback hop back to the UI
+/// actor without capturing the non-Sendable camera controller in that callback.
+@MainActor
+private final class WeakCameraControllerReference {
+    weak var value: CameraController?
+    init(_ value: CameraController) { self.value = value }
 }
 
 extension CameraController: AVCaptureFileOutputRecordingDelegate {
@@ -401,19 +443,27 @@ struct CameraBackground: View {
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let now = Date()
-        guard faceGuidanceActive, now.timeIntervalSince(lastFaceCheck) > 0.15,
+        let minimumInterval = wantsBodyPoseGuidance ? 0.25 : 0.15
+        guard (faceGuidanceActive || wantsHandGesture), now.timeIntervalSince(lastFaceCheck) > minimumInterval,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFaceCheck = now
         let request = VNDetectFaceRectanglesRequest()
         request.revision = VNDetectFaceRectanglesRequestRevision3
+        let poseRequest = wantsBodyPoseGuidance ? VNDetectHumanBodyPoseRequest() : nil
+        let handRequest = wantsHandGesture ? VNDetectHumanHandPoseRequest() : nil
+        handRequest?.maximumHandCount = 1
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: faceBufferIsUpright ? .up : .right, options: [:])
-        try? handler.perform([request])
+        var requests: [VNRequest] = [request]
+        if let poseRequest { requests.append(poseRequest) }
+        if let handRequest { requests.append(handRequest) }
+        try? handler.perform(requests)
         var results = request.results ?? []
-        if results.isEmpty {
+        if results.isEmpty || (wantsBodyPoseGuidance && (poseRequest?.results?.isEmpty ?? true))
+            || (wantsHandGesture && (handRequest?.results?.isEmpty ?? true)) {
             // Orientation fallback in case sensor orientation or device flip inverts the buffer
             let fallbackOrientation: CGImagePropertyOrientation = faceBufferIsUpright ? .down : .left
             let fallbackHandler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: fallbackOrientation, options: [:])
-            try? fallbackHandler.perform([request])
+            try? fallbackHandler.perform(requests)
             results = request.results ?? []
         }
         let best = results.max {
@@ -423,10 +473,38 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             FaceReading(centerX: $0.boundingBox.midX, centerY: 1 - $0.boundingBox.midY,
                         height: $0.boundingBox.height, yaw: $0.yaw?.doubleValue)
         }
+        let pose = poseRequest?.results?.first.flatMap { observation -> BodyPoseReading? in
+            guard let left = try? observation.recognizedPoint(.leftShoulder),
+                  let right = try? observation.recognizedPoint(.rightShoulder),
+                  left.confidence >= 0.3, right.confidence >= 0.3 else { return nil }
+            let dx = Double(right.location.x - left.location.x)
+            guard abs(dx) > 0.04 else { return nil }
+            let dy = Double(right.location.y - left.location.y)
+            return BodyPoseReading(shoulderCenterX: (left.location.x + right.location.x) / 2,
+                                   shoulderTiltDegrees: atan2(dy, abs(dx)) * 180 / .pi)
+        }
+        let openPalm = handRequest?.results?.contains(where: Self.isOpenPalm) ?? false
         let luma = Self.averageLuma(buffer)
         Task { @MainActor in
             self.face = reading
+            self.bodyPose = self.wantsBodyPoseGuidance ? pose : nil
+            self.openPalmDetected = self.wantsHandGesture && openPalm
             self.lightLevel = luma
+        }
+    }
+
+    private static func isOpenPalm(_ hand: VNHumanHandPoseObservation) -> Bool {
+        guard let wrist = try? hand.recognizedPoint(.wrist), wrist.confidence >= 0.3 else { return false }
+        let fingers: [(VNHumanHandPoseObservation.JointName, VNHumanHandPoseObservation.JointName)] = [
+            (.indexTip, .indexPIP), (.middleTip, .middlePIP), (.ringTip, .ringPIP), (.littleTip, .littlePIP)
+        ]
+        return fingers.allSatisfy { tipName, pipName in
+            guard let tip = try? hand.recognizedPoint(tipName),
+                  let pip = try? hand.recognizedPoint(pipName),
+                  tip.confidence >= 0.25, pip.confidence >= 0.25 else { return false }
+            let tipDistance = hypot(tip.location.x - wrist.location.x, tip.location.y - wrist.location.y)
+            let pipDistance = hypot(pip.location.x - wrist.location.x, pip.location.y - wrist.location.y)
+            return tipDistance > pipDistance * 1.18
         }
     }
 

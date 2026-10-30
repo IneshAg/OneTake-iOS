@@ -174,6 +174,8 @@ struct ShootFlow: View {
     @State private var lineIndex = 0
     @State private var takeNumber = 1
     @State private var saveError: String?
+    @State private var isAnalyzingSlate = false
+    @State private var slateTrimReview: SlateTrimReview?
     /// Your own recorded reader lines, played during a take so they land under your voice.
     @State private var reader = ReaderTrackPlayer()
     @State private var readerAdvance: Task<Void, Never>?
@@ -183,6 +185,11 @@ struct ShootFlow: View {
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.followVoice") private var followVoice = true
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
+    @AppStorage("camera.poseGuideEnabled") private var poseGuideEnabled = true
+    @AppStorage("camera.gesturesEnabled") private var gesturesEnabled = false
+    @AppStorage("camera.gestureHoldDuration") private var gestureHoldDuration = 1.2
+    @State private var gestureHoldTask: Task<Void, Never>?
+    @State private var lastGestureAction = Date.distantPast
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -220,6 +227,8 @@ struct ShootFlow: View {
             sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
             stage = initialStage == .slate ? .slate : initialStage == .fullLength ? .fullLength : .check
             camera.wantsFaceGuidance = true   // live framing + light check on the "Camera check" screen
+            camera.wantsBodyPoseGuidance = poseGuideEnabled
+            camera.wantsHandGesture = gesturesEnabled && stage != .check
             if await CameraController.requestAccess() { camera.configure(position: .front) }
             voiceAllowed = await SpeechFollower.requestAccess()
             if voiceAllowed { follower.start() }
@@ -257,14 +266,55 @@ struct ShootFlow: View {
         }
         // Face detection is only for the pre-shoot check; don't spend CPU on it while filming.
         .onChange(of: stage) { _, newStage in camera.faceGuidanceActive = (newStage == .check) }
-        .onChange(of: camera.state) { _, state in
-            if state == .recording, stage == .scene { startScene() } else if state != .recording { stopReader() }
+        .onChange(of: stage) { _, newStage in
+            camera.wantsHandGesture = gesturesEnabled && [.slate, .fullLength, .scene].contains(newStage)
+            camera.clearHandGestureDetection()
         }
-        .onDisappear { talkbackTask?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
+        .onChange(of: gesturesEnabled) { _, enabled in
+            camera.wantsHandGesture = enabled && [.slate, .fullLength, .scene].contains(stage)
+            if !enabled { gestureHoldTask?.cancel(); camera.clearHandGestureDetection() }
+        }
+        .onChange(of: camera.openPalmDetected) { _, detected in
+            guard detected, gesturesEnabled, [.slate, .fullLength, .scene].contains(stage) else {
+                gestureHoldTask?.cancel()
+                return
+            }
+            gestureHoldTask?.cancel()
+            gestureHoldTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(gestureHoldDuration))
+                guard !Task.isCancelled, camera.openPalmDetected,
+                      Date().timeIntervalSince(lastGestureAction) > 2 else { return }
+                lastGestureAction = .now
+                switch camera.state {
+                case .ready: roll()
+                case .recording: camera.pauseRecording()
+                case .paused: camera.resumeRecording()
+                default: break
+                }
+            }
+        }
+        .onChange(of: poseGuideEnabled) { _, enabled in
+            camera.wantsBodyPoseGuidance = enabled
+            if !enabled { camera.clearBodyPose() }
+        }
+        .onChange(of: camera.state) { _, newState in handleCameraStateChange(newState) }
+        .onDisappear { gestureHoldTask?.cancel(); talkbackTask?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveError ?? "")
+        }
+        .sheet(item: $slateTrimReview) { review in
+            SlateTrimReviewView(original: review.original, trimmed: review.trimmed,
+                                removedLeading: review.suggestion.removedLeading,
+                                removedTrailing: review.suggestion.removedTrailing,
+                                keepTrimmed: {
+                                    store.acceptSlateTrim(review.trimmed, for: auditionID)
+                                    slateTrimReview = nil
+                                }, keepOriginal: {
+                                    try? FileManager.default.removeItem(at: review.trimmed)
+                                    slateTrimReview = nil
+                                })
         }
     }
 
@@ -291,6 +341,7 @@ struct ShootFlow: View {
     private var pillText: String {
         let t = Int(camera.elapsed)
         let time = String(format: "%02d:%02d", t / 60, t % 60)
+        if camera.state == .paused { return "Paused  \(time)" }
         switch stage {
         case .check: return "Camera check"
         case .slate, .slateDone: return "Slate  \(time)"
@@ -304,18 +355,42 @@ struct ShootFlow: View {
         switch stage {
         case .check:
             VStack(spacing: 8) {
+                HStack {
+                    Label("Pose guide", systemImage: "figure.stand").font(.otCaption.weight(.semibold)).foregroundStyle(.white)
+                    Spacer()
+                    Button {
+                        poseGuideEnabled.toggle()
+                        Haptics.tick()
+                    } label: {
+                        Text(poseGuideEnabled ? "On" : "Off")
+                            .font(.otCaption.weight(.bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 12).frame(height: 30)
+                            .background(poseGuideEnabled ? OT.accent.opacity(0.85) : OT.cameraGlass, in: Capsule())
+                    }
+                    .accessibilityLabel("Pose guide \(poseGuideEnabled ? "on" : "off")")
+                }
+                .padding(.horizontal, 12).frame(height: 34)
+                .background(.black.opacity(0.55), in: Capsule())
                 ForEach(Array(liveChecks.enumerated()), id: \.offset) { _, row in
                     liveCheckRow(row.text, ok: row.ok)
                 }
+                if poseGuideEnabled { poseCoachRow }
             }
             scenePicker(a)
         case .slate:
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
         case .slateDone:
-            resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
-                       primary: ("Next: full length", { stage = .fullLength }),
-                       secondary: ("Redo", { stage = .slate }),
-                       more: [("Skip full length — it’s optional", { stage = .scene })])
+            if isAnalyzingSlate {
+                VStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("Checking for long silent edges…").font(.otCallout).foregroundStyle(.white)
+                }.padding(18).background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 20))
+            } else {
+                resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
+                           primary: ("Next: full length", { stage = .fullLength }),
+                           secondary: ("Redo", { stage = .slate }),
+                           more: [("Skip full length — it’s optional", { stage = .scene })])
+            }
         case .fullLength:
             promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
             if camera.state != .recording {
@@ -378,6 +453,24 @@ struct ShootFlow: View {
         return rows
     }
 
+    @ViewBuilder private var poseCoachRow: some View {
+        if let pose = camera.bodyPose {
+            if pose.shoulderCenterX < 0.42 {
+                liveCheckRow("Move slightly right to center your shoulders", ok: false)
+            } else if pose.shoulderCenterX > 0.58 {
+                liveCheckRow("Move slightly left to center your shoulders", ok: false)
+            } else if abs(pose.shoulderTiltDegrees) > 8 {
+                liveCheckRow("Level your shoulders", ok: false)
+            } else {
+                liveCheckRow("Upper body centered · shoulders level", ok: true)
+            }
+        } else if camera.face != nil {
+            liveCheckRow("Step back so both shoulders are visible", ok: false)
+        } else {
+            liveCheckRow("Pose guide is looking for your shoulders", ok: false)
+        }
+    }
+
     private var cameraGuidanceKey: String? {
         guard camera.state == .ready else { return nil }
         if camera.face == nil { return "Step into the frame so your face is visible." }
@@ -414,6 +507,9 @@ struct ShootFlow: View {
             chip(follower.isListening ? "mic.fill" : "mic.slash", follower.isListening ? "Listening" : "Voice off")
             if camera.isExposureLocked { chip("lock.fill", "Exposure locked") }
             if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
+            if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
+                chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
+            }
         }
         .opacity(stage == .saved || stage == .slateDone ? 0 : 1)
     }
@@ -445,8 +541,23 @@ struct ShootFlow: View {
             case .slateDone, .saved:
                 Color.clear.frame(height: 78)
             default:
-                RecordButton(isRecording: camera.state == .recording, holdToStop: false) {
-                    camera.state == .recording ? cut() : roll()
+                VStack(spacing: 8) {
+                    if camera.state == .recording || camera.state == .paused {
+                        HStack(spacing: 6) {
+                            cameraChoice(camera.state == .paused ? "Resume" : "Pause") {
+                                camera.state == .paused ? camera.resumeRecording() : camera.pauseRecording()
+                            }
+                            .disabled(countdown != nil)
+                            cameraChoice("Finish") { cut() }
+                        }
+                    }
+                    RecordButton(isRecording: camera.state == .recording, holdToStop: false) {
+                        switch camera.state {
+                        case .recording: cut()
+                        case .paused: camera.resumeRecording()
+                        default: roll()
+                        }
+                    }
                 }
             }
             Spacer()
@@ -553,6 +664,16 @@ struct ShootFlow: View {
         speakIfReader()
     }
 
+    private func handleCameraStateChange(_ newState: CameraController.State) {
+        if newState == .recording {
+            if stage == .scene {
+                if camera.elapsed == 0 { startScene() } else { speakIfReader() }
+            }
+        } else {
+            stopReader()
+        }
+    }
+
     private func advanceLine() {
         stopReader()
         follower.reset()
@@ -648,11 +769,18 @@ struct ShootFlow: View {
         let failed = "Nothing was written to this iPhone. Record it again."
         switch cutStage {
         case .slate:
-            guard let url = MediaStore.persist(recording, as: "slate.mov", in: folder) else { saveError = failed; return }
-            store.setSlateVideo(url, for: auditionID)
+            guard let url = MediaStore.persist(recording, as: "slate-original.mov", in: folder) else { saveError = failed; return }
+            store.keepOriginalSlate(url, for: auditionID)
             // Done as soon as it's on disk, so closing the camera here doesn't lose the progress.
             store.markDone(.slate, in: auditionID)
             stage = .slateDone
+            isAnalyzingSlate = true
+            Task {
+                defer { isAnalyzingSlate = false }
+                guard let suggestion = SilenceTrimmer.suggest(for: url),
+                      let trimmed = await SilenceTrimmer.export(suggestion, from: url) else { return }
+                slateTrimReview = SlateTrimReview(original: url, trimmed: trimmed, suggestion: suggestion)
+            }
         case .fullLength:
             guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else { saveError = failed; return }
             store.setFullLengthVideo(url, for: auditionID)
@@ -723,5 +851,41 @@ struct ShootFlow: View {
         .padding(18)
         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .padding(.top, 140)
+    }
+}
+
+private struct SlateTrimReview: Identifiable {
+    let id = UUID()
+    let original: URL
+    let trimmed: URL
+    let suggestion: SilenceTrimmer.Suggestion
+}
+
+private struct SlateTrimReviewView: View {
+    let original: URL
+    let trimmed: URL
+    let removedLeading: Double
+    let removedTrailing: Double
+    let keepTrimmed: () -> Void
+    let keepOriginal: () -> Void
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Review slate trim").font(.otLargeTitle)
+                Text("Long silent edges were trimmed with a short pause kept before and after. Your original is saved and can be restored from Package.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                VideoPlayer(player: AVPlayer(url: trimmed))
+                    .frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 18))
+                Text("Removed about \(removedLeading, specifier: "%.1f") s at the start and \(removedTrailing, specifier: "%.1f") s at the end.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                Button("Keep trimmed slate", action: keepTrimmed).buttonStyle(.otPrimary)
+                Button("Use original slate", action: keepOriginal).buttonStyle(.otSecondary)
+                Spacer(minLength: 0)
+            }
+            .padding(OT.gutter)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Use original") { keepOriginal() } } }
+        }
+        .presentationDetents([.large])
+        .interactiveDismissDisabled()
     }
 }

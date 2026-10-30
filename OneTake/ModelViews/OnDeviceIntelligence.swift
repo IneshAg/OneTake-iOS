@@ -48,13 +48,16 @@ enum OnDeviceIntelligence {
     }
 
     static func tapeGuidance(_ audition: Audition, report: TapeAnalyzer.Report) async -> String? {
-        let findings = report.findings.map { "\($0.category): \($0.title) (\($0.where_)) — \($0.advice)" }
+        let findings = report.findings.map {
+            "\($0.isSoftPrompt ? "OPTIONAL TIMING CUE" : "MEASURED FINDING") — \($0.category): \($0.title) (\($0.where_)) — \($0.advice)"
+        }
             .joined(separator: "\n")
         let prompt = """
         Give the actor a short, supportive next-step explanation for this self-tape check.
         Use only the measured findings below and the notice requirements. Prioritize what to
-        fix before recording again. If there are no findings, say what to verify before sending.
-        Do not claim to have watched anything that is not listed.
+        fix before recording again. Treat OPTIONAL TIMING CUE findings as uncertain and possibly
+        intentional; never recommend a retake for one unless the actor says a line was lost. Do not
+        grade acting, imply the actor needs a perfect score, or claim to have watched anything that is not listed.
 
         Notice requirements: \(audition.asks.joined(separator: ", "))
         Findings:

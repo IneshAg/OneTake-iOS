@@ -80,6 +80,8 @@ struct Audition: Identifiable, Hashable, Codable {
     /// Real recordings, once this audition has actually been shot — nil until then. Persisted as
     /// file URLs; the files themselves live under `MediaStore`.
     var slateVideoURL: URL?
+    /// Original slate is retained when an edge-silence trim is accepted, so it can be restored.
+    var slateOriginalVideoURL: URL? = nil
     var fullLengthVideoURL: URL?
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
@@ -160,6 +162,8 @@ struct TapeFinding: Identifiable, Hashable {
     /// The clip and moment this is about, so Tape Check can play exactly that moment.
     var clipURL: URL? = nil
     var seconds: Double? = nil
+    /// True for heuristic timing cues that may be intentional, such as a pause or immediate start.
+    var isSoftPrompt: Bool = false
 }
 
 // MARK: - Practice

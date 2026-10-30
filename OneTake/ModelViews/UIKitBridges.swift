@@ -310,7 +310,7 @@ final class SpeechFollower {
         // that empty format raises an exception.
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
         } catch { return }
         guard startEngine() else { return }
@@ -487,6 +487,21 @@ final class CameraGuidanceSpeaker {
     private var lastSpokenAt = Date.distantPast
     private var lastMessage = ""
 
+    /// Prefer the clearest installed US English system voice. Enhanced and Premium voices are
+    /// downloaded through iOS settings; use the built-in voice if neither is installed.
+    private var preferredVoice: AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "en-US" }
+        func qualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
+            switch voice.quality {
+            case .premium: 2
+            case .enhanced: 1
+            default: 0
+            }
+        }
+        return voices.max { qualityRank($0) < qualityRank($1) }
+            ?? AVSpeechSynthesisVoice(language: "en-US")
+    }
+
     func speak(_ message: String, minInterval: TimeInterval = 2.0, repeatInterval: TimeInterval = 4.5) {
         guard !message.isEmpty else { return }
         let now = Date()
@@ -500,8 +515,10 @@ final class CameraGuidanceSpeaker {
         lastSpokenAt = now
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: message)
-        utterance.rate = 0.48
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = 0.43
+        utterance.pitchMultiplier = 0.98
+        utterance.volume = 0.88
+        utterance.voice = preferredVoice
         synthesizer.speak(utterance)
     }
 
@@ -533,7 +550,7 @@ final class ReaderTrackPlayer {
     func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
         let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
         guard FileManager.default.fileExists(atPath: url.path) else { return false }  // not recorded yet → silent cue
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
         player = try? AVAudioPlayer(contentsOf: url)
         player?.volume = volume
         return player?.play() ?? false
@@ -549,7 +566,7 @@ final class ReaderLineRecorder {
 
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try? session.setActive(true)
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1]
         recorder = try? AVAudioRecorder(url: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex), settings: settings)

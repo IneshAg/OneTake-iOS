@@ -15,7 +15,8 @@ enum TapeAnalyzer {
         var aiGuidance: String?
         /// Clips that were actually analyzed (0 means nothing has been recorded yet).
         var clipCount = 0
-        var checkCount: Int { findings.count + passed.count }
+        /// Optional timing prompts are excluded so they never lower the technical-check dial.
+        var checkCount: Int { findings.filter { !$0.isSoftPrompt }.count + passed.count }
     }
 
     /// Off the main actor: frame sampling, Vision and audio decoding all take real time.
@@ -56,7 +57,7 @@ enum TapeAnalyzer {
             if result.video.contains(where: { $0.category == "Framing" }) { framingOK = false }
             if result.video.contains(where: { $0.category == "Light" }) { lightOK = false }
             if result.video.contains(where: { $0.category == "Eyeline" }) { eyelineOK = false }
-            if !result.audio.isEmpty { audioOK = false }
+            if result.audio.contains(where: { $0.category == "Sound" }) { audioOK = false }
             report.findings += result.video + result.audio
         }
         guard !clips.isEmpty else { return report }
@@ -256,9 +257,9 @@ enum TapeAnalyzer {
         }
 
         var findings: [TapeFinding] = []
-        func add(_ title: String, at time: Double, _ advice: String) {
-            findings.append(TapeFinding(category: "Sound", title: title, where_: "\(clip.label) · \(timestamp(time))",
-                                        advice: advice, clipURL: clip.url, seconds: time))
+        func add(_ title: String, at time: Double, _ advice: String, category: String = "Sound", isSoftPrompt: Bool = false) {
+            findings.append(TapeFinding(category: category, title: title, where_: "\(clip.label) · \(timestamp(time))",
+                                        advice: advice, clipURL: clip.url, seconds: time, isSoftPrompt: isSoftPrompt))
         }
         // Speaking level = the loud end of the clip (90th percentile), so pauses don't drag it down.
         let sorted = windows.map(\.db).sorted()
@@ -271,12 +272,44 @@ enum TapeAnalyzer {
         if let clipped = windows.first(where: { $0.clipped }) {
             add("The sound distorts", at: clipped.time, "Your voice is clipping. Step back from the phone a little or bring your level down on the loud moments.")
         }
+
+        // A short, confident start is fine. Flag only when speech appears in the very first
+        // 200 ms, so the actor can check whether recording started after the first word began.
+        if windows.count > 1, windows[0].db > -38, windows[1].db > -38 {
+            add("Check the first word", at: 0,
+                "Sound starts right at the beginning. Listen for a clipped first word; if it starts mid-word, record another take with a little pre-roll.",
+                category: "Timing", isSoftPrompt: true)
+        }
+
+        // Long internal quiet gaps can be intentional, so this is a review prompt, not an error.
+        // Compare against the clip's speaking level and exclude silence at the start or end.
+        let pauseThreshold = min(-42, speaking - 26)
+        let quiet = windows.map { $0.db < pauseThreshold }
+        let minimumPauseWindows = 25 // 2.5 seconds at 100 ms per window
+        var index = 0
+        var longestPause: Range<Int>?
+        while index < quiet.count {
+            guard quiet[index] else { index += 1; continue }
+            let start = index
+            while index < quiet.count, quiet[index] { index += 1 }
+            let end = index
+            if start > 0, end < quiet.count, end - start >= minimumPauseWindows,
+               !quiet[start - 1], !quiet[end],
+               longestPause.map({ end - start > $0.count }) ?? true {
+                longestPause = start..<end
+            }
+        }
+        if let pause = longestPause {
+            add("Long pause", at: Double(pause.lowerBound) * 0.1,
+                "There’s a quiet gap of about \(String(format: "%.1f", Double(pause.count) * 0.1)) seconds here. Watch it; it may be intentional. Record another take only if you lost a line.",
+                category: "Timing", isSoftPrompt: true)
+        }
         return findings
     }
 
     private struct AudioWindow { var time: Double; var db: Double; var clipped: Bool }
 
-    /// Half-second RMS windows over the clip's audio, decoded to float PCM.
+    /// 100 ms RMS windows over the clip's audio, decoded to float PCM.
     private static func audioWindows(_ asset: AVURLAsset, track: AVAssetTrack) -> [AudioWindow]? {
         guard let reader = try? AVAssetReader(asset: asset) else { return nil }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
@@ -290,13 +323,14 @@ enum TapeAnalyzer {
         reader.add(output)
         guard reader.startReading() else { return nil }
 
+        let windowDuration = 0.1
         var windows: [AudioWindow] = []
         var windowSamples = 0, samplesPerWindow = 0
         var sumSquares = 0.0, clippedSamples = 0
         func closeWindow() {
             guard windowSamples > 0 else { return }
             let rms = (sumSquares / Double(windowSamples)).squareRoot()
-            windows.append(AudioWindow(time: Double(windows.count) * 0.5, db: rms > 0 ? 20 * log10(rms) : -120,
+            windows.append(AudioWindow(time: Double(windows.count) * windowDuration, db: rms > 0 ? 20 * log10(rms) : -120,
                                        clipped: Double(clippedSamples) / Double(windowSamples) > 0.001))
             windowSamples = 0; sumSquares = 0; clippedSamples = 0
         }
@@ -305,7 +339,7 @@ enum TapeAnalyzer {
             if Task.isCancelled { reader.cancelReading(); return nil }
             if samplesPerWindow == 0, let format = CMSampleBufferGetFormatDescription(buffer),
                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
-                samplesPerWindow = max(1, Int(asbd.mSampleRate * 0.5) * Int(max(1, asbd.mChannelsPerFrame)))
+                samplesPerWindow = max(1, Int(asbd.mSampleRate * windowDuration) * Int(max(1, asbd.mChannelsPerFrame)))
             }
             guard samplesPerWindow > 0, let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             let length = CMBlockBufferGetDataLength(block)

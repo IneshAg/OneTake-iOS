@@ -23,6 +23,8 @@ enum Route: Hashable {
     case privacy
     case notifications
     case practiceSetup
+    case standalonePractice(PracticePiece.ID)
+    case practiceSample
     /// Practice's Quick Drills: First-Letter Prompts and Mask & Reveal Lines (Audio Gap reuses `.runLines`).
     case lineDrill(Audition.ID, sceneIndex: Int, mode: LineLearningMode)
     /// Hands-Free Audio Walk — the one drill with its own screen.
@@ -111,6 +113,7 @@ final class AppStore {
             auditions = saved.auditions.map { a in
                 var a = a
                 a.slateVideoURL = MediaStore.rebased(a.slateVideoURL)
+                a.slateOriginalVideoURL = MediaStore.rebased(a.slateOriginalVideoURL)
                 a.fullLengthVideoURL = MediaStore.rebased(a.fullLengthVideoURL)
                 a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
                 a.separateArchiveURL = MediaStore.rebased(a.separateArchiveURL)
@@ -422,9 +425,69 @@ final class AppStore {
         auditions[i].slateVideoURL = url
     }
 
+    func keepOriginalSlate(_ url: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if let previous = auditions[i].slateVideoURL, previous != url { try? FileManager.default.removeItem(at: previous) }
+        if let backup = auditions[i].slateOriginalVideoURL, backup != url { try? FileManager.default.removeItem(at: backup) }
+        auditions[i].slateVideoURL = url
+        auditions[i].slateOriginalVideoURL = nil
+        invalidateExport(for: id)
+    }
+
+    func acceptSlateTrim(_ trimmed: URL, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }),
+              let original = auditions[i].slateOriginalVideoURL ?? auditions[i].slateVideoURL,
+              let replacement = moveEditedClip(trimmed, beside: original, stem: "slate-auto-trimmed") else { return }
+        auditions[i].slateOriginalVideoURL = original
+        auditions[i].slateVideoURL = replacement
+        invalidateExport(for: id)
+    }
+
+    func restoreOriginalSlate(for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }), let original = auditions[i].slateOriginalVideoURL else { return }
+        if let current = auditions[i].slateVideoURL, current != original { try? FileManager.default.removeItem(at: current) }
+        auditions[i].slateVideoURL = original
+        auditions[i].slateOriginalVideoURL = nil
+        invalidateExport(for: id)
+    }
+
     func setFullLengthVideo(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].fullLengthVideoURL = url
+    }
+
+    func replaceSlateVideo(for id: Audition.ID, with edited: URL) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }), let old = auditions[i].slateVideoURL,
+              let replacement = moveEditedClip(edited, beside: old, stem: "slate") else { return }
+        try? FileManager.default.removeItem(at: old)
+        auditions[i].slateVideoURL = replacement
+        invalidateExport(for: id)
+    }
+
+    func replaceFullLengthVideo(for id: Audition.ID, with edited: URL) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }), let old = auditions[i].fullLengthVideoURL,
+              let replacement = moveEditedClip(edited, beside: old, stem: "full-length") else { return }
+        try? FileManager.default.removeItem(at: old)
+        auditions[i].fullLengthVideoURL = replacement
+        invalidateExport(for: id)
+    }
+
+    private func moveEditedClip(_ edited: URL, beside original: URL, stem: String) -> URL? {
+        let ext = edited.pathExtension.isEmpty ? (original.pathExtension.isEmpty ? "mov" : original.pathExtension) : edited.pathExtension
+        let destination = original.deletingLastPathComponent()
+            .appendingPathComponent("\(stem)-trimmed-\(UUID().uuidString).\(ext)")
+        do {
+            try FileManager.default.moveItem(at: edited, to: destination)
+            return destination
+        } catch { return nil }
+    }
+
+    private func invalidateExport(for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if let url = auditions[i].exportedFileURL { try? FileManager.default.removeItem(at: url) }
+        if let url = auditions[i].separateArchiveURL { try? FileManager.default.removeItem(at: url) }
+        auditions[i].exportedFileURL = nil
+        auditions[i].separateArchiveURL = nil
     }
 
     func setShareLink(_ link: CloudLink.Published, for id: Audition.ID) {
@@ -468,6 +531,7 @@ final class AppStore {
         do { try FileManager.default.moveItem(at: edited, to: dest) } catch { return }
         try? FileManager.default.removeItem(at: old)
         takes[i].fileURL = dest
+        if let auditionID = takes[i].auditionID { invalidateExport(for: auditionID) }
         Task { @MainActor in
             guard let seconds = try? await AVURLAsset(url: dest).load(.duration).seconds,
                   let j = self.takes.firstIndex(where: { $0.id == id }) else { return }
@@ -485,6 +549,27 @@ final class AppStore {
     func incrementPracticeTakes(for id: PracticePiece.ID) {
         guard let i = practice.firstIndex(where: { $0.id == id }) else { return }
         practice[i].takesRecorded += 1
+    }
+
+    func addStandalonePracticePiece(title: String, character: String, scene: ScriptScene,
+                                   detail: String = "Personal scene") -> PracticePiece {
+        let piece = PracticePiece(title: title, detail: detail, linesLearned: 0,
+                                  linesTotal: scene.lines.filter(\.isMine).count,
+                                  character: character, scene: scene)
+        practice.insert(piece, at: 0)
+        return piece
+    }
+
+    func promotePracticePiece(_ id: PracticePiece.ID) {
+        guard let index = practice.firstIndex(where: { $0.id == id }), index != 0 else { return }
+        let piece = practice.remove(at: index)
+        practice.insert(piece, at: 0)
+    }
+
+    func recordStandaloneRun(pieceID: PracticePiece.ID, linesOnYourOwn: Int) {
+        guard let index = practice.firstIndex(where: { $0.id == pieceID }) else { return }
+        practice[index].linesLearned = min(linesOnYourOwn, practice[index].linesTotal)
+        promotePracticePiece(pieceID)
     }
 
     /// Finds or creates the `PracticePiece` for a given audition scene, so Quick Drills and the

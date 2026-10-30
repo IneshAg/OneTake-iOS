@@ -121,7 +121,15 @@ struct AuditionDetailView: View {
                 Text(scene.title).font(.otTitle)
                 Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
-                Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: sceneIndex)) }.buttonStyle(.otPrimary)
+                HStack(spacing: 10) {
+                    Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: sceneIndex)) }
+                        .buttonStyle(.otPrimary)
+                    Button("Practise") {
+                        store.practicePiece(for: a.id, sceneIndex: sceneIndex)
+                        store.push(.runLines(a.id, sceneIndex: sceneIndex))
+                    }
+                    .buttonStyle(.otSecondary)
+                }
             } else if next?.kind == .scene {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
                 Text("No sides captured yet").font(.otTitle)

@@ -350,6 +350,9 @@ struct SearchView: View {
                                 if let id = p.auditionID, let scene = p.sceneIndex,
                                    store.audition(id)?.scenes.indices.contains(scene) == true {
                                     store.push(.runLines(id, sceneIndex: scene))
+                                } else if p.scene != nil {
+                                    store.promotePracticePiece(p.id)
+                                    store.push(.standalonePractice(p.id))
                                 }
                             } label: {
                                 ScheduleRow(eyebrow: "PRACTICE", value: "\(p.linesLearned)/\(p.linesTotal)", title: p.title, detail: p.detail)

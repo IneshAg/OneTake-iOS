@@ -6,7 +6,7 @@ import UserNotifications
 
 /// 06 Add an audition → 6.1 Reading the notice → (6.2 One thing missing) → 6c Here's what they want → 7.0 Detail (0 of 4)
 struct AddAuditionFlow: View {
-    enum Step: Hashable { case reading, missingDate, review, couldNotRead }
+    enum Step: Hashable { case reading, missingDetails, review, couldNotRead }
 
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -23,13 +23,14 @@ struct AddAuditionFlow: View {
             capture
                 .navigationDestination(for: Step.self) { step in
                     switch step {
-                    case .reading:      NoticeReadingView(notice: notice) { result in draft = result; path.append(result.due == nil ? .missingDate : .review) }
-                    case .missingDate:  MissingDateView(draft: $draft) { path.append(.review) }
+                    case .reading:      NoticeReadingView(notice: notice, onDone: acceptParsedDraft)
+                    case .missingDetails: MissingDetailsView(draft: $draft) { path.append(.review) }
                     case .review:       NoticeReviewView(draft: $draft) { save() }
                     case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
                     }
                 }
         }
+        .presentationDetents(path.isEmpty ? [.height(420)] : [.large])
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in
                 showScanner = false
@@ -84,6 +85,11 @@ struct AddAuditionFlow: View {
         if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
     }
 
+    private func acceptParsedDraft(_ parsedDraft: NoticeParser.Draft) {
+        draft = parsedDraft
+        path.append(parsedDraft.missingRequiredDetails.isEmpty ? .review : .missingDetails)
+    }
+
     private func readSharedNotice() async {
         guard let item = store.incomingShare else { return }
         store.incomingShare = nil
@@ -117,7 +123,6 @@ struct AddAuditionFlow: View {
                             .frame(width: 36, height: 36).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 9))
                         VStack(alignment: .leading) {
                             Text("Copied the notice?").font(.otHeadline)
-                            Text("Paste the email or message — OneTake reads it here").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         }
                     }
                     PasteButton(payloadType: String.self) { strings in
@@ -189,7 +194,7 @@ enum NoticeParser {
         var castingOffice = ""
         var projectType = "Feature film"
         var due: Date?
-        var scenes = 1
+        var scenes = 0
         var asks: [String] = []
         var aiGuidance = ""
         var destination: Destination = .actorsAccess
@@ -198,6 +203,14 @@ enum NoticeParser {
         var sourceText = ""
 
         static let blank = Draft()
+
+        var missingRequiredDetails: [String] {
+            var missing: [String] = []
+            if project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("project") }
+            if role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("role") }
+            if due == nil { missing.append("due date") }
+            return missing
+        }
 
         func makeAudition() -> Audition {
             let parsedScenes = ScriptParser.parseScenes(from: sourceText, myRole: role)
@@ -240,9 +253,9 @@ enum NoticeParser {
             d.castingOffice = office
         }
         if let explicit = detectSceneCount(in: text) {
-            d.scenes = max(explicit, 1)
+            d.scenes = max(explicit, 0)
         } else {
-            d.scenes = max(ScriptParser.parseScenes(from: rawText, myRole: d.role).count, 1)
+            d.scenes = ScriptParser.parseScenes(from: rawText, myRole: d.role).count
         }
 
         func ask(_ s: String) { if !d.asks.contains(s) { d.asks.append(s) } }
@@ -433,7 +446,7 @@ struct NoticeReadingView: View {
             ("Project", draft.project.isEmpty ? "Not found in notice" : draft.project, !draft.project.isEmpty),
             ("Your role", draft.role.isEmpty ? "Not found in notice" : draft.role, !draft.role.isEmpty),
             ("Due", draft.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not specified in notice", draft.due != nil),
-            ("Sides", draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes", true),
+            ("Sides", draft.scenes == 0 ? "No scenes detected" : draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes", draft.scenes > 0),
             ("What they asked for", draft.asks.isEmpty ? "None specified" : "\(draft.asks.count) requirement\(draft.asks.count == 1 ? "" : "s")", !draft.asks.isEmpty)
         ]
     }
@@ -479,28 +492,69 @@ struct NoticeReadingView: View {
     }
 }
 
-// MARK: - 6.2 One thing missing
+// MARK: - 6.2 Missing details
 
-struct MissingDateView: View {
+struct MissingDetailsView: View {
     @Binding var draft: NoticeParser.Draft
     var onContinue: () -> Void
     @State private var picked: Date = .now.addingTimeInterval(86400)
+    @State private var requestedFields: [String] = []
+
+    private var missing: [String] { draft.missingRequiredDetails }
+    private var canContinue: Bool {
+        !draft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("One thing missing").font(.otLargeTitle)
-            Text("Everything else is filled in from the notice.").font(.otCallout).foregroundStyle(OT.labelSecondary)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("When is it due?").font(.otHeadline)
-                Text("The notice didn't give a date.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                DatePicker("Due", selection: $picked).labelsHidden()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(missing.isEmpty ? "All set" : missing.count == 1 ? "One thing missing" : "A few details missing")
+                    .font(.otLargeTitle)
+                Text(missing.isEmpty
+                     ? "Everything needed is ready."
+                     : missing.count == 1
+                        ? "I couldn't find the \(missing[0]) in the notice. Add it to continue."
+                        : "I couldn't find the \(missing.joined(separator: ", ")) in the notice. Add what you know to continue.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if requestedFields.contains("project") {
+                        TextField("Project name", text: $draft.project)
+                            .textInputAutocapitalization(.words)
+                    }
+                    if requestedFields.contains("role") {
+                        TextField("Your role", text: $draft.role)
+                            .textInputAutocapitalization(.words)
+                    }
+                    if requestedFields.contains("due date") {
+                        Text("When is it due?").font(.otHeadline)
+                        DatePicker("Due date", selection: $picked, in: Date.now...)
+                            .labelsHidden()
+                    }
+                }
+                .padding(16).otCard(radius: 20)
             }
-            .padding(16).otCard(radius: 20)
-            Spacer()
-            Button("Continue") { draft.due = picked; onContinue() }.buttonStyle(.otPrimary)
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 22)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, OT.gutter)
         .otCanvas()
+        .safeAreaInset(edge: .bottom) {
+            Button("Continue") {
+                if draft.due == nil { draft.due = picked }
+                onContinue()
+            }
+            .buttonStyle(.otPrimary)
+            .disabled(!canContinue)
+            .padding(.horizontal, OT.gutter)
+            .padding(.vertical, 10)
+            .background(OT.bgCanvas)
+        }
+        .onAppear {
+            requestedFields = draft.missingRequiredDetails
+            if let due = draft.due { picked = due }
+        }
     }
 }
 
@@ -514,7 +568,9 @@ struct NoticeReviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Here's what they want").font(.otLargeTitle)
-                Text("\(draft.asks.count + 1) things found in the email. Tap any line to change it, then save.")
+                Text(draft.asks.isEmpty
+                     ? "No recording requirements were detected. Review the details, then save."
+                     : "\(draft.asks.count) requirement\(draft.asks.count == 1 ? "" : "s") found in the email. Tap any line to change it, then save.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary)
 
                 SectionLabel(text: "Due")

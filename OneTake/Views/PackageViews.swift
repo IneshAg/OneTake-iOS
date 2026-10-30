@@ -24,6 +24,7 @@ struct PackageView: View {
     /// Last progress pushed to the Live Activity — updates are throttled to 5% steps.
     @State private var reportedProgress = -1.0
     @State private var showSignIn = false
+    @State private var trimmingClip: PackageTrimTarget?
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -53,6 +54,18 @@ struct PackageView: View {
                     send()
                 }
             }
+            .sheet(item: $trimmingClip) { target in
+                VideoTrimmer(url: target.url) { edited in
+                    trimmingClip = nil
+                    guard let edited else { return }
+                    switch target.kind {
+                    case .slate: store.replaceSlateVideo(for: auditionID, with: edited)
+                    case .fullLength: store.replaceFullLengthVideo(for: auditionID, with: edited)
+                    }
+                    Haptics.success()
+                }
+                .ignoresSafeArea()
+            }
         }
     }
 
@@ -65,6 +78,29 @@ struct PackageView: View {
 
                 HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text(totalDurationLabel(a)).font(.otHeadline) }
                 TapeStrip(legend: legend)
+
+                if a.slateVideoURL != nil || a.fullLengthVideoURL != nil {
+                    VStack(spacing: 0) {
+                        if let url = a.slateVideoURL {
+                            Button { trimmingClip = PackageTrimTarget(kind: .slate, url: url) } label: {
+                                row(symbol: "scissors", title: "Trim slate", detail: "Adjust the clip start and end", value: nil)
+                            }
+                            .buttonStyle(.plain).disabled(!VideoTrimmer.canTrim(url))
+                        }
+                        if a.slateOriginalVideoURL != nil {
+                            Button { store.restoreOriginalSlate(for: auditionID) } label: {
+                                row(symbol: "arrow.uturn.backward", title: "Restore original slate", detail: "Undo the suggested trim", value: nil)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if let url = a.fullLengthVideoURL {
+                            Button { trimmingClip = PackageTrimTarget(kind: .fullLength, url: url) } label: {
+                                row(symbol: "scissors", title: "Trim full length", detail: "Adjust the clip start and end", value: nil)
+                            }
+                            .buttonStyle(.plain).disabled(!VideoTrimmer.canTrim(url))
+                        }
+                    }
+                }
 
                 VStack(spacing: 0) {
                     row(symbol: "film", title: a.deliverableFileName(slate: store.slate), detail: "Named the way casting asked · one file", value: nil)
@@ -252,6 +288,13 @@ struct PackageView: View {
         reportedProgress = -1
         LiveActivitySync.setUploadProgress(nil, for: a)
     }
+}
+
+private struct PackageTrimTarget: Identifiable {
+    enum Kind: String { case slate, fullLength }
+    let kind: Kind
+    let url: URL
+    var id: String { kind.rawValue }
 }
 
 struct TapeStrip: View {

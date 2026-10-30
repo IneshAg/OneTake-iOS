@@ -7,8 +7,11 @@ struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearance = "system"
     @State private var showSignIn = false
+    @State private var showGestureSettings = false
+    @AppStorage("camera.gesturesEnabled") private var showGestures = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
+    @AppStorage("practice.showSample") private var showSampleScene = true
 
     var body: some View {
         ScrollView {
@@ -92,6 +95,19 @@ struct ProfileView: View {
                     .otCard(radius: 20)
                 }
 
+                // Practice sample
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Practice")
+
+                    Toggle(isOn: $showSampleScene) {
+                        Text("Show sample scene").font(.otBody).foregroundStyle(OT.labelPrimary)
+                    }
+                    .tint(OT.accent)
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 60)
+                    .otCard(radius: 20)
+                }
+
                 // More section
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: "More")
@@ -109,6 +125,21 @@ struct ProfileView: View {
                             .labelsHidden()
                         }
                         .frame(minHeight: 44)
+
+                        Divider().padding(.vertical, 2)
+
+                        Button { showGestureSettings = true } label: {
+                            HStack {
+                                Label("Hands-free gestures", systemImage: "hand.raised")
+                                    .font(.otBody).foregroundStyle(OT.labelPrimary)
+                                Spacer()
+                                Text(showGestures ? "On" : "Off")
+                                    .font(.otCallout).foregroundStyle(OT.labelTertiary)
+                                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
+                            }
+                            .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
 
                         Divider().padding(.vertical, 2)
 
@@ -188,6 +219,9 @@ struct ProfileView: View {
         .sheet(isPresented: $showSignIn) {
             SignInView { account in store.account = account; showSignIn = false }
         }
+        .sheet(isPresented: $showGestureSettings) {
+            HandsFreeGestureSettingsView()
+        }
     }
 
     private func profileRow(symbol: String, title: String) -> some View {
@@ -198,6 +232,36 @@ struct ProfileView: View {
             Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
         }
         .frame(minHeight: 44)
+    }
+}
+
+private struct HandsFreeGestureSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("camera.gesturesEnabled") private var enabled = false
+    @AppStorage("camera.gestureHoldDuration") private var holdDuration = 1.2
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Use hand gestures", isOn: $enabled)
+                    Picker("Hold gesture for", selection: $holdDuration) {
+                        Text("0.8 seconds").tag(0.8)
+                        Text("1.2 seconds").tag(1.2)
+                        Text("1.8 seconds").tag(1.8)
+                    }
+                    .disabled(!enabled)
+                } footer: {
+                    Text("Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on. Tap Record to finish a take.")
+                }
+
+            }
+            .navigationTitle("Hands-free gestures")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -389,7 +453,7 @@ struct PrivacyView: View {
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
         store.takes.removeAll()
         for i in store.auditions.indices {
-            store.auditions[i].slateVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
+            store.auditions[i].slateVideoURL = nil; store.auditions[i].slateOriginalVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
             // The recordings and headshots behind these pieces are gone, so unsent auditions go back
             // to "not done" rather than claiming to be ready. Sent ones keep their history (and link).
             guard store.auditions[i].status != .sent else { continue }

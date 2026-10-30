@@ -72,9 +72,9 @@ struct RootTabView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearance = "system"
 
-    /// In empty state (no auditions yet), search is hidden until there is content to query.
+    /// Search is useful once there are auditions or standalone practice pieces to query.
     private var isSearchAvailable: Bool {
-        !store.auditions.isEmpty
+        !store.auditions.isEmpty || !store.practice.isEmpty
     }
 
     var body: some View {
@@ -126,7 +126,6 @@ struct RootTabView: View {
         }) {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
-                .presentationDetents([.large])
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
         .fullScreenCover(item: $store.camera) { flow in
@@ -162,6 +161,8 @@ private struct RouteDestinations: ViewModifier {
             case .privacy:                           PrivacyView()
             case .notifications:                     NotificationSettingsView()
             case .practiceSetup:                     PracticeSetupView()
+            case .standalonePractice(let id):        StandalonePracticeView(pieceID: id)
+            case .practiceSample:                    StandalonePracticeView(pieceID: nil, isSample: true)
             case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)
             case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
             }

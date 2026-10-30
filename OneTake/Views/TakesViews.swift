@@ -281,7 +281,30 @@ struct TapeCheckView: View {
             guard !Task.isCancelled else { return }
             report = result
         }
-        .sheet(item: $finding) { f in FindingSheet(finding: f) { finding = nil } }
+        .sheet(item: $finding) { f in
+            FindingSheet(finding: f, onDismiss: { finding = nil }, onRetake: retakeAction(for: f))
+        }
+    }
+
+    private func retakeAction(for finding: TapeFinding) -> (() -> Void)? {
+        guard let flow = retakeFlow(for: finding) else { return nil }
+        return {
+            self.finding = nil
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                self.store.camera = flow
+            }
+        }
+    }
+
+    private func retakeFlow(for finding: TapeFinding) -> CameraFlow? {
+        guard let url = finding.clipURL, let audition = store.audition(auditionID) else { return nil }
+        if url == audition.slateVideoURL { return .shoot(auditionID, start: .slate) }
+        if url == audition.fullLengthVideoURL { return .shoot(auditionID, start: .fullLength) }
+        if let take = store.takes.first(where: { $0.fileURL == url }), let scene = take.sceneIndex {
+            return .shoot(auditionID, scene: scene)
+        }
+        return nil
     }
 
     private var tapeSignature: [URL] {
@@ -299,15 +322,19 @@ struct TapeCheckView: View {
             Text("Record your slate and a take, then come back — Tape Check looks at exactly what goes on the tape.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
         } else {
+            let worthReview = report.findings.filter { !$0.isSoftPrompt }
+            let optionalPrompts = report.findings.filter(\.isSoftPrompt)
             HStack(spacing: 16) {
-                if report.checkCount > 0 {
-                    ReadinessDial(done: report.passed.count, total: report.checkCount, size: 84, lineWidth: 8)
-                }
+                ReadinessDial(done: report.passed.count, total: report.checkCount, size: 84, lineWidth: 8)
+                    .accessibilityLabel("\(report.passed.count) of \(report.checkCount) technical checks passed")
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(report.findings.isEmpty ? "Looks good" : "Ready to send").font(.otTitle)
+                    Text(report.findings.isEmpty ? "No technical issues found" : worthReview.isEmpty ? "No clear technical issue" : "Review what stands out")
+                        .font(.otTitle)
                     Text(report.findings.isEmpty
                          ? "Nothing stood out. Watch it once, then send."
-                         : "\(report.findings.count) thing\(report.findings.count == 1 ? " is" : "s are") worth a look. Nothing stops you sending.")
+                         : optionalPrompts.isEmpty
+                            ? "These checks are advisory. Nothing blocks sending."
+                            : "Timing cues can be intentional. Keep them if they feel right. Nothing blocks sending.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 }
             }
@@ -317,26 +344,15 @@ struct TapeCheckView: View {
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                         .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                SectionLabel(text: "Worth a look")
-                ForEach(report.findings) { f in
-                    Button { finding = f } label: {
-                        HStack(spacing: 12) {
-                            Group {
-                                if let url = f.clipURL { VideoThumbnail(url: url) } else { Image(systemName: "shippingbox").foregroundStyle(OT.labelSecondary) }
-                            }
-                            .frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(f.category).font(.otCaption.weight(.semibold)).foregroundStyle(OT.warning)
-                                Text(f.title).font(.otBody)
-                                Text(f.where_).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
-                        }
-                        .frame(minHeight: 60)
-                    }
-                    .buttonStyle(.plain)
-                    Divider()
+                if !worthReview.isEmpty {
+                    SectionLabel(text: "Worth a look")
+                    ForEach(worthReview) { findingRow($0) }
+                }
+                if !optionalPrompts.isEmpty {
+                    SectionLabel(text: "Check if you want")
+                    Text("These timing cues are estimates. A pause or quick start may be intentional.")
+                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    ForEach(optionalPrompts) { findingRow($0) }
                 }
             }
             if report.findings.isEmpty, let guidance = report.aiGuidance {
@@ -350,12 +366,35 @@ struct TapeCheckView: View {
                         .font(.otFootnote).foregroundStyle(OT.labelSecondary).padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Label("\(report.passed.count) check\(report.passed.count == 1 ? "" : "s") passed", systemImage: "checkmark.seal.fill").foregroundStyle(OT.success)
+                    Label("\(report.passed.count) checks passed", systemImage: "checkmark.seal.fill").foregroundStyle(OT.success)
                 }
             }
             Label("Checked on this iPhone — nothing is uploaded.", systemImage: "lock.fill")
                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
         }
+    }
+
+    @ViewBuilder private func findingRow(_ f: TapeFinding) -> some View {
+        Button { finding = f } label: {
+            HStack(spacing: 12) {
+                Group {
+                    if let url = f.clipURL { VideoThumbnail(url: url) }
+                    else { Image(systemName: "shippingbox").foregroundStyle(OT.labelSecondary) }
+                }
+                .frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(f.category).font(.otCaption.weight(.semibold))
+                        .foregroundStyle(f.isSoftPrompt ? OT.labelSecondary : OT.warning)
+                    Text(f.title).font(.otBody)
+                    Text(f.where_).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+            }
+            .frame(minHeight: 60)
+        }
+        .buttonStyle(.plain)
+        Divider()
     }
 }
 
@@ -363,11 +402,13 @@ struct TapeCheckView: View {
 private struct FindingSheet: View {
     let finding: TapeFinding
     var onDismiss: () -> Void
+    var onRetake: (() -> Void)? = nil
     @State private var player: AVPlayer?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\(finding.category) · \(finding.where_)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.warning)
+            Text("\(finding.category) · \(finding.where_)").font(.otFootnote.weight(.semibold))
+                .foregroundStyle(finding.isSoftPrompt ? OT.labelSecondary : OT.warning)
             Text(finding.title).font(.otTitle)
             if let player {
                 VideoPlayer(player: player)
@@ -381,6 +422,11 @@ private struct FindingSheet: View {
                         .buttonStyle(.otSecondary)
                 }
                 Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
+            }
+            if let onRetake {
+                Text("Recording again saves a new take. Your current send take stays selected until you choose another.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                Button("Record another take", action: onRetake).buttonStyle(.otPrimary)
             }
         }
         .padding(OT.gutter)

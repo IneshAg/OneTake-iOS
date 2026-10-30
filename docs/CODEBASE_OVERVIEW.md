@@ -148,7 +148,8 @@ Lookups/mutations worth knowing:
   `startCallback` (new round, keeps scenes/asks, can copy reader audio).
 - `markDone`, `markSent`, `circleOnly` (scoped to audition + scene), `addTake` (first take of a scene
   is auto-circled), `replaceTakeFile`, `addNote`, `nextTakeNumber` (max + 1, never reuses numbers),
-  `incrementPracticeTakes`, `practicePiece(for:sceneIndex:)`, `recordRun`.
+  `incrementPracticeTakes`, `practicePiece(for:sceneIndex:)`, `recordRun`, plus standalone practice
+  creation, ordering and progress updates.
 - `push`, `popTo`, `popToRoot` — operate on the active tab's stack, or the Profile sheet's stack when
   it's open.
 
@@ -256,7 +257,7 @@ Invariants to preserve:
 
 | Path | Contents |
 | --- | --- |
-| `audition-<uuid>/slate.mov` | slate recording |
+| `audition-<uuid>/slate-original.mov` | original slate recording, retained when a suggested edge trim is accepted |
 | `audition-<uuid>/fulllength.mov` | optional full-length recording |
 | `audition-<uuid>/scene-N/take-<number>-<uuid>.mov` | scene takes |
 | `reader/<auditionID>/scene-N/line-N.m4a` | self-recorded reader lines |
@@ -338,12 +339,16 @@ Speech/recognition details live in `SpeechFollower` (below).
 
 ### Practice (`Views/PracticeViews.swift`, `Views/LineLearningViews.swift`)
 
-- "Pick up where you left off" card (most recent `PracticePiece`), Run lines / Record a take.
+- Standalone scenes can be pasted or imported from a photo, scan, PDF or text file without an
+  audition; parsed scenes are saved in `PracticePiece.scene`. Audition scenes remain available in
+  the same setup screen. The example scene is opt-in and off by default; recording from it saves a
+  real practice piece only after the actor chooses to record.
+- "Pick up where you left off" card (most recent `PracticePiece`), display modes / Record a take.
 - Quick Drills grid: First-Letter Prompts and Mask & Reveal reuse `otLineDisplay` in
   `LineDrillView`; Audio Gap reuses `RunLinesView`; Hands-Free Audio Walk has its own screen that
   loops the scene's audio hands-free.
-- "Your pieces" list; a piece opens Prepare only while its audition still has that scene.
-- Add sides / practice setup when no usable scenes exist.
+- "Your pieces" list; linked pieces open Prepare, standalone pieces open their saved scene.
+- Audition details offer a direct Practise action for the next parsed scene.
 - `PracticeTakeView` is a no-slate take that is never sent; recording one increments
   `takesRecorded`.
 
@@ -363,9 +368,11 @@ It resumes at `.scene` if the slate piece is already done. Controls:
   Camera Control and AirPods stem via AVKit's `onCameraCaptureEvent`.
 - Prompter advances on the actor's spoken words when `prompter.followVoice` is on; tap/swipe to
   move lines; reader lines play under the take at `readerVolume`.
-- Camera flip, exposure lock, live face/framing/light checks during `.check`.
+- Camera flip, exposure lock, live face/framing/light checks during `.check`. The optional pose guide
+  uses Vision's on-device `VNDetectHumanBodyPoseRequest` to center the shoulders and check their tilt;
+  it runs only during camera setup and does not save or upload pose data.
 
-Saving (`saveRecording`): persist the temp file first, then update state. Slate → `slate.mov` and
+Saving (`saveRecording`): persist the temp file first, then update state. Slate → `slate-original.mov` and
 mark slate done; full length → `fulllength.mov`; scene → `take-N-<uuid>.mov` under
 `audition-<id>/scene-N`, add a `Take`. A failed save stays on the same stage with an alert. `finish`
 marks the scene done (only if a take exists) and routes to Takes or back to the audition.
@@ -382,24 +389,33 @@ marks the scene done (only if a take exists) and routes to Takes or back to the 
   - **Video** (≈1 frame/s, 3–20 frames, skipping the first 0.5 s): Vision face detection + luma.
     Findings: no face for long stretches, too far away, headroom cut / too much space, off-centre,
     head turned (eyeline), too dark, overexposed, backlit.
-  - **Audio** (skipped for full length): half-second float PCM RMS windows; 90th-percentile speaking
-    level. Findings: no sound, quiet voice, clipping.
+  - **Audio** (skipped for full length): 100 ms float PCM RMS windows; 90th-percentile speaking
+    level. Findings: no sound, quiet voice, clipping, speech starting at the clip boundary, and internal
+    quiet gaps of 2.5 seconds or longer. Start and pause findings are prompts to listen, not claims
+    that the performance is wrong. Findings can cue playback or launch a retake.
   - **Package**: front headshot, slate present, full length if asked, every scene shot, under the
     requested limit, landscape if asked, ≥1080p; file name always passes.
   - Results are cached per file version (path + modification date + size + label) and a cancelled
     analysis is not cached. Findings are advisory; nothing blocks sending.
-- Finding rows open a sheet that plays the exact clip/moment.
+- Tape Check separates measured issues under "Worth a look" from uncertain timing cues under
+  "Check if you want". Its readiness dial counts technical checks only; optional cues don't lower it
+  and nothing blocks sending.
+- Finding rows open a sheet that plays the exact clip/moment. Retaking a scene creates a new take;
+  the existing circled send take remains selected until the actor chooses another.
 
 ### Preview (`Views/TapePreviewView.swift`)
 
 The last look before sending: headshot photos as clickable chapter 1, then the tape played from the
 local clips (no export needed) with chapter scrubbing. Sits between Tape Check and Package.
+- Slate recording is analyzed for long silent edges. A suggested trim keeps 0.22 seconds of padding, previews before applying, and retains the original so it can be restored from Package. The source is never silently overwritten.
 - Real chapter durations: the slate and scene chapters display their accurate asset durations loaded via `asset.load(.duration)`.
 - Chapter actions: includes "Change headshots" (opens `HeadshotsView`), retaking the slate (`start: .slate`), retaking the full-length tape (`start: .fullLength`), and opening takes for a specific scene (`takes(auditionID, sceneIndex:)`).
 
 ### Package and send (`Views/PackageViews.swift` and `ModelViews` package services)
 
 - `PackageView` phases: review → sending → failed → sent.
+- The same system video trimmer edits slate and full-length clips from Package and scene takes from
+  Takes. Cancelling keeps the source unchanged; saving replaces it and invalidates cached exports.
 - Review shows tape order (`TapeStrip`), deliverable file name, destination, Tape Check entry, audio
   source, and preview when an export exists. Also "Choose different takes".
 - Tapping the **Audio** row opens Tape Check (`store.push(.tapeCheck(a.id))`).
