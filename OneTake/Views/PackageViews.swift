@@ -9,7 +9,7 @@ import SwiftUI
 // confirmed receipt it never saw.
 
 struct PackageView: View {
-    enum Phase { case review, sending, failed, sent }
+    enum Phase { case review, sending, readyToShare, failed, sent }
 
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
@@ -32,6 +32,7 @@ struct PackageView: View {
                 switch phase {
                 case .review:  review(a)
                 case .sending: SendProgressView(audition: a, progress: progress, uploading: uploading, onCancel: cancelExport)
+                case .readyToShare: DeliveryReadyView(destination: a.destination, onShare: { showShare = true }, onBack: { phase = .review })
                 case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
@@ -45,6 +46,7 @@ struct PackageView: View {
                 if let items = shareItems(a) {
                     ShareSheet(items: items) { completed in
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
+                        else { phase = .readyToShare }
                         endUpload()
                     }
                 }
@@ -84,41 +86,19 @@ struct PackageView: View {
                 HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text(totalDurationLabel(a)).font(.otHeadline) }
                 TapeStrip(legend: legend)
 
-                if a.slateVideoURL != nil || a.fullLengthVideoURL != nil {
-                    VStack(spacing: 0) {
-                        if let url = a.slateVideoURL {
-                            Button { trimmingClip = PackageTrimTarget(kind: .slate, url: url) } label: {
-                                row(symbol: "scissors", title: "Trim slate", detail: "Adjust the clip start and end", value: nil)
-                            }
-                            .buttonStyle(.plain).disabled(!VideoTrimmer.canTrim(url))
-                        }
-                        if a.slateOriginalVideoURL != nil {
-                            Button { store.restoreOriginalSlate(for: auditionID) } label: {
-                                row(symbol: "arrow.uturn.backward", title: "Restore original slate", detail: "Undo the suggested trim", value: nil)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if let url = a.fullLengthVideoURL {
-                            Button { trimmingClip = PackageTrimTarget(kind: .fullLength, url: url) } label: {
-                                row(symbol: "scissors", title: "Trim full length", detail: "Adjust the clip start and end", value: nil)
-                            }
-                            .buttonStyle(.plain).disabled(!VideoTrimmer.canTrim(url))
-                        }
-                    }
-                }
-
                 VStack(spacing: 0) {
-                    row(symbol: "film", title: a.deliverableFileName(slate: store.slate), detail: "Named the way casting asked · one file", value: nil)
-                    row(symbol: "archivebox", title: separateArchiveName(a), detail: "Separate finalized clips + headshots", value: "ZIP")
-                    Button { showDestination = true } label: { row(symbol: "paperplane", title: a.destination.rawValue, detail: nil, value: exportedSizeLabel(a)) }.buttonStyle(.plain)
-                    Button { store.push(.tapeCheck(a.id)) } label: { row(symbol: "checkmark.seal.fill", title: "Tape check", detail: nil, value: "Review", tint: OT.success) }.buttonStyle(.plain)
-                    Button { store.push(.tapeCheck(a.id)) } label: {
-                        row(symbol: "waveform", title: "Audio", detail: "Review sound levels from your takes", value: "Review", tint: OT.success)
-                    }.buttonStyle(.plain)
                     Button { store.push(.preview(a.id)) } label: {
-                        row(symbol: "play.rectangle", title: "Preview the whole tape", detail: "Plays the selected clips before export", value: nil)
+                        row(symbol: "play.rectangle", title: "Preview tape", detail: "Watch it and change a selected piece", value: nil)
+                    }.buttonStyle(.plain)
+                    Button { store.push(.tapeCheck(a.id)) } label: {
+                        row(symbol: "checkmark.seal.fill", title: "Tape check", detail: "Picture and audio checks", value: "Review", tint: OT.success)
+                    }.buttonStyle(.plain)
+                    Button { showDestination = true } label: {
+                        row(symbol: "paperplane", title: "Delivery", detail: a.destination.rawValue, value: exportedSizeLabel(a))
                     }.buttonStyle(.plain)
                 }
+                Text("Sending prepares one video and a ZIP of the separate clips and headshots.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             }
             .padding(.horizontal, OT.gutter)
             .padding(.bottom, 140)
@@ -127,8 +107,6 @@ struct PackageView: View {
             VStack(spacing: 4) {
                 Button { send() } label: { Label("Send to \(a.destination.rawValue)", systemImage: "paperplane.fill").labelStyle(TrailingIconLabelStyle()) }
                     .buttonStyle(.otPrimary)
-                Button("Choose different takes") { store.push(.takes(a.id)) }
-                    .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
             }
             .padding(.horizontal, OT.gutter).background(OT.bgCanvas)
         }
@@ -233,8 +211,7 @@ struct PackageView: View {
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    phase = .review
-                    showShare = true
+                    phase = .readyToShare
                 }
             } catch is CancellationError {
                 // Cancelled from the progress screen — cancelExport() already returned to review.
@@ -251,19 +228,13 @@ struct PackageView: View {
     /// What the share sheet hands on: the iCloud link (with a line of context) for "Email or link",
     /// otherwise the exported file itself.
     private func shareItems(_ a: Audition) -> [Any]? {
-        // The audition headshots go with the tape as photos, named to match it.
-        let archiveURL = a.separateArchiveURL ?? MediaStore.directory("Exports").appendingPathComponent(separateArchiveName(a))
-        let baseName = archiveURL.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_SEPARATE", with: "")
-        let headshots: [Any] = HeadshotStore.deliverables(baseName: baseName)
         if a.destination == .emailOrLink {
             guard let link = a.shareLink else { return nil }
-            let expiry = a.shareLinkExpires.map { " The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
             let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
-            let video = a.exportedFileURL.map { [$0] } ?? []
-            return ["\(who) — \(a.role), \(a.project).\(expiry)", link] + video + [archiveURL] + headshots
+            return ["\(who) — \(a.role), \(a.project)", link]
         }
         guard let video = a.exportedFileURL else { return nil }
-        return [video, archiveURL] + headshots
+        return [video]
     }
 
     private func separateArchiveName(_ a: Audition) -> String {
@@ -406,18 +377,13 @@ struct SendProgressView: View {
                 Text("%").font(.otTitle)
             }
             ProgressView(value: progress).tint(OT.accent)
-            Text("Joining your slate, full length and circled takes into one file.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
             SectionLabel(text: "Steps").padding(.top, 8)
             step("Found your recorded pieces", done: true)
             step("Composing one file", done: uploading || progress >= 1, active: !uploading && progress < 1)
             if audition.destination == .emailOrLink {
                 step("Uploading to your iCloud", done: progress >= 1, active: uploading && progress < 1)
             }
-            step("Done — opens your Share Sheet", done: progress >= 1)
-            Text(audition.destination == .emailOrLink
-                 ? "The tape goes to your own iCloud Drive and iCloud makes the download link."
-                 : "Exported locally — nothing leaves this iPhone until you choose where to send it next.")
-                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            step("Tape ready", done: progress >= 1)
             Spacer()
             Button("Cancel", action: onCancel).buttonStyle(.otSecondary)
         }
@@ -431,6 +397,27 @@ struct SendProgressView: View {
             Text(t).font(.otBody).foregroundStyle(done || active ? OT.labelPrimary : OT.labelTertiary)
         }
         .frame(minHeight: 36)
+    }
+}
+
+/// Export finishes here instead of opening a modal immediately. The actor sees one clear next
+/// action, and the system share choices appear only when they explicitly ask to share.
+struct DeliveryReadyView: View {
+    let destination: Destination
+    var onShare: () -> Void
+    var onBack: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Spacer()
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 44)).foregroundStyle(OT.success)
+            Text("Your tape is ready.").font(.otLargeTitle)
+            Text(destination.rawValue).font(.otHeadline).foregroundStyle(OT.labelSecondary)
+            Spacer()
+            Button("Share tape", action: onShare).buttonStyle(.otPrimary)
+            Button("Back to package", action: onBack).buttonStyle(.otSecondary)
+        }
+        .padding(.horizontal, OT.gutter)
     }
 }
 

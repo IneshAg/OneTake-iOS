@@ -396,9 +396,10 @@ struct ShootFlow: View {
                 }.padding(18).background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 20))
             } else {
                 resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
-                           primary: ("Next: full length", { stage = .fullLength }),
-                           secondary: ("Redo", { stage = .slate }),
-                           more: [("Skip full length — it’s optional", { stage = .scene })])
+                           primary: (a.asks.contains("Full length") ? "Next: full length" : "Next: Scene 1", {
+                               stage = a.asks.contains("Full length") ? .fullLength : .scene
+                           }),
+                           secondary: ("Redo", { stage = .slate }))
             }
         case .fullLength:
             promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
@@ -870,15 +871,30 @@ struct ShootFlow: View {
         .padding(.horizontal, 9).frame(height: 26).background(.black.opacity(0.55), in: Capsule())
     }
 
+    @ViewBuilder
     private func promptCard(eyebrow: String, text: String, mine: Bool = true) -> some View {
+        let spokenWords = mine ? SpokenLineMatcher.matchedWordIndices(in: text, transcript: follower.transcript) : []
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow.uppercased()).font(.otCaption.weight(.semibold)).foregroundStyle(mine ? OT.cameraLabel2 : OT.reader)
-            Text(text).font(.system(size: [20, 26, 34][min(max(prompterSize, 0), 2)], weight: .bold))
-                .foregroundStyle(mine ? Color.white : Color.white.opacity(0.7))
+            Text(highlightedPrompterText(text, matchedWords: spokenWords, mine: mine))
+                .font(.system(size: [20, 26, 34][min(max(prompterSize, 0), 2)], weight: .bold))
+                .shadow(color: spokenWords.isEmpty ? .clear : OT.accent.opacity(0.55), radius: 7)
                 .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Spoken words turn to the prompter accent as speech recognition hears them. This is only a
+    /// visual guide: it never evaluates acting or prevents the actor from continuing.
+    private func highlightedPrompterText(_ text: String, matchedWords: Set<Int>, mine: Bool) -> AttributedString {
+        var output = AttributedString()
+        for (index, word) in text.split(separator: " ").enumerated() {
+            var piece = AttributedString(String(word) + " ")
+            piece.foregroundColor = mine && matchedWords.contains(index) ? OT.accent : (mine ? .white : Color.white.opacity(0.7))
+            output += piece
+        }
+        return output
     }
 
     private func resultCard(title: String, detail: String, primary: (String, () -> Void), secondary: (String, () -> Void), more: [(String, () -> Void)] = []) -> some View {

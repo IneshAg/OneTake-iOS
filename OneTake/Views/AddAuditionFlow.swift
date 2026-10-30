@@ -4,95 +4,90 @@ import VisionKit
 import UniformTypeIdentifiers
 import UserNotifications
 
-/// 06 Add an audition → 6.1 Reading the notice → (6.2 One thing missing) → 6c Here's what they want → 7.0 Detail (0 of 4)
+/// 06 Add an audition capture sheet
 struct AddAuditionFlow: View {
-    enum Step: Hashable { case reading, missingDetails, review, couldNotRead }
     enum ReaderAudioPlan: Hashable { case recordNow, later }
 
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [Step] = []
-    @State private var notice = ""
-    @State private var draft = NoticeParser.Draft.blank
     @State private var photoItem: PhotosPickerItem?
     @State private var showFileImporter = false
     @State private var showScanner = false
     @State private var scannerUnavailable = false
+    @State private var unreadableNoticeError = false
 
     var body: some View {
-        NavigationStack(path: $path) {
-            capture
-                .navigationDestination(for: Step.self) { step in
-                    Group {
-                        switch step {
-                        case .reading:      NoticeReadingView(notice: notice, onDone: acceptParsedDraft, onBack: { path = [] })
-                        case .missingDetails: MissingDetailsView(draft: $draft, onContinue: { path.append(.review) }, onBack: { if !path.isEmpty { path.removeLast() } })
-                        case .review:       NoticeReviewView(draft: $draft, onSave: save, onBack: { if !path.isEmpty { path.removeLast() } })
-                        case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
+        capture
+            .presentationDetents([.height(420)])
+            .presentationDragIndicator(.visible)
+            .fullScreenCover(isPresented: $showScanner) {
+                DocumentScannerView { pages in
+                    showScanner = false
+                    guard !pages.isEmpty else { return }
+                    Task {
+                        let text = await NoticeOCR.recognizeText(in: pages)
+                        await MainActor.run {
+                            if !NoticeOCR.looksReadable(text) {
+                                unreadableNoticeError = true
+                            } else {
+                                let draft = NoticeParser.parse(text)
+                                store.startAuditionDraft(draft)
+                            }
                         }
                     }
-                    .toolbar(.hidden, for: .navigationBar)
-                    .navigationBarBackButtonHidden(true)
                 }
-        }
-        .presentationDetents(path.isEmpty ? [.height(420)] : [.large])
-        .fullScreenCover(isPresented: $showScanner) {
-            DocumentScannerView { pages in
-                showScanner = false
-                guard !pages.isEmpty else { return }
+                .ignoresSafeArea()
+            }
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+                switch result {
+                case .success(let url):
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    let text = NoticeOCR.extractText(fromFileAt: url)
+                    if accessed { url.stopAccessingSecurityScopedResource() }
+                    if let text, NoticeOCR.looksReadable(text) {
+                        let draft = NoticeParser.parse(text)
+                        store.startAuditionDraft(draft)
+                    } else {
+                        unreadableNoticeError = true
+                    }
+                case .failure:
+                    unreadableNoticeError = true
+                }
+            }
+            .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
+            }
+            .alert("We couldn't read this notice", isPresented: $unreadableNoticeError) {
+                Button("Type details") { store.startAuditionDraft(NoticeParser.Draft.blank) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("No readable text was found — it may be blurry or very small print. You can type the details instead.")
+            }
+            .task { await readSharedNotice() }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
                 Task {
-                    let text = await NoticeOCR.recognizeText(in: pages)
+                    guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                        await MainActor.run { unreadableNoticeError = true }
+                        return
+                    }
+                    let text = await NoticeOCR.recognizeText(in: [image])
                     await MainActor.run {
-                        if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] }
-                        else { notice = text; path = [.reading] }
+                        if !NoticeOCR.looksReadable(text) {
+                            unreadableNoticeError = true
+                        } else {
+                            let draft = NoticeParser.parse(text)
+                            store.startAuditionDraft(draft)
+                        }
                     }
                 }
             }
-            .ignoresSafeArea()
-        }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
-            switch result {
-            case .success(let url):
-                let accessed = url.startAccessingSecurityScopedResource()
-                let text = NoticeOCR.extractText(fromFileAt: url)
-                if accessed { url.stopAccessingSecurityScopedResource() }
-                if let text, NoticeOCR.looksReadable(text) { notice = text; path = [.reading] }
-                else { path = [.couldNotRead] }
-            case .failure:
-                path = [.couldNotRead]
-            }
-        }
-        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
-        }
-        // Something shared to OneTake from another app (see ShareInbox): read it like any other notice.
-        .task { await readSharedNotice() }
-        .onChange(of: photoItem) { _, item in
-            guard let item else { return }
-            Task {
-                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
-                    await MainActor.run { path = [.couldNotRead] }
-                    return
-                }
-                let text = await NoticeOCR.recognizeText(in: [image])
-                await MainActor.run {
-                    if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] }
-                    else { notice = text; path = [.reading] }
-                }
-            }
-        }
     }
 
     private func openScanner() {
-        // VisionKit's scanner needs a real camera; it isn't available in the Simulator.
         if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
-    }
-
-    private func acceptParsedDraft(_ parsedDraft: NoticeParser.Draft) {
-        draft = parsedDraft
-        path.append(parsedDraft.missingRequiredDetails.isEmpty ? .review : .missingDetails)
     }
 
     private func readSharedNotice() async {
@@ -105,10 +100,15 @@ struct AddAuditionFlow: View {
         if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !NoticeOCR.looksReadable(text) { path = [.couldNotRead] } else { notice = text; path = [.reading] }
+        await MainActor.run {
+            if !NoticeOCR.looksReadable(text) {
+                unreadableNoticeError = true
+            } else {
+                let draft = NoticeParser.parse(text)
+                store.startAuditionDraft(draft)
+            }
+        }
     }
-
-    // MARK: 06 capture-first sheet
 
     private var capture: some View {
         ScrollView {
@@ -120,8 +120,6 @@ struct AddAuditionFlow: View {
                         .buttonStyle(.plain).accessibilityLabel("Close")
                 }
 
-                // The system paste button reads the clipboard only when tapped, so opening this sheet
-                // no longer peeks at it (which raised iOS's "Allow Paste" prompt every time).
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {
                         Image(systemName: "doc.on.clipboard").foregroundStyle(OT.accent)
@@ -132,11 +130,9 @@ struct AddAuditionFlow: View {
                     }
                     PasteButton(payloadType: String.self) { strings in
                         let text = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                        Task { @MainActor in
-                            guard !text.isEmpty else { return }
-                            notice = text
-                            path = [.reading]
-                        }
+                        guard !text.isEmpty else { return }
+                        let draft = NoticeParser.parse(text)
+                        store.startAuditionDraft(draft)
                     }
                     .buttonBorderShape(.capsule)
                     .tint(OT.accent)
@@ -150,7 +146,7 @@ struct AddAuditionFlow: View {
                     PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
                     Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
                     Button { showFileImporter = true } label: { way("folder", "File") }
-                    Button { draft = NoticeParser.Draft.blank; path.append(.review) } label: { way("keyboard", "Type it") }
+                    Button { store.startAuditionDraft(NoticeParser.Draft.blank) } label: { way("keyboard", "Type it") }
                 }
                 .buttonStyle(.plain)
 
@@ -160,8 +156,6 @@ struct AddAuditionFlow: View {
             .padding(OT.gutter)
         }
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
     }
 
     private func way(_ symbol: String, _ title: String) -> some View {
@@ -171,29 +165,6 @@ struct AddAuditionFlow: View {
             Text(title).font(.otFootnote).foregroundStyle(OT.labelSecondary)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func save(readerAudioPlan: ReaderAudioPlan) {
-        let audition = draft.makeAudition()
-        store.add(audition)
-        store.tab = .auditions
-        // If sides were recognised, recording the reader is offered as a real next step while the
-        // audition is being made. It remains available from every scene later on.
-        if readerAudioPlan == .recordNow,
-           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-            store.auditionsPath = [.auditionDetail(audition.id), .reader(audition.id, sceneIndex: firstScene)]
-        } else {
-            store.auditionsPath = [.auditionDetail(audition.id)]
-        }
-        store.continueAfterAdd = audition.id
-        dismiss()
-        requestNotificationsIfFirstAudition()
-    }
-
-    /// Deferred permission: the first time a due date actually exists to remind about, not during onboarding.
-    private func requestNotificationsIfFirstAudition() {
-        guard store.auditions.count == 1 else { return }
-        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) }
     }
 }
 
@@ -441,132 +412,73 @@ enum NoticeParser {
 
 // MARK: - 6.1 Reading the notice
 
-struct NoticeReadingView: View {
-    let notice: String
-    var onDone: (NoticeParser.Draft) -> Void
-    var onBack: (() -> Void)? = nil
-    private let draft: NoticeParser.Draft
-    @State private var guidance: String?
-
-    init(notice: String, onDone: @escaping (NoticeParser.Draft) -> Void, onBack: (() -> Void)? = nil) {
-        self.notice = notice
-        self.onDone = onDone
-        self.onBack = onBack
-        self.draft = NoticeParser.parse(notice)
-    }
-
-    private var rows: [(String, String, Bool)] {
-        [
-            ("Project", draft.project.isEmpty ? "Not found in notice" : draft.project, !draft.project.isEmpty),
-            ("Your role", draft.role.isEmpty ? "Not found in notice" : draft.role, !draft.role.isEmpty),
-            ("Due", draft.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not specified in notice", draft.due != nil),
-            ("Sides", draft.scenes == 0 ? "No scenes detected" : draft.scenes == 1 ? "1 scene" : "\(draft.scenes) scenes", draft.scenes > 0),
-            ("What they asked for", draft.asks.isEmpty ? "None specified" : "\(draft.asks.count) requirement\(draft.asks.count == 1 ? "" : "s")", !draft.asks.isEmpty)
-        ]
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let onBack {
-                InContentNavHeader(backLabel: "Back", onBack: onBack)
-                    .padding(.top, 4)
-            }
-            Text("Reading the notice…").font(.otLargeTitle)
-            Text("Parsed on-device. Nothing leaves your iPhone.").font(.otCallout).foregroundStyle(OT.labelSecondary)
-            Text(notice).font(.otCallout).foregroundStyle(OT.labelSecondary).lineLimit(4)
-                .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            SectionLabel(text: "Found in notice").padding(.top, 6)
-            if let guidance {
-                Label(guidance, systemImage: "sparkles")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                    .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            ForEach(rows, id: \.0) { row in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.0).font(.otBody)
-                        Text(row.1).font(.otFootnote).foregroundStyle(row.2 ? OT.labelSecondary : OT.labelTertiary)
-                    }
-                    Spacer()
-                    if row.2 {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent)
-                    } else {
-                        Image(systemName: "info.circle").foregroundStyle(OT.labelTertiary)
-                    }
-                }
-                .padding(.vertical, 6)
-                Divider()
-            }
-            Spacer()
-        }
-        .padding(.horizontal, OT.gutter)
-        .otCanvas()
-        .task {
-            guidance = await OnDeviceIntelligence.noticeGuidance(notice, parsed: draft)
-            var updated = draft
-            updated.aiGuidance = guidance ?? ""
-            onDone(updated)
-        }
-    }
-}
-
 // MARK: - 6.2 Missing details
 
 struct MissingDetailsView: View {
-    @Binding var draft: NoticeParser.Draft
-    var onContinue: () -> Void
-    var onBack: (() -> Void)? = nil
+    @Environment(AppStore.self) private var store
     @State private var picked: Date = .now.addingTimeInterval(86400)
     @State private var requestedFields: [String] = []
 
-    private var missing: [String] { draft.missingRequiredDetails }
+    private var missing: [String] { store.auditionDraft.missingRequiredDetails }
     private var canContinue: Bool {
-        !draft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !draft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let onBack {
-                    InContentNavHeader(backLabel: "Back", onBack: onBack)
-                        .padding(.top, 4)
-                }
-                Text(missing.isEmpty ? "All set" : missing.count == 1 ? "One thing missing" : "A few details missing")
-                    .font(.otLargeTitle)
-                Text(missing.isEmpty
-                     ? "Everything needed is ready."
-                     : missing.count == 1
-                        ? "I couldn't find the \(missing[0]) in the notice. Add it to continue."
-                        : "I couldn't find the \(missing.joined(separator: ", ")) in the notice. Add what you know to continue.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+        @Bindable var store = store
+        VStack(spacing: 0) {
+            InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    if requestedFields.contains("project") {
-                        TextField("Project name", text: $draft.project)
-                            .textInputAutocapitalization(.words)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(missing.isEmpty ? "All set" : missing.count == 1 ? "One thing missing" : "A few details missing")
+                        .font(.otLargeTitle)
+                    Text(missing.isEmpty
+                         ? "Everything needed is ready."
+                         : missing.count == 1
+                            ? "I couldn't find the \(missing[0]) in the notice. Add it to continue."
+                            : "I couldn't find the \(missing.joined(separator: ", ")) in the notice. Add what you know to continue.")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        if requestedFields.contains("project") {
+                            TextField("Project name", text: $store.auditionDraft.project)
+                                .textInputAutocapitalization(.words)
+                        }
+                        if requestedFields.contains("role") {
+                            TextField("Your role", text: $store.auditionDraft.role)
+                                .textInputAutocapitalization(.words)
+                        }
+                        if requestedFields.contains("due date") {
+                            Text("When is it due?").font(.otHeadline)
+                            DatePicker("Due date", selection: $picked, in: Date.now...)
+                                .labelsHidden()
+                        }
                     }
-                    if requestedFields.contains("role") {
-                        TextField("Your role", text: $draft.role)
-                            .textInputAutocapitalization(.words)
+                    .padding(16).otCard(radius: 20)
+
+                    Button("Choose a different notice") {
+                        store.pop()
+                        store.showAddAudition = true
                     }
-                    if requestedFields.contains("due date") {
-                        Text("When is it due?").font(.otHeadline)
-                        DatePicker("Due date", selection: $picked, in: Date.now...)
-                            .labelsHidden()
-                    }
+                    .buttonStyle(.plain)
+                    .font(.otCallout)
+                    .foregroundStyle(OT.accent)
+                    .padding(.top, 8)
                 }
-                .padding(16).otCard(radius: 20)
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 14)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, OT.gutter)
-            .padding(.top, 22)
-            .padding(.bottom, 24)
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
             Button("Continue") {
-                if draft.due == nil { draft.due = picked }
-                onContinue()
+                if store.auditionDraft.due == nil { store.auditionDraft.due = picked }
+                store.push(.noticeReview)
             }
             .buttonStyle(.otPrimary)
             .disabled(!canContinue)
@@ -575,8 +487,9 @@ struct MissingDetailsView: View {
             .background(OT.bgCanvas)
         }
         .onAppear {
-            requestedFields = draft.missingRequiredDetails
-            if let due = draft.due { picked = due }
+            let req = store.auditionDraft.missingRequiredDetails
+            requestedFields = req.isEmpty ? ["project", "role", "due date"] : req
+            if let due = store.auditionDraft.due { picked = due }
         }
     }
 }
@@ -584,89 +497,120 @@ struct MissingDetailsView: View {
 // MARK: - 6c Here's what they want (review + save)
 
 struct NoticeReviewView: View {
-    @Binding var draft: NoticeParser.Draft
-    var onSave: (AddAuditionFlow.ReaderAudioPlan) -> Void
-    var onBack: (() -> Void)? = nil
-    @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .later
+    @Environment(AppStore.self) private var store
+    @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
 
     private var hasReaderLines: Bool {
-        !draft.role.isEmpty && ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role)
+        !store.auditionDraft.role.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
             .contains { $0.lines.contains { !$0.isMine } }
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let onBack {
-                    InContentNavHeader(backLabel: "Back", onBack: onBack)
-                        .padding(.top, 4)
-                }
-                Text("Here's what they want").font(.otLargeTitle)
-                Text(draft.asks.isEmpty
-                     ? "No recording requirements were detected. Review the details, then save."
-                     : "\(draft.asks.count) requirement\(draft.asks.count == 1 ? "" : "s") found in the email. Tap any line to change it, then save.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+        @Bindable var store = store
+        VStack(spacing: 0) {
+            InContentNavHeader(backLabel: store.auditionsPath.contains(.missingDetails) ? "Back" : "Auditions", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
 
-                SectionLabel(text: "Due")
-                if let due = draft.due {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))).font(.otTitle)
-                        Text(due.formatted(date: .omitted, time: .shortened)).font(.otHeadline).foregroundStyle(OT.due)
-                    }
-                } else {
-                    DatePicker("Due", selection: Binding(get: { draft.due ?? .now.addingTimeInterval(86400) }, set: { draft.due = $0 })).labelsHidden()
-                }
-
-                SectionLabel(text: "They asked for")
-                if !draft.aiGuidance.isEmpty {
-                    Label(draft.aiGuidance, systemImage: "sparkles")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Here's what they want").font(.otLargeTitle)
+                    Text(store.auditionDraft.asks.isEmpty
+                         ? "No recording requirements were detected. Review the details, then save."
+                         : "\(store.auditionDraft.asks.count) requirement\(store.auditionDraft.asks.count == 1 ? "" : "s") found in the email. Tap any line to change it, then save.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                        .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
-                    field("person.2", "\(draft.role.isEmpty ? "Role" : draft.role) · \(draft.scenes) scenes", "Your lines found")
-                    ForEach(draft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }
-                }
 
-                Group {
-                    TextField("Project", text: $draft.project)
-                    TextField("Role", text: $draft.role)
-                    TextField("Casting office", text: $draft.castingOffice)
-                    Stepper("Scenes: \(draft.scenes)", value: $draft.scenes, in: 0...6)
-                }
-                .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                if hasReaderLines {
-                    SectionLabel(text: "Reader audio")
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Add the other character’s lines now, or record them from the scene later.")
-                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                        Picker("Reader audio", selection: $readerAudioPlan) {
-                            Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
-                            Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                    SectionLabel(text: "Due")
+                    if let due = store.auditionDraft.due {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))).font(.otTitle)
+                            Text(due.formatted(date: .omitted, time: .shortened)).font(.otHeadline).foregroundStyle(OT.due)
                         }
-                        .pickerStyle(.segmented)
+                    } else {
+                        DatePicker("Due", selection: Binding(get: { store.auditionDraft.due ?? .now.addingTimeInterval(86400) }, set: { store.auditionDraft.due = $0 })).labelsHidden()
+                    }
+
+                    SectionLabel(text: "They asked for")
+                    if !store.auditionDraft.aiGuidance.isEmpty {
+                        Label(store.auditionDraft.aiGuidance, systemImage: "sparkles")
+                            .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                            .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
+                        field("person.2", "\(store.auditionDraft.role.isEmpty ? "Role" : store.auditionDraft.role) · \(store.auditionDraft.scenes) scenes", "Your lines found")
+                        ForEach(store.auditionDraft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }
+                    }
+
+                    Group {
+                        TextField("Project", text: $store.auditionDraft.project)
+                        TextField("Role", text: $store.auditionDraft.role)
+                        TextField("Casting office", text: $store.auditionDraft.castingOffice)
+                        Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
                     }
                     .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
 
-                if !draft.sourceText.isEmpty && ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role).isEmpty {
-                    Label("Couldn't make out character lines from this — the checklist still gets created, and you can add sides once you have clean pages.", systemImage: "info.circle")
-                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    if hasReaderLines {
+                        SectionLabel(text: "Reader audio")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Add the other character’s lines now, or record them from the scene later.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                            Picker("Reader audio", selection: $readerAudioPlan) {
+                                Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
+                                Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if !store.auditionDraft.sourceText.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty {
+                        Label("Couldn't make out character lines from this — the checklist still gets created, and you can add sides once you have clean pages.", systemImage: "info.circle")
+                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    }
                 }
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 14)
+                .padding(.bottom, 100)
             }
-            .padding(.horizontal, OT.gutter)
-            .padding(.bottom, 100)
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
             Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
-                onSave(readerAudioPlan)
+                saveAudition()
             }
             .buttonStyle(.otPrimary)
-                .padding(.horizontal, OT.gutter).padding(.bottom, 8)
-                .background(OT.bgCanvas)
+            .padding(.horizontal, OT.gutter).padding(.bottom, 8)
+            .background(OT.bgCanvas)
         }
+        .task {
+            if store.auditionDraft.aiGuidance.isEmpty && !store.auditionDraft.sourceText.isEmpty {
+                let guidance = await OnDeviceIntelligence.noticeGuidance(store.auditionDraft.sourceText, parsed: store.auditionDraft)
+                if let guidance {
+                    store.auditionDraft.aiGuidance = guidance
+                }
+            }
+        }
+    }
+
+    private func saveAudition() {
+        let audition = store.auditionDraft.makeAudition()
+        store.add(audition)
+        store.tab = .auditions
+        if readerAudioPlan == .recordNow,
+           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+            store.auditionsPath = [.auditionDetail(audition.id), .reader(audition.id, sceneIndex: firstScene)]
+            store.continueAfterAdd = nil
+        } else {
+            store.auditionsPath = [.auditionDetail(audition.id)]
+            store.continueAfterAdd = audition.id
+        }
+        store.auditionDraft = .blank
+        requestNotificationsIfFirstAudition()
+    }
+
+    private func requestNotificationsIfFirstAudition() {
+        guard store.auditions.count == 1 else { return }
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) }
     }
 
     private func field(_ symbol: String, _ title: String, _ detail: String) -> some View {
@@ -696,9 +640,6 @@ struct NoticeErrorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            InContentNavHeader(backLabel: "Back", onBack: onRetry)
-                .padding(.top, 4)
-
             Image(systemName: "exclamationmark.triangle").font(.system(size: 34)).foregroundStyle(OT.warning)
             Text("We couldn't read this notice").font(.otLargeTitle)
             Text("No readable text was found — it may be a photo without text, blurry, or very small print. Nothing was lost — pick how to continue.")

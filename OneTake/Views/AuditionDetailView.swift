@@ -221,7 +221,6 @@ struct PackageSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Label("Each piece opens its own screen.", systemImage: "hand.tap").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 Spacer()
             }
             .padding(OT.gutter)

@@ -29,6 +29,8 @@ enum Route: Hashable {
     case lineDrill(Audition.ID, sceneIndex: Int, mode: LineLearningMode)
     /// Hands-Free Audio Walk — the one drill with its own screen.
     case audioWalk(Audition.ID, sceneIndex: Int)
+    case missingDetails
+    case noticeReview
 }
 
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
@@ -97,6 +99,16 @@ final class AppStore {
     var continueAfterAdd: Audition.ID?
     /// A notice shared from another app, waiting for Add audition to read it.
     var incomingShare: ShareInbox.Item?
+    /// The draft audition currently being created or reviewed.
+    var auditionDraft = NoticeParser.Draft.blank
+    /// Pushed onto auditionsPath once the Add sheet has dismissed.
+    var pendingRouteAfterAdd: Route?
+
+    func startAuditionDraft(_ draft: NoticeParser.Draft) {
+        auditionDraft = draft
+        showAddAudition = false
+        pendingRouteAfterAdd = draft.missingRequiredDetails.isEmpty ? .noticeReview : .missingDetails
+    }
 
     // Send state
     var sendProgress: Double = 0
@@ -166,6 +178,16 @@ final class AppStore {
         if ProcessInfo.processInfo.arguments.contains("-headshot") {
             isOnboarded = true
             camera = .headshot
+        }
+        if ProcessInfo.processInfo.arguments.contains("-missingDetails") {
+            isOnboarded = true
+            auditionDraft = NoticeParser.Draft(project: "", role: "", due: nil)
+            auditionsPath = [.missingDetails]
+        }
+        if ProcessInfo.processInfo.arguments.contains("-noticeReview") {
+            isOnboarded = true
+            auditionDraft = NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))
+            auditionsPath = [.noticeReview]
         }
         isLoading = false
         if removedLegacyDemoData { persist() }

@@ -123,11 +123,13 @@ struct RootTabView: View {
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
         .sheet(isPresented: $store.showAddAudition, onDismiss: {
-            // Presenting the next screen only after the sheet is fully gone (a camera cover can't
-            // present over a sheet that's still dismissing).
-            guard let id = store.continueAfterAdd else { return }
-            store.continueAfterAdd = nil
-            store.continueAudition(id)
+            if let pending = store.pendingRouteAfterAdd {
+                store.pendingRouteAfterAdd = nil
+                store.push(pending)
+            } else if let id = store.continueAfterAdd {
+                store.continueAfterAdd = nil
+                store.continueAudition(id)
+            }
         }) {
             AddAuditionFlow()
                 .presentationDragIndicator(.visible)
@@ -179,6 +181,9 @@ private struct RouteDestinations: ViewModifier {
         case .practiceSample:                    StandalonePracticeView(pieceID: nil, isSample: true)
         case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)
         case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
+        case .missingDetails:                    MissingDetailsView()
+        case .noticeReview:                      NoticeReviewView()
+        }
         }
     }
 }

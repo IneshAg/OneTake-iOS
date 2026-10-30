@@ -60,6 +60,9 @@ final class CameraController: NSObject {
     /// Called once the movie file is actually finalized on disk — `stopRecording()` returns before that.
     private var recordingFinishedHandler: ((URL?) -> Void)?
     private var isStopping = false
+    /// Accessed only from `queue`; it remembers a requested ramp before AVFoundation reports the
+    /// new device factor, so repeated zoom taps progress 1× → 1.5× → 2× without getting stuck.
+    private var requestedZoomFactor: CGFloat = 1
     private(set) var position: Position = .front
 
     /// Keeps recordings, photos and the preview upright however the phone is held. Without it every
@@ -91,6 +94,7 @@ final class CameraController: NSObject {
         zoomFactor = 1
         queue.async { [weak self] in
             guard let self else { return }
+            self.requestedZoomFactor = 1
             session.beginConfiguration()
             session.sessionPreset = .hd1920x1080
             session.inputs.forEach { self.session.removeInput($0) }
@@ -230,18 +234,32 @@ final class CameraController: NSObject {
                   (try? device.lockForConfiguration()) != nil
             else { return }
             let zoom = min(max(factor, 1), min(device.activeFormat.videoMaxZoomFactor, 5))
-            device.videoZoomFactor = zoom
+            self.requestedZoomFactor = zoom
+            // Ramping feels natural on a live preview. Cancelling an in-flight ramp also means a
+            // quick series of taps always lands on the last requested zoom level.
+            if device.isRampingVideoZoom { device.cancelVideoZoomRamp() }
+            device.ramp(toVideoZoomFactor: zoom, withRate: 3.5)
             device.unlockForConfiguration()
             Task { @MainActor in self.zoomFactor = zoom }
         }
     }
 
     func cycleZoom() {
-        let next: CGFloat
-        if zoomFactor < 1.25 { next = 1.5 }
-        else if zoomFactor < 1.75 { next = 2 }
-        else { next = 1 }
-        setZoomFactor(next)
+        // Calculate from the capture device on its own serial queue. The former version used the
+        // asynchronously updated UI value, so fast taps could repeatedly request 1.5×.
+        queue.async { [weak self] in
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            let current = self.requestedZoomFactor
+            let next: CGFloat = current < 1.25 ? 1.5 : current < 1.75 ? 2 : 1
+            self.requestedZoomFactor = next
+            if device.isRampingVideoZoom { device.cancelVideoZoomRamp() }
+            device.ramp(toVideoZoomFactor: next, withRate: 3.5)
+            device.unlockForConfiguration()
+            Task { @MainActor in self.zoomFactor = next }
+        }
     }
 
     /// Flips between the front and back camera — never mid-take, which would end the recording.

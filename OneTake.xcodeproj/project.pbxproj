@@ -119,11 +119,11 @@
 		028B032E8486094FD043953F /* OneTake.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OneTake.entitlements; sourceTree = "<group>"; };
 		0E9676917ACB7373FAB6B00F /* AuditionActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionActivity.swift; sourceTree = "<group>"; };
 		12BA8F494C0871C4D1DD64F6 /* UIKitBridges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitBridges.swift; sourceTree = "<group>"; };
-		16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */ = {isa = PBXFileReference; path = "onetake-practice-illustration.svg"; sourceTree = "<group>"; };
+		16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-practice-illustration.svg"; sourceTree = "<group>"; };
 		169C183C25079A4510BA5D17 /* AccountAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAuth.swift; sourceTree = "<group>"; };
 		1FC08FB686E225E684CB7703 /* AuditionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionDetailView.swift; sourceTree = "<group>"; };
 		21AF5ABDAC361833F78C1C8B /* LocalBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBackup.swift; sourceTree = "<group>"; };
-		25D4B89A52AB1B4E186168C9 /* OneTakeWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = OneTakeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		25D4B89A52AB1B4E186168C9 /* OneTakeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneTakeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		33EC93D0F4EF589417C37FC2 /* MediaExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaExporter.swift; sourceTree = "<group>"; };
 		345483DF2D07C4F4A026610E /* ShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInbox.swift; sourceTree = "<group>"; };
 		357C2E79A46F8149660C5687 /* ImageFraming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageFraming.swift; sourceTree = "<group>"; };
@@ -132,9 +132,9 @@
 		3E112EEF90E879C6F5060EFF /* TakesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakesViews.swift; sourceTree = "<group>"; };
 		3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeParserTests.swift; sourceTree = "<group>"; };
 		420C638D520B20BF6473C722 /* AddAuditionFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAuditionFlow.swift; sourceTree = "<group>"; };
-		4C7F2C48BCCB512CB89891E2 /* OneTakeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OneTakeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C7F2C48BCCB512CB89891E2 /* OneTakeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OneTakeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		54EF3D86C5F7F4163C8558A9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
+		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
 		5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraAndImageTests.swift; sourceTree = "<group>"; };
 		596522E487CA40F53189C34F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		5B13A70FD81767C1DF2E89E7 /* NoticeOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeOCR.swift; sourceTree = "<group>"; };
@@ -152,10 +152,10 @@
 		78560845B703490EEFDB1035 /* OneTakeShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OneTakeShare.entitlements; sourceTree = "<group>"; };
 		7C68945FA271E04C4891187A /* ShootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShootViews.swift; sourceTree = "<group>"; };
 		7D6CC3CAA74D98D6D4186A0A /* SilenceTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceTrimmer.swift; sourceTree = "<group>"; };
-		80BD4CBDC28B1384EC52BC84 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		80BD4CBDC28B1384EC52BC84 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		89EE2F0ABA59B4A4249C9095 /* TapePreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapePreviewTests.swift; sourceTree = "<group>"; };
 		89F7EDC264E8450437D0CA5E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		93A5A19622FF45437DBEEB31 /* OneTakeShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = OneTakeShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		93A5A19622FF45437DBEEB31 /* OneTakeShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneTakeShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A27E38623AE9A362D6659EB /* TapeAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeAnalyzer.swift; sourceTree = "<group>"; };
 		9A43BB6A01AD4B59AE6F4B81 /* OnDeviceIntelligence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceIntelligence.swift; sourceTree = "<group>"; };
 		9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -164,7 +164,7 @@
 		A58E42121E2E4785B5565CA0 /* OnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlow.swift; sourceTree = "<group>"; };
 		A95735310A681B3CB3BD3E15 /* PrepareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepareViews.swift; sourceTree = "<group>"; };
 		AE5A48B4511431ADB462065A /* Reminders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reminders.swift; sourceTree = "<group>"; };
-		B78AD2F25369510B879F81D3 /* OneTake.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OneTake.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B78AD2F25369510B879F81D3 /* OneTake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OneTake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		C1F3701B43B2AC9EB8401891 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
@@ -179,7 +179,7 @@
 		EC1A04C39259BC1ED1A20D80 /* TapePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapePreviewView.swift; sourceTree = "<group>"; };
 		ECBF07451290B9BF7E698086 /* PackageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageViews.swift; sourceTree = "<group>"; };
 		F0BE02287A84AFF0026A11D9 /* ScriptParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptParser.swift; sourceTree = "<group>"; };
-		F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions-illustration.svg"; sourceTree = "<group>"; };
+		F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-empty-auditions-illustration.svg"; sourceTree = "<group>"; };
 		FF5CD71C98EB4D957E90F308 /* Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -425,20 +425,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-					3D60DAA81E45DD957826F5E0 = {
-						DevelopmentTeam = "";
-					};
-					78836920AA34155C8F156F7D = {
-						DevelopmentTeam = "";
-					};
-					AA4B1922FF6FBF079F163D9B = {
-						DevelopmentTeam = "";
-					};
-					DC996624B7CF88D7A28C7F65 = {
-						DevelopmentTeam = "";
-					};
-				};
 			};
 			buildConfigurationList = 068D9F5199D7CCD7894821DA /* Build configuration list for PBXProject "OneTake" */;
 			developmentRegion = en;
@@ -666,13 +652,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTake.app/OneTake";
@@ -683,13 +670,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTake.app/OneTake";
@@ -700,13 +688,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeShare/OneTakeShare.entitlements;
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				INFOPLIST_FILE = OneTakeShare/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -720,6 +709,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;
 				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.YOUR_CLIENT_ID;
@@ -737,7 +727,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -806,13 +796,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeWidgets/OneTakeWidgets.entitlements;
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				INFOPLIST_FILE = OneTakeWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -823,13 +814,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeShare/OneTakeShare.entitlements;
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				INFOPLIST_FILE = OneTakeShare/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -843,6 +835,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;
 				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.YOUR_CLIENT_ID;
@@ -860,7 +853,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -870,13 +863,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeWidgets/OneTakeWidgets.entitlements;
+				DEVELOPMENT_TEAM = SZNJCJK635;
 				INFOPLIST_FILE = OneTakeWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.onetake.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";

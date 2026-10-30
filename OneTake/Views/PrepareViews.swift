@@ -164,12 +164,11 @@ struct PrompterSettingsSheet: View {
                 .foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 72)
                 .background(.black, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .scaleEffect(x: mirror ? -1 : 1, y: 1)
-            Text("Sized to read from your mark, about 6 ft away").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
             SectionLabel(text: "Text size")
             Picker("Size", selection: $size) { Text("Regular").tag(0); Text("Large").tag(1); Text("Big print").tag(2) }.pickerStyle(.segmented)
             SectionLabel(text: "Scroll")
             Picker("Scroll", selection: $followVoice) { Text("Follows my voice").tag(true); Text("Timed").tag(false) }.pickerStyle(.segmented)
-            Toggle(isOn: $mirror) { VStack(alignment: .leading) { Text("Mirror text"); Text("For a beam-splitter prompter").font(.otFootnote).foregroundStyle(OT.labelTertiary) } }
+            Toggle("Mirror text", isOn: $mirror)
         }
         .padding(OT.gutter)
     }
@@ -525,7 +524,6 @@ struct RecordReaderView: View {
                     SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
                     Text(readerLines[lineIndex].text).font(.system(size: 26, weight: .bold))
                         .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 20)
-                    Text("A little softer than you'd act it. We add the pauses.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     if let recordingError {
                         Text(recordingError).font(.otFootnote).foregroundStyle(OT.warning)
                     }
@@ -548,7 +546,6 @@ struct RecordReaderView: View {
                     .frame(maxWidth: .infinity)
                 } else {
                     Text("All \(readerLines.count) lines done").font(.otLargeTitle)
-                    Text("Pauses come from how long your lines took in Run lines.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     Spacer()
                     Button("Save track") { dismiss() }.buttonStyle(.otPrimary)
                 }

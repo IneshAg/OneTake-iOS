@@ -978,7 +978,6 @@ struct HeadshotsView: View {
                 InContentNavHeader(title: "Headshots", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
 
-                Text("Front headshot first; profiles are optional.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                 HStack(spacing: 10) {
                     slot("Front", done: taken >= 1, big: true)
                         .frame(maxWidth: .infinity)

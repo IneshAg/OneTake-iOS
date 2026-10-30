@@ -9,6 +9,11 @@ import SwiftUI
 // last look before sending.
 
 struct TapePreviewView: View {
+    private enum PreviewTarget: Hashable {
+        case headshots
+        case clip(MediaExporter.Clip.Kind)
+    }
+
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @State private var tape: MediaExporter.Tape?
@@ -21,6 +26,9 @@ struct TapePreviewView: View {
     @State private var now = 0.0
     @State private var timeObserver: Any?
     @State private var failed = false
+    /// Selecting a chapter only moves the preview. Editing is an explicit second action, so a tap
+    /// never throws the actor out of playback unexpectedly.
+    @State private var selectedTarget: PreviewTarget = .headshots
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +61,7 @@ struct TapePreviewView: View {
                 Button("Looks right — package it") { player?.pause(); store.push(.package(auditionID)) }
                     .buttonStyle(.otPrimary)
                     .disabled(tape == nil)
-                Button("Change a take") { player?.pause(); store.popTo(.takes(auditionID)) }
+                Button(changeActionTitle) { changeSelectedPiece() }
                     .buttonStyle(.otSecondaryDark)
             }
             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
@@ -101,6 +109,7 @@ struct TapePreviewView: View {
         player?.pause()
         photoIndex = 0
         showingPhotos = true
+        selectedTarget = .headshots
         Haptics.tick()
     }
 
@@ -125,7 +134,7 @@ struct TapePreviewView: View {
                             .fill(color(for: chapter, in: tape))
                             .opacity(!showingPhotos && isCurrent(chapter) ? 1 : 0.55)
                             .frame(width: max(12, (geo.size.width - spacing) * chapter.duration / total))
-                            .onTapGesture { seek(to: chapter.start) }
+                            .onTapGesture { select(chapter) }
                     }
                 }
             }
@@ -143,7 +152,7 @@ struct TapePreviewView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("CHAPTERS").font(.otCaption.weight(.semibold)).tracking(0.6).foregroundStyle(OT.cameraLabel2)
             if photos.isEmpty {
-                Button { store.push(.headshots(for: auditionID)) } label: {
+                Button { selectedTarget = .headshots; player?.pause() } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "person.crop.square").foregroundStyle(OT.warning)
                         Text("No headshots yet").font(.otBody).foregroundStyle(OT.cameraLabel)
@@ -172,11 +181,11 @@ struct TapePreviewView: View {
                 .foregroundStyle(OT.accent)
             }
             ForEach(Array(tape.chapters.enumerated()), id: \.element.id) { index, chapter in
-                Button { open(chapter) } label: {
+                Button { select(chapter) } label: {
                     HStack(spacing: 12) {
                         Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
                         Text(chapter.label)
-                            .font(!showingPhotos && isCurrent(chapter) ? .otHeadline : .otBody)
+                            .font(selectedTarget == .clip(chapter.kind) ? .otHeadline : .otBody)
                             .foregroundStyle(OT.cameraLabel)
                         Spacer()
                         Text(clock(chapter.duration)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
@@ -189,8 +198,41 @@ struct TapePreviewView: View {
         }
     }
 
-    private func open(_ chapter: MediaExporter.Chapter) {
+    private func select(_ chapter: MediaExporter.Chapter) {
+        selectedTarget = .clip(chapter.kind)
+        seek(to: chapter.start)
+    }
+
+    private var changeActionTitle: String {
+        switch selectedTarget {
+        case .headshots:
+            return photos.isEmpty ? "Add headshots" : "Change headshots"
+        case .clip(.slate):
+            return "Change slate"
+        case .clip(.fullLength):
+            return "Change full length"
+        case .clip(.scene(let index)):
+            return "Change Scene \(index + 1) take"
+        }
+    }
+
+    private func changeSelectedPiece() {
         player?.pause()
+        switch selectedTarget {
+        case .headshots:
+            store.push(.headshots(for: auditionID))
+        case .clip(.slate):
+            store.camera = .shoot(auditionID, start: .slate)
+        case .clip(.fullLength):
+            store.camera = .shoot(auditionID, start: .fullLength)
+        case .clip(.scene(let index)):
+            store.push(.takes(auditionID, sceneIndex: index))
+        }
+    }
+
+    private func open(_ chapter: MediaExporter.Chapter) {
+        // Retained as a single navigation mapping for accessibility actions.
+        selectedTarget = .clip(chapter.kind)
         switch chapter.kind {
         case .slate:
             store.camera = .shoot(auditionID, start: .slate)
@@ -235,6 +277,7 @@ struct TapePreviewView: View {
         }
         self.player = player
         tape = built
+        selectedTarget = photos.isEmpty ? built.chapters.first.map { .clip($0.kind) } ?? .headshots : .headshots
     }
 
     private func seek(to seconds: Double) {
