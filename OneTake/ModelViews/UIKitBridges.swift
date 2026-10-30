@@ -120,7 +120,8 @@ enum DocumentScannerCustomizer {
     /// Positions the Save / Checkmark tick button at the bottom-right corner of the camera viewport
     /// for convenient one-handed thumb reach, aligned horizontally with the shutter and thumbnail.
     static func reposition(saveButton: UIButton, in sv: UIView) {
-        guard sv.bounds.height > sv.bounds.width else { return } // portrait only
+        guard sv.bounds.height > 0, sv.bounds.width > 0, sv.bounds.height > sv.bounds.width else { return } // portrait only
+        guard saveButton.superview === sv else { return }
 
         let thumb = findView(in: sv, className: "Thumbnail")
         let shutter = findView(in: sv, className: "ShutterButton")
@@ -144,7 +145,9 @@ enum DocumentScannerCustomizer {
         if saveButton.frame != targetFrame {
             saveButton.frame = targetFrame
         }
-        sv.bringSubviewToFront(saveButton)
+        if saveButton.superview === sv {
+            sv.bringSubviewToFront(saveButton)
+        }
     }
 }
 
@@ -163,6 +166,9 @@ struct DocumentScannerView: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: VNDocumentCameraViewController, context: Context) {
         context.coordinator.attachCustomizer(to: vc)
     }
+    static func dismantleUIViewController(_ uiViewController: VNDocumentCameraViewController, coordinator: Coordinator) {
+        coordinator.detachCustomizer()
+    }
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onFinish: ([UIImage]) -> Void
@@ -170,17 +176,40 @@ struct DocumentScannerView: UIViewControllerRepresentable {
         private var hiddenObservation: NSKeyValueObservation?
         private var boundsObservation: NSKeyValueObservation?
         private var isRepositioning = false
+        private var isFinished = false
+        private weak var helperView: DocumentScannerLayoutHelperView?
 
         init(onFinish: @escaping ([UIImage]) -> Void) { self.onFinish = onFinish }
 
+        deinit {
+            detachCustomizer()
+        }
+
+        func detachCustomizer() {
+            guard !isFinished else { return }
+            isFinished = true
+            boundsObservation?.invalidate()
+            boundsObservation = nil
+            frameObservation?.invalidate()
+            frameObservation = nil
+            hiddenObservation?.invalidate()
+            hiddenObservation = nil
+            helperView?.onLayout = nil
+            helperView?.removeFromSuperview()
+            helperView = nil
+        }
+
         func attachCustomizer(to vc: VNDocumentCameraViewController) {
+            guard !isFinished else { return }
             guard let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc),
                   let root = saveBtn.superview else {
                 return
             }
 
             // Layout helper to react to parent layoutSubviews
-            if root.subviews.first(where: { $0 is DocumentScannerLayoutHelperView }) == nil {
+            if let existingHelper = root.subviews.first(where: { $0 is DocumentScannerLayoutHelperView }) as? DocumentScannerLayoutHelperView {
+                self.helperView = existingHelper
+            } else {
                 let helper = DocumentScannerLayoutHelperView()
                 helper.isUserInteractionEnabled = false
                 helper.isHidden = false
@@ -191,6 +220,7 @@ struct DocumentScannerView: UIViewControllerRepresentable {
                     self.performReposition(saveButton: saveBtn, in: root)
                 }
                 root.addSubview(helper)
+                self.helperView = helper
             }
 
             // KVO on bounds to react to screen rotation or resizing
@@ -215,17 +245,40 @@ struct DocumentScannerView: UIViewControllerRepresentable {
         }
 
         private func performReposition(saveButton: UIButton, in sv: UIView) {
-            guard !isRepositioning else { return }
+            guard !isFinished, !isRepositioning else { return }
+            guard saveButton.superview === sv else { return }
             isRepositioning = true
             defer { isRepositioning = false }
             DocumentScannerCustomizer.reposition(saveButton: saveButton, in: sv)
         }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
-            onFinish((0..<scan.pageCount).map { scan.imageOfPage(at: $0) })
+            guard !isFinished else { return }
+            detachCustomizer()
+            let count = scan.pageCount
+            var pages: [UIImage] = []
+            pages.reserveCapacity(count)
+            for i in 0..<count {
+                pages.append(scan.imageOfPage(at: i))
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onFinish(pages)
+            }
         }
-        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) { onFinish([]) }
-        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) { onFinish([]) }
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            guard !isFinished else { return }
+            detachCustomizer()
+            DispatchQueue.main.async { [weak self] in
+                self?.onFinish([])
+            }
+        }
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
+            guard !isFinished else { return }
+            detachCustomizer()
+            DispatchQueue.main.async { [weak self] in
+                self?.onFinish([])
+            }
+        }
     }
 }
 

@@ -216,3 +216,34 @@ Explicitly attached navigation bar and tab bar suppression modifiers across all 
    - Updated `ReaderLineRecorder.start` to ensure destination directories exist and removed aggressive deletion of valid files in `ReaderLineRecorder.stop`.
    - Added observation of `store.readerTrackVersion` to `PrepareView`, `ShootSetupView`, and `LineLearningViews` so UI counters immediately reflect recorded tracks.
    - Updated `RecordReaderView` to pop via `store.pop()`.
+
+---
+
+## 11. Document Camera Scanner Crash Fixes on iOS 18 (iPhone XS)
+
+### Problem & Crash Root Causes
+On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memory and strict jetsam thresholds), completing a document scan crashed the application immediately:
+1. **Dangling KVO Observers during VisionKit Teardown**:
+   - `DocumentScannerView.Coordinator` registered KVO observations on `root.bounds`, `saveBtn.frame`, and `saveBtn.isHidden`, and injected a `DocumentScannerLayoutHelperView` into VisionKit's internal view hierarchy.
+   - When the user tapped "Save", VisionKit began its completion transitions and internal view teardown.
+   - The KVO observations fired during this teardown pass, triggering `DocumentScannerCustomizer.reposition(saveButton:in:)`.
+   - Calling `sv.bringSubviewToFront(saveButton)` or mutating frames on views detached or in the middle of being dismantled triggered UIKit assertion failures (`NSInternalInconsistencyException`) and `EXC_BAD_ACCESS`.
+2. **Synchronous View Controller Dismissal within Delegate Callback**:
+   - `documentCameraViewController(_:didFinishWith:)` invoked `onFinish(pages)` synchronously on the main thread.
+   - The SwiftUI caller immediately updated state (`showScanner = false`), destroying the `.fullScreenCover` and deallocating `VNDocumentCameraViewController` while Apple's internal delegate invocation was still active on the call stack.
+3. **High-Resolution OCR Memory Spikes on A12 Bionic**:
+   - `NoticeOCR.recognizeText(in:)` used `withTaskGroup` to process all scanned pages simultaneously.
+   - Each task redrew a 3000×3000 uncompressed 32-bit bitmap (~36 MB) and allocated a separate Vision inference pipeline concurrently, causing rapid memory spikes exceeding 150 MB and triggering jetsam memory kills or Vision inference context allocation failures on A12 devices.
+
+### Implementation
+1. **Safe Customizer Teardown & Invalidation ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift))**:
+   - Added `detachCustomizer()` to `DocumentScannerView.Coordinator` and hooked it into `deinit`, `dismantleUIViewController`, and all delegate exit points (`didFinishWith`, `didCancel`, `didFailWithError`).
+   - `detachCustomizer()` immediately invalidates `boundsObservation`, `frameObservation`, and `hiddenObservation`, sets `helperView.onLayout = nil`, and removes the layout helper view from its superview.
+   - Added `isFinished` guard to immediately reject any further layout/reposition passes once the user completes or cancels scanning.
+   - In `DocumentScannerCustomizer.reposition`: Guarded against zero bounds and ensured `saveButton.superview === sv` before calling `sv.bringSubviewToFront(saveButton)`.
+2. **Asynchronous Delegate Completion ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift))**:
+   - In `documentCameraViewController(_:didFinishWith:)`, scanned page images are safely extracted while the scan object is valid, `detachCustomizer()` is executed, and `onFinish(pages)` is dispatched asynchronously via `DispatchQueue.main.async`. This ensures VisionKit cleanly unwinds and finishes its delegate handling before SwiftUI tears down the hosting cover.
+3. **Sequential Low-Memory OCR Processing ([NoticeOCR.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/NoticeOCR.swift))**:
+   - Replaced unbounded parallel `withTaskGroup` in `NoticeOCR.recognizeText(in:)` with a sequential loop running in `autoreleasepool`.
+   - Capped maximum image dimension for Vision OCR at 2048px (reducing per-page uncompressed bitmap memory from ~36 MB down to ~16 MB without compromising text recognition accuracy).
+   - Ensured all intermediate `UIImage`, `CGImage`, and Vision request objects are purged after each page is processed.

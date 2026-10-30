@@ -7,51 +7,57 @@ import PDFKit
 /// iPhone: Vision OCR and PDFKit both run entirely on-device.
 enum NoticeOCR {
     /// Runs Vision text recognition over one or more pages (a single photo, or every page VisionKit
-    /// scanned) and concatenates the result.
+    /// scanned) and concatenates the result. Processes pages sequentially within an autoreleasepool to
+    /// avoid memory jetsam and inference crashes on devices with tighter memory limits (e.g. A12 Bionic on iOS 18).
     static func recognizeText(in images: [UIImage]) async -> String {
-        await withTaskGroup(of: (Int, String).self) { group in
-            for (index, image) in images.enumerated() {
-                group.addTask {
-                    (index, recognizeText(in: image))
+        var results: [String] = []
+        for image in images {
+            let text = await Task.detached(priority: .userInitiated) {
+                autoreleasepool {
+                    recognizeText(in: image)
                 }
+            }.value
+            if !text.isEmpty {
+                results.append(text)
             }
-            var pages = [Int: String](minimumCapacity: images.count)
-            for await (index, text) in group { pages[index] = text }
-            return images.indices.compactMap { pages[$0] }.joined(separator: "\n\n")
         }
+        return results.joined(separator: "\n\n")
     }
 
     private static func recognizeText(in image: UIImage) -> String {
-        guard let cgImage = normalizedCGImage(image) else {
-            print("[NoticeOCR] no CGImage for this UIImage")
+        autoreleasepool {
+            guard let cgImage = normalizedCGImage(image) else {
+                print("[NoticeOCR] no CGImage for this UIImage")
+                return ""
+            }
+            // .accurate first; if it errors (it does on some Simulators: "Could not create inference
+            // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
+            for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = level
+                request.usesLanguageCorrection = level == .accurate
+                request.recognitionLanguages = ["en-US"]
+                // The image is already drawn upright by `normalizedCGImage`.
+                let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
+                do {
+                    try handler.perform([request])
+                } catch {
+                    print("[NoticeOCR] \(level == .accurate ? "accurate" : "fast") failed: \(error)")
+                    continue
+                }
+                let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+                if !lines.isEmpty { return lines.joined(separator: "\n") }
+            }
             return ""
         }
-        // .accurate first; if it errors (it does on some Simulators: "Could not create inference
-        // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
-        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = level
-            request.usesLanguageCorrection = level == .accurate
-            request.recognitionLanguages = ["en-US"]
-            // The image is already drawn upright by `normalizedCGImage`.
-            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
-            do {
-                try handler.perform([request])
-            } catch {
-                print("[NoticeOCR] \(level == .accurate ? "accurate" : "fast") failed: \(error)")
-                continue
-            }
-            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-            if !lines.isEmpty { return lines.joined(separator: "\n") }
-        }
-        return ""
     }
 
     /// Redraws the image upright at a size Vision handles well. Photos from the camera roll carry an
     /// EXIF rotation and can be 12 MP+; scans are already upright.
     private static func normalizedCGImage(_ image: UIImage) -> CGImage? {
         let longest = max(image.size.width, image.size.height)
-        let scale = longest > 3000 ? 3000 / longest : 1
+        let maxDimension: CGFloat = 2048
+        let scale = longest > maxDimension ? maxDimension / longest : 1
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         guard size.width > 0, size.height > 0 else { return image.cgImage }
         let format = UIGraphicsImageRendererFormat()
