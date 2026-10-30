@@ -24,6 +24,10 @@ struct TapePreviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            InContentNavHeader(title: "Preview", backLabel: "Back", onDark: true, onBack: { store.pop() })
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+
             if let tape, let player {
                 Group {
                     if showingPhotos, !photos.isEmpty { photoViewer } else { VideoPlayer(player: player) }
@@ -42,17 +46,7 @@ struct TapePreviewView: View {
             Spacer(minLength: 0)
         }
         .background(OT.cameraBg.ignoresSafeArea())
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 0) {
-                    Text("Preview").font(.otHeadline).foregroundStyle(OT.cameraLabel)
-                    Text("Exactly what casting gets" + (tape.map { " · \(clock($0.duration))" } ?? ""))
-                        .font(.otCaption).foregroundStyle(OT.cameraLabel2)
-                }
-            }
-        }
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 Button("Looks right — package it") { player?.pause(); store.push(.package(auditionID)) }

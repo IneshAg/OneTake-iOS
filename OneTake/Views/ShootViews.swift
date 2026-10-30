@@ -107,6 +107,9 @@ struct ShootSetupView: View {
         let rows = checks
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(title: "Shoot setup", backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
+
                 Text("Before you roll").font(.otLargeTitle)
                 ForEach(rows, id: \.eyebrow) { c in
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
@@ -124,6 +127,7 @@ struct ShootSetupView: View {
             .padding(.bottom, 160)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             Button { store.camera = .shoot(auditionID, scene: shootScene) } label: { Label("Open the camera", systemImage: "camera.fill") }
                 .buttonStyle(.otPrimary)

@@ -284,7 +284,20 @@ struct EditSlateView: View {
     private enum HeightUnit: String, Hashable { case feetInches = "ft / in", centimetres = "cm" }
 
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Edit slate", backLabel: "Back", onBack: { store.pop() }) {
+                Button("Save") {
+                    focusedField = nil
+                    store.slate = draft
+                    dismiss()
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 4)
+
+            Form {
             Section("Your slate") {
                 slateField("Name", placeholder: "e.g. Maya Sharma", text: $draft.name, field: .name,
                            contentType: .name, capitalization: .words, next: .height)
@@ -345,18 +358,11 @@ struct EditSlateView: View {
                     .font(.otHeadline)
                     .foregroundStyle(draft.spoken.isEmpty ? OT.labelTertiary : OT.labelPrimary)
             }
+            .scrollContentBackground(.hidden)
         }
-        .scrollContentBackground(.hidden)
         .otCanvas()
-        .navigationTitle("Edit slate")
+        .toolbar(.hidden, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Save") {
-                    focusedField = nil
-                    store.slate = draft
-                    dismiss()
-                }
-            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { focusedField = nil }
@@ -472,7 +478,12 @@ struct PrivacyView: View {
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Privacy & data", backLabel: "Back", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
+
+            List {
             // Privacy Architecture Overview
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -577,8 +588,9 @@ struct PrivacyView: View {
         }
         .id(storageRefreshID)
         .scrollContentBackground(.hidden)
+        }
         .otCanvas()
-        .navigationTitle("Privacy & data")
+        .toolbar(.hidden, for: .navigationBar)
         .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
             importBackup(result)
         }
@@ -758,9 +770,14 @@ struct PrivacyView: View {
 /// What OneTake does with your data, in the app itself — there's no website for it to point at.
 /// Keep it in step with the code: every claim here should stay true.
 struct PrivacyPolicyView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                InContentNavHeader(title: "Privacy policy", backLabel: "Back", onBack: { dismiss() })
+                    .padding(.bottom, 6)
+
                 section("Private by design", "OneTake has no ads, analytics or tracking. Your work stays on this iPhone unless you share it.")
                 section("Signing in", "An account is optional. Sign in only to send a tape as an iCloud link.")
                 section("On-device data", "Auditions, sides, takes, slate, headshots and practice are stored on this iPhone and included in its backups.")
@@ -774,7 +791,7 @@ struct PrivacyPolicyView: View {
             .padding(.vertical, 12)
         }
         .otCanvas()
-        .navigationTitle("Privacy policy")
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func section(_ title: String, _ body: String) -> some View {
@@ -800,7 +817,12 @@ struct NotificationSettingsView: View {
     @State private var testScheduled = false
 
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Notifications", backLabel: "Back", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
+
+            Form {
             if authStatus == .denied {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
@@ -884,8 +906,9 @@ struct NotificationSettingsView: View {
         .onChange(of: practice) { checkAndReschedule() }
         .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
         .scrollContentBackground(.hidden)
+        }
         .otCanvas()
-        .navigationTitle("Notifications")
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func refreshStatus() async {
@@ -922,6 +945,9 @@ struct HeadshotsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(title: "Headshots", backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
+
                 Text("Front headshot first; profiles are optional.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                 HStack(spacing: 10) {
                     slot("Front", done: taken >= 1, big: true)
@@ -957,7 +983,7 @@ struct HeadshotsView: View {
         }
         .id(store.headshotVersion)
         .otCanvas()
-        .navigationTitle("Headshots")
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {
                 if let auditionID, taken > 0, let a = store.audition(auditionID) {

@@ -66,6 +66,21 @@ struct TakesView: View {
         let circled = takes.first(where: \.isCircled)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(title: "Your takes", backLabel: "Back", onBack: { store.pop() }) {
+                    Button { trimming = current } label: {
+                        Image(systemName: "scissors")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
+                    .opacity((current?.fileURL.map(VideoTrimmer.canTrim) ?? false) ? 1.0 : 0.4)
+                    .accessibilityLabel("Trim")
+                }
+                .padding(.top, 4)
+
                 if scenes.count > 1 {
                     Picker("Scene", selection: Binding(get: { shownScene }, set: { scene = $0; selected = nil })) {
                         ForEach(scenes.indices, id: \.self) { Text(scenes[$0].title).tag($0) }
@@ -118,16 +133,7 @@ struct TakesView: View {
             .padding(.bottom, 100)
         }
         .otCanvas()
-        .navigationTitle("Your takes").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Compare Takes is cut from MVP — the loop stays record → check → keep/retake/edit, no
-            // side-by-side comparison step.
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { trimming = current } label: { Image(systemName: "scissors") }
-                    .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
-                    .accessibilityLabel("Trim")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Go again") { showOneMore = true }.buttonStyle(.otSecondary).frame(width: 130)
@@ -226,24 +232,8 @@ struct TapeCheckView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Button { dismiss() } label: {
-                        Label("Back", systemImage: "chevron.left")
-                            .font(.otHeadline)
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Returns to the previous screen")
-                    Spacer()
-                    Text("Tape check")
-                        .font(.otHeadline)
-                        .foregroundStyle(OT.labelPrimary)
-                    Spacer()
-                    // Balance the title against the leading Back control.
-                    Color.clear.frame(width: 58, height: 44).accessibilityHidden(true)
-                }
+                InContentNavHeader(title: "Tape check", backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
 
                 if let report {
                     results(report)
@@ -259,7 +249,6 @@ struct TapeCheckView: View {
             .padding(.bottom, 140)
         }
         .otCanvas()
-        .navigationTitle("Tape check").navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 4) {

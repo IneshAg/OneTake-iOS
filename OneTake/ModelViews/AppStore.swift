@@ -681,6 +681,20 @@ final class AppStore {
         if !found { push(route) }
     }
 
+    /// Pops the top route from the active navigation stack.
+    func pop() {
+        if showProfile {
+            if !profilePath.isEmpty { profilePath.removeLast() }
+            return
+        }
+        switch tab {
+        case .auditions: if !auditionsPath.isEmpty { auditionsPath.removeLast() }
+        case .search:    if !searchPath.isEmpty { searchPath.removeLast() }
+        case .practice:  if !practicePath.isEmpty { practicePath.removeLast() }
+        case .profile:   if !profilePath.isEmpty { profilePath.removeLast() }
+        }
+    }
+
     func popToRoot() {
         if showProfile {
             profilePath.removeAll()

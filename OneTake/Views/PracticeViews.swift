@@ -206,7 +206,12 @@ struct PracticeSetupView: View {
     @State private var scannerUnavailable = false
 
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Practise a scene", backLabel: "Back", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
+
+            Form {
             Section("Practice your own scene") {
                 TextField("Scene name", text: $sceneTitle)
                 TextField("Your character", text: $character)
@@ -262,7 +267,8 @@ struct PracticeSetupView: View {
                 }
             }
         }
-        .navigationTitle("Practise a scene")
+        }
+        .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in
                 showScanner = false
@@ -354,8 +360,13 @@ struct StandalonePracticeView: View {
     private var scene: ScriptScene? { piece?.scene }
 
     var body: some View {
-        Group {
-            if let piece, let scene {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: isSample ? "Sample scene" : "Practice", backLabel: "Back", onBack: { store.pop() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
+
+            Group {
+                if let piece, let scene {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(piece.title).font(.otTitle).foregroundStyle(OT.labelPrimary)
@@ -417,12 +428,13 @@ struct StandalonePracticeView: View {
                     }
                     .buttonStyle(.otPrimary).padding(OT.gutter)
                 }
-                .navigationTitle(isSample ? "Sample scene" : "Practice")
             } else {
                 ContentUnavailableView("Scene unavailable", systemImage: "theatermasks")
             }
         }
+        }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func displayText(for line: ScriptLine) -> String {

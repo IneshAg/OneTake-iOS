@@ -311,3 +311,65 @@ extension Date {
     var otDue: String { formatted(.dateTime.weekday(.abbreviated).hour().minute()) }
     var otDayMonth: String { formatted(.dateTime.day().month(.abbreviated)) }
 }
+
+// MARK: - In-content Navigation Header
+
+struct InContentNavHeader<TrailingContent: View>: View {
+    var title: String = ""
+    var backLabel: String = "Back"
+    var onDark: Bool = false
+    var onBack: (() -> Void)? = nil
+    @ViewBuilder var trailing: () -> TrailingContent
+    @Environment(\.dismiss) private var dismiss
+
+    init(title: String = "", backLabel: String = "Back", onDark: Bool = false, onBack: (() -> Void)? = nil, @ViewBuilder trailing: @escaping () -> TrailingContent) {
+        self.title = title
+        self.backLabel = backLabel
+        self.onDark = onDark
+        self.onBack = onBack
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                if let onBack { onBack() } else { dismiss() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(backLabel)
+                        .font(.otHeadline)
+                }
+                .foregroundStyle(onDark ? OT.cameraLabel : OT.labelPrimary)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+
+            Spacer()
+
+            if !title.isEmpty {
+                Text(title)
+                    .font(.otHeadline)
+                    .foregroundStyle(onDark ? OT.cameraLabel : OT.labelPrimary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            trailing()
+        }
+        .frame(minHeight: 44)
+    }
+}
+
+extension InContentNavHeader where TrailingContent == AnyView {
+    init(title: String = "", backLabel: String = "Back", onDark: Bool = false, onBack: (() -> Void)? = nil) {
+        self.init(title: title, backLabel: backLabel, onDark: onDark, onBack: onBack) {
+            AnyView(Color.clear.frame(width: 44, height: 44).accessibilityHidden(true))
+        }
+    }
+}
+

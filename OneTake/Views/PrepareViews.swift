@@ -22,6 +22,19 @@ struct PrepareView: View {
             let scene = a.scenes[sceneIndex]
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    InContentNavHeader(title: "Scene \(scene.number) of \(a.scenes.count)", backLabel: "Back", onBack: { store.pop() }) {
+                        Button { showPrompterSettings = true } label: {
+                            Image(systemName: "textformat.size")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(OT.labelPrimary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Text size")
+                    }
+                    .padding(.top, 4)
+
                     Text(scene.title).font(.otLargeTitle)
                     Picker("Lines", selection: $mode) {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
@@ -53,29 +66,26 @@ struct PrepareView: View {
                 .padding(.bottom, 120)
             }
             .otCanvas()
-            .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showPrompterSettings = true } label: { Image(systemName: "textformat.size") }.accessibilityLabel("Text size")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { bottomBar(a) }
             .sheet(isPresented: $showPrompterSettings) { PrompterSettingsSheet().presentationDetents([.medium]) }
         } else {
             // No scenes were read from what was added — say so and offer the fix instead of a blank page.
             VStack(spacing: 14) {
+                InContentNavHeader(title: "Sides", backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
+                Spacer()
                 Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundStyle(OT.labelTertiary)
                 Text("No sides yet").font(.otLargeTitle)
                 Text("OneTake couldn’t find any character lines in what was added. Paste, import or scan the pages and it will split them into scenes. Cues work as NAME on its own line, or “Maya: line”.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
                 Button("Add sides") { showSides = true }.buttonStyle(.otPrimary)
+                Spacer()
             }
             .padding(OT.gutter)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .otCanvas()
-            .navigationTitle("Sides")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSides) { RevisedSidesSheet(auditionID: auditionID) }
         }
     }
@@ -190,6 +200,9 @@ struct RunLinesView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
             let lines = a.scenes[sceneIndex].lines
             VStack(alignment: .leading, spacing: 18) {
+                InContentNavHeader(title: "Run lines", backLabel: "Back", onBack: { dismiss() })
+                    .padding(.top, 4)
+
                 // progress
                 HStack(spacing: 4) {
                     ForEach(lines.indices, id: \.self) { i in
@@ -243,7 +256,7 @@ struct RunLinesView: View {
             }
             .padding(.horizontal, OT.gutter)
             .otCanvas()
-            .navigationTitle("Run lines").navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear { speakIfReader(lines) }
             .onChange(of: follower.transcript) { _, transcript in
                 guard !finished, lines[index].isMine,
@@ -392,50 +405,56 @@ struct ReaderView: View {
         // Reader recordings are files, so this observable counter makes the file status update
         // as soon as Record Reader saves a line.
         let readerTrackVersion = store.readerTrackVersion
-        List {
-            Section {
-                Text("Record \(readerName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-            }
-            .listRowBackground(Color.clear)
-            Section("Your reader tracks") {
-                if readerLines.isEmpty {
-                    Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                } else {
-                    ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                        let recorded = readerTrackVersion >= 0 && FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
-                        HStack(spacing: 12) {
-                            Button {
-                                if recorded {
-                                    if playingLine == index { player.stop(); playingLine = nil }
-                                    else { player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index); playingLine = index }
-                                }
-                            } label: {
-                                Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
-                                    .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
-                                    .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
-                            }.buttonStyle(.plain).disabled(!recorded)
-                            VStack(alignment: .leading) {
-                                Text("Line \(index + 1)").font(.otBody)
-                                Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                            }
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Who reads \(readerName)?", backLabel: "Back", onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 4)
+
+            List {
+                Section {
+                    Text("Record \(readerName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 }
-                Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
+                .listRowBackground(Color.clear)
+                Section("Your reader tracks") {
+                    if readerLines.isEmpty {
+                        Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    } else {
+                        ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
+                            let recorded = readerTrackVersion >= 0 && FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
+                            HStack(spacing: 12) {
+                                Button {
+                                    if recorded {
+                                        if playingLine == index { player.stop(); playingLine = nil }
+                                        else { player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index); playingLine = index }
+                                    }
+                                } label: {
+                                    Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
+                                        .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
+                                        .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
+                                }.buttonStyle(.plain).disabled(!recorded)
+                                VStack(alignment: .leading) {
+                                    Text("Line \(index + 1)").font(.otBody)
+                                    Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                    }
+                    Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
+                }
+                Section {
+                    Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record reader audio", detail: "Record each cue in your own voice") }
+                        .buttonStyle(.plain)
+                    Button { showAudioImporter = true } label: { IconRow(symbol: "waveform.badge.plus", title: "Add an audio file", detail: "Uses the next reader cue that is not recorded") }
+                        .buttonStyle(.plain)
+                }
             }
-            Section {
-                Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record reader audio", detail: "Record each cue in your own voice") }
-                    .buttonStyle(.plain)
-                Button { showAudioImporter = true } label: { IconRow(symbol: "waveform.badge.plus", title: "Add an audio file", detail: "Uses the next reader cue that is not recorded") }
-                    .buttonStyle(.plain)
-            }
+            .scrollContentBackground(.hidden)
         }
-        .scrollContentBackground(.hidden)
         .otCanvas()
-        .navigationTitle("Who reads \(readerName)?")
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             Button("Continue") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
         }
@@ -495,6 +514,8 @@ struct RecordReaderView: View {
             let readerLines = a.scenes[sceneIndex].lines.filter { !$0.isMine }
             let readerName = readerLines.first?.character.capitalized ?? "Reader"
             VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(title: "Record \(readerName)", backLabel: "Back", onBack: { dismiss() })
+                    .padding(.top, 4)
                 HStack(spacing: 4) { ForEach(readerLines.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
                 if lineIndex < readerLines.count {
                     SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
@@ -530,18 +551,18 @@ struct RecordReaderView: View {
             }
             .padding(OT.gutter)
             .otCanvas()
-            .navigationTitle("Record \(readerName)").navigationBarTitleDisplayMode(.inline)
-        .task {
-            microphoneAllowed = await AVAudioApplication.requestRecordPermission()
-            if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
-                let scene = audition.scenes[sceneIndex]
-                let readerLines = scene.lines.filter { !$0.isMine }
-                lineIndex = readerLines.indices.first(where: {
-                    !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
-                }) ?? readerLines.count
+            .toolbar(.hidden, for: .navigationBar)
+            .task {
+                microphoneAllowed = await AVAudioApplication.requestRecordPermission()
+                if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
+                    let scene = audition.scenes[sceneIndex]
+                    let readerLines = scene.lines.filter { !$0.isMine }
+                    lineIndex = readerLines.indices.first(where: {
+                        !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+                    }) ?? readerLines.count
+                }
             }
-        }
-        .onDisappear { if recording { _ = recorder.stop() } }
+            .onDisappear { if recording { _ = recorder.stop() } }
         }
     }
 }

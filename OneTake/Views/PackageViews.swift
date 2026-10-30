@@ -39,6 +39,7 @@ struct PackageView: View {
             .animation(.easeInOut(duration: 0.25), value: phase)
             .onChange(of: progress) { _, p in reportUpload(p) }
             .otCanvas()
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showShare) {
                 if let items = shareItems(a) {
                     ShareSheet(items: items) { completed in
@@ -73,6 +74,9 @@ struct PackageView: View {
         let legend = tapeLegend(a)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
+
                 Text("Ready to send.").font(.otLargeTitle)
                 Text("Due \(a.due.otDue) · \(a.readyCount) of \(a.totalCount) ready").font(.otCallout).foregroundStyle(OT.labelSecondary)
 

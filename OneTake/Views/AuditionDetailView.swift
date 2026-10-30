@@ -22,6 +22,24 @@ struct AuditionDetailView: View {
     private func content(_ a: Audition) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                // In-content Navigation Header
+                InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() }) {
+                    Menu {
+                        Button { showSides = true } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
+                        Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
+                        Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
+                        Divider()
+                        Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                }
+                .padding(.top, 4)
+
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "\(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
@@ -78,18 +96,7 @@ struct AuditionDetailView: View {
             .padding(.bottom, 40)
         }
         .otCanvas()
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { showSides = true } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
-                    Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
-                    Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
-                    Divider()
-                    Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
-                } label: { Image(systemName: "ellipsis") }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
         .sheet(isPresented: $showEdit) { EditAuditionSheet(auditionID: a.id) }

@@ -89,24 +89,29 @@ struct LineDrillView: View {
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(scene.title).font(.otLargeTitle)
-                    Picker("Practice display", selection: $displayMode) {
-                        ForEach(RecallDisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            VStack(spacing: 0) {
+                InContentNavHeader(title: "Scene \(scene.number) of \(a.scenes.count)", backLabel: "Back", onBack: { dismiss() })
+                    .padding(.horizontal, OT.gutter)
+                    .padding(.top, 4)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(scene.title).font(.otLargeTitle)
+                        Picker("Practice display", selection: $displayMode) {
+                            ForEach(RecallDisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        ForEach(scene.lines) { line in lineView(line) }
                     }
-                    .pickerStyle(.segmented)
-                    ForEach(scene.lines) { line in lineView(line) }
+                    .padding(.horizontal, OT.gutter)
+                    .padding(.bottom, 100)
                 }
-                .padding(.horizontal, OT.gutter)
-                .padding(.bottom, 100)
+                .safeAreaInset(edge: .bottom) {
+                    Button("Done") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
+                }
             }
             .otCanvas()
-            .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
-            .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                Button("Done") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .onChange(of: displayMode) { _, _ in peeked = nil }
         }
     }
@@ -163,6 +168,9 @@ struct AudioWalkView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
             VStack(spacing: 20) {
+                InContentNavHeader(title: "Audio Walk", backLabel: "Back", onBack: { walker.stop(); dismiss() })
+                    .padding(.top, 4)
+
                 Spacer()
                 Image(systemName: "headphones").font(.system(size: 56)).foregroundStyle(OT.accent)
                 Text(playing ? "Looping \(scene.title)…" : "Ready to loop \(scene.title)").font(.otTitle)
@@ -191,11 +199,11 @@ struct AudioWalkView: View {
                 }
                 .buttonStyle(.otPrimary)
                 .disabled(readerLines == 0 || recorded < readerLines)
-                Button("Done") { dismiss() }.buttonStyle(.otSecondary)
+                Button("Done") { walker.stop(); dismiss() }.buttonStyle(.otSecondary)
             }
             .padding(.horizontal, OT.gutter).padding(.bottom, OT.gutter)
             .otCanvas()
-            .navigationTitle("Audio Walk").navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             // Auto-Lock would suspend the app and stop the loop.
             .keepScreenAwake()
             .onDisappear { walker.stop() }
