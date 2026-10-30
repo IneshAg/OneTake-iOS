@@ -184,7 +184,6 @@ private struct RouteDestinations: ViewModifier {
         case .missingDetails:                    MissingDetailsView()
         case .noticeReview:                      NoticeReviewView()
         }
-        }
     }
 }
 

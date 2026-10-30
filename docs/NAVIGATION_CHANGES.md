@@ -102,3 +102,32 @@ When opening the Profile modal (`ProfileView`), the custom header (`"Profile"` l
 - [OneTake/Views/AuditionsView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionsView.swift): Top-right header actions with `ProfileButton` and `+` button.
 - [OneTake/Views/PracticeViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PracticeViews.swift): Consistent top-right header `ProfileButton` integration.
 - [OneTake/Views/ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift): Profile modal layout, header top padding (30pt), account section separation, and privacy/data account deletion.
+- [OneTake/Views/AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift): Refactored capture sheet, full-screen `MissingDetailsView`, and `NoticeReviewView`.
+- [OneTake/ModelViews/AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift): Added `.missingDetails` and `.noticeReview` to `Route`, added `auditionDraft`, `pendingRouteAfterAdd`, and `startAuditionDraft(_:)`.
+
+---
+
+## 7. Full-Screen "Missing Details" & Uninterrupted Back Navigation
+
+### Problem & Exploration
+- **Sheet Trap**: Tapping `+` opened `AddAuditionFlow` as a modal sheet (`.sheet(isPresented: $store.showAddAudition)`). When moving to "A few details missing" or "Here's what they want", the sheet simply expanded to `.large` detent, leaving the forms constrained inside a modal card with drag indicators and modal presentation behaviors rather than standard screen navigation.
+- **Back Navigation Loop ("Reading the notice…")**:
+  - The capture sheet previously pushed an intermediate `NoticeReadingView` ("Reading the notice…") to its internal navigation path.
+  - When parsing completed and pushed `MissingDetailsView`, pressing `< Back` popped directly back to `NoticeReadingView`.
+  - Because `NoticeReadingView` ran an automatic parsing task on appear, it immediately called `onDone` and re-pushed `MissingDetailsView`, trapping the user in a loop and preventing them from returning to the previous screen or choosing another notice.
+
+### Implementation
+1. **Pushed Screen Architecture (`Route.missingDetails` & `Route.noticeReview`)**:
+   - Extended `Route` in [`AppStore.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift) with `.missingDetails` and `.noticeReview`.
+   - Added `auditionDraft`, `pendingRouteAfterAdd`, and `startAuditionDraft(_:)` to `AppStore`.
+   - Connected destinations in `RouteDestinations` in [`OneTakeApp.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift).
+2. **Compact Capture Sheet**:
+   - Refactored `AddAuditionFlow` in [`AddAuditionFlow.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift) so the modal sheet is dedicated strictly to capture (Paste button, Photo, Scan, File, and "Type it") at a clean `.height(420)` detent.
+   - When a source is chosen or pasted, `store.startAuditionDraft(draft)` dismisses the sheet and sets `pendingRouteAfterAdd`.
+   - In [`OneTakeApp.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift), the sheet's `onDismiss` handler immediately pushes the target route onto `store.auditionsPath`.
+3. **Clean Back Navigation (No Intermediate Loading Screen)**:
+   - `MissingDetailsView` and `NoticeReviewView` are now full-screen views on the `NavigationStack` with `InContentNavHeader`.
+   - In `MissingDetailsView`, tapping `< Auditions` calls `store.pop()`, popping cleanly back to the Auditions root. It never visits or triggers "Reading the notice…".
+   - Added a "Choose a different notice" action button that pops to root and re-opens the capture sheet.
+   - In `NoticeReviewView`, tapping `< Back` pops back to `MissingDetailsView` (or `< Auditions` if no fields were missing).
+   - Any AI guidance generation runs asynchronously in the background via `.task` on `NoticeReviewView` without blocking navigation.
