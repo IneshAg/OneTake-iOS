@@ -360,6 +360,7 @@ struct EditSlateView: View {
             }
             .scrollContentBackground(.hidden)
         }
+        }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .toolbar {
@@ -484,108 +485,13 @@ struct PrivacyView: View {
                 .padding(.top, 4)
 
             List {
-            // Privacy Architecture Overview
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.shield.fill")
-                            .foregroundStyle(OT.accent)
-                            .font(.title3)
-                        Text("100% OFFLINE & PRIVATE")
-                            .font(.otEyebrow)
-                            .foregroundStyle(OT.labelTertiary)
-                        Spacer()
-                        Text(mb(totalSize))
-                            .font(.otHeadline)
-                    }
-                }
-                .padding(.vertical, 4)
+                overviewSection
+                transferSection
+                cloudSection
+                localStorageSection
+                accountSection
+                legalSection
             }
-
-            Section("Transfer data") {
-                Button {
-                    exportBackup()
-                } label: {
-                    Label("Export backup", systemImage: "square.and.arrow.up")
-                }
-                .disabled(isWorkingWithBackup)
-
-                Button {
-                    showBackupImporter = true
-                } label: {
-                    Label("Import backup", systemImage: "square.and.arrow.down")
-                }
-                .disabled(isWorkingWithBackup)
-
-                if isWorkingWithBackup {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("Working with backup…").font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                    }
-                }
-            } footer: {
-                Text("Backups include auditions, recordings, headshots, practice and settings. They stay in Files until you choose to share them.")
-            }
-
-            // Cloud Delivery Overview
-            Section {
-                LabeledContent("iCloud Drive", value: CloudLink.isAvailable ? "Available" : "Not connected")
-                if let account = store.account {
-                    LabeledContent("Sign-in Provider", value: account.providerName)
-                }
-            } header: {
-                Text("Cloud Delivery")
-            }
-
-            // Local Storage Breakdown and Actions
-            Section {
-                LabeledContent("Takes & auditions", value: mb(rawTakesSize))
-                LabeledContent("Headshots", value: mb(headshotsSize))
-                LabeledContent("Reader tracks", value: mb(readerSize))
-                LabeledContent("Exported deliverables", value: mb(exportsSize))
-
-                if exportsSize > 0 {
-                    Button("Clear exported deliverables cache") {
-                        showConfirmClearExports = true
-                    }
-                    .foregroundStyle(OT.accent)
-                }
-                if readerSize > 0 {
-                    Button("Clear practice reader audio") {
-                        showConfirmClearReader = true
-                    }
-                    .foregroundStyle(OT.accent)
-                }
-            } header: {
-                Text("On this iPhone")
-            }
-
-            // Account & Session Section
-            Section {
-                if let account = store.account {
-                    LabeledContent("Connected as", value: account.name ?? account.email ?? "Signed in")
-                    Button("Disconnect account", role: .destructive) {
-                        showConfirmDisconnectAccount = true
-                    }
-                } else {
-                    LabeledContent("Account mode", value: "Guest (No account)")
-                }
-            } header: {
-                Text("Account")
-            } footer: {
-                Text(store.isSignedIn
-                     ? "Disconnects sign-in on this iPhone."
-                     : "Sign in only to send an iCloud link.")
-            }
-
-            // Legal and Data Wipe
-            Section {
-                NavigationLink("Privacy policy") { PrivacyPolicyView() }
-                Button("Delete all local data", role: .destructive) { showConfirmDeleteAll = true }
-            } footer: {
-                Text("Sent tapes are not affected.")
-            }
-        }
         .id(storageRefreshID)
         .scrollContentBackground(.hidden)
         }
@@ -641,6 +547,123 @@ struct PrivacyView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can’t be undone.")
+        }
+    }
+
+    @ViewBuilder
+    private var overviewSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundStyle(OT.accent)
+                        .font(.title3)
+                    Text("100% OFFLINE & PRIVATE")
+                        .font(.otEyebrow)
+                        .foregroundStyle(OT.labelTertiary)
+                    Spacer()
+                    Text(mb(totalSize))
+                        .font(.otHeadline)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var transferSection: some View {
+        Section {
+            Button {
+                exportBackup()
+            } label: {
+                Label("Export backup", systemImage: "square.and.arrow.up")
+            }
+            .disabled(isWorkingWithBackup)
+
+            Button {
+                showBackupImporter = true
+            } label: {
+                Label("Import backup", systemImage: "square.and.arrow.down")
+            }
+            .disabled(isWorkingWithBackup)
+
+            if isWorkingWithBackup {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Working with backup…").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                }
+            }
+        } header: {
+            Text("Transfer data")
+        } footer: {
+            Text("Backups include auditions, recordings, headshots, practice and settings. They stay in Files until you choose to share them.")
+        }
+    }
+
+    @ViewBuilder
+    private var cloudSection: some View {
+        Section {
+            LabeledContent("iCloud Drive", value: CloudLink.isAvailable ? "Available" : "Not connected")
+            if let account = store.account {
+                LabeledContent("Sign-in Provider", value: account.providerName)
+            }
+        } header: {
+            Text("Cloud Delivery")
+        }
+    }
+
+    @ViewBuilder
+    private var localStorageSection: some View {
+        Section {
+            LabeledContent("Takes & auditions", value: mb(rawTakesSize))
+            LabeledContent("Headshots", value: mb(headshotsSize))
+            LabeledContent("Reader tracks", value: mb(readerSize))
+            LabeledContent("Exported deliverables", value: mb(exportsSize))
+
+            if exportsSize > 0 {
+                Button("Clear exported deliverables cache") {
+                    showConfirmClearExports = true
+                }
+                .foregroundStyle(OT.accent)
+            }
+            if readerSize > 0 {
+                Button("Clear practice reader audio") {
+                    showConfirmClearReader = true
+                }
+                .foregroundStyle(OT.accent)
+            }
+        } header: {
+            Text("On this iPhone")
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        Section {
+            if let account = store.account {
+                LabeledContent("Connected as", value: account.name ?? account.email ?? "Signed in")
+                Button("Disconnect account", role: .destructive) {
+                    showConfirmDisconnectAccount = true
+                }
+            } else {
+                LabeledContent("Account mode", value: "Guest (No account)")
+            }
+        } header: {
+            Text("Account")
+        } footer: {
+            Text(store.isSignedIn
+                 ? "Disconnects sign-in on this iPhone."
+                 : "Sign in only to send an iCloud link.")
+        }
+    }
+
+    @ViewBuilder
+    private var legalSection: some View {
+        Section {
+            NavigationLink("Privacy policy") { PrivacyPolicyView() }
+            Button("Delete all local data", role: .destructive) { showConfirmDeleteAll = true }
+        } footer: {
+            Text("Sent tapes are not affected.")
         }
     }
 
