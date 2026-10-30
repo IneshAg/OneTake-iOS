@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import VisionKit
 
 /// 07 Audition detail (and 7.0 "just added · 0 of 4" when nothing is done yet).
 struct AuditionDetailView: View {
@@ -37,7 +38,7 @@ struct AuditionDetailView: View {
                     Spacer()
 
                     Menu {
-                        Button { showSides = true } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
+                        Button { showSides = true } label: { Label(a.scenes.isEmpty ? "Add sides" : "Revised sides", systemImage: a.scenes.isEmpty ? "doc.badge.plus" : "doc.badge.arrow.up") }
                         Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                         Divider()
@@ -91,6 +92,8 @@ struct AuditionDetailView: View {
                 .buttonStyle(.plain)
 
                 upNext(a)
+
+                sidesCard(a)
 
                 if let then = thenLine(a) {
                     Button { showPackage = true } label: {
@@ -156,6 +159,12 @@ struct AuditionDetailView: View {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
                 Text("No sides captured yet").font(.otTitle)
                 Text("Nothing was readable in what you added this audition from — rescan or retype the sides to prepare and shoot this scene.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+                Button {
+                    showSides = true
+                } label: {
+                    Label("Add or scan sides", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.otPrimary)
             } else {
                 SectionLabel(text: "Everything's in")
                 Text("Watch it once, then send").font(.otTitle)
@@ -164,6 +173,45 @@ struct AuditionDetailView: View {
         }
         .padding(20)
         .otCard()
+    }
+
+    @ViewBuilder private func sidesCard(_ a: Audition) -> some View {
+        if a.scenes.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .foregroundStyle(OT.warning)
+                    Text("No sides attached yet")
+                        .font(.otHeadline)
+                }
+                Text("Add or scan script sides to rehearse lines with a reader and record scenes.")
+                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                Button {
+                    showSides = true
+                } label: {
+                    Label("Add or scan sides", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.otSecondary)
+            }
+            .padding(16)
+            .otCard()
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionLabel(text: "Sides")
+                    Text("\(a.scenes.count) scene\(a.scenes.count == 1 ? "" : "s") · \(a.scenes.flatMap(\.lines).count) lines")
+                        .font(.otHeadline)
+                }
+                Spacer()
+                Button("Replace / rescan") {
+                    showSides = true
+                }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(OT.accent)
+            }
+            .padding(16)
+            .otCard()
+        }
     }
 
     private func quoteLine(_ text: String) -> some View {
@@ -337,8 +385,8 @@ struct EditAuditionSheet: View {
 
 // MARK: - Revised sides
 
-/// New pages from casting: paste them, import a file, or scan them — the same on-device reading
-/// Add Audition uses — and they replace this audition's scenes.
+/// Add sides to an audition without sides, or swap in revised sides from casting:
+/// paste them, import a PDF/text file, or scan pages on device.
 struct RevisedSidesSheet: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
@@ -346,14 +394,27 @@ struct RevisedSidesSheet: View {
     @State private var text = ""
     @State private var showImporter = false
     @State private var showScanner = false
+    @State private var scannerUnavailable = false
     @State private var reading = false
 
+    private var audition: Audition? {
+        store.audition(auditionID)
+    }
+
+    private var isNewSides: Bool {
+        audition?.scenes.isEmpty ?? true
+    }
+
     var body: some View {
-        let role = store.audition(auditionID)?.role ?? ""
+        let role = audition?.role ?? ""
         let parsed = ScriptParser.parseScenes(from: text, myRole: role)
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Revised sides", backLabel: "Cancel", onBack: { dismiss() }) {
-                Button("Replace") {
+            InContentNavHeader(
+                title: isNewSides ? "Add sides" : "Revised sides",
+                backLabel: "Cancel",
+                onBack: { dismiss() }
+            ) {
+                Button(isNewSides ? "Add" : "Replace") {
                     store.replaceSides(of: auditionID, with: parsed, sourceText: text)
                     dismiss()
                 }
@@ -366,20 +427,54 @@ struct RevisedSidesSheet: View {
 
             Form {
                 Section {
-                    TextField("Paste the new sides", text: $text, axis: .vertical).lineLimit(6...14)
-                    Button { showImporter = true } label: { Label("Import a PDF or text file", systemImage: "doc") }
-                    Button { showScanner = true } label: { Label("Scan the pages", systemImage: "doc.viewfinder") }
-                } footer: {
-                    Text("Read on this iPhone — nothing is uploaded. Existing takes stay to watch; record and circle takes for these revised scenes before packaging.")
-                }
-                if reading { Section { HStack { ProgressView(); Text("Reading…") } } }
-                if !text.isEmpty {
-                    Section("Found") {
-                        if let scene = parsed.first {
-                            LabeledContent("Lines", value: "\(scene.lines.count)")
-                            LabeledContent("Yours (\(role))", value: "\(scene.lines.filter(\.isMine).count)")
+                    HStack {
+                        Text("Paste from clipboard")
+                            .font(.otHeadline)
+                        Spacer()
+                        PasteButton(payloadType: String.self) { strings in
+                            let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !pasted.isEmpty { text = pasted }
+                        }
+                        .buttonBorderShape(.capsule)
+                        .tint(OT.accent)
+                    }
+
+                    TextField(isNewSides ? "Or paste or type sides here..." : "Paste the new sides", text: $text, axis: .vertical)
+                        .lineLimit(6...14)
+
+                    Button { showImporter = true } label: {
+                        Label("Import a PDF or text file", systemImage: "doc")
+                    }
+
+                    Button {
+                        if VNDocumentCameraViewController.isSupported {
+                            showScanner = true
                         } else {
-                            Text("Couldn't make out character lines yet — cues should be in CAPS, like “MAYA”.")
+                            scannerUnavailable = true
+                        }
+                    } label: {
+                        Label("Scan the pages", systemImage: "doc.viewfinder")
+                    }
+                } footer: {
+                    Text(isNewSides
+                         ? "Sides are parsed on your iPhone into character dialogue lines and scenes. Nothing is uploaded."
+                         : "Read on this iPhone — nothing is uploaded. Existing takes stay to watch; record and circle takes for these revised scenes before packaging.")
+                }
+
+                if reading {
+                    Section {
+                        HStack { ProgressView(); Text("Reading pages…") }
+                    }
+                }
+
+                if !text.isEmpty {
+                    Section("Detected from sides") {
+                        if !parsed.isEmpty {
+                            LabeledContent("Scenes", value: "\(parsed.count)")
+                            LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(parsed.flatMap(\.lines).filter(\.isMine).count)")
+                            LabeledContent("Total character lines", value: "\(parsed.flatMap(\.lines).count)")
+                        } else {
+                            Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
                                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         }
                     }
@@ -388,6 +483,16 @@ struct RevisedSidesSheet: View {
             .scrollContentBackground(.hidden)
         }
         .otCanvas()
+        .onAppear {
+            if let existing = audition?.scriptText, !existing.isEmpty {
+                text = existing
+            }
+        }
+        .alert("Camera scanning not available", isPresented: $scannerUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Document scanning requires a device with camera support. You can paste the sides text or import a PDF/text file.")
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()

@@ -102,8 +102,9 @@ When opening the Profile modal (`ProfileView`), the custom header (`"Profile"` l
 - [OneTake/Views/AuditionsView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionsView.swift): Top-right header actions with `ProfileButton` and `+` button.
 - [OneTake/Views/PracticeViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PracticeViews.swift): Consistent top-right header `ProfileButton` integration.
 - [OneTake/Views/ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift): Profile modal layout, header top padding (30pt), account section separation, and privacy/data account deletion.
-- [OneTake/Views/AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift): Refactored capture sheet, full-screen `MissingDetailsView`, and `NoticeReviewView`.
-- [OneTake/ModelViews/AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift): Added `.missingDetails` and `.noticeReview` to `Route`, added `auditionDraft`, `pendingRouteAfterAdd`, and `startAuditionDraft(_:)`.
+- [OneTake/Views/AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift): Refactored capture sheet, full-screen `MissingDetailsView`, `NoticeReviewView`, and `AddDraftSidesSheet`.
+- [OneTake/Views/AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift): Added "Add or scan sides" action button in `upNext`, persistent `sidesCard`, dynamic `...` menu item, and enhanced `RevisedSidesSheet`.
+- [OneTake/ModelViews/AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift): Added `.missingDetails` and `.noticeReview` to `Route`, added `auditionDraft`, `pendingRouteAfterAdd`, `startAuditionDraft(_:)`, and updated `replaceSides(of:with:sourceText:)`.
 
 ---
 
@@ -131,3 +132,36 @@ When opening the Profile modal (`ProfileView`), the custom header (`"Profile"` l
    - Added a "Choose a different notice" action button that pops to root and re-opens the capture sheet.
    - In `NoticeReviewView`, tapping `< Back` pops back to `MissingDetailsView` (or `< Auditions` if no fields were missing).
    - Any AI guidance generation runs asynchronously in the background via `.task` on `NoticeReviewView` without blocking navigation.
+
+---
+
+## 8. Integrated Sides Management (Creation Flow, Audition Detail, and Revised Sides)
+
+### Problem & UX Gap
+1. **Creation Flow Disconnect**: When an actor created an audition from casting notice text, email, or typing it in, `NoticeParser.Draft.sourceText` often contained only audition dates, roles, and project info, but no script sides. There was no way in `MissingDetailsView` or `NoticeReviewView` to inspect sides status, paste sides, scan pages, or import script files before creating the audition.
+2. **Missing Sides Action on Created Auditions**: On created auditions where no sides were captured yet (`a.scenes.isEmpty`), `upNext` displayed:
+   > *"No sides captured yet — Nothing was readable in what you added this audition from — rescan or retype the sides to prepare and shoot this scene."*
+   However, there was **no button** or call to action on the screen. The actor was completely stranded with no direct way to add or scan sides, and had to discover an obscure "Revised sides" item hidden inside the `...` menu.
+3. **Rigid "Revised sides" sheet**: The sheet was titled "Revised sides" with button "Replace" even when 0 sides had ever been added. It lacked a quick `PasteButton` for 1-tap clipboard import and didn't display the detected scene/line breakdown for the actor's role.
+
+### Implementation
+1. **Creation Flow Sides Actions (`AddDraftSidesSheet`)**:
+   - Built `AddDraftSidesSheet` in [`AddAuditionFlow.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift) supporting:
+     - 1-tap `PasteButton(payloadType: String.self)` to paste sides directly from clipboard.
+     - Multi-line text field with manual typing/editing.
+     - Document camera scanning via `DocumentScannerView` (`VisionKit`).
+     - File importing via `.fileImporter` (PDF, plain text, RTF).
+     - Live parser feedback showing detected scenes, role lines, and total character dialogue.
+   - Embedded sides status cards in both `MissingDetailsView` and `NoticeReviewView` with "Add sides" (when empty) and "Replace / rescan" (when scenes exist).
+2. **Direct Action on Audition Detail (`AuditionDetailView.swift`)**:
+   - In `upNext`: When `next?.kind == .scene` and no sides are captured yet, added a primary call-to-action button:
+     `Button { showSides = true } label: { Label("Add or scan sides", systemImage: "doc.badge.plus") }`
+   - Added a persistent `sidesCard(a)` on `AuditionDetailView`:
+     - Empty state: Displays "No sides attached yet" with warning icon and "Add or scan sides" action button.
+     - Populated state: Displays "Sides · X scene(s) · Y lines" with "Replace / rescan" action button.
+   - Updated the `...` options menu: Dynamically displays `"Add sides"` (with `doc.badge.plus`) when empty, or `"Revised sides"` (with `doc.badge.arrow.up`) when sides exist.
+3. **Enhanced Sides Sheet (`RevisedSidesSheet`)**:
+   - Dynamically titles the sheet as `"Add sides"` (if `scenes.isEmpty`) or `"Revised sides"`.
+   - Action button reflects `"Add"` vs `"Replace"`.
+   - Added 1-tap `PasteButton`, file import, camera scan, and live scene/line inspection.
+   - Updated `store.replaceSides(...)` in [`AppStore.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift) so first-time sides addition does not tag pieces as "Revised sides".

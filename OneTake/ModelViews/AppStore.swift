@@ -392,10 +392,11 @@ final class AppStore {
     /// new pages need shooting). Practice pieces for this audition follow the new text.
     func replaceSides(of id: Audition.ID, with scenes: [ScriptScene], sourceText: String? = nil) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        let hadScenes = !auditions[i].scenes.isEmpty
         auditions[i].scenes = scenes
         auditions[i].scriptText = sourceText
         auditions[i].pieces.removeAll { $0.kind == .scene }
-        auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: "Revised sides", isDone: false) }
+        auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: hadScenes ? "Revised sides" : "", isDone: false) }
         if auditions[i].status == .ready { auditions[i].status = .due }
         // Existing recordings remain available to watch, but can no longer be selected for the
         // revised script until the actor explicitly circles a take from this round.

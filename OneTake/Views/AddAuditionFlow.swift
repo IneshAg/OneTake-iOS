@@ -410,7 +410,124 @@ enum NoticeParser {
     }
 }
 
-// MARK: - 6.1 Reading the notice
+// MARK: - 6.1 Draft sides sheet (Add or replace sides during audition creation)
+
+struct AddDraftSidesSheet: View {
+    @Binding var draft: NoticeParser.Draft
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var showImporter = false
+    @State private var showScanner = false
+    @State private var scannerUnavailable = false
+    @State private var reading = false
+
+    private var parsed: [ScriptScene] {
+        ScriptParser.parseScenes(from: text, myRole: draft.role)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            InContentNavHeader(
+                title: draft.sourceText.isEmpty ? "Add sides" : "Replace sides",
+                backLabel: "Cancel",
+                onBack: { dismiss() }
+            ) {
+                Button(draft.sourceText.isEmpty ? "Add" : "Replace") {
+                    draft.sourceText = text
+                    if !parsed.isEmpty {
+                        draft.scenes = max(parsed.count, draft.scenes)
+                    }
+                    dismiss()
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+
+            Form {
+                Section {
+                    HStack {
+                        Text("Paste from clipboard")
+                            .font(.otHeadline)
+                        Spacer()
+                        PasteButton(payloadType: String.self) { strings in
+                            let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !pasted.isEmpty { text = pasted }
+                        }
+                        .buttonBorderShape(.capsule)
+                        .tint(OT.accent)
+                    }
+
+                    TextField("Or paste or type sides here...", text: $text, axis: .vertical)
+                        .lineLimit(6...14)
+
+                    Button { showImporter = true } label: {
+                        Label("Import a PDF or text file", systemImage: "doc")
+                    }
+
+                    Button { openScanner() } label: {
+                        Label("Scan the pages", systemImage: "doc.viewfinder")
+                    }
+                } footer: {
+                    Text("Sides are parsed on your iPhone into character dialogue lines and scenes.")
+                }
+
+                if reading {
+                    Section {
+                        HStack { ProgressView(); Text("Reading pages…") }
+                    }
+                }
+
+                if !text.isEmpty {
+                    Section("Detected from sides") {
+                        if !parsed.isEmpty {
+                            LabeledContent("Scenes", value: "\(parsed.count)")
+                            LabeledContent("Your lines (\(draft.role.isEmpty ? "Your role" : draft.role))", value: "\(parsed.flatMap(\.lines).filter(\.isMine).count)")
+                            LabeledContent("Total character lines", value: "\(parsed.flatMap(\.lines).count)")
+                        } else {
+                            Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
+                                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .otCanvas()
+        .onAppear {
+            text = draft.sourceText
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+            guard case .success(let url) = result else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            if let extracted = NoticeOCR.extractText(fromFileAt: url) { text = extracted }
+            if accessed { url.stopAccessingSecurityScopedResource() }
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            DocumentScannerView { pages in
+                showScanner = false
+                guard !pages.isEmpty else { return }
+                reading = true
+                Task {
+                    let recognized = await NoticeOCR.recognizeText(in: pages)
+                    await MainActor.run { text = recognized; reading = false }
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
+        }
+    }
+
+    private func openScanner() {
+        if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
+    }
+}
 
 // MARK: - 6.2 Missing details
 
@@ -418,6 +535,7 @@ struct MissingDetailsView: View {
     @Environment(AppStore.self) private var store
     @State private var picked: Date = .now.addingTimeInterval(86400)
     @State private var requestedFields: [String] = []
+    @State private var showSidesSheet = false
 
     private var missing: [String] { store.auditionDraft.missingRequiredDetails }
     private var canContinue: Bool {
@@ -460,6 +578,45 @@ struct MissingDetailsView: View {
                     }
                     .padding(16).otCard(radius: 20)
 
+                    SectionLabel(text: "Sides (optional)")
+                    let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+                    if parsedScenes.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.text")
+                                    .foregroundStyle(OT.labelSecondary)
+                                Text("No sides attached yet")
+                                    .font(.otHeadline)
+                            }
+                            Text("Add script sides now, or add them anytime after creating the audition.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+
+                            Button {
+                                showSidesSheet = true
+                            } label: {
+                                Label("Add sides", systemImage: "plus")
+                            }
+                            .buttonStyle(.otSecondary)
+                        }
+                        .padding(16).otCard(radius: 20)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(OT.success)
+                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines")
+                                    .font(.otHeadline)
+                                Spacer()
+                                Button("Replace") {
+                                    showSidesSheet = true
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                            }
+                        }
+                        .padding(16).otCard(radius: 20)
+                    }
+
                     Button("Choose a different notice") {
                         store.pop()
                         store.showAddAudition = true
@@ -486,6 +643,9 @@ struct MissingDetailsView: View {
             .padding(.vertical, 10)
             .background(OT.bgCanvas)
         }
+        .sheet(isPresented: $showSidesSheet) {
+            AddDraftSidesSheet(draft: $store.auditionDraft)
+        }
         .onAppear {
             let req = store.auditionDraft.missingRequiredDetails
             requestedFields = req.isEmpty ? ["project", "role", "due date"] : req
@@ -499,6 +659,7 @@ struct MissingDetailsView: View {
 struct NoticeReviewView: View {
     @Environment(AppStore.self) private var store
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
+    @State private var showSidesSheet = false
 
     private var hasReaderLines: Bool {
         !store.auditionDraft.role.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
@@ -528,6 +689,45 @@ struct NoticeReviewView: View {
                         }
                     } else {
                         DatePicker("Due", selection: Binding(get: { store.auditionDraft.due ?? .now.addingTimeInterval(86400) }, set: { store.auditionDraft.due = $0 })).labelsHidden()
+                    }
+
+                    SectionLabel(text: "Sides & Scenes")
+                    let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+                    if parsedScenes.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                    .foregroundStyle(OT.warning)
+                                Text("No sides attached yet")
+                                    .font(.otHeadline)
+                            }
+                            Text("Add or scan sides now to learn lines and rehearse with a reader, or add them later.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+
+                            Button {
+                                showSidesSheet = true
+                            } label: {
+                                Label("Add or scan sides", systemImage: "doc.badge.plus")
+                            }
+                            .buttonStyle(.otSecondary)
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(OT.success)
+                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines found")
+                                    .font(.otHeadline)
+                                Spacer()
+                                Button("Replace / rescan") {
+                                    showSidesSheet = true
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                            }
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
 
                     SectionLabel(text: "They asked for")
@@ -562,11 +762,6 @@ struct NoticeReviewView: View {
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-
-                    if !store.auditionDraft.sourceText.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty {
-                        Label("Couldn't make out character lines from this — the checklist still gets created, and you can add sides once you have clean pages.", systemImage: "info.circle")
-                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                    }
                 }
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 14)
@@ -581,6 +776,9 @@ struct NoticeReviewView: View {
             .buttonStyle(.otPrimary)
             .padding(.horizontal, OT.gutter).padding(.bottom, 8)
             .background(OT.bgCanvas)
+        }
+        .sheet(isPresented: $showSidesSheet) {
+            AddDraftSidesSheet(draft: $store.auditionDraft)
         }
         .task {
             if store.auditionDraft.aiGuidance.isEmpty && !store.auditionDraft.sourceText.isEmpty {
