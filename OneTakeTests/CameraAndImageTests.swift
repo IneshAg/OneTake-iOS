@@ -92,8 +92,11 @@ final class CameraAndImageTests: XCTestCase {
     // MARK: - ImageFramer Ratios & Cropping Calculations
 
     func testFramingRatioMathematicalValues() {
-        XCTAssertEqual(FramingRatio.portrait.rawValue, "9:16")
-        XCTAssertEqual(FramingRatio.portrait.value, 9.0 / 16.0, accuracy: 0.0001)
+        XCTAssertEqual(FramingRatio.headshot.rawValue, "4:5")
+        XCTAssertEqual(FramingRatio.headshot.value, 4.0 / 5.0, accuracy: 0.0001)
+
+        XCTAssertEqual(FramingRatio.portrait.rawValue, "3:4")
+        XCTAssertEqual(FramingRatio.portrait.value, 3.0 / 4.0, accuracy: 0.0001)
 
         XCTAssertEqual(FramingRatio.landscape.rawValue, "16:9")
         XCTAssertEqual(FramingRatio.landscape.value, 16.0 / 9.0, accuracy: 0.0001)
@@ -142,9 +145,9 @@ final class CameraAndImageTests: XCTestCase {
     }
 
     func testImageFramerCropToPortraitRatio() {
-        // Wide image: 3200 x 1600 cropped to 9:16 (ratio 0.5625)
+        // Wide image with no face: 3200 x 1600 cropped to 9:16 (ratio 0.5625) — largest crop fallback.
         let wideImage = createTestImage(width: 3200, height: 1600)
-        let cropped = ImageFramer.crop(wideImage, ratio: FramingRatio.portrait.value)
+        let cropped = ImageFramer.crop(wideImage, ratio: 9.0 / 16.0)
 
         XCTAssertNotNil(cropped)
         guard let cg = cropped?.cgImage else { return }
@@ -152,6 +155,93 @@ final class CameraAndImageTests: XCTestCase {
         // Height remains 1600; width becomes 1600 * (9/16) = 900
         XCTAssertEqual(cg.height, 1600)
         XCTAssertEqual(cg.width, 900)
+    }
+
+    // MARK: - Face-aware reframing
+
+    func testFaceReframeIsHeadAndShouldersNotLargestCrop() {
+        // 3024 x 4032 portrait photo, face 600 x 700 in the upper middle.
+        let size = CGSize(width: 3024, height: 4032)
+        let face = CGRect(x: 1212, y: 1000, width: 600, height: 700)
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: FramingRatio.headshot.value)
+
+        XCTAssertEqual(rect.width / rect.height, 0.8, accuracy: 0.01, "Keeps the requested 4:5 ratio")
+        XCTAssertLessThan(rect.height, size.height, "Frames the subject rather than taking the whole photo")
+        XCTAssertEqual(face.height / rect.height, ImageFramer.faceHeightFraction, accuracy: 0.02,
+                       "Face fills about a third of the frame — head and shoulders")
+        XCTAssertEqual(rect.midX, face.midX, accuracy: 2, "Face is horizontally centred")
+        let faceCenterFromTop = (face.midY - rect.minY) / rect.height
+        XCTAssertEqual(faceCenterFromTop, ImageFramer.faceCenterFromTop, accuracy: 0.02,
+                       "Face sits in the upper part of the frame, with headroom above")
+        XCTAssertTrue(rect.contains(face), "Whole face stays in frame")
+    }
+
+    func testFaceNearEdgeIsClampedInsidePhoto() {
+        let size = CGSize(width: 3000, height: 4000)
+        let face = CGRect(x: 50, y: 40, width: 500, height: 600)
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: 0.8)
+        XCTAssertGreaterThanOrEqual(rect.minX, 0)
+        XCTAssertGreaterThanOrEqual(rect.minY, 0)
+        XCTAssertLessThanOrEqual(rect.maxX, size.width)
+        XCTAssertLessThanOrEqual(rect.maxY, size.height)
+        XCTAssertTrue(rect.contains(face))
+    }
+
+    func testHugeFaceShrinksCropToFitButKeepsRatio() {
+        // Selfie so close the ideal frame is bigger than the photo.
+        let size = CGSize(width: 1200, height: 1600)
+        let face = CGRect(x: 200, y: 300, width: 800, height: 1000)
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: 0.8)
+        XCTAssertEqual(rect.width / rect.height, 0.8, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(rect.width, size.width)
+        XCTAssertLessThanOrEqual(rect.height, size.height)
+    }
+
+    func testReframingIsStableWhenStartingFromTheSamePhoto() {
+        let size = CGSize(width: 3024, height: 4032)
+        let face = CGRect(x: 1200, y: 1100, width: 620, height: 720)
+        let first = ImageFramer.cropRect(imageSize: size, subject: face, ratio: 0.8)
+        let second = ImageFramer.cropRect(imageSize: size, subject: face, ratio: 0.8)
+        XCTAssertEqual(first, second)
+    }
+
+    func testRotatedCameraPhotoIsNormalizedBeforeCropping() {
+        // A camera photo: raw buffer is landscape 400x300 but displays as portrait 300x400 (.right).
+        let raw = createTestImage(width: 400, height: 300)
+        guard let cg = raw.cgImage else { return XCTFail("No CGImage") }
+        let rotated = UIImage(cgImage: cg, scale: 1, orientation: .right)
+        XCTAssertEqual(rotated.size, CGSize(width: 300, height: 400))
+
+        let cropped = ImageFramer.crop(rotated, ratio: 1.0)
+        XCTAssertEqual(cropped?.imageOrientation, .up)
+        // Square crop of the *displayed* 300x400 photo is 300x300 (the raw buffer would give 300x300 too,
+        // so also check a ratio that differs between the two spaces).
+        let portrait = ImageFramer.crop(rotated, ratio: 3.0 / 4.0)
+        XCTAssertEqual(portrait?.cgImage?.width, 300)
+        XCTAssertEqual(portrait?.cgImage?.height, 400, "3:4 of a displayed-portrait photo keeps the full photo")
+    }
+
+    func testHeadshotStoreReframesFromOriginalAndFreshCaptureResets() {
+        let key = "framingtest"
+        let original = createTestImage(width: 1200, height: 1600)
+        HeadshotStore.save(original, key: key)
+        defer {
+            let dir = MediaStore.directory("headshots")
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key).jpg"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key)_original.jpg"))
+            HeadshotStore.clearCache()
+        }
+
+        HeadshotStore.replace(createTestImage(width: 400, height: 400), key: key)
+        HeadshotStore.replace(createTestImage(width: 200, height: 200), key: key)
+        let kept = HeadshotStore.loadOriginal(key: key)
+        XCTAssertEqual(kept?.cgImage?.width, 1200, "Original survives repeated reframes")
+        XCTAssertEqual(kept?.cgImage?.height, 1600)
+
+        HeadshotStore.save(createTestImage(width: 900, height: 900), key: key)
+        HeadshotStore.clearCache()
+        XCTAssertEqual(HeadshotStore.loadOriginal(key: key)?.cgImage?.width, 900,
+                       "A new capture replaces the kept original")
     }
 
     func testImageFramerInvalidRatioReturnsNil() {

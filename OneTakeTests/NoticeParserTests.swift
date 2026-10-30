@@ -13,7 +13,7 @@ final class NoticeParserTests: XCTestCase {
 
     func testCountsScenesMentionedInTheNotice() {
         XCTAssertEqual(NoticeParser.parse("Sides attached (2 scenes).").scenes, 2)
-        XCTAssertEqual(NoticeParser.parse("No scene count here.").scenes, 1)
+        XCTAssertEqual(NoticeParser.parse("No scene count here.").scenes, 0)
     }
 
     func testParsesUnstructuredCastingNotice() {

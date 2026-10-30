@@ -175,14 +175,36 @@ enum HeadshotStore {
         MediaStore.directory("headshots").appendingPathComponent("\(key.lowercased()).jpg")
     }
 
+    /// The untouched capture, kept the first time a photo is reframed so every later reframe starts
+    /// from the full original instead of cropping an already-cropped photo (which kept zooming in).
+    private static func originalURL(for key: String) -> URL {
+        MediaStore.directory("headshots").appendingPathComponent("\(key.lowercased())_original.jpg")
+    }
+
+    /// A fresh capture. Drops any original kept from a previous reframe — it belongs to the old photo.
     static func save(_ image: UIImage, key: String) {
+        try? FileManager.default.removeItem(at: originalURL(for: key))
+        write(image, key: key)
+    }
+
+    /// An edit of the current photo (e.g. auto-framing). Keeps the original capture on the first edit.
+    static func replace(_ image: UIImage, key: String) {
+        let original = originalURL(for: key)
+        if !FileManager.default.fileExists(atPath: original.path), exists(key: key) {
+            try? FileManager.default.copyItem(at: url(for: key), to: original)
+        }
+        write(image, key: key)
+    }
+
+    /// The full original capture if the photo has been reframed, otherwise the current photo.
+    static func loadOriginal(key: String) -> UIImage? {
+        UIImage(contentsOfFile: originalURL(for: key).path) ?? load(key: key)
+    }
+
+    private static func write(_ image: UIImage, key: String) {
         guard let data = image.jpegData(compressionQuality: 0.9) else { return }
         try? data.write(to: url(for: key), options: .atomic)
         cache.setObject(image, forKey: key.lowercased() as NSString)
-    }
-
-    static func replace(_ image: UIImage, key: String) {
-        save(image, key: key)
     }
 
     static func load(key: String) -> UIImage? {

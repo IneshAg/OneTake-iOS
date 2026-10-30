@@ -626,6 +626,7 @@ struct HeadshotsView: View {
     var auditionID: Audition.ID? = nil
     @Environment(AppStore.self) private var store
     @State private var framingRatio: FramingRatio?
+    @State private var isFraming = false
 
     /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
     /// headshot showed as taken before it ever was.
@@ -652,8 +653,16 @@ struct HeadshotsView: View {
                     tip("iphone", "Eye level", "a little above is fine")
                 }
                 if taken > 0 {
-                    Button("Auto-frame headshots") { framingRatio = .photo }
-                        .buttonStyle(.otSecondary)
+                    Button {
+                        framingRatio = .headshot
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isFraming { ProgressView() }
+                            Text(isFraming ? "Framing…" : "Auto-frame headshots")
+                        }
+                    }
+                    .buttonStyle(.otSecondary)
+                    .disabled(isFraming)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -680,14 +689,23 @@ struct HeadshotsView: View {
         .onAppear { store.syncHeadshotPieces() }
         .sheet(item: $framingRatio) { ratio in
             FramingRatioSheet(ratio: ratio) { selectedRatio in
-                for angle in HeadshotStore.taken {
-                    if let image = HeadshotStore.load(key: angle.key),
-                       let framed = ImageFramer.crop(image, ratio: selectedRatio) {
-                        HeadshotStore.replace(framed, key: angle.key)
+                framingRatio = nil
+                isFraming = true
+                // Always reframe from the original capture, so applying again (or a different
+                // ratio) re-crops the full photo instead of zooming further into the last crop.
+                let keys = HeadshotStore.taken.map(\.key)
+                let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key).map { (key, $0) } }
+                Task.detached(priority: .userInitiated) {
+                    let framed = originals.compactMap { key, image in
+                        ImageFramer.crop(image, ratio: selectedRatio).map { (key, $0) }
+                    }
+                    await MainActor.run {
+                        for (key, image) in framed { HeadshotStore.replace(image, key: key) }
+                        store.headshotVersion += 1
+                        isFraming = false
+                        if framed.isEmpty { Haptics.warning() } else { Haptics.success() }
                     }
                 }
-                store.headshotVersion += 1
-                framingRatio = nil
             }
         }
     }
@@ -697,13 +715,13 @@ struct HeadshotsView: View {
         @State var ratio: FramingRatio
         let apply: (CGFloat) -> Void
         @State private var customWidth = "4"
-        @State private var customHeight = "3"
+        @State private var customHeight = "5"
         @State private var useCustom = false
 
         var body: some View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Auto-frame photos").font(.otTitle)
-                Text("Centers the largest face and replaces saved photos with the crop.")
+                Text("Frames head and shoulders around your face, from the original photo. Run it again any time — it never crops a crop.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 Picker("Ratio", selection: $ratio) {
                     ForEach(FramingRatio.allCases) { Text($0.rawValue).tag($0) }
