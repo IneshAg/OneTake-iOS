@@ -547,11 +547,24 @@ final class ReaderTrackPlayer {
             .appendingPathComponent("line-\(index).m4a")
     }
 
+    /// Checks if a valid recording exists for this reader cue.
+    static func hasRecording(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> Bool {
+        let url = self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            return (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
+        }
+        if fm.fileExists(atPath: url.standardizedFileURL.path) {
+            return (try? url.standardizedFileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
+        }
+        return false
+    }
+
     /// Plays one recorded reader line. Returns false when that line hasn't been recorded.
     @discardableResult
     func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
         let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
-        guard FileManager.default.fileExists(atPath: url.path) else { return false }  // not recorded yet → silent cue
+        guard Self.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) else { return false }  // not recorded yet → silent cue
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
         player = try? AVAudioPlayer(contentsOf: url)
         player?.volume = volume
@@ -569,13 +582,22 @@ final class ReaderLineRecorder {
     @discardableResult
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
         let session = AVAudioSession.sharedInstance()
+        #if !targetEnvironment(simulator)
         guard session.recordPermission == .granted else { return false }
+        #endif
         do {
             try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
         } catch { return false }
-        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1]
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
         let url = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: url)
         guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
         self.recorder = recorder
         guard recorder.record() else { self.recorder = nil; return false }
@@ -588,8 +610,10 @@ final class ReaderLineRecorder {
         let url = recorder.url
         recorder.stop()
         self.recorder = nil
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 128 else {
-            try? FileManager.default.removeItem(at: url)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) || fm.fileExists(atPath: url.standardizedFileURL.path) else { return false }
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size == 0 {
+            try? fm.removeItem(at: url)
             return false
         }
         return true

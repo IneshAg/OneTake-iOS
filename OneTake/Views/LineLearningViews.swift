@@ -177,9 +177,13 @@ struct AudioWalkView: View {
                 Text(playing ? "Looping \(scene.title)…" : "Ready to loop \(scene.title)").font(.otTitle)
                 Text("Your recorded reader lines, with a pause the length of each of yours, on repeat. Say your lines into the gaps.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
-                let readerLines = scene.lines.filter { !$0.isMine }.count
+                let _ = store.readerTrackVersion
+                let unowned = scene.lines.filter { !$0.isMine }
+                let readerName = unowned.first?.character.capitalized ?? "Reader"
+                let specificReaderLines = unowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+                let readerLines = specificReaderLines.count
                 let recorded = (0..<readerLines).filter {
-                    FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+                    ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
                 }.count
                 if recorded < readerLines {
                     Text("\(recorded) of \(readerLines) reader lines recorded. Record the rest before starting the Audio Walk.")

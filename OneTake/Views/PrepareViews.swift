@@ -18,6 +18,7 @@ struct PrepareView: View {
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
     var body: some View {
+        let _ = store.readerTrackVersion
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
             ScrollView {
@@ -44,12 +45,13 @@ struct PrepareView: View {
                         Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         Spacer()
                         Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
-                            let readerName = scene.lines.first(where: { !$0.isMine })?.character.capitalized ?? "Reader"
                             let readerLines = scene.lines.filter { !$0.isMine }
-                            let recorded = readerLines.indices.filter {
-                                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: a.id, sceneIndex: sceneIndex, line: $0).path)
+                            let readerName = readerLines.first?.character.capitalized ?? "Reader"
+                            let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+                            let recorded = specificReaderLines.indices.filter {
+                                ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sceneIndex, line: $0)
                             }.count
-                            Label("\(readerName) · \(recorded) of \(readerLines.count) recorded", systemImage: recorded == readerLines.count && !readerLines.isEmpty ? "waveform" : "mic")
+                            Label("\(readerName) · \(recorded) of \(specificReaderLines.count) recorded", systemImage: recorded == specificReaderLines.count && !specificReaderLines.isEmpty ? "waveform" : "mic")
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
                         }
                     }
@@ -399,7 +401,10 @@ struct ReaderView: View {
 
     private var readerLines: [ScriptLine] {
         guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return [] }
-        return scenes[sceneIndex].lines.filter { !$0.isMine }
+        let allLines = scenes[sceneIndex].lines
+        let unowned = allLines.filter { !$0.isMine }
+        guard let targetName = unowned.first?.character else { return [] }
+        return unowned.filter { $0.character.caseInsensitiveCompare(targetName) == .orderedSame }
     }
     private var readerName: String { readerLines.first?.character.capitalized ?? "your reader" }
 
@@ -408,7 +413,7 @@ struct ReaderView: View {
         // as soon as Record Reader saves a line.
         let readerTrackVersion = store.readerTrackVersion
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Who reads \(readerName)?", backLabel: "Back", onBack: { dismiss() })
+            InContentNavHeader(title: "Who reads \(readerName)?", backLabel: "Back", onBack: { store.pop() })
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 4)
 
@@ -423,7 +428,7 @@ struct ReaderView: View {
                         Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     } else {
                         ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                            let recorded = readerTrackVersion >= 0 && FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
+                            let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
                             HStack(spacing: 12) {
                                 Button {
                                     if recorded {
@@ -434,7 +439,9 @@ struct ReaderView: View {
                                     Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
                                         .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
                                         .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
-                                }.buttonStyle(.plain).disabled(!recorded)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!recorded)
                                 VStack(alignment: .leading) {
                                     Text("Line \(index + 1)").font(.otBody)
                                     Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -459,7 +466,7 @@ struct ReaderView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            Button("Continue") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
+            Button("Continue") { store.pop() }.buttonStyle(.otPrimary).padding(OT.gutter)
         }
         .fileImporter(isPresented: $showAudioImporter, allowedContentTypes: [.audio]) { result in
             importReaderAudio(result)
@@ -478,7 +485,7 @@ struct ReaderView: View {
             return
         }
         guard let nextLine = readerLines.indices.first(where: {
-            !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+            !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
         }) else {
             importError = "Every reader cue already has audio. Delete or re-record one to replace it."
             return
@@ -514,10 +521,11 @@ struct RecordReaderView: View {
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
-            let readerLines = a.scenes[sceneIndex].lines.filter { !$0.isMine }
-            let readerName = readerLines.first?.character.capitalized ?? "Reader"
+            let allUnowned = a.scenes[sceneIndex].lines.filter { !$0.isMine }
+            let readerName = allUnowned.first?.character.capitalized ?? "Reader"
+            let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
             VStack(alignment: .leading, spacing: 16) {
-                InContentNavHeader(title: "Record \(readerName)", backLabel: "Back", onBack: { dismiss() })
+                InContentNavHeader(title: "Record \(readerName)", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
                 HStack(spacing: 4) { ForEach(readerLines.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
                 if lineIndex < readerLines.count {
@@ -547,7 +555,7 @@ struct RecordReaderView: View {
                 } else {
                     Text("All \(readerLines.count) lines done").font(.otLargeTitle)
                     Spacer()
-                    Button("Save track") { dismiss() }.buttonStyle(.otPrimary)
+                    Button("Save track") { store.pop() }.buttonStyle(.otPrimary)
                 }
             }
             .padding(OT.gutter)
@@ -558,9 +566,11 @@ struct RecordReaderView: View {
                 microphoneAllowed = await AVAudioApplication.requestRecordPermission()
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
                     let scene = audition.scenes[sceneIndex]
-                    let readerLines = scene.lines.filter { !$0.isMine }
+                    let allUnowned = scene.lines.filter { !$0.isMine }
+                    let readerName = allUnowned.first?.character.capitalized ?? "Reader"
+                    let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
                     lineIndex = readerLines.indices.first(where: {
-                        !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+                        !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
                     }) ?? readerLines.count
                 }
             }

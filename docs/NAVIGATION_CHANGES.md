@@ -185,3 +185,34 @@ Explicitly attached navigation bar and tab bar suppression modifiers across all 
   - `RevisedSidesSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
   - `EditAuditionSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
   - `CallbackSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+
+---
+
+## 10. Script Parsing Integrity & Reader Audio Tracking Fixes
+
+### Problems Identified
+1. **Contaminated Dialogue with Scene Descriptions & Stage Directions**:
+   - In `ScriptParser.swift`, action lines and stage descriptions (e.g. *"Maya sits at the counter..."*, *"Arjun walks to the door..."*) immediately following dialogue were erroneously appended to character dialogue lines because they did not match cue formats or transitions.
+   - Parentheticals (e.g. `(whispers)`, `[beat]`) were treated as spoken words, leading teleprompters and reader recording to instruct actors to speak stage directions out loud.
+2. **Swift Regex Literal Incompatibility with iOS 14 and Earlier**:
+   - `ScriptParser.isSceneHeading` previously used `#/.../#` Swift Regex literal syntax introduced in iOS 16+. On older iOS releases (iOS 14 & 15), Swift Regex literals cause compiler errors or runtime crashes.
+3. **Audio Recording Giving Both Lines of Both Actors**:
+   - When role classification did not match any cue, all lines evaluated `isMine == false`. As a result, `readerLines` contained all lines for all characters in the scene, asking the user to record both characters' dialogue into a single reader track.
+4. **Recorded Lines Count Displaying Stale "0 recorded"**:
+   - After recording or importing audio files, views like `PrepareView`, `ShootSetupView`, and `LineLearningViews` continued displaying `"0 recorded"` because they did not observe `store.readerTrackVersion`.
+   - `RecordReaderView` used `@Environment(\.dismiss)` instead of `store.pop()`, leaving the `NavigationStack` path un-popped.
+   - `ReaderLineRecorder.stop()` contained an aggressive `size > 128` guard that prematurely deleted short or asynchronously-flushed recordings from disk.
+
+### Implementation
+1. **Scene Description & Parenthetical Stripping ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Added `isActionOrDescription(_:knownSpeakers:)` to recognize camera directions, slugline markers (`DAY`, `NIGHT`, `LATER`), standalone stage directions (`BEAT`, `PAUSE`), and third-person character action sentences (`[Name] [walks/sits/looks/turns...]`). Action lines immediately flush preceding dialogue and reset `currentCharacter = nil`.
+   - Added `stripParentheticals(_:)` to strip inline directions like `(whispers)` and `[sighs]` from spoken text, and skips standalone parenthetical lines entirely.
+2. **iOS 14 & Earlier Compatibility ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Replaced `#/.../#` Swift Regex literal in `isSceneHeading` with standard `NSRegularExpression`, ensuring full compatibility with iOS 14 and earlier iOS releases.
+3. **Single Reader Isolation ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Filtered `readerLines` in `RecordReaderView`, `ReaderView`, and `PrepareView` to isolate lines for the single target reader character (`$0.character.caseInsensitiveCompare(readerName) == .orderedSame`). The reader track never mixes dialogue from two different actors.
+4. **Reactive Recording Status & Reliable File Persistence ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift), [PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Added `ReaderTrackPlayer.hasRecording(auditionID:sceneIndex:line:)` to verify audio files across both raw and standardized paths.
+   - Updated `ReaderLineRecorder.start` to ensure destination directories exist and removed aggressive deletion of valid files in `ReaderLineRecorder.stop`.
+   - Added observation of `store.readerTrackVersion` to `PrepareView`, `ShootSetupView`, and `LineLearningViews` so UI counters immediately reflect recorded tracks.
+   - Updated `RecordReaderView` to pop via `store.pop()`.

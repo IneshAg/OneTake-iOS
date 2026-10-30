@@ -47,41 +47,52 @@ enum ScriptParser {
         var currentText = ""
 
         func flush() {
-            guard let character = currentCharacter, !currentText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            guard let character = currentCharacter else { return }
+            let cleaned = stripParentheticals(currentText)
+            guard !cleaned.isEmpty else {
+                currentText = ""
+                return
+            }
             let mine = isSameCharacter(normalizedName(character), roleName)
-            lines.append(ScriptLine(character: character.capitalized, text: currentText.trimmingCharacters(in: .whitespaces), isMine: mine))
+            lines.append(ScriptLine(character: character.capitalized, text: cleaned, isMine: mine))
             currentText = ""
         }
 
         for raw in rawLines {
-            if isSceneHeading(raw) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                // End of the dialogue block
+                if !currentText.isEmpty {
+                    flush()
+                    currentCharacter = nil
+                }
+                continue
+            }
+
+            if isSceneHeading(trimmed) {
                 flush()
                 currentCharacter = nil
                 if !lines.isEmpty {
                     scenes.append((heading, lines))
                     lines = []
                 }
-                heading = raw
-            } else if raw.isEmpty {
-                // End of the dialogue block. A blank line straight after a cue (before any dialogue)
-                // is tolerated, since PDF/OCR text often spaces lines out.
-                if !currentText.isEmpty {
-                    flush()
-                    currentCharacter = nil
-                }
-            } else if isTransition(raw) {
+                heading = trimmed
+            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
                 flush()
                 currentCharacter = nil
-            } else if let colon = raw.firstIndex(of: ":"),
-                      isLikelyCue(String(raw[..<colon])) || speakerKey(String(raw[..<colon])).map({ speakers.contains($0) }) == true {
+            } else if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
+                // Standalone parenthetical stage direction (e.g. "(whispering)") — ignore without flushing speaker
+                continue
+            } else if let colon = trimmed.firstIndex(of: ":"),
+                      isLikelyCue(String(trimmed[..<colon])) || speakerKey(String(trimmed[..<colon])).map({ speakers.contains($0) }) == true {
                 flush()
-                currentCharacter = cueName(String(raw[..<colon]))
-                currentText = String(raw[raw.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if isLikelyCue(raw) {
+                currentCharacter = cueName(String(trimmed[..<colon]))
+                currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            } else if isLikelyCue(trimmed) {
                 flush()
-                currentCharacter = cueName(raw)
+                currentCharacter = cueName(trimmed)
             } else if currentCharacter != nil {
-                currentText += (currentText.isEmpty ? "" : " ") + raw
+                currentText += (currentText.isEmpty ? "" : " ") + trimmed
             }
             // Anything before the first cue (stray header text, action lines) is skipped.
         }
@@ -97,19 +108,89 @@ enum ScriptParser {
         }
     }
 
+    /// Regex for matching scene headers ("SCENE 1", "SC. 2", "SCENE 14A"), using standard NSRegularExpression
+    /// for full compatibility across iOS 14 and earlier.
+    private static let sceneHeaderRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: "^(SCENE|SC\\.?)\\s*(\\d+[A-Z]?)\\b", options: [.caseInsensitive])
+    }()
+
     /// Where a new scene starts: a slugline ("INT. CAFÉ — DAY", "EXT/INT CAR", "I/E") or a scene
-    /// header like "SCENE 2" / "SC. 14".
+    /// header like "SCENE 2" / "SC. 14". Compatible with iOS 14 and earlier.
     static func isSceneHeading(_ raw: String) -> Bool {
         let line = raw.trimmingCharacters(in: .whitespaces)
         guard !line.isEmpty, line.count < 80 else { return false }
         let upper = line.uppercased()
         let sluglinePrefixes = ["INT.", "EXT.", "INT/EXT", "EXT/INT", "INT./EXT", "EXT./INT", "I/E", "INT ", "EXT "]
         if line == upper, sluglinePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
-        // "SCENE 2", "Scene 2:", "SC. 14A — KITCHEN": a number, then nothing or a separator — so a
-        // line of dialogue like "Scene two was better" isn't taken for a heading.
-        guard let match = upper.firstMatch(of: #/^(SCENE|SC\.?)\s*(\d+[A-Z]?)\b/#) else { return false }
-        let rest = upper[match.range.upperBound...].trimmingCharacters(in: .whitespaces)
+
+        guard let regex = sceneHeaderRegex,
+              let match = regex.firstMatch(in: upper, options: [], range: NSRange(location: 0, length: (upper as NSString).length)),
+              let range = Range(match.range, in: upper) else { return false }
+        let rest = upper[range.upperBound...].trimmingCharacters(in: .whitespaces)
         return rest.first.map { ":.-–—(".contains($0) } ?? true
+    }
+
+    /// Identifies stage directions or action/scene descriptions that should not be spoken
+    static func isActionOrDescription(_ raw: String, knownSpeakers: Set<String> = []) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+
+        // Entirely a parenthetical or bracketed stage direction
+        if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
+            return true
+        }
+
+        let upper = trimmed.uppercased()
+
+        // Common standalone stage directions and scene time/setting markers
+        let directions: Set<String> = [
+            "BEAT", "BEAT.", "A BEAT.", "PAUSE", "PAUSE.", "SILENCE", "SILENCE.",
+            "MOMENT", "MOMENT.", "LONG PAUSE.", "CONTINUOUS", "LATER", "MOMENTS LATER",
+            "SAME TIME", "FLASHBACK", "DAY", "NIGHT", "DUSK", "DAWN", "MORNING", "EVENING"
+        ]
+        if directions.contains(upper) { return true }
+
+        // Camera directions
+        let cameraPrefixes = ["ANGLE ON", "CLOSE ON", "CLOSE-UP", "WIDE SHOT", "INSERT", "P.O.V.", "POV", "SOUND OF", "WE HEAR", "WE SEE", "CAMERA", "IN THE DISTANCE"]
+        if cameraPrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
+
+        // Third-person narration starts: "He ", "She ", "They ", "The door ", etc.
+        let narrationPrefixes = ["HE ", "SHE ", "THEY ", "BOTH ", "THE DOOR ", "THE PHONE ", "A CAR ", "SUDDENLY ", "HER EYES ", "HIS EYES "]
+        if narrationPrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
+
+        // Character action verbs: e.g. "Maya looks at him", "Arjun walks to the door"
+        let words = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        if words.count >= 2 {
+            let firstWordKey = words[0].trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—,")) .uppercased()
+            let secondWord = words[1].lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",."))
+            let actionVerbs: Set<String> = [
+                "walks", "looks", "turns", "enters", "exits", "sits", "stands", "takes", "grabs",
+                "pauses", "smiles", "laughs", "sighs", "stares", "crosses", "moves", "picks",
+                "puts", "reaches", "opens", "closes", "glances", "nods", "shakes", "pulls",
+                "pushes", "drops", "stops", "begins", "waits", "watches", "runs", "steps",
+                "hurries", "freezes", "leaves", "approaches", "rises", "falls", "leans", "checks"
+            ]
+            if actionVerbs.contains(secondWord) {
+                if knownSpeakers.contains(firstWordKey) || ["HE", "SHE", "THEY", "MAYA", "ARJUN"].contains(firstWordKey) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// Strips parentheticals like "(whispering)" or "[laughing]" from dialogue lines so actor/reader
+    /// doesn't read stage directions out loud.
+    static func stripParentheticals(_ text: String) -> String {
+        var result = text
+        while let open = result.firstIndex(of: "("), let close = result[open...].firstIndex(of: ")") {
+            result.removeSubrange(open...close)
+        }
+        while let open = result.firstIndex(of: "["), let close = result[open...].firstIndex(of: "]") {
+            result.removeSubrange(open...close)
+        }
+        return result.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
@@ -170,11 +251,19 @@ enum ScriptParser {
             .filter { !$0.isEmpty }
     }
 
+    static func isSameRole(_ cueString: String, _ roleString: String) -> Bool {
+        isSameCharacter(normalizedName(cueString), normalizedName(roleString))
+    }
+
     /// Whole-word match, so a cue of "MAYA" matches the role "Maya Kapoor" (and vice versa) but a
     /// short cue like "AN" no longer matches "Anaya" the way a substring check did.
     private static func isSameCharacter(_ cue: [String], _ role: [String]) -> Bool {
         guard !cue.isEmpty, !role.isEmpty else { return false }
         let cueSet = Set(cue), roleSet = Set(role)
-        return cueSet.isSubset(of: roleSet) || roleSet.isSubset(of: cueSet)
+        if cueSet.isSubset(of: roleSet) || roleSet.isSubset(of: cueSet) { return true }
+        if cueSet.contains(where: { c in c.count >= 3 && roleSet.contains(where: { r in r.hasPrefix(c) || c.hasPrefix(r) }) }) {
+            return true
+        }
+        return false
     }
 }

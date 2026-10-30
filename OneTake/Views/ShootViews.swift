@@ -81,15 +81,18 @@ struct ShootSetupView: View {
                                 detail: isHeadset ? "" : "Stay near the phone.", ok: true))
         }
 
+        _ = store.readerTrackVersion
         if let a = store.audition(auditionID), a.scenes.indices.contains(shootScene) {
             let readerLines = a.scenes[shootScene].lines.filter { !$0.isMine }
-            let recorded = readerLines.indices.filter {
-                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: shootScene, line: $0).path)
+            let readerName = readerLines.first?.character.capitalized ?? "Reader"
+            let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+            let recorded = specificReaderLines.indices.filter {
+                ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: shootScene, line: $0)
             }.count
-            if !readerLines.isEmpty {
-                checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(readerLines.count) reader lines recorded",
-                                    detail: recorded == readerLines.count ? "" : "Record the missing lines for playback.",
-                                    ok: recorded == readerLines.count))
+            if !specificReaderLines.isEmpty {
+                checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(specificReaderLines.count) reader lines recorded",
+                                    detail: recorded == specificReaderLines.count ? "" : "Record the missing lines for playback.",
+                                    ok: recorded == specificReaderLines.count))
             }
         }
 
