@@ -189,6 +189,10 @@ final class AppStore {
             auditionDraft = NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))
             auditionsPath = [.noticeReview]
         }
+        if ProcessInfo.processInfo.arguments.contains("-auditionDetail"), let firstAudition = auditions.first {
+            isOnboarded = true
+            auditionsPath = [.auditionDetail(firstAudition.id)]
+        }
         isLoading = false
         if removedLegacyDemoData { persist() }
     }

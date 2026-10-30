@@ -247,3 +247,38 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Replaced unbounded parallel `withTaskGroup` in `NoticeOCR.recognizeText(in:)` with a sequential loop running in `autoreleasepool`.
    - Capped maximum image dimension for Vision OCR at 2048px (reducing per-page uncompressed bitmap memory from ~36 MB down to ~16 MB without compromising text recognition accuracy).
    - Ensured all intermediate `UIImage`, `CGImage`, and Vision request objects are purged after each page is processed.
+
+---
+
+## 12. Prominent, Explicitly Requested Script Sides in Creation and Detail Flows
+
+### Problems Identified
+1. **App Never Specifically Asked for Script Sides**:
+   - `NoticeParser.Draft.missingRequiredDetails` only checked `project`, `role`, and `due date`. When an audition notice contained basic project metadata but no scene dialogue, `missingRequiredDetails` evaluated to empty, causing the app to bypass `MissingDetailsView` entirely and never alert the actor that sides were missing.
+   - When `MissingDetailsView` was shown, its prompt text only listed "project, role, due date" and labeled the sides card as `Sides (optional)`, giving the false impression that script sides were an optional afterthought rather than the central component of an audition.
+2. **Sides Option Hidden Below Screen Fold**:
+   - In `MissingDetailsView`, `DatePicker` without an explicit style rendered as a full-month graphical calendar taking ~360 pt of vertical space. On standard iPhone screen sizes, this pushed the sides section completely below the screen fold.
+   - On the initial Add Audition capture sheet, the prompt only referred to "the notice" (`"Copied the notice?"`, `"Or bring it in"`), offering no visual indication that script sides could be brought in directly.
+3. **Audition Detail Left Missing Sides Unaddressed**:
+   - When an audition was saved without sides, `AuditionDetailView` placed `Your headshot` in `upNext`, while the card for sides was pushed below `upNext` with a low-priority secondary style.
+   - Tapping on "Scene 1 (No sides yet — add them)" inside `PackageSheet` previously navigated to an empty `PrepareView` rather than opening sides capture directly.
+4. **Draft Sides Sheet Pre-filled with Notice Text**:
+   - Opening `AddDraftSidesSheet` or `RevisedSidesSheet` when no sides existed pre-filled the sides text field with the raw notice/email text and labeled the screen "Replace sides", forcing the actor to manually select and delete email text before pasting script pages.
+
+### Implementation
+1. **Explicit Script Sides Requirement in Audition Draft ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Added `hasSides` property on `NoticeParser.Draft` evaluating `!ScriptParser.parseScenes(from: sourceText, myRole: role).isEmpty`.
+   - Included `"script sides"` in `missingRequiredDetails` whenever `!hasSides`.
+   - Notices without script dialogue now explicitly route to `MissingDetailsView` with dynamic, grammatical subtitles: e.g. `"I couldn't find the script sides in the notice. Add what you know to continue."`
+2. **Prominent, Unmissable Sides Cards in Creation Views ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Initial Capture Sheet: Renamed prompt to `"Copied notice or sides?"` with explicit subtitle `"Paste breakdown, casting email, or script dialogue"`.
+   - `MissingDetailsView`:
+     - Changed `DatePicker` to `.datePickerStyle(.compact)` in an inline `HStack`, saving >300 pt of vertical height and keeping the Sides section fully visible above the fold on all iPhone displays.
+     - Upgraded the sides card to prominent `OT.warning` with high-visibility primary button `[Add or scan sides]` and direct 1-tap `[Paste]` button.
+     - Changed the bottom continue button to dynamically indicate `Continue` vs `Continue without sides`, ensuring actors are aware sides are missing while allowing them to proceed if they do not yet have the script.
+   - `NoticeReviewView`: Added prominent `No sides attached yet` warning card with `.buttonStyle(.otPrimary)` and 1-tap `[Paste]`.
+   - `AddDraftSidesSheet`: Dynamically switches between `"Add sides"` and `"Replace sides"` based on `draft.hasSides`. When no sides have been added yet, the text field starts clean and empty instead of displaying notice text.
+3. **High-Priority Sides Banner on Audition Detail ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - When `a.scenes.isEmpty`, a high-visibility callout card is displayed directly beneath the Package summary at the very top of `AuditionDetailView` with a primary `[Add or scan sides]` button.
+   - In `PackageSheet`, tapping on a scene piece when no sides are attached directly invokes `onAddSides: { showSides = true }`, opening `RevisedSidesSheet` immediately.
+   - In `RevisedSidesSheet`, initial text starts empty when `isNewSides` is true.

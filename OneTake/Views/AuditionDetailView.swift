@@ -91,6 +91,32 @@ struct AuditionDetailView: View {
                 }
                 .buttonStyle(.plain)
 
+                if a.scenes.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .foregroundStyle(OT.warning)
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("No script sides attached")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Add or scan sides to learn your lines, rehearse with a reader, and shoot scenes.")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                        }
+                        Button {
+                            showSides = true
+                        } label: {
+                            Label("Add or scan sides", systemImage: "doc.badge.plus")
+                        }
+                        .buttonStyle(.otPrimary)
+                    }
+                    .padding(16)
+                    .otCard()
+                }
+
                 upNext(a)
 
                 sidesCard(a)
@@ -115,7 +141,10 @@ struct AuditionDetailView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $showPackage) {
+            PackageSheet(auditionID: a.id, onAddSides: { showSides = true })
+                .presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
         .sheet(isPresented: $showEdit) { EditAuditionSheet(auditionID: a.id) }
         .sheet(isPresented: $showSides) { RevisedSidesSheet(auditionID: a.id) }
@@ -176,26 +205,7 @@ struct AuditionDetailView: View {
     }
 
     @ViewBuilder private func sidesCard(_ a: Audition) -> some View {
-        if a.scenes.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .foregroundStyle(OT.warning)
-                    Text("No sides attached yet")
-                        .font(.otHeadline)
-                }
-                Text("Add or scan script sides to rehearse lines with a reader and record scenes.")
-                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                Button {
-                    showSides = true
-                } label: {
-                    Label("Add or scan sides", systemImage: "doc.badge.plus")
-                }
-                .buttonStyle(.otSecondary)
-            }
-            .padding(16)
-            .otCard()
-        } else {
+        if !a.scenes.isEmpty {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     SectionLabel(text: "Sides")
@@ -236,6 +246,7 @@ struct TrailingIconLabelStyle: LabelStyle {
 
 struct PackageSheet: View {
     let auditionID: Audition.ID
+    var onAddSides: (() -> Void)? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
@@ -251,7 +262,7 @@ struct PackageSheet: View {
                     Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.buttonStyle(.plain)
                 }
                 ForEach(Array(a.pieces.enumerated()), id: \.element.id) { i, piece in
-                    Button { open(piece, a); dismiss() } label: {
+                    Button { dismiss(); open(piece, a) } label: {
                         HStack(spacing: 12) {
                             Image(systemName: piece.isDone ? "checkmark" : piece.kind.symbol)
                                 .foregroundStyle(piece.isDone ? OT.labelOnAccent : OT.accent)
@@ -279,7 +290,12 @@ struct PackageSheet: View {
         switch piece.kind {
         case .headshot: store.push(.headshots(for: a.id))
         case .slate, .fullLength: store.push(.shootSetup(a.id))
-        case .scene: store.push(.prepare(a.id, sceneIndex: store.sceneIndex(for: piece, in: a.id)))
+        case .scene:
+            if a.scenes.isEmpty {
+                onAddSides?()
+            } else {
+                store.push(.prepare(a.id, sceneIndex: store.sceneIndex(for: piece, in: a.id)))
+            }
         }
     }
 }
@@ -490,7 +506,7 @@ struct RevisedSidesSheet: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
-            if let existing = audition?.scriptText, !existing.isEmpty {
+            if !isNewSides, let existing = audition?.scriptText, !existing.isEmpty {
                 text = existing
             }
         }
