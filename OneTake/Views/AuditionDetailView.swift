@@ -22,8 +22,20 @@ struct AuditionDetailView: View {
     private func content(_ a: Audition) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                // In-content Navigation Header
-                InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() }) {
+                // Top controls (back & options)
+                HStack {
+                    Button { store.pop() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 38, height: 38)
+                            .background(OT.fillField, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back")
+
+                    Spacer()
+
                     Menu {
                         Button { showSides = true } label: { Label("Revised sides", systemImage: "doc.badge.arrow.up") }
                         Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
@@ -32,10 +44,11 @@ struct AuditionDetailView: View {
                         Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                            .frame(width: 38, height: 38)
+                            .background(OT.fillField, in: Circle())
+                            .contentShape(Circle())
                     }
                 }
                 .padding(.top, 4)
@@ -96,6 +109,7 @@ struct AuditionDetailView: View {
             .padding(.bottom, 40)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .tabBar)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .sheet(isPresented: $showPackage) { PackageSheet(auditionID: a.id).presentationDetents([.medium, .large]) }

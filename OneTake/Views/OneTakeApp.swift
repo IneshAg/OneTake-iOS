@@ -84,18 +84,23 @@ struct RootTabView: View {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView().withRoutes()
                 }
+                .toolbar(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
+
             Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
                 NavigationStack(path: $store.practicePath) {
                     PracticeView().withRoutes()
                 }
+                .toolbar(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
+
             if isSearchAvailable {
                 Tab(value: AppTab.search, role: .search) {
                     NavigationStack(path: $store.searchPath) {
                         SearchView().withRoutes()
                             .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
                     }
+                    .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 }
             }
         }
@@ -145,6 +150,7 @@ private struct RouteDestinations: ViewModifier {
     func body(content: Content) -> some View {
         content.navigationDestination(for: Route.self) { route in
             destination(for: route)
+                .toolbar(.hidden, for: .tabBar)
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationBarBackButtonHidden(true)
         }

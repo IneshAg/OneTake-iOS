@@ -1107,8 +1107,8 @@ struct HeadshotsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func tip(_ s: String, _ t: String, _ d: String) -> some View {

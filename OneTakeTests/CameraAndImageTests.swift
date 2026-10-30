@@ -251,6 +251,17 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertNil(ImageFramer.crop(image, ratio: -1.5), "Negative ratio must return nil")
     }
 
+    func testImageFramerOnModerateSizedFaceDoesNotBlowUpCropToFullWidth() {
+        // 720 x 960 image (e.g. simulator capture or medium resolution photo), face 160 x 200
+        let size = CGSize(width: 720, height: 960)
+        let face = CGRect(x: 280, y: 250, width: 160, height: 200)
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: 0.8)
+
+        XCTAssertLessThan(rect.width, size.width, "Must reframe around face rather than blowing up to full width")
+        XCTAssertEqual(rect.width / rect.height, 0.8, accuracy: 0.02, "Preserves 4:5 headshot aspect ratio")
+        XCTAssertTrue(rect.contains(face), "Contains the face")
+    }
+
     // MARK: - Empirical Stress Tests: Zoom & Timer State Machine
 
     func testStressCycleZoomProgressionArbitraryFloats() {

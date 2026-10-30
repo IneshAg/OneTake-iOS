@@ -347,9 +347,17 @@ final class CameraController: NSObject {
         UIGraphicsImageRenderer(size: CGSize(width: 720, height: 960)).image { context in
             UIColor(white: 0.12, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: 720, height: 960))
+            // Body silhouette
             UIColor(white: 0.25, alpha: 1).setFill()
-            context.cgContext.fillEllipse(in: CGRect(x: 210, y: 230, width: 300, height: 300))
             UIBezierPath(roundedRect: CGRect(x: 140, y: 560, width: 440, height: 460), cornerRadius: 120).fill()
+            // Head silhouette
+            context.cgContext.fillEllipse(in: CGRect(x: 210, y: 230, width: 300, height: 300))
+            // Facial features for Vision face detection in simulator
+            UIColor(white: 0.08, alpha: 1).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 280, y: 330, width: 35, height: 20))
+            context.cgContext.fillEllipse(in: CGRect(x: 405, y: 330, width: 35, height: 20))
+            context.cgContext.fillEllipse(in: CGRect(x: 350, y: 375, width: 20, height: 30))
+            UIBezierPath(roundedRect: CGRect(x: 310, y: 440, width: 100, height: 22), cornerRadius: 10).fill()
         }
     }
     #endif

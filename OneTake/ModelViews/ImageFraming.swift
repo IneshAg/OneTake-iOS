@@ -68,8 +68,9 @@ enum ImageFramer {
             }
             // Don't hand back a postage stamp when the original has the resolution for more.
             let shortSide = min(w, h)
-            if shortSide < minShortSide {
-                let grow = minShortSide / shortSide
+            let effectiveMin = min(minShortSide, min(imageW, imageH) * 0.45)
+            if shortSide < effectiveMin {
+                let grow = effectiveMin / shortSide
                 w *= grow; h *= grow
             }
             centerX = face.midX
@@ -108,6 +109,9 @@ enum ImageFramer {
     private static func detectSubject(in cgImage: CGImage, size: CGSize) -> CGRect? {
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
         let faces = VNDetectFaceRectanglesRequest()
+        #if compiler(>=6.0)
+        faces.revision = VNDetectFaceRectanglesRequestRevision3
+        #endif
         try? handler.perform([faces])
         if let face = faces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }) {
             return pixelRect(face.boundingBox, in: size)
