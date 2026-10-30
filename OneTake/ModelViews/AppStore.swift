@@ -60,6 +60,8 @@ final class AppStore {
     /// Bumped whenever a headshot file is saved or removed, so views that draw headshots from disk
     /// (which SwiftUI can't observe) refresh.
     var headshotVersion = 0
+    /// Bumped after reader audio changes so screens backed by files refresh their recording status.
+    var readerTrackVersion = 0
     var isOnboarded = false { didSet { persist() } }
     /// Guest by default — OneTake works fully offline without an account. Sign-in only ever
     /// happens at a real persistence boundary (e.g. a cross-device share link), never to unlock
@@ -271,6 +273,33 @@ final class AppStore {
         }
     }
 
+    func readerTracksDidChange() { readerTrackVersion += 1 }
+
+    /// Replaces local app data from an explicitly selected offline backup. Account credentials stay
+    /// on this device and are never restored from an archive.
+    func restoreLocalBackup(_ state: PersistedState) {
+        auditions = state.auditions.map { audition in
+            var audition = audition
+            audition.slateVideoURL = MediaStore.rebased(audition.slateVideoURL)
+            audition.slateOriginalVideoURL = MediaStore.rebased(audition.slateOriginalVideoURL)
+            audition.fullLengthVideoURL = MediaStore.rebased(audition.fullLengthVideoURL)
+            audition.exportedFileURL = MediaStore.rebased(audition.exportedFileURL)
+            audition.separateArchiveURL = MediaStore.rebased(audition.separateArchiveURL)
+            return audition
+        }
+        takes = state.takes.map { take in
+            var take = take
+            take.fileURL = MediaStore.rebased(take.fileURL)
+            return take
+        }
+        practice = state.practice
+        slate = state.slate
+        isOnboarded = state.isOnboarded
+        HeadshotStore.clearCache()
+        headshotVersion += 1
+        readerTrackVersion += 1
+    }
+
     /// The scene the camera should open on: the first one whose checklist piece isn't done, else the
     /// first with no takes yet, else the first.
     func sceneToShoot(_ id: Audition.ID) -> Int {
@@ -393,6 +422,7 @@ final class AppStore {
             let from = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true)
             let to = MediaStore.directory(ReaderTrackPlayer.folder).appendingPathComponent(callback.id.uuidString, isDirectory: true)
             try? FileManager.default.copyItem(at: from, to: to)
+            readerTracksDidChange()
         }
         add(callback)
         return callback.id

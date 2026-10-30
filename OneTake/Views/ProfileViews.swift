@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import UniformTypeIdentifiers
 
 // MARK: - 10 Profile (tab)
 
@@ -35,7 +36,9 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Button { store.push(.editSlate) } label: {
                         HStack(spacing: 14) {
-                            HeadshotImage(realKey: "front").id(store.headshotVersion).frame(width: 64, height: 64).clipShape(Circle())
+                            Circle()
+                                .fill(OT.accent)
+                                .frame(width: 64, height: 64)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
                                 Text(store.slate.summary)
@@ -269,17 +272,159 @@ private struct HandsFreeGestureSettingsView: View {
 
 struct EditSlateView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: Field?
+    @State private var draft = SlateInfo()
+    @State private var heightUnit = HeightUnit.feetInches
+    @State private var feet = ""
+    @State private var inches = ""
+    @State private var centimetres = ""
+
+    private enum Field { case name, height, basedIn, representation }
+    private enum HeightUnit: String, Hashable { case feetInches = "ft / in", centimetres = "cm" }
+
     var body: some View {
-        @Bindable var store = store
         Form {
-            Section("Name") { TextField("Name", text: $store.slate.name) }
-            Section { HStack { TextField("Height", text: $store.slate.height); TextField("Based in", text: $store.slate.basedIn) } } header: { Text("Height · Based in") }
-            Section { TextField("Self-represented", text: $store.slate.representation) } header: { Text("Representation") }
-            Section { Text(store.slate.spoken).font(.otHeadline) } header: { Text("Preview") }
+            Section("Your slate") {
+                slateField("Name", placeholder: "e.g. Maya Sharma", text: $draft.name, field: .name,
+                           contentType: .name, capitalization: .words, next: .height)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Height").font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                    Picker("Height unit", selection: Binding(get: { heightUnit }, set: changeHeightUnit)) {
+                        Text("ft / in").tag(HeightUnit.feetInches)
+                        Text("cm").tag(HeightUnit.centimetres)
+                    }
+                    .pickerStyle(.segmented)
+
+                    if heightUnit == .feetInches {
+                        HStack(spacing: 10) {
+                            TextField("Feet", text: $feet)
+                                .keyboardType(.numberPad)
+                                .focused($focusedField, equals: .height)
+                                .onChange(of: feet) { oldValue, newValue in
+                                    let digits = String(newValue.filter(\.isNumber).prefix(1))
+                                    if let number = Int(digits), number > 8 { feet = oldValue; return }
+                                    if digits != newValue { feet = digits; updateHeight(); return }
+                                    updateHeight()
+                                }
+                            Text("ft").foregroundStyle(OT.labelTertiary)
+                            TextField("Inches", text: $inches)
+                                .keyboardType(.numberPad)
+                                .focused($focusedField, equals: .height)
+                                .onChange(of: inches) { oldValue, newValue in
+                                    let digits = String(newValue.filter(\.isNumber).prefix(2))
+                                    if let number = Int(digits), number > 11 { inches = oldValue; return }
+                                    if digits != newValue { inches = digits; updateHeight(); return }
+                                    updateHeight()
+                                }
+                            Text("in").foregroundStyle(OT.labelTertiary)
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            TextField("Centimetres", text: $centimetres)
+                                .keyboardType(.numberPad)
+                                .focused($focusedField, equals: .height)
+                                .onChange(of: centimetres) { oldValue, newValue in
+                                    let digits = String(newValue.filter(\.isNumber).prefix(3))
+                                    if let number = Int(digits), number > 250 { centimetres = oldValue; return }
+                                    if digits != newValue { centimetres = digits; updateHeight(); return }
+                                    updateHeight()
+                                }
+                            Text("cm").foregroundStyle(OT.labelTertiary)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                slateField("Based in", placeholder: "e.g. London", text: $draft.basedIn, field: .basedIn,
+                           capitalization: .words, next: .representation)
+                slateField("Representation", placeholder: "Agency or self-represented", text: $draft.representation,
+                           field: .representation, capitalization: .words, next: nil)
+            }
+            Section("Preview") {
+                Text(draft.spoken.isEmpty ? "Your slate preview will appear here." : draft.spoken)
+                    .font(.otHeadline)
+                    .foregroundStyle(draft.spoken.isEmpty ? OT.labelTertiary : OT.labelPrimary)
+            }
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Edit slate")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Save") {
+                    focusedField = nil
+                    store.slate = draft
+                    dismiss()
+                }
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focusedField = nil }
+            }
+        }
+        .onAppear(perform: loadDraft)
+    }
+
+    private func slateField(
+        _ label: String,
+        placeholder: String,
+        text: Binding<String>,
+        field: Field,
+        contentType: UITextContentType? = nil,
+        capitalization: TextInputAutocapitalization,
+        next: Field?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
+            TextField(placeholder, text: text)
+                .textContentType(contentType)
+                .textInputAutocapitalization(capitalization)
+                .focused($focusedField, equals: field)
+                .submitLabel(next == nil ? .done : .next)
+                .onSubmit { focusedField = next }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func loadDraft() {
+        draft = store.slate
+        let digits = String(draft.height.filter(\.isNumber))
+        let hasImperialUnit = draft.height.contains("′") || draft.height.contains("″")
+            || draft.height.localizedCaseInsensitiveContains("ft")
+            || draft.height.localizedCaseInsensitiveContains("in")
+        let isUnlabeledMetric = !hasImperialUnit && digits.count == 3 && (Int(digits) ?? 0) <= 250
+        if draft.height.localizedCaseInsensitiveContains("cm") || isUnlabeledMetric {
+            heightUnit = .centimetres
+            centimetres = String(digits.prefix(3))
+        } else {
+            heightUnit = .feetInches
+            feet = String(digits.prefix(1))
+            inches = String(digits.dropFirst().prefix(2))
+        }
+    }
+
+    private func changeHeightUnit(to newUnit: HeightUnit) {
+        guard heightUnit != newUnit else { return }
+        if newUnit == .centimetres {
+            let totalInches = (Int(feet) ?? 0) * 12 + (Int(inches) ?? 0)
+            centimetres = totalInches == 0 ? "" : String(Int((Double(totalInches) * 2.54).rounded()))
+        } else {
+            let totalInches = Int((Double(Int(centimetres) ?? 0) / 2.54).rounded())
+            feet = totalInches == 0 ? "" : String(totalInches / 12)
+            inches = totalInches == 0 ? "" : String(totalInches % 12)
+        }
+        heightUnit = newUnit
+        updateHeight()
+    }
+
+    private func updateHeight() {
+        switch heightUnit {
+        case .feetInches:
+            let parts = [feet.isEmpty ? nil : "\(feet)′", inches.isEmpty ? nil : "\(inches)″"].compactMap { $0 }
+            draft.height = parts.joined(separator: " ")
+        case .centimetres:
+            draft.height = centimetres.isEmpty ? "" : "\(centimetres) cm"
+        }
     }
 }
 
@@ -292,6 +437,19 @@ struct PrivacyView: View {
     @State private var showConfirmClearExports = false
     @State private var showConfirmClearReader = false
     @State private var storageRefreshID = UUID()
+    @State private var showBackupImporter = false
+    @State private var showBackupShare = false
+    @State private var showRestoreConfirmation = false
+    @State private var showBackupError = false
+    @State private var backupErrorMessage = ""
+    @State private var isWorkingWithBackup = false
+    @State private var backupArchiveURL: URL?
+    @State private var pendingBackup: PendingBackup?
+
+    private struct PendingBackup {
+        let directory: URL
+        let payload: LocalBackupPayload
+    }
 
     private var rawTakesSize: Int64 {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path) else { return 0 }
@@ -329,11 +487,33 @@ struct PrivacyView: View {
                         Text(mb(totalSize))
                             .font(.otHeadline)
                     }
-                    Text("Your work stays on this iPhone. OneTake has no ads or tracking.")
-                        .font(.otFootnote)
-                        .foregroundStyle(OT.labelSecondary)
                 }
                 .padding(.vertical, 4)
+            }
+
+            Section("Transfer data") {
+                Button {
+                    exportBackup()
+                } label: {
+                    Label("Export backup", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isWorkingWithBackup)
+
+                Button {
+                    showBackupImporter = true
+                } label: {
+                    Label("Import backup", systemImage: "square.and.arrow.down")
+                }
+                .disabled(isWorkingWithBackup)
+
+                if isWorkingWithBackup {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Working with backup…").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                    }
+                }
+            } footer: {
+                Text("Backups include auditions, recordings, headshots, practice and settings. They stay in Files until you choose to share them.")
             }
 
             // Cloud Delivery Overview
@@ -399,6 +579,28 @@ struct PrivacyView: View {
         .scrollContentBackground(.hidden)
         .otCanvas()
         .navigationTitle("Privacy & data")
+        .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
+            importBackup(result)
+        }
+        .sheet(isPresented: $showBackupShare, onDismiss: {
+            LocalBackup.discardArchive(backupArchiveURL)
+            backupArchiveURL = nil
+        }) {
+            if let backupArchiveURL {
+                ShareSheet(items: [backupArchiveURL]) { _ in showBackupShare = false }
+            }
+        }
+        .confirmationDialog("Replace local data with this backup?", isPresented: $showRestoreConfirmation, titleVisibility: .visible) {
+            Button("Replace local data", role: .destructive) { restoreBackup() }
+            Button("Cancel", role: .cancel) { discardPendingBackup() }
+        } message: {
+            Text("This replaces auditions, recordings, headshots, practice and settings on this iPhone.")
+        }
+        .alert("Backup could not be used", isPresented: $showBackupError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(backupErrorMessage)
+        }
         .confirmationDialog("Clear exported deliverables?", isPresented: $showConfirmClearExports, titleVisibility: .visible) {
             Button("Clear deliverables cache", role: .destructive) {
                 clearExports()
@@ -442,8 +644,93 @@ struct PrivacyView: View {
     private func clearReader() {
         MediaStore.deleteAll([ReaderTrackPlayer.folder])
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
+        store.readerTracksDidChange()
         storageRefreshID = UUID()
         Haptics.success()
+    }
+
+    private func exportBackup() {
+        guard !isWorkingWithBackup else { return }
+        isWorkingWithBackup = true
+        do {
+            let job = try LocalBackup.prepareExport(from: store)
+            Task {
+                do {
+                    backupArchiveURL = try await Task.detached(priority: .userInitiated) {
+                        try LocalBackup.writeArchive(job)
+                    }.value
+                    showBackupShare = true
+                } catch {
+                    backupErrorMessage = error.localizedDescription
+                    showBackupError = true
+                }
+                isWorkingWithBackup = false
+            }
+        } catch {
+            isWorkingWithBackup = false
+            backupErrorMessage = error.localizedDescription
+            showBackupError = true
+        }
+    }
+
+    private func importBackup(_ result: Result<URL, Error>) {
+        guard !isWorkingWithBackup else { return }
+        switch result {
+        case .success(let url):
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            isWorkingWithBackup = true
+            Task {
+                defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let directory = try await Task.detached(priority: .userInitiated) {
+                        try LocalBackup.extract(from: url)
+                    }.value
+                    do {
+                        let payload = try LocalBackup.readPayload(in: directory)
+                        pendingBackup = PendingBackup(directory: directory, payload: payload)
+                        showRestoreConfirmation = true
+                    } catch {
+                        LocalBackup.discardStaging(directory)
+                        throw error
+                    }
+                } catch {
+                    backupErrorMessage = error.localizedDescription
+                    showBackupError = true
+                }
+                isWorkingWithBackup = false
+            }
+        case .failure(let error):
+            guard (error as NSError).code != NSUserCancelledError else { return }
+            backupErrorMessage = error.localizedDescription
+            showBackupError = true
+        }
+    }
+
+    private func restoreBackup() {
+        guard let pendingBackup, !isWorkingWithBackup else { return }
+        isWorkingWithBackup = true
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try LocalBackup.replaceDocuments(with: pendingBackup.directory)
+                }.value
+                pendingBackup.payload.settings.apply()
+                store.restoreLocalBackup(pendingBackup.payload.state)
+                storageRefreshID = UUID()
+                LocalBackup.discardStaging(pendingBackup.directory)
+                self.pendingBackup = nil
+                Haptics.success()
+            } catch {
+                backupErrorMessage = error.localizedDescription
+                showBackupError = true
+            }
+            isWorkingWithBackup = false
+        }
+    }
+
+    private func discardPendingBackup() {
+        LocalBackup.discardStaging(pendingBackup?.directory)
+        pendingBackup = nil
     }
 
     private func deleteAll() {

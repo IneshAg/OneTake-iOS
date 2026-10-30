@@ -241,6 +241,33 @@ func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> S
     }
 }
 
+/// Confirms that speech follows the current line before voice-controlled screens advance.
+enum SpokenLineMatcher {
+    static func matchedWordIndices(in expectedText: String, transcript: String) -> Set<Int> {
+        let expected = words(in: expectedText)
+        let spoken = words(in: transcript)
+        var result = Set<Int>()
+        var cursor = 0
+        for (index, word) in expected.enumerated() {
+            guard cursor < spoken.count else { break }
+            if let match = spoken[cursor...].firstIndex(of: word) {
+                result.insert(index)
+                cursor = match + 1
+            }
+        }
+        return result
+    }
+
+    static func requiredMatches(for text: String) -> Int {
+        let count = words(in: text).count
+        return count <= 2 ? count : Int(ceil(Double(count) * 0.8))
+    }
+
+    private static func words(in text: String) -> [String] {
+        text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+}
+
 // MARK: - Profile
 
 struct SlateInfo: Hashable, Codable {

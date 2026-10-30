@@ -342,7 +342,6 @@ struct StandalonePracticeView: View {
     var isSample = false
     @Environment(AppStore.self) private var store
     @State private var displayMode = StandaloneDisplay.full
-    @State private var maskLevel = 1
     @State private var revealed: Set<ScriptLine.ID> = []
     @State private var samplePiece = PracticeSample.make()
     @State private var savedSampleID: PracticePiece.ID?
@@ -367,14 +366,6 @@ struct StandalonePracticeView: View {
                             Text("Hide my lines").tag(StandaloneDisplay.hideMine)
                         }
                         .pickerStyle(.segmented)
-                        if displayMode == .hideMine {
-                            HStack {
-                                Button { maskLevel = max(1, maskLevel - 1) } label: { Label("Show", systemImage: "eye") }
-                                    .buttonStyle(.otSecondary).disabled(maskLevel == 1)
-                                Button { maskLevel = min(4, maskLevel + 1) } label: { Label("Hide", systemImage: "eye.slash") }
-                                    .buttonStyle(.otSecondary).disabled(maskLevel == 4)
-                            }
-                        }
                         ForEach(scene.lines) { line in
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(line.isMine ? "\(line.character) · YOU" : line.character)
@@ -439,8 +430,7 @@ struct StandalonePracticeView: View {
         switch displayMode {
         case .full: return line.text
         case .firstLetters: return otLineDisplay(line, mode: .firstLetters, peeked: false)
-        case .hideMine:
-            return revealed.contains(line.id) ? line.text : otLineDisplay(line, mode: .masked(level: maskLevel), peeked: false)
+        case .hideMine: return revealed.contains(line.id) ? line.text : otLineDisplay(line, mode: .hide, peeked: false)
         }
     }
 }

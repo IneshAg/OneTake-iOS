@@ -7,6 +7,7 @@ import UserNotifications
 /// 06 Add an audition → 6.1 Reading the notice → (6.2 One thing missing) → 6c Here's what they want → 7.0 Detail (0 of 4)
 struct AddAuditionFlow: View {
     enum Step: Hashable { case reading, missingDetails, review, couldNotRead }
+    enum ReaderAudioPlan: Hashable { case recordNow, later }
 
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -25,7 +26,7 @@ struct AddAuditionFlow: View {
                     switch step {
                     case .reading:      NoticeReadingView(notice: notice, onDone: acceptParsedDraft)
                     case .missingDetails: MissingDetailsView(draft: $draft) { path.append(.review) }
-                    case .review:       NoticeReviewView(draft: $draft) { save() }
+                    case .review:       NoticeReviewView(draft: $draft, onSave: save)
                     case .couldNotRead: NoticeErrorView(onRetry: { path = [] }, onScan: { openScanner() }, onType: { draft = .blank; path = [.review] })
                     }
                 }
@@ -167,12 +168,18 @@ struct AddAuditionFlow: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func save() {
+    private func save(readerAudioPlan: ReaderAudioPlan) {
         let audition = draft.makeAudition()
         store.add(audition)
         store.tab = .auditions
-        // Straight on to the first step; the overview sits underneath only as the back target.
-        store.auditionsPath = [.auditionDetail(audition.id)]
+        // If sides were recognised, recording the reader is offered as a real next step while the
+        // audition is being made. It remains available from every scene later on.
+        if readerAudioPlan == .recordNow,
+           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+            store.auditionsPath = [.auditionDetail(audition.id), .reader(audition.id, sceneIndex: firstScene)]
+        } else {
+            store.auditionsPath = [.auditionDetail(audition.id)]
+        }
         store.continueAfterAdd = audition.id
         dismiss()
         requestNotificationsIfFirstAudition()
@@ -562,7 +569,13 @@ struct MissingDetailsView: View {
 
 struct NoticeReviewView: View {
     @Binding var draft: NoticeParser.Draft
-    var onSave: () -> Void
+    var onSave: (AddAuditionFlow.ReaderAudioPlan) -> Void
+    @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .later
+
+    private var hasReaderLines: Bool {
+        !draft.role.isEmpty && ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role)
+            .contains { $0.lines.contains { !$0.isMine } }
+    }
 
     var body: some View {
         ScrollView {
@@ -602,6 +615,20 @@ struct NoticeReviewView: View {
                 }
                 .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
+                if hasReaderLines {
+                    SectionLabel(text: "Reader audio")
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Add the other character’s lines now, or record them from the scene later.")
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        Picker("Reader audio", selection: $readerAudioPlan) {
+                            Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
+                            Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
                 if !draft.sourceText.isEmpty && ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role).isEmpty {
                     Label("Couldn't make out character lines from this — the checklist still gets created, and you can add sides once you have clean pages.", systemImage: "info.circle")
                         .font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -612,7 +639,10 @@ struct NoticeReviewView: View {
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
-            Button("Save and start", action: onSave).buttonStyle(.otPrimary)
+            Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
+                onSave(readerAudioPlan)
+            }
+            .buttonStyle(.otPrimary)
                 .padding(.horizontal, OT.gutter).padding(.bottom, 8)
                 .background(OT.bgCanvas)
         }

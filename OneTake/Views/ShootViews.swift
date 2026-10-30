@@ -56,29 +56,29 @@ struct ShootSetupView: View {
     /// Every row reflects the real state of this iPhone right now — nothing is assumed.
     private var checks: [Check] {
         var checks: [Check] = []
-        checks.append(Check(eyebrow: "Camera", title: "Front camera · you can watch yourself",
-                            detail: "Switch to the back camera in the shot if you'd rather — it's sharper.", ok: true))
+        checks.append(Check(eyebrow: "Camera", title: "Front camera ready",
+                            detail: "", ok: true))
 
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
             checks.append(Check(eyebrow: "Hands-free", title: "Say “Action” and “Cut”",
                                 detail: "Or press a volume button, Camera Control, or your AirPods stem.", ok: true))
         case .notDetermined:
-            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands ask permission when you start",
-                                detail: "Volume buttons, Camera Control and AirPods work either way.", ok: true))
+            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands prompt at start",
+                                detail: "", ok: true))
         default:
             checks.append(Check(eyebrow: "Hands-free", title: "Voice commands are off",
-                                detail: "Turn on Speech Recognition for OneTake in Settings — volume buttons still work.", ok: false))
+                                detail: "Enable Speech Recognition in Settings.", ok: false))
         }
 
         if AVAudioApplication.shared.recordPermission == .denied {
             checks.append(Check(eyebrow: "Microphone", title: "Microphone access is off",
-                                detail: "Turn it on for OneTake in Settings, or the tape will be silent.", ok: false))
+                                detail: "Enable it in Settings.", ok: false))
         } else {
             let input = AVAudioSession.sharedInstance().currentRoute.inputs.first
             let isHeadset = input.map { [.bluetoothHFP, .headsetMic].contains($0.portType) } ?? false
             checks.append(Check(eyebrow: "Microphone", title: input?.portName ?? "iPhone microphone",
-                                detail: isHeadset ? "Close to your mouth — good for sound." : "Stay within an arm's length or two of the phone.", ok: true))
+                                detail: isHeadset ? "" : "Stay near the phone.", ok: true))
         }
 
         if let a = store.audition(auditionID), a.scenes.indices.contains(shootScene) {
@@ -88,18 +88,18 @@ struct ShootSetupView: View {
             }.count
             if !readerLines.isEmpty {
                 checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(readerLines.count) reader lines recorded",
-                                    detail: recorded == readerLines.count ? "They play under your takes." : "Unrecorded lines stay silent — you'll get a pause instead.",
+                                    detail: recorded == readerLines.count ? "" : "Record the missing lines for playback.",
                                     ok: recorded == readerLines.count))
             }
         }
 
         if let minutes = CameraController.recordingMinutesLeft {
             checks.append(Check(eyebrow: "Storage", title: "About \(minutes) minutes of video free",
-                                detail: minutes < 10 ? "Free up space before you shoot." : "Plenty for a few takes.", ok: minutes >= 10))
+                                detail: minutes < 10 ? "Free up space before shooting." : "", ok: minutes >= 10))
         }
 
         checks.append(Check(eyebrow: "Interruptions", title: silenced ? "Silenced for this shoot" : "Calls and alerts can cut in",
-                            detail: silenced ? "Do Not Disturb is on." : "Turn on Do Not Disturb from Control Centre.", ok: silenced))
+                            detail: silenced ? "" : "Turn on Do Not Disturb in Control Centre.", ok: silenced))
         return checks
     }
 
@@ -108,8 +108,6 @@ struct ShootSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Before you roll").font(.otLargeTitle)
-                Text("Simple · one iPhone").font(.otCallout).foregroundStyle(OT.labelSecondary)
-                Text("\(rows.filter(\.ok).count) of \(rows.count) set").font(.otTitle)
                 ForEach(rows, id: \.eyebrow) { c in
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
                     if c.eyebrow == "Reader", !c.ok {
@@ -121,8 +119,6 @@ struct ShootSetupView: View {
                             .buttonStyle(.bordered).buttonBorderShape(.capsule)
                     }
                 }
-                Label("Every take saves while you record — even if a call gets through.", systemImage: "checkmark.shield")
-                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             }
             .padding(.horizontal, OT.gutter)
             .padding(.bottom, 160)
@@ -142,7 +138,9 @@ struct ShootSetupView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(eyebrow).font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 Text(title).font(.otHeadline)
-                Text(detail).font(.otFootnote).foregroundStyle(ok ? OT.labelSecondary : OT.warning)
+                if !ok && !detail.isEmpty {
+                    Text(detail).font(.otFootnote).foregroundStyle(OT.warning)
+                }
             }
             Spacer()
         }
@@ -179,6 +177,8 @@ struct ShootFlow: View {
     /// Your own recorded reader lines, played during a take so they land under your voice.
     @State private var reader = ReaderTrackPlayer()
     @State private var readerAdvance: Task<Void, Never>?
+    @State private var timedAdvance: Task<Void, Never>?
+    @State private var readerAudioMissing = false
     @State private var talkbackTask: Task<Void, Never>?
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
     // Teleprompter settings from Prepare — applied to the in-camera prompter.
@@ -258,11 +258,11 @@ struct ShootFlow: View {
             else if camera.state == .ready, [.slate, .fullLength, .scene].contains(stage) { roll() }
         }
         // The prompter follows your voice: once you've said your line, it moves on to the next one.
-        .onChange(of: follower.spokenWordCount) { _, count in
+        .onChange(of: follower.transcript) { _, transcript in
             guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines,
                   lines.indices.contains(lineIndex), lines[lineIndex].isMine,
-                  count >= max(2, lines[lineIndex].text.split(separator: " ").count / 2) else { return }
-            interpretTalkback(lines[lineIndex], wordCount: count)
+                  SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
+            interpretTalkback(lines[lineIndex])
         }
         // Face detection is only for the pre-shoot check; don't spend CPU on it while filming.
         .onChange(of: stage) { _, newStage in camera.faceGuidanceActive = (newStage == .check) }
@@ -298,7 +298,11 @@ struct ShootFlow: View {
             if !enabled { camera.clearBodyPose() }
         }
         .onChange(of: camera.state) { _, newState in handleCameraStateChange(newState) }
-        .onDisappear { gestureHoldTask?.cancel(); talkbackTask?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
+        .onChange(of: followVoice) { _, followsVoice in
+            if followsVoice { timedAdvance?.cancel() }
+            else { scheduleTimedAdvance() }
+        }
+        .onDisappear { gestureHoldTask?.cancel(); talkbackTask?.cancel(); timedAdvance?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -402,8 +406,15 @@ struct ShootFlow: View {
             if camera.state != .recording { scenePicker(a) }
             let lines = sceneLines ?? []
             if lines.indices.contains(lineIndex) {
-                promptCard(eyebrow: lines[lineIndex].isMine ? "\(lines[lineIndex].character) · you" : lines[lineIndex].character,
-                           text: lines[lineIndex].text, mine: lines[lineIndex].isMine)
+                let line = lines[lineIndex]
+                let eyebrow: String = if line.isMine {
+                    "\(line.character) · you"
+                } else if readerAudioMissing {
+                    "\(line.character) · no recording · tap to continue"
+                } else {
+                    line.character
+                }
+                promptCard(eyebrow: eyebrow, text: line.text, mine: line.isMine)
                     // Tap to move on early; swipe right to go back a line.
                     .onTapGesture { advanceLine() }
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
@@ -662,6 +673,7 @@ struct ShootFlow: View {
         lineIndex = 0
         follower.reset()
         speakIfReader()
+        scheduleTimedAdvance()
     }
 
     private func handleCameraStateChange(_ newState: CameraController.State) {
@@ -676,15 +688,18 @@ struct ShootFlow: View {
 
     private func advanceLine() {
         stopReader()
+        timedAdvance?.cancel()
+        timedAdvance = nil
+        readerAudioMissing = false
         follower.reset()
         guard let lines = sceneLines, lineIndex + 1 < lines.count else { return }
         lineIndex += 1
         speakIfReader()
+        scheduleTimedAdvance()
     }
 
-    private func interpretTalkback(_ line: ScriptLine, wordCount: Int) {
+    private func interpretTalkback(_ line: ScriptLine) {
         let spoken = follower.transcript
-        let expectedWords = line.text.split(separator: " ").count
         talkbackTask?.cancel()
         talkbackTask = Task { @MainActor in
             // Let a short pause settle the transcript before spending time on an on-device model
@@ -692,7 +707,8 @@ struct ShootFlow: View {
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled else { return }
             let intent = await OnDeviceIntelligence.talkbackIntent(spoken: spoken, expectedLine: line.text)
-            guard !Task.isCancelled, camera.state == .recording, sceneLines?.indices.contains(lineIndex) == true else { return }
+            guard !Task.isCancelled, camera.state == .recording, sceneLines?.indices.contains(lineIndex) == true,
+                  SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: follower.transcript).count >= SpokenLineMatcher.requiredMatches(for: line.text) else { return }
             switch intent {
             case .lineComplete, .nextLine:
                 advanceLine()
@@ -701,7 +717,7 @@ struct ShootFlow: View {
             case .pause:
                 break
             case .unknown:
-                if wordCount >= expectedWords { advanceLine() }
+                advanceLine()
             }
         }
     }
@@ -718,9 +734,15 @@ struct ShootFlow: View {
     private func speakIfReader() {
         guard camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex), !lines[lineIndex].isMine else { return }
         let readerIndex = lines[..<lineIndex].filter { !$0.isMine }.count
-        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain)
-        let delay = Double(lines[lineIndex].text.count) * 0.06 + 0.8
         readerAdvance?.cancel()
+        readerAdvance = nil
+        readerAudioMissing = false
+        guard reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain) else {
+            readerAudioMissing = true
+            scheduleTimedAdvance()
+            return
+        }
+        let delay = (reader.duration ?? (Double(lines[lineIndex].text.count) * 0.06)) + 0.45
         readerAdvance = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
@@ -732,6 +754,24 @@ struct ShootFlow: View {
         readerAdvance?.cancel()
         readerAdvance = nil
         reader.stop()
+    }
+
+    /// Timed mode is deliberately simple: it advances only while filming, leaves enough time to
+    /// read each line, and can still be overridden by a tap or swipe. Reader recordings use their
+    /// actual duration; absent reader audio receives the same timed allowance.
+    private func scheduleTimedAdvance() {
+        timedAdvance?.cancel()
+        timedAdvance = nil
+        guard !followVoice, camera.state == .recording, stage == .scene,
+              let lines = sceneLines, lines.indices.contains(lineIndex) else { return }
+        let line = lines[lineIndex]
+        if !line.isMine, !readerAudioMissing { return }
+        let delay = max(2.2, Double(line.text.count) * 0.075 + 1.1)
+        timedAdvance = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, !followVoice, camera.state == .recording else { return }
+            advanceLine()
+        }
     }
 
     private func start(at first: Stage) {

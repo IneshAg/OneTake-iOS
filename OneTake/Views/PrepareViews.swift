@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - 11 Prepare
 
@@ -13,6 +14,8 @@ struct PrepareView: View {
     @State private var peeked: ScriptLine.ID?
     @State private var showPrompterSettings = false
     @State private var showSides = false
+    @AppStorage("prompter.size") private var prompterSize = 1
+    @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
@@ -20,12 +23,20 @@ struct PrepareView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(scene.title).font(.otLargeTitle)
+                    Picker("Lines", selection: $mode) {
+                        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                     HStack {
                         Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         Spacer()
                         Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
                             let readerName = scene.lines.first(where: { !$0.isMine })?.character.capitalized ?? "Reader"
-                            Label("\(readerName) · your recording", systemImage: "circle.fill").labelStyle(DotLabelStyle(color: OT.reader))
+                            let readerLines = scene.lines.filter { !$0.isMine }
+                            let recorded = readerLines.indices.filter {
+                                FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: a.id, sceneIndex: sceneIndex, line: $0).path)
+                            }.count
+                            Label("\(readerName) · \(recorded) of \(readerLines.count) recorded", systemImage: recorded == readerLines.count && !readerLines.isEmpty ? "waveform" : "mic")
                                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
                         }
                     }
@@ -75,6 +86,7 @@ struct PrepareView: View {
     }
 
     @ViewBuilder private func lineView(_ line: ScriptLine) -> some View {
+        let textSize = [19, 25, 32][min(max(prompterSize, 0), 2)]
         VStack(alignment: .leading, spacing: 4) {
             Text(line.isMine ? "\(line.character) · YOU" : line.character)
                 .font(.otCaption.weight(.semibold))
@@ -82,8 +94,9 @@ struct PrepareView: View {
             HStack(alignment: .top, spacing: 10) {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
                 Text(display(line))
-                    .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
+                    .font(line.isMine ? .system(size: CGFloat(textSize), weight: .semibold) : .system(size: CGFloat(textSize - 2)))
                     .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
+                    .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { if line.isMine && mode != .full { peeked = peeked == line.id ? nil : line.id; Haptics.tick() } }
             }
@@ -99,13 +112,6 @@ struct PrepareView: View {
 
     private func bottomBar(_ a: Audition) -> some View {
         HStack(spacing: 8) {
-            Menu {
-                Picker("Lines", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
-            } label: {
-                Label(mode.rawValue, systemImage: "chevron.up.chevron.down").labelStyle(TrailingIconLabelStyle())
-                    .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, 14).frame(height: 44).background(OT.fillField, in: Capsule())
-            }
             Button { store.push(.runLines(a.id, sceneIndex: sceneIndex)) } label: {
                 Label("Run lines", systemImage: "play.fill").labelStyle(TrailingIconLabelStyle())
                     .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
@@ -175,6 +181,7 @@ struct RunLinesView: View {
     @State private var follower = SpeechFollower()
     /// Plays the reader lines you recorded yourself (Record Maya). No synthetic or second-device voices.
     @State private var readerPlayer = ReaderTrackPlayer()
+    @State private var readerAudioMissing = false
     /// The pending auto-advance after a reader line. Kept so a manual skip, pause or leaving the
     /// screen cancels it instead of letting it fire later and skip an extra line.
     @State private var readerAdvance: Task<Void, Never>?
@@ -212,14 +219,22 @@ struct RunLinesView: View {
                             .foregroundStyle(OT.labelPrimary)
                         Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
                     } else {
-                        Label("\(line.character.capitalized) · your recording", systemImage: "waveform")
+                        Label(readerAudioMissing ? "\(line.character.capitalized) · no recording" : "\(line.character.capitalized) · your recording", systemImage: readerAudioMissing ? "mic.slash" : "waveform")
                             .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
                         Text(line.text).font(.system(size: 30, weight: .bold))
                     }
                     Spacer()
                     HStack(spacing: 12) {
                         Button { stopReader(); finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
-                        Button(prompted ? "Whole line" : "Line?") { prompted.toggle(); Haptics.tick() }.buttonStyle(.otPrimary)
+                        if line.isMine {
+                            Button(prompted ? "Whole line" : "Line?") { prompted.toggle(); Haptics.tick() }.buttonStyle(.otPrimary)
+                        } else if readerAudioMissing {
+                            Button("Continue") { advance(lines) }.buttonStyle(.otPrimary)
+                        } else {
+                            Label("Reader audio", systemImage: "waveform")
+                                .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.labelSecondary)
+                                .frame(maxWidth: .infinity)
+                        }
                         Button { advance(lines) } label: { Image(systemName: "forward.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
                             .accessibilityLabel("Skip line")
                     }
@@ -230,8 +245,9 @@ struct RunLinesView: View {
             .otCanvas()
             .navigationTitle("Run lines").navigationBarTitleDisplayMode(.inline)
             .onAppear { speakIfReader(lines) }
-            .onChange(of: follower.spokenWordCount) { _, count in
-                guard !finished, lines[index].isMine, count >= lines[index].text.split(separator: " ").count else { return }
+            .onChange(of: follower.transcript) { _, transcript in
+                guard !finished, lines[index].isMine,
+                      SpokenLineMatcher.matchedWordIndices(in: lines[index].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[index].text) else { return }
                 if !prompted { onYourOwn.insert(index) }
                 advance(lines)
             }
@@ -263,10 +279,15 @@ struct RunLinesView: View {
 
     private func speakIfReader(_ lines: [ScriptLine]) {
         guard !lines[index].isMine else { return }
-        let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
-        readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex)
         readerAdvance?.cancel()
-        let delay = Double(lines[index].text.count) * 0.06 + 0.8
+        readerAdvance = nil
+        readerAudioMissing = false
+        let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
+        guard readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex) else {
+            readerAudioMissing = true
+            return
+        }
+        let delay = (readerPlayer.duration ?? (Double(lines[index].text.count) * 0.06)) + 0.45
         readerAdvance = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
@@ -284,13 +305,15 @@ struct RunLinesView: View {
 
     private func highlighted(_ text: String) -> AttributedString {
         var out = AttributedString()
+        let matched = SpokenLineMatcher.matchedWordIndices(in: text, transcript: follower.transcript)
         for (i, w) in text.split(separator: " ").enumerated() {
             var part = AttributedString(String(w) + " ")
-            part.foregroundColor = i < follower.spokenWordCount ? OT.accent : OT.labelTertiary
+            part.foregroundColor = matched.contains(i) ? OT.accent : OT.labelTertiary
             out += part
         }
         return out
     }
+
 }
 
 struct RunFinishedView: View {
@@ -355,6 +378,8 @@ struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player = ReaderTrackPlayer()
     @State private var playingLine: Int?
+    @State private var showAudioImporter = false
+    @State private var importError: String?
     @AppStorage("readerVolume") private var volume = "Quieter"
 
     private var readerLines: [ScriptLine] {
@@ -364,6 +389,9 @@ struct ReaderView: View {
     private var readerName: String { readerLines.first?.character.capitalized ?? "your reader" }
 
     var body: some View {
+        // Reader recordings are files, so this observable counter makes the file status update
+        // as soon as Record Reader saves a line.
+        let readerTrackVersion = store.readerTrackVersion
         List {
             Section {
                 Text("Record \(readerName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
@@ -375,7 +403,7 @@ struct ReaderView: View {
                     Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 } else {
                     ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
-                        let recorded = FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
+                        let recorded = readerTrackVersion >= 0 && FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
                         HStack(spacing: 12) {
                             Button {
                                 if recorded {
@@ -399,7 +427,9 @@ struct ReaderView: View {
                 Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
             }
             Section {
-                Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record a new track", detail: "Your voice · we leave pauses for your lines") }
+                Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record reader audio", detail: "Record each cue in your own voice") }
+                    .buttonStyle(.plain)
+                Button { showAudioImporter = true } label: { IconRow(symbol: "waveform.badge.plus", title: "Add an audio file", detail: "Uses the next reader cue that is not recorded") }
                     .buttonStyle(.plain)
             }
         }
@@ -409,7 +439,41 @@ struct ReaderView: View {
         .safeAreaInset(edge: .bottom) {
             Button("Continue") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
         }
+        .fileImporter(isPresented: $showAudioImporter, allowedContentTypes: [.audio]) { result in
+            importReaderAudio(result)
+        }
+        .alert("Audio could not be added", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(importError ?? "")
+        }
         .onDisappear { player.stop() }
+    }
+
+    private func importReaderAudio(_ result: Result<URL, Error>) {
+        guard case .success(let sourceURL) = result else {
+            if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError { importError = error.localizedDescription }
+            return
+        }
+        guard let nextLine = readerLines.indices.first(where: {
+            !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+        }) else {
+            importError = "Every reader cue already has audio. Delete or re-record one to replace it."
+            return
+        }
+        let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+        let destination = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: nextLine)
+        do {
+            let manager = FileManager.default
+            try manager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? manager.removeItem(at: destination)
+            try manager.copyItem(at: sourceURL, to: destination)
+            store.readerTracksDidChange()
+            Haptics.success()
+        } catch {
+            importError = error.localizedDescription
+        }
     }
 }
 
@@ -422,6 +486,8 @@ struct RecordReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var lineIndex = 0
     @State private var recording = false
+    @State private var microphoneAllowed = false
+    @State private var recordingError: String?
     @State private var recorder = ReaderLineRecorder()
 
     var body: some View {
@@ -435,12 +501,24 @@ struct RecordReaderView: View {
                     Text(readerLines[lineIndex].text).font(.system(size: 26, weight: .bold))
                         .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 20)
                     Text("A little softer than you'd act it. We add the pauses.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    if let recordingError {
+                        Text(recordingError).font(.otFootnote).foregroundStyle(OT.warning)
+                    }
                     Spacer()
                     Text(recording ? "Tap stop when you've said the line" : "Tap record when you're ready").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
                     RecordButton(isRecording: recording) {
-                        if recording { recorder.stop(); lineIndex += 1; Haptics.success() }
-                        else { recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) }
-                        recording.toggle()
+                        if recording {
+                            recording = false
+                            if recorder.stop() { store.readerTracksDidChange(); lineIndex += 1; Haptics.success() }
+                            else { recordingError = "No audio was saved. Try recording this line again."; Haptics.warning() }
+                        } else if !microphoneAllowed {
+                            recordingError = "Allow microphone access in Settings to record reader lines."
+                        } else if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) {
+                            recordingError = nil
+                            recording = true
+                        } else {
+                            recordingError = "Recording couldn't start. Check microphone access and try again."
+                        }
                     }
                     .frame(maxWidth: .infinity)
                 } else {
@@ -453,6 +531,17 @@ struct RecordReaderView: View {
             .padding(OT.gutter)
             .otCanvas()
             .navigationTitle("Record \(readerName)").navigationBarTitleDisplayMode(.inline)
+        .task {
+            microphoneAllowed = await AVAudioApplication.requestRecordPermission()
+            if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
+                let scene = audition.scenes[sceneIndex]
+                let readerLines = scene.lines.filter { !$0.isMine }
+                lineIndex = readerLines.indices.first(where: {
+                    !FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
+                }) ?? readerLines.count
+            }
+        }
+        .onDisappear { if recording { _ = recorder.stop() } }
         }
     }
 }

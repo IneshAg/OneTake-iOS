@@ -10,10 +10,14 @@ enum ZipArchive {
 
     enum ArchiveError: LocalizedError {
         case tooLarge(String)
+        case invalid(String)
+        case unsupported(String)
 
         var errorDescription: String? {
             switch self {
             case .tooLarge(let name): "\(name) is too large to include in this ZIP archive."
+            case .invalid(let reason): "This backup archive is invalid: \(reason)"
+            case .unsupported(let reason): "This ZIP format is not supported: \(reason)"
             }
         }
     }
@@ -109,6 +113,98 @@ enum ZipArchive {
         try write(fileEntries, to: url)
     }
 
+    /// Extracts the store-only ZIPs produced by `write`. Paths are validated before writing so an
+    /// imported archive cannot escape its staging directory.
+    static func extract(from archiveURL: URL, to destination: URL) throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: destination, withIntermediateDirectories: true)
+        let input = try FileHandle(forReadingFrom: archiveURL)
+        var succeeded = false
+        defer {
+            try? input.close()
+            if !succeeded { try? manager.removeItem(at: destination) }
+        }
+
+        let archiveSize = UInt64((try archiveURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        var extractedBytes: UInt64 = 0
+        var entryCount = 0
+
+        while true {
+            guard let signatureData = try input.read(upToCount: 4), signatureData.count == 4 else { break }
+            let signature = readUInt32(signatureData, at: 0)
+            if signature == 0x02014b50 || signature == 0x06054b50 { break }
+            guard signature == 0x04034b50 else { throw ArchiveError.invalid("unexpected ZIP record") }
+
+            let rest = try readExactly(input, count: 26)
+            let header = signatureData + rest
+            let flags = readUInt16(header, at: 6)
+            let method = readUInt16(header, at: 8)
+            let checksum = readUInt32(header, at: 14)
+            let compressedSize = UInt64(readUInt32(header, at: 18))
+            let uncompressedSize = UInt64(readUInt32(header, at: 22))
+            let nameLength = Int(readUInt16(header, at: 26))
+            let extraLength = Int(readUInt16(header, at: 28))
+
+            guard flags & 0x0001 == 0, flags & 0x0008 == 0 else {
+                throw ArchiveError.unsupported("encrypted or streaming entries")
+            }
+            guard method == 0, compressedSize == uncompressedSize else {
+                throw ArchiveError.unsupported("compressed entries")
+            }
+            let nameData = try readExactly(input, count: nameLength)
+            guard let name = String(data: nameData, encoding: .utf8) else {
+                throw ArchiveError.invalid("file name is not UTF-8")
+            }
+            let components = name.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard !name.hasPrefix("/"), !name.contains("\\"), !components.isEmpty,
+                  components.allSatisfy({ $0 != "." && $0 != ".." }) else {
+                throw ArchiveError.invalid("unsafe file path")
+            }
+
+            let extraStart = try input.offset()
+            try input.seek(toOffset: extraStart + UInt64(extraLength))
+            let dataStart = try input.offset()
+            guard dataStart <= archiveSize, compressedSize <= archiveSize - dataStart else {
+                throw ArchiveError.invalid("entry extends beyond the archive")
+            }
+            extractedBytes += uncompressedSize
+            guard extractedBytes <= 8 * 1024 * 1024 * 1024, entryCount < 20_000 else {
+                throw ArchiveError.tooLarge(name)
+            }
+            entryCount += 1
+
+            let outputURL = components.reduce(destination) { $0.appendingPathComponent($1) }
+            let standardizedRoot = destination.standardizedFileURL.path + "/"
+            guard outputURL.standardizedFileURL.path.hasPrefix(standardizedRoot) else {
+                throw ArchiveError.invalid("unsafe file path")
+            }
+            if name.hasSuffix("/") {
+                try manager.createDirectory(at: outputURL, withIntermediateDirectories: true)
+            } else {
+                try manager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                guard manager.createFile(atPath: outputURL.path, contents: nil) else {
+                    throw ArchiveError.invalid("could not create an extracted file")
+                }
+                let output = try FileHandle(forWritingTo: outputURL)
+                defer { try? output.close() }
+                var remaining = compressedSize
+                while remaining > 0 {
+                    let count = Int(min(remaining, 1024 * 1024))
+                    try output.write(contentsOf: readExactly(input, count: count))
+                    remaining -= UInt64(count)
+                }
+                try output.synchronize()
+                guard try crc32(of: outputURL) == checksum else {
+                    throw ArchiveError.invalid("checksum mismatch for \(name)")
+                }
+            }
+            try input.seek(toOffset: dataStart + compressedSize)
+        }
+
+        guard entryCount > 0 else { throw ArchiveError.invalid("archive is empty") }
+        succeeded = true
+    }
+
     private static func createEmptyFile(at url: URL) throws -> URL {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         return url
@@ -152,5 +248,24 @@ enum ZipArchive {
     private static func appendUInt32(_ value: UInt32, to data: inout Data) {
         appendUInt16(UInt16(value & 0xffff), to: &data)
         appendUInt16(UInt16(value >> 16), to: &data)
+    }
+
+    private static func readExactly(_ handle: FileHandle, count: Int) throws -> Data {
+        var result = Data()
+        while result.count < count {
+            guard let chunk = try handle.read(upToCount: count - result.count), !chunk.isEmpty else {
+                throw ArchiveError.invalid("file ended unexpectedly")
+            }
+            result.append(chunk)
+        }
+        return result
+    }
+
+    private static func readUInt16(_ data: Data, at offset: Int) -> UInt16 {
+        UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private static func readUInt32(_ data: Data, at offset: Int) -> UInt32 {
+        UInt32(readUInt16(data, at: offset)) | (UInt32(readUInt16(data, at: offset + 2)) << 16)
     }
 }

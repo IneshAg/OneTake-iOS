@@ -75,22 +75,27 @@ struct DrillTile: View {
 struct LineDrillView: View {
     let auditionID: Audition.ID
     let sceneIndex: Int
-    let mode: LineLearningMode
+    @State private var displayMode: RecallDisplayMode
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var peeked: ScriptLine.ID?
-    /// Mask & Reveal: how much of each of your lines is hidden (1 = a quarter of the words … 4 = all).
-    @State private var maskLevel = 1
 
-    private var displayMode: LineDisplayMode { mode == .firstLetter ? .firstLetters : .masked(level: maskLevel) }
+    init(auditionID: Audition.ID, sceneIndex: Int, mode: LineLearningMode) {
+        self.auditionID = auditionID
+        self.sceneIndex = sceneIndex
+        _displayMode = State(initialValue: mode == .firstLetter ? .firstLetters : .hideMine)
+    }
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(mode.title).font(.otLargeTitle)
-                    Text(mode.subtitle).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    Text(scene.title).font(.otLargeTitle)
+                    Picker("Practice display", selection: $displayMode) {
+                        ForEach(RecallDisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                     ForEach(scene.lines) { line in lineView(line) }
                 }
                 .padding(.horizontal, OT.gutter)
@@ -100,19 +105,9 @@ struct LineDrillView: View {
             .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 8) {
-                    if mode == .maskAndReveal {
-                        Button { maskLevel = max(1, maskLevel - 1); Haptics.tick() } label: { Image(systemName: "eye") }
-                            .buttonStyle(.otSecondary).frame(width: 64)
-                            .disabled(maskLevel == 1).accessibilityLabel("Show more words")
-                        Button { maskLevel = min(4, maskLevel + 1); Haptics.tick() } label: { Image(systemName: "eye.slash") }
-                            .buttonStyle(.otSecondary).frame(width: 64)
-                            .disabled(maskLevel == 4).accessibilityLabel("Hide more words")
-                    }
-                    Button("Done") { dismiss() }.buttonStyle(.otPrimary)
-                }
-                .padding(OT.gutter)
+                Button("Done") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
             }
+            .onChange(of: displayMode) { _, _ in peeked = nil }
         }
     }
 
@@ -123,15 +118,35 @@ struct LineDrillView: View {
                 .foregroundStyle(line.isMine ? OT.accent : OT.reader)
             HStack(alignment: .top, spacing: 10) {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
-                Text(otLineDisplay(line, mode: displayMode, peeked: peeked == line.id))
+                Text(otLineDisplay(line, mode: lineDisplayMode, peeked: peeked == line.id))
                     .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
                     .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .onTapGesture { if line.isMine { peeked = peeked == line.id ? nil : line.id; Haptics.tick() } }
+            }
+            if line.isMine && displayMode == .hideMine {
+                Button(peeked == line.id ? "Hide line" : "Reveal line") {
+                    peeked = peeked == line.id ? nil : line.id
+                    Haptics.tick()
+                }
+                .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
             }
         }
         .padding(.vertical, 4)
     }
+
+    private var lineDisplayMode: LineDisplayMode {
+        switch displayMode {
+        case .full: .full
+        case .firstLetters: .firstLetters
+        case .hideMine: .hide
+        }
+    }
+}
+
+private enum RecallDisplayMode: String, CaseIterable, Hashable {
+    case full = "Full lines"
+    case firstLetters = "First letters"
+    case hideMine = "Hide mine"
 }
 
 // MARK: - Hands-Free Audio Walk — loops the whole scene's audio, no screen interaction
@@ -158,11 +173,14 @@ struct AudioWalkView: View {
                     FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: $0).path)
                 }.count
                 if recorded < readerLines {
-                    // Unrecorded reader lines play as silence — say so rather than loop a quiet scene.
-                    Text("\(recorded) of \(readerLines) reader lines recorded — the rest stay silent.")
+                    Text("\(recorded) of \(readerLines) reader lines recorded. Record the rest before starting the Audio Walk.")
                         .font(.otFootnote).foregroundStyle(OT.warning)
                     Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { Label("Record the reader", systemImage: "mic") }
                         .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                }
+                if readerLines == 0 {
+                    Text("This scene has no reader lines to play.")
+                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 }
                 Text("The screen stays on while it loops, so it keeps going in your pocket.")
                     .font(.otFootnote).foregroundStyle(OT.labelTertiary).multilineTextAlignment(.center)
@@ -172,6 +190,7 @@ struct AudioWalkView: View {
                     if playing { walker.loop(scene: scene, auditionID: auditionID, sceneIndex: sceneIndex) } else { walker.stop() }
                 }
                 .buttonStyle(.otPrimary)
+                .disabled(readerLines == 0 || recorded < readerLines)
                 Button("Done") { dismiss() }.buttonStyle(.otSecondary)
             }
             .padding(.horizontal, OT.gutter).padding(.bottom, OT.gutter)
@@ -193,6 +212,11 @@ final class AudioWalkPlayer {
 
     func loop(scene: ScriptScene, auditionID: Audition.ID, sceneIndex: Int) {
         stop()
+        let readerLines = scene.lines.filter { !$0.isMine }.count
+        guard readerLines > 0,
+              (0..<readerLines).allSatisfy({ index in
+                  FileManager.default.fileExists(atPath: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index).path)
+              }) else { return }
         task = Task {
             while !Task.isCancelled {
                 var readerIndex = 0

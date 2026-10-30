@@ -419,8 +419,9 @@ final class SpeechFollower {
             pendingTask = nil
         }
         totalWords = words.count
-        transcript = words.joined(separator: " ")
-        spokenWordCount = max(0, words.count - wordOffset)
+        let currentLineWords = words.dropFirst(min(wordOffset, words.count))
+        transcript = currentLineWords.joined(separator: " ")
+        spokenWordCount = currentLineWords.count
 
         let currentIndex = words.count - 1
         guard currentIndex >= 0, currentIndex > lastFiredIndex else { return }
@@ -534,6 +535,7 @@ final class CameraGuidanceSpeaker {
 @Observable
 final class ReaderTrackPlayer {
     private var player: AVAudioPlayer?
+    var duration: TimeInterval? { player?.duration }
 
     /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
     static let folder = "reader"
@@ -564,14 +566,32 @@ final class ReaderTrackPlayer {
 final class ReaderLineRecorder {
     private var recorder: AVAudioRecorder?
 
-    func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) {
+    @discardableResult
+    func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
-        try? session.setActive(true)
+        guard session.recordPermission == .granted else { return false }
+        do {
+            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try session.setActive(true)
+        } catch { return false }
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1]
-        recorder = try? AVAudioRecorder(url: ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex), settings: settings)
-        recorder?.record()
+        let url = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+        guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
+        self.recorder = recorder
+        guard recorder.record() else { self.recorder = nil; return false }
+        return true
     }
 
-    func stop() { recorder?.stop() }
+    @discardableResult
+    func stop() -> Bool {
+        guard let recorder else { return false }
+        let url = recorder.url
+        recorder.stop()
+        self.recorder = nil
+        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 128 else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
+        return true
+    }
 }
