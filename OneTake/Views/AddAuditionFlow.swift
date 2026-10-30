@@ -156,6 +156,8 @@ struct AddAuditionFlow: View {
             .padding(OT.gutter)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 
     private func way(_ symbol: String, _ title: String) -> some View {
@@ -496,6 +498,8 @@ struct AddDraftSidesSheet: View {
             .scrollContentBackground(.hidden)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .onAppear {
             text = draft.sourceText
         }
@@ -632,6 +636,9 @@ struct MissingDetailsView: View {
             }
         }
         .otCanvas()
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             Button("Continue") {
                 if store.auditionDraft.due == nil { store.auditionDraft.due = picked }
@@ -769,6 +776,9 @@ struct NoticeReviewView: View {
             }
         }
         .otCanvas()
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
                 saveAudition()
@@ -849,5 +859,7 @@ struct NoticeErrorView: View {
         }
         .padding(.horizontal, OT.gutter)
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 }

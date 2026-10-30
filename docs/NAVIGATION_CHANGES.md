@@ -165,3 +165,23 @@ When opening the Profile modal (`ProfileView`), the custom header (`"Profile"` l
    - Action button reflects `"Add"` vs `"Replace"`.
    - Added 1-tap `PasteButton`, file import, camera scan, and live scene/line inspection.
    - Updated `store.replaceSides(...)` in [`AppStore.swift`](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift) so first-time sides addition does not tag pieces as "Revised sides".
+
+---
+
+## 9. Complete Navigation Bar Suppression Across Audition Flow Screens
+
+### Problem & Visual Bug
+When `MissingDetailsView` and `NoticeReviewView` were migrated from a modal presentation sheet to full pushed destinations on `NavigationStack(path: $store.auditionsPath)`, the system navigation bar remained visible above the view's content. Because OneTake employs custom, high-touch in-content navigation headers (`InContentNavHeader`) with bespoke typography and back buttons, this resulted in an awkward stacked header containing both the default iOS navigation bar and the app's in-content header.
+
+### Implementation
+Explicitly attached navigation bar and tab bar suppression modifiers across all screens and sheets in the audition flow:
+- [AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift):
+  - `AddAuditionFlow` (capture screen): Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+  - `AddDraftSidesSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+  - `MissingDetailsView`: Added `.toolbar(.hidden, for: .tabBar)`, `.toolbar(.hidden, for: .navigationBar)`, and `.navigationBarBackButtonHidden(true)`.
+  - `NoticeReviewView`: Added `.toolbar(.hidden, for: .tabBar)`, `.toolbar(.hidden, for: .navigationBar)`, and `.navigationBarBackButtonHidden(true)`.
+  - `NoticeErrorView`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+- [AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift):
+  - `RevisedSidesSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+  - `EditAuditionSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.
+  - `CallbackSheet`: Added `.toolbar(.hidden, for: .navigationBar)` and `.navigationBarBackButtonHidden(true)`.

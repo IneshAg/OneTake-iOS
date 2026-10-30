@@ -329,6 +329,8 @@ struct CallbackSheet: View {
             .scrollContentBackground(.hidden)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 }
 
@@ -380,6 +382,8 @@ struct EditAuditionSheet: View {
             }
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 }
 
@@ -483,6 +487,8 @@ struct RevisedSidesSheet: View {
             .scrollContentBackground(.hidden)
         }
         .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .onAppear {
             if let existing = audition?.scriptText, !existing.isEmpty {
                 text = existing
