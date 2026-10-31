@@ -314,40 +314,86 @@ struct DestinationSheet: View {
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 16)
 
-            List {
-                Section {
-                    ForEach(Destination.allCases) { d in
-                        Button {
-                            if let i = store.auditions.firstIndex(where: { $0.id == auditionID }) { store.auditions[i].destination = d }
-                            dismiss()
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(d.rawValue).font(.otBody)
-                                    Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                    if d == .emailOrLink {
-                                        let link = linkStatus
-                                        Text(link.text)
-                                            .font(.otFootnote).foregroundStyle(link.color)
-                                    }
-                                }
-                                Spacer()
-                                if store.audition(auditionID)?.destination == d { Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent) }
+            if let audition = store.binding(for: auditionID) {
+                let current = audition.wrappedValue.destination
+                List {
+                    Section {
+                        ForEach(Destination.allCases) { d in
+                            destinationRow(for: d, isSelected: current == d) {
+                                audition.wrappedValue.destination = d
+                                Haptics.tick()
                             }
                         }
-                        .buttonStyle(.plain)
-                        // A link needs a sign-in provider as well as iCloud. With neither provider
-                        // in this build the option would fail on tap, so it isn't selectable.
-                        .disabled(d == .emailOrLink && !AccountAuth.canSignIn)
-                        .opacity(d == .emailOrLink && !AccountAuth.canSignIn ? 0.55 : 1)
                     }
-                } footer: {
-                    Text("We match the file name each site asks for. Casting sites get the file through your Share Sheet; a link is hosted in your own iCloud — there's no OneTake server.")
+
+                    Section {
+                        TextField(
+                            current == .emailOrLink
+                                ? "Email address or submission link"
+                                : "\(current.rawValue) account or submission notes",
+                            text: destinationDetailBinding(for: audition)
+                        )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(current == .emailOrLink ? .emailAddress : .default)
+                    } header: {
+                        Text("Details & Notes")
+                    } footer: {
+                        Text("We match the file name each site asks for. Casting sites get the file through your Share Sheet; a link is hosted in your own iCloud — there's no OneTake server.")
+                    }
                 }
+                .scrollContentBackground(.hidden)
             }
-            .scrollContentBackground(.hidden)
         }
         .otCanvas()
+    }
+
+    @ViewBuilder
+    private func destinationRow(for d: Destination, isSelected: Bool, onSelect: @escaping () -> Void) -> some View {
+        Button(action: onSelect) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(d.rawValue).font(.otBody)
+                    Text(d.spec).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    if d == .emailOrLink {
+                        Text(linkStatus.text).font(.otFootnote).foregroundStyle(linkStatus.color)
+                    }
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(d == .emailOrLink && !AccountAuth.canSignIn)
+        .opacity(d == .emailOrLink && !AccountAuth.canSignIn ? 0.55 : 1)
+    }
+
+    private func destinationDetailBinding(for audition: Binding<Audition>) -> Binding<String> {
+        Binding(
+            get: {
+                if let detail = audition.wrappedValue.destinationDetail, !detail.isEmpty {
+                    return detail
+                }
+                if let emailAsk = audition.wrappedValue.asks.first(where: { $0.hasPrefix("Email: ") }) {
+                    return emailAsk.replacingOccurrences(of: "Email: ", with: "")
+                }
+                return ""
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                audition.wrappedValue.destinationDetail = trimmed.isEmpty ? nil : trimmed
+                audition.wrappedValue.asks.removeAll { $0.hasPrefix("Email: ") }
+                if !trimmed.isEmpty {
+                    if trimmed.contains("@") {
+                        audition.wrappedValue.asks.append("Email: \(trimmed)")
+                    } else {
+                        audition.wrappedValue.asks.append(trimmed)
+                    }
+                }
+            }
+        )
     }
 
     private var linkStatus: (text: String, color: Color) {

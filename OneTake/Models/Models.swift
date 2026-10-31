@@ -288,8 +288,9 @@ struct SlateInfo: Hashable, Codable {
     /// What the actor says to the lens — only the parts that are filled in.
     var spoken: String {
         guard !isEmpty else { return "Say your name, height and where you're based." }
+        let punct = CharacterSet(charactersIn: " ,;.-")
         return [name, height, basedIn]
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { $0.trimmingCharacters(in: punct) }
             .filter { !$0.isEmpty }
             .map { $0 + "." }
             .joined(separator: " ")

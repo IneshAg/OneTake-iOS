@@ -322,38 +322,53 @@ enum NoticeParser {
         return matches.first?.date
     }
 
-    /// Labeled "Role:" first, then common role types, phrases like "for the role of Maya in …", then the old ALL-CAPS cue.
+    /// Labeled "Role:" first, then character phrasing like "reading for Maya", then role types, avoiding pure demographic labels.
     private static func detectRole(in text: String) -> String? {
         if let v = labeled(["role", "character", "part", "playing"], in: text) { return v.capitalized }
 
-        if let v = firstMatch(#"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#, in: text, options: .caseInsensitive) {
-            var res = clean(v).capitalized
-            if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
-                res += " (\(clean(age)))"
-            }
-            return res
-        }
-
-        let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
-        if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
-            let cleaned = clean(v)
-            if !cleaned.isEmpty {
-                var res = cleaned.capitalized
-                if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
-                    res += " (\(clean(age)))"
-                }
-                return res
-            }
-        }
-
+        // Specific character name phrasing: "reading for Maya", "role of Maya in...", etc.
         let name = #"([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,2}?)"#
         let stop = #"(?=\s+(?:in|on|by|for|from|at|to)\b|\s*[,.;:\n(]|\s*$)"#
         let lead = #"\b(?:role\s+of|part\s+of|character\s+of|playing|audition(?:ing)?\s+for|reading\s+for|self-?tape\s+for|submitting\s+for)\s+(?:the\s+)?(?:role\s+of\s+)?"#
         if let v = firstMatch(lead + name + stop, in: text, options: [.caseInsensitive, .anchorsMatchLines]) {
             let cleaned = clean(v)
-            if !cleaned.isEmpty { return cleaned.capitalized }
+            let lower = cleaned.lowercased()
+            if !cleaned.isEmpty, !lower.hasPrefix("age"), !lower.hasPrefix("a ") {
+                return cleaned.capitalized
+            }
         }
         if let v = firstMatch(#"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#, in: text) { return v.capitalized }
+
+        // Standard industry role tiers (Lead, Supporting, Series Regular)
+        if let v = firstMatch(#"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#, in: text, options: .caseInsensitive) {
+            var res = clean(v).capitalized
+            if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                let cleanedAge = clean(age)
+                if !res.contains(cleanedAge) {
+                    res += " (\(cleanedAge))"
+                }
+            }
+            return res
+        }
+
+        // Seeking/looking for: skip if it's purely a demographic/age descriptor
+        let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
+        if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
+            let cleaned = clean(v)
+            let lower = cleaned.lowercased()
+            let isDemographicOnly = lower.hasPrefix("age") || lower.contains("year old") || lower.contains("yrs old") || lower.range(of: #"^\d{1,2}\s*[-–]"#, options: .regularExpression) != nil
+            if !cleaned.isEmpty, !isDemographicOnly {
+                var res = cleaned.capitalized
+                if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                    let cleanedAge = clean(age)
+                    if !res.contains(cleanedAge) {
+                        res += " (\(cleanedAge))"
+                    }
+                }
+                return res
+            }
+        }
+
         return nil
     }
 
@@ -979,6 +994,34 @@ struct NoticeReviewView: View {
 
                         Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
                             .padding(.top, 4)
+                    }
+                    .padding(16)
+                    .otCard(radius: 20)
+
+                    SectionLabel(text: "Delivery & Destination")
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Destination", selection: $store.auditionDraft.destination) {
+                            ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+
+                        TextField(
+                            store.auditionDraft.destination == .emailOrLink
+                                ? "Email address or submission link"
+                                : "\(store.auditionDraft.destination.rawValue) account or submission notes",
+                            text: Binding(
+                                get: { store.auditionDraft.destinationDetail ?? "" },
+                                set: { newValue in
+                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    store.auditionDraft.destinationDetail = trimmed.isEmpty ? nil : trimmed
+                                }
+                            )
+                        )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(store.auditionDraft.destination == .emailOrLink ? .emailAddress : .default)
+                        .padding(12)
+                        .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .padding(16)
                     .otCard(radius: 20)

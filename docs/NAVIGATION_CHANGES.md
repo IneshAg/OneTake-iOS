@@ -441,3 +441,27 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **Edit Details Validation ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
    - Added inline error labels and validation checks in `EditAuditionSheet` when saving via "Done", ensuring project name and role cannot be cleared out to blank values.
 
+---
+
+## 20. Systemic Root-Cause Hardening: Role Detection, Destination Continuity, and Slate Sanitization
+
+### Problems Identified
+1. **Demographic Phrases Misclassified as Character Names**:
+   - `detectRole` previously captured phrases like "seeking Age 20-80 Male Latino" as character names and redundantly appended the age range again, producing `"Age 20-80 Male Latino (20-80)"`.
+2. **Fragmented Destination Lifecycle**:
+   - While `EditAuditionSheet` had destination details added, `NoticeReviewView` (creation) and `DestinationSheet` (packaging/sharing) still lacked destination and destination detail editing, creating a discontinuous experience where users could not view, select, or edit recipient emails where it mattered most.
+3. **Punctuation Artifacts in Slate Spoken Prompt**:
+   - When users typed punctuation in profile fields (e.g. `Interest,`, `Cheney,`), `SlateInfo.spoken` concatenated them into malformed text with double punctuation (`Interest,.`).
+
+### Implementation
+1. **Intelligent Role Detection & Age De-duplication ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Prioritized character-specific phrasings (`"reading for Maya"`, `"role of Maya"`) over generic seeking leads.
+   - Filtered out purely demographic descriptors (`"age 20-80"`, ethnicity descriptions) from being assigned as character names.
+   - Ensured that if an age range is already present in the string, it is not redundantly appended.
+2. **End-to-End Delivery & Destination Continuity ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift) & [PackageViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PackageViews.swift))**:
+   - Added a dedicated "Delivery & Destination" card in `NoticeReviewView`, allowing actors to review and adjust the destination and recipient email/details directly during audition creation.
+   - Enhanced `DestinationSheet` in `PackageViews.swift` to allow interactive destination selection with immediate checkmark feedback, plus a dedicated "Details & Notes" field for editing the recipient email or submission notes with a clean "Done" confirmation.
+3. **Punctuation Sanitization in Slate Generation ([Models.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/Models.swift))**:
+   - Cleaned trailing punctuation (`CharacterSet(charactersIn: " ,;.-")`) in `SlateInfo.spoken` before applying sentence periods, guaranteeing clean, natural spoken prompts.
+
+
