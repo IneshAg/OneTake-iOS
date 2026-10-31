@@ -48,6 +48,58 @@ enum Reminders {
         UNUserNotificationCenter.current().add(request)
     }
 
+    struct PlannedReminder: Equatable {
+        let id: String
+        let title: String
+        let body: String
+        let date: Date
+    }
+
+    static func plannedReminders(
+        for auditions: [Audition],
+        now: Date = .now,
+        morning: Bool = isOn("n.morning", default: true),
+        twoHours: Bool = isOn("n.twoHours", default: true)
+    ) -> [PlannedReminder] {
+        let upcoming = auditions.filter { $0.status != .sent && $0.due > now }
+        let minSeparation: TimeInterval = 2 * 3600
+        var result: [PlannedReminder] = []
+
+        for a in upcoming {
+            let dueTime = a.due.formatted(date: .omitted, time: .shortened)
+            let twoBefore = a.due.addingTimeInterval(-2 * 3600)
+            let willScheduleTwoHours = twoHours && twoBefore > now
+
+            if morning,
+               let nine = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: a.due),
+               nine > now,
+               nine < a.due {
+                // Suppress morning reminder if the 2-hour reminder will fire on the same day within 2 hours of it
+                // (e.g. deadline is 11:08 AM -> twoBefore is 9:08 AM, only 8 minutes after 9:00 AM).
+                let collidesWithTwoHours = willScheduleTwoHours && (twoBefore <= nine || twoBefore.timeIntervalSince(nine) < minSeparation)
+                if !collidesWithTwoHours {
+                    result.append(PlannedReminder(
+                        id: "\(prefix)morning.\(a.id)",
+                        title: "\(a.project) is due today",
+                        body: "Due \(dueTime). Next: \(a.nextAction).",
+                        date: nine
+                    ))
+                }
+            }
+
+            if willScheduleTwoHours {
+                result.append(PlannedReminder(
+                    id: "\(prefix)twohours.\(a.id)",
+                    title: "Two hours left · \(a.project)",
+                    body: "Due \(dueTime). Next: \(a.nextAction).",
+                    date: twoBefore
+                ))
+            }
+        }
+
+        return result
+    }
+
     static func reschedule(_ auditions: [Audition]) {
         let morning = isOn("n.morning", default: true)
         let twoHours = isOn("n.twoHours", default: true)
@@ -59,17 +111,9 @@ enum Reminders {
         center.getPendingNotificationRequests { pending in
             center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter { $0.hasPrefix(prefix) })
 
-            for a in upcoming {
-                let dueTime = a.due.formatted(date: .omitted, time: .shortened)
-                if morning, let nine = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: a.due), nine > now, nine < a.due {
-                    add(center, id: "\(prefix)morning.\(a.id)", title: "\(a.project) is due today",
-                        body: "Due \(dueTime). Next: \(a.nextAction).", at: nine)
-                }
-                let twoBefore = a.due.addingTimeInterval(-2 * 3600)
-                if twoHours, twoBefore > now {
-                    add(center, id: "\(prefix)twohours.\(a.id)", title: "Two hours left · \(a.project)",
-                        body: "Due \(dueTime). Next: \(a.nextAction).", at: twoBefore)
-                }
+            let reminders = plannedReminders(for: auditions, now: now, morning: morning, twoHours: twoHours)
+            for r in reminders {
+                add(center, id: r.id, title: r.title, body: r.body, at: r.date)
             }
 
             // One gentle daily nudge at 6 pm toward the soonest audition that has sides to learn.

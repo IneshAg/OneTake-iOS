@@ -282,3 +282,30 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - When `a.scenes.isEmpty`, a high-visibility callout card is displayed directly beneath the Package summary at the very top of `AuditionDetailView` with a primary `[Add or scan sides]` button.
    - In `PackageSheet`, tapping on a scene piece when no sides are attached directly invokes `onAddSides: { showSides = true }`, opening `RevisedSidesSheet` immediately.
    - In `RevisedSidesSheet`, initial text starts empty when `isNewSides` is true.
+
+---
+
+## 13. Elimination of Duplicate / Overlapping Deadline Notifications
+
+### Problems Identified
+1. **Rapid Back-to-Back Notifications for Morning Deadlines**:
+   - Two reminder triggers operated independently without mutual awareness:
+     - Morning Alert: Always scheduled at 9:00 AM on the day of the deadline (`"onetake.morning.<id>"`: `"<Project> is due today"`).
+     - Two-Hour Alert: Scheduled at `a.due - 2 hours` (`"onetake.twohours.<id>"`: `"Two hours left · <Project>"`).
+   - When an audition was due in the late morning (e.g. 11:08 AM):
+     - Morning reminder fired at 9:00 AM.
+     - Two-hour countdown reminder fired at 9:08 AM.
+     - The user received two notifications with identical bodies and slightly different titles only 8 minutes apart.
+   - For deadlines at 11:00 AM, both notifications fired simultaneously at 9:00 AM.
+   - For deadlines before 11:00 AM (e.g. 10:00 AM), the 2-hour alert fired at 8:00 AM followed by a redundant "due today" alert at 9:00 AM just 1 hour before the deadline.
+
+### Implementation
+1. **Minimum Alert Spacing & Collision Prevention ([Reminders.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/Reminders.swift))**:
+   - Extracted reminder scheduling into a pure, testable function `plannedReminders(for:now:morning:twoHours:)`.
+   - Enforced a minimum separation of 2 hours (`minSeparation: TimeInterval = 2 * 3600`) between notifications for the same audition:
+     - If the 2-hour alert is scheduled on the same day (`willScheduleTwoHours = twoHours && twoBefore > now`), the generic 9:00 AM morning reminder is suppressed if `twoBefore <= nine` or `twoBefore.timeIntervalSince(nine) < minSeparation`.
+     - The more urgent and actionable 2-hour countdown notification (`"Two hours left · <Project>"`) takes precedence for morning/midday deadlines (e.g. 11:08 AM fires once at 9:08 AM).
+   - Preserved morning alerts when:
+     - The audition is due in the afternoon/evening (e.g. 1:00 PM or later, where morning and 2-hour alerts are spaced 2+ hours apart).
+     - The 2-hour alert is disabled by the user (`twoHours == false`).
+     - The 2-hour mark has already passed (`twoBefore <= now`) but 9:00 AM is still upcoming before the deadline.
