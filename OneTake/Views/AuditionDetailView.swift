@@ -348,11 +348,23 @@ struct EditAuditionSheet: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var showValidationErrors = false
 
     var body: some View {
         VStack(spacing: 0) {
             InContentNavHeader(title: "Edit details", backLabel: "Cancel", onBack: { dismiss() }) {
                 Button("Done") {
+                    if let audition = store.audition(auditionID) {
+                        let isProjectEmpty = audition.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        let isRoleEmpty = audition.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        if isProjectEmpty || isRoleEmpty {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showValidationErrors = true
+                            }
+                            Haptics.warning()
+                            return
+                        }
+                    }
                     store.reclassifyRole(for: auditionID)
                     dismiss()
                 }
@@ -365,12 +377,26 @@ struct EditAuditionSheet: View {
             if let audition = store.binding(for: auditionID) {
                 Form {
                     Section("Project") {
-                        TextField("Project", text: audition.project)
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Project", text: audition.project)
+                            if showValidationErrors && audition.wrappedValue.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Label("Project name is required", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
                         TextField("Type (film, series, commercial…)", text: audition.projectType)
                         TextField("Casting office", text: audition.castingOffice)
                     }
                     Section("Role") {
-                        TextField("Role", text: audition.role)
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Role", text: audition.role)
+                            if showValidationErrors && audition.wrappedValue.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Label("Character or role name is required", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
                         TextField("Size (lead, supporting…)", text: audition.roleSize)
                     }
                     Section("Due") { DatePicker("Due", selection: audition.due) }

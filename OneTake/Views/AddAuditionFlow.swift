@@ -578,12 +578,19 @@ struct MissingDetailsView: View {
     @State private var picked: Date = .now.addingTimeInterval(86400)
     @State private var requestedFields: [String] = []
     @State private var showSidesSheet = false
+    @State private var showValidationErrors = false
+
+    private var isProjectEmpty: Bool {
+        store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var isRoleEmpty: Bool {
+        store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var canContinue: Bool {
+        !isProjectEmpty && !isRoleEmpty
+    }
 
     private var missing: [String] { store.auditionDraft.missingRequiredDetails }
-    private var canContinue: Bool {
-        !store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     private var missingSubtitle: String {
         if missing.isEmpty { return "Everything needed is ready." }
@@ -607,11 +614,53 @@ struct MissingDetailsView: View {
                     Text(missingSubtitle)
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        TextField("Project name", text: $store.auditionDraft.project)
-                            .textInputAutocapitalization(.words)
-                        TextField("Your role", text: $store.auditionDraft.role)
-                            .textInputAutocapitalization(.words)
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Project name").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                if showValidationErrors && isProjectEmpty {
+                                    Spacer()
+                                    Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
+                                }
+                            }
+                            TextField("e.g. The White Lotus", text: $store.auditionDraft.project)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                )
+                            if showValidationErrors && isProjectEmpty {
+                                Label("Please enter the project name to continue", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                if showValidationErrors && isRoleEmpty {
+                                    Spacer()
+                                    Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
+                                }
+                            }
+                            TextField("e.g. Maya", text: $store.auditionDraft.role)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                )
+                            if showValidationErrors && isRoleEmpty {
+                                Label("Please enter the character or role you are reading for", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
+
                         HStack {
                             Text("When is it due?").font(.otHeadline)
                             Spacer()
@@ -620,7 +669,8 @@ struct MissingDetailsView: View {
                                 .labelsHidden()
                         }
                     }
-                    .padding(16).otCard(radius: 20)
+                    .padding(16)
+                    .otCard(radius: 20)
 
                     SectionLabel(text: "Script Sides")
                     let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
@@ -699,17 +749,36 @@ struct MissingDetailsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            Button(store.auditionDraft.hasSides ? "Continue" : "Continue without sides") {
-                if store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    store.auditionDraft.project = "Untitled audition"
+            VStack(spacing: 8) {
+                if showValidationErrors && !canContinue {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.red)
+                        Text(isProjectEmpty && isRoleEmpty
+                             ? "Project name and role are required"
+                             : (isProjectEmpty ? "Project name is required" : "Your role is required"))
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(Color.red)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.12), in: Capsule())
+                    .transition(.opacity.combined(with: .scale))
                 }
-                if store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    store.auditionDraft.role = "Role"
+
+                Button(store.auditionDraft.hasSides ? "Continue" : "Continue without sides") {
+                    if !canContinue {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showValidationErrors = true
+                        }
+                        Haptics.warning()
+                        return
+                    }
+                    if store.auditionDraft.due == nil { store.auditionDraft.due = picked }
+                    store.push(.noticeReview)
                 }
-                if store.auditionDraft.due == nil { store.auditionDraft.due = picked }
-                store.push(.noticeReview)
+                .buttonStyle(.otPrimary)
             }
-            .buttonStyle(.otPrimary)
             .padding(.horizontal, OT.gutter)
             .padding(.vertical, 10)
             .background(OT.bgCanvas)
@@ -729,6 +798,12 @@ struct MissingDetailsView: View {
         .onChange(of: picked) { _, newDate in
             store.auditionDraft.due = newDate
         }
+        .onChange(of: store.auditionDraft.project) { _, _ in
+            if canContinue { withAnimation { showValidationErrors = false } }
+        }
+        .onChange(of: store.auditionDraft.role) { _, _ in
+            if canContinue { withAnimation { showValidationErrors = false } }
+        }
     }
 }
 
@@ -738,6 +813,17 @@ struct NoticeReviewView: View {
     @Environment(AppStore.self) private var store
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
     @State private var showSidesSheet = false
+    @State private var showValidationErrors = false
+
+    private var isProjectEmpty: Bool {
+        store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var isRoleEmpty: Bool {
+        store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var canSave: Bool {
+        !isProjectEmpty && !isRoleEmpty
+    }
 
     private var hasReaderLines: Bool {
         !store.auditionDraft.role.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
@@ -836,13 +922,66 @@ struct NoticeReviewView: View {
                         ForEach(store.auditionDraft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }
                     }
 
-                    Group {
-                        TextField("Project", text: $store.auditionDraft.project)
-                        TextField("Role", text: $store.auditionDraft.role)
-                        TextField("Casting office", text: $store.auditionDraft.castingOffice)
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Project name").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                if showValidationErrors && isProjectEmpty {
+                                    Spacer()
+                                    Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
+                                }
+                            }
+                            TextField("Project name", text: $store.auditionDraft.project)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                )
+                            if showValidationErrors && isProjectEmpty {
+                                Label("Please enter the project name", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                if showValidationErrors && isRoleEmpty {
+                                    Spacer()
+                                    Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
+                                }
+                            }
+                            TextField("Your role", text: $store.auditionDraft.role)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                )
+                            if showValidationErrors && isRoleEmpty {
+                                Label("Please enter your character or role", systemImage: "exclamationmark.circle.fill")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(Color.red)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Casting office").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                            TextField("Casting office", text: $store.auditionDraft.castingOffice)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
                         Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
+                            .padding(.top, 4)
                     }
-                    .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(16)
+                    .otCard(radius: 20)
 
                     if hasReaderLines {
                         SectionLabel(text: "Reader audio")
@@ -868,15 +1007,39 @@ struct NoticeReviewView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
-                saveAudition()
+            VStack(spacing: 8) {
+                if showValidationErrors && !canSave {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.red)
+                        Text(isProjectEmpty && isRoleEmpty
+                             ? "Project name and role are required"
+                             : (isProjectEmpty ? "Project name is required" : "Your role is required"))
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(Color.red)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.12), in: Capsule())
+                    .transition(.opacity.combined(with: .scale))
+                }
+
+                Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
+                    saveAudition()
+                }
+                .buttonStyle(.otPrimary)
             }
-            .buttonStyle(.otPrimary)
             .padding(.horizontal, OT.gutter).padding(.bottom, 8)
             .background(OT.bgCanvas)
         }
         .sheet(isPresented: $showSidesSheet) {
             AddDraftSidesSheet(draft: $store.auditionDraft)
+        }
+        .onChange(of: store.auditionDraft.project) { _, _ in
+            if canSave { withAnimation { showValidationErrors = false } }
+        }
+        .onChange(of: store.auditionDraft.role) { _, _ in
+            if canSave { withAnimation { showValidationErrors = false } }
         }
         .task {
             if store.auditionDraft.aiGuidance.isEmpty && !store.auditionDraft.sourceText.isEmpty {
@@ -889,6 +1052,13 @@ struct NoticeReviewView: View {
     }
 
     private func saveAudition() {
+        guard canSave else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showValidationErrors = true
+            }
+            Haptics.warning()
+            return
+        }
         let audition = store.auditionDraft.makeAudition()
         store.add(audition)
         store.tab = .auditions

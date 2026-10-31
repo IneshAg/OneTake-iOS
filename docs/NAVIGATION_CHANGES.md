@@ -419,3 +419,25 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Added `isActHeading(_:)` to classify `ACT ONE`, `ACT TWO`, `COLD OPEN`, `PROLOGUE` as section dividers rather than character cues.
    - Enhanced `isLikelyCue(_:)` to strictly reject any line ending with sentence punctuation (`.`, `!`, `?`, `:`) or act/scene prefixes.
    - Enhanced `isActionOrDescription(_:)` to identify all-caps full sentences with 3+ words ending in punctuation as action descriptions rather than dialogue.
+
+---
+
+## 19. In-Form Validation & Error Messaging Across Audition Creation & Editing
+
+### Problems Identified
+1. **Silent Fallback Defaults Masking Missing Input**:
+   - Rather than informing the user why they cannot proceed when required fields (Project name and Role) are empty, the app previously substituted silent defaults (`"Untitled audition"` and `"Role"`). Users did not notice that info was missing because there was no in-form message or indicator highlighting empty columns.
+2. **Missing Validation Feedback in Forms**:
+   - In `MissingDetailsView`, `NoticeReviewView`, and `EditAuditionSheet`, tapping continue or save/done when required fields were missing either silently passed through or provided no visual indication of which fields were required.
+
+### Implementation
+1. **Inline Field Validation in Missing Details ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Replaced silent defaulting with explicit inline validation. When tapping "Continue" or "Continue without sides" with missing fields, triggers `showValidationErrors = true` and `Haptics.warning()`.
+   - Displays clear red outlines (`stroke(Color.red.opacity(0.8))`), "Required" badges, and descriptive inline error messages (`"Please enter the project name to continue"` and `"Please enter the character or role you are reading for"`).
+   - Added a floating warning banner (`"Project name and role are required"`) directly above the bottom action button.
+   - Clears validation errors automatically as soon as the user types into the fields.
+2. **Review View Validation ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Converted the raw fields in `NoticeReviewView` to card-styled inputs with explicit "Required" labels, red warning borders, and inline error guidance when attempting to "Save and start" without a project name or role.
+3. **Edit Details Validation ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - Added inline error labels and validation checks in `EditAuditionSheet` when saving via "Done", ensuring project name and role cannot be cleared out to blank values.
+
