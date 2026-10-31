@@ -389,6 +389,25 @@ struct EditAuditionSheet: View {
                         TextField("Casting office", text: audition.castingOffice)
                     }
                     Section("Role") {
+                        let chars = scriptCharacters(for: audition.wrappedValue)
+                        if !chars.isEmpty {
+                            Picker("Character in script", selection: Binding(
+                                get: {
+                                    chars.first { $0.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame } ?? ""
+                                },
+                                set: { newValue in
+                                    if !newValue.isEmpty {
+                                        audition.wrappedValue.role = newValue
+                                        Haptics.tick()
+                                    }
+                                }
+                            )) {
+                                Text("Custom role").tag("")
+                                ForEach(chars, id: \.self) { char in
+                                    Text(char).tag(char)
+                                }
+                            }
+                        }
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("Role", text: audition.role)
                             if showValidationErrors && audition.wrappedValue.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -449,6 +468,23 @@ struct EditAuditionSheet: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+    }
+
+    private func scriptCharacters(for audition: Audition) -> [String] {
+        if let script = audition.scriptText, !script.isEmpty {
+            let extracted = ScriptParser.extractCharacters(from: script)
+            if !extracted.isEmpty { return extracted }
+        }
+        var found: [String] = []
+        for scene in audition.scenes {
+            for line in scene.lines {
+                let c = line.character.trimmingCharacters(in: .whitespaces)
+                if !c.isEmpty && !found.contains(where: { $0.caseInsensitiveCompare(c) == .orderedSame }) {
+                    found.append(c)
+                }
+            }
+        }
+        return found
     }
 }
 

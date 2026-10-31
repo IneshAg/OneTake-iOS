@@ -20,6 +20,25 @@ enum ScriptParser {
         }
     }
 
+    /// Extracts all unique character names found in script dialogue cues, ranked by frequency.
+    static func extractCharacters(from text: String) -> [String] {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let scenes = parseScenes(from: text, myRole: "")
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for scene in scenes {
+            for line in scene.lines {
+                let char = line.character.trimmingCharacters(in: .whitespaces)
+                guard !char.isEmpty else { continue }
+                if counts[char] == nil {
+                    order.append(char)
+                }
+                counts[char, default: 0] += 1
+            }
+        }
+        return order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
+    }
+
     static func parseScenes(from text: String, myRole: String) -> [ScriptScene] {
         // Blank lines are kept: in screenplay format a blank line ends a dialogue block, and whatever
         // follows (action, description) belongs to no one until the next cue.

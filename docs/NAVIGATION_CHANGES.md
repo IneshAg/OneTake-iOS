@@ -464,4 +464,25 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **Punctuation Sanitization in Slate Generation ([Models.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/Models.swift))**:
    - Cleaned trailing punctuation (`CharacterSet(charactersIn: " ,;.-")`) in `SlateInfo.spoken` before applying sentence periods, guaranteeing clean, natural spoken prompts.
 
+---
+
+## 21. Script-Driven Character Dropdown & Quick Selection for Role Fields
+
+### Problems Identified
+1. **Manual Entry Friction for Existing Script Characters**:
+   - When screenplay sides are attached or captured in an audition, character names/cues (e.g. `KAT`, `OSCAR`, `MAYA`) are already present in dialogue blocks.
+   - Forcing users to manually type the character name in `MissingDetailsView`, `NoticeReviewView`, or `EditAuditionSheet` led to typos, casing discrepancies, and unnecessary friction.
+
+### Implementation
+1. **Script Character Extractor ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Added `ScriptParser.extractCharacters(from:)` to parse dialogue cues and rank unique characters by speech frequency.
+2. **Dropdown Menu & Horizontal Quick-Pills in Creation Flows ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - In both `MissingDetailsView` and `NoticeReviewView`, when characters are detected in the attached script text:
+     - Added a top-right dropdown `Menu` ("From script ▾") next to the "Your role" header row, displaying all detected characters with single-tap assignment.
+     - Added horizontal quick-selection capsules (`In script: [Kat] [Oscar]`) directly beneath the input field with active selection checkmarks and `Haptics.tick()`.
+     - The text field remains fully editable for custom role names.
+3. **Script Character Dropdown in Audition Details ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - In `EditAuditionSheet`, if the audition has script sides attached, added a native `Picker("Character in script")` dropdown menu allowing actors to switch roles directly from the script, with automatic line reclassification via `store.reclassifyRole(for: auditionID)`.
+
+
 
