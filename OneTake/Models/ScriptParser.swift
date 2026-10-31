@@ -77,6 +77,12 @@ enum ScriptParser {
                     lines = []
                 }
                 heading = trimmed
+            } else if isActHeading(trimmed) || isWebJunkOrFooter(trimmed) {
+                flush()
+                currentCharacter = nil
+            } else if isLineOrPageNumber(trimmed) {
+                // Line numbers or page numbers (e.g. "91", "92", "Page 4") - ignore without ending dialogue
+                continue
             } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
                 flush()
                 currentCharacter = nil
@@ -142,6 +148,12 @@ enum ScriptParser {
 
         let upper = trimmed.uppercased()
 
+        // All-caps full sentence with punctuation (e.g. "KAT FRETS OVER OSCAR WHO IS TOUCHING HIS CHEST.")
+        if upper == trimmed && (trimmed.hasSuffix(".") || trimmed.hasSuffix("!")) {
+            let words = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            if words.count >= 3 { return true }
+        }
+
         // Common standalone stage directions and scene time/setting markers
         let directions: Set<String> = [
             "BEAT", "BEAT.", "A BEAT.", "PAUSE", "PAUSE.", "SILENCE", "SILENCE.",
@@ -200,8 +212,12 @@ enum ScriptParser {
         guard trimmed.count > 1, trimmed.count < 28 else { return false }
         guard trimmed.rangeOfCharacter(from: .lowercaseLetters) == nil else { return false }
         guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
+        // Cues never end with sentence-ending punctuation or colons
+        if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(":") { return false }
+        let upper = trimmed.uppercased()
+        if upper.hasPrefix("ACT ") || upper.hasPrefix("SCENE ") || upper.hasPrefix("SC.") || upper.hasPrefix("SC ") { return false }
         // Reject screenplay sluglines (INT./EXT.) which are also all-caps and short.
-        if trimmed.hasPrefix("INT.") || trimmed.hasPrefix("EXT.") || trimmed.hasPrefix("INT/EXT") { return false }
+        if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") || upper.hasPrefix("INT/EXT") { return false }
         if isTransition(trimmed) || cueName(trimmed).isEmpty { return false }
         return true
     }
@@ -265,5 +281,48 @@ enum ScriptParser {
             return true
         }
         return false
+    }
+
+    /// Standalone line numbers, page counters, or script numbering (e.g. "91", "92", "p. 14")
+    private static func isLineOrPageNumber(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.allSatisfy(\.isNumber) { return true }
+        let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "#.-–— "))
+        if !stripped.isEmpty && stripped.allSatisfy(\.isNumber) { return true }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("page ") || lower.hasPrefix("p. ") || lower.hasPrefix("pg. ") {
+            let after = lower.dropFirst(lower.hasPrefix("page ") ? 5 : 3).trimmingCharacters(in: .whitespaces)
+            if after.allSatisfy(\.isNumber) { return true }
+        }
+        return false
+    }
+
+    /// Web search chrome, URL fragments, watermarks, and browser UI artifacts from screenshots
+    private static func isWebJunkOrFooter(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.count == 1 && "<>«»‹›•@|".contains(trimmed) { return true }
+        let lower = trimmed.lowercased()
+        if lower.contains("%2f") || lower.contains("http://") || lower.contains("https://") || lower.contains("www.") || lower.contains("image%2b") || lower.contains(".jpg") || lower.contains(".png") || lower.contains("%2b") {
+            return true
+        }
+        let chromePhrases = ["visit ›", "visit >", "share", "@ share", "• save", "save", "bookmark", "view on", "click here", "read more"]
+        if chromePhrases.contains(where: { lower == $0 || lower.hasPrefix($0 + " ") || lower.hasSuffix(" " + $0) }) {
+            return true
+        }
+        if trimmed.hasPrefix("• ") || trimmed.hasPrefix("› ") || trimmed.hasSuffix(" ›") || trimmed.hasSuffix(" >") {
+            return true
+        }
+        if lower.contains("writers guild") || lower.contains("spec script") || lower.contains("all rights reserved") || lower.contains("copyright ©") {
+            return true
+        }
+        return false
+    }
+
+    /// Screenplay act markers (e.g. "ACT TWO", "COLD OPEN", "PROLOGUE")
+    private static func isActHeading(_ raw: String) -> Bool {
+        let upper = raw.trimmingCharacters(in: .whitespaces).uppercased()
+        return upper.hasPrefix("ACT ") || upper.hasPrefix("ACT ONE") || upper.hasPrefix("ACT TWO") || upper.hasPrefix("COLD OPEN") || upper.hasPrefix("PROLOGUE") || upper.hasPrefix("EPILOGUE")
     }
 }

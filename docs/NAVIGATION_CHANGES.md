@@ -396,3 +396,26 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Synchronized the date picker with `store.auditionDraft.due` on load and change.
 2. **Visual Disabled State ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
    - Updated `PrimaryButtonStyle` to check `@Environment(\.isEnabled)` and apply dimming (`opacity: 0.6`, background opacity `0.35`) when a primary button is disabled, ensuring clear visual feedback everywhere in the app.
+
+---
+
+## 18. Screenplay OCR Noise Filtering & Line Number Stripping in ScriptParser
+
+### Problems Identified
+1. **Line Numbers Appended to Dialogue**:
+   - Script sides with line or page numbers (e.g. `91`, `92`, `93`, `94`, `95`) on their own lines were being treated as continued dialogue lines and appended directly to the end of the previous speaker's spoken text.
+2. **Web Browser Chrome & Footer Leaks**:
+   - When scripts are captured from web pages or screenshots, browser UI elements (`Visit ›`, `@ Share`, `• Save`, image/URL strings) and site footers/watermarks (`Writers Guild Foundation`, `Spec Script Primer`) were appended to dialogue or parsed into stray text.
+3. **Act Markers & All-Caps Action Sentence Misclassification**:
+   - Headers like `ACT TWO` were treated as character cues because they were uppercase and short.
+   - All-caps narrative action descriptions (e.g. `KAT FRETS OVER OSCAR WHO IS TOUCHING HIS CHEST.`) were not filtered out when verbs fell outside standard presets.
+
+### Implementation
+1. **Line & Page Number Exclusion ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Implemented `isLineOrPageNumber(_:)` to detect standalone numbers, dashed/hashed numbers (`#91`, `- 91 -`), and page markers (`Page 12`, `p. 14`), skipping them cleanly without interrupting dialogue or appending digits to spoken text.
+2. **Web Artifact & Footer Discarding ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Implemented `isWebJunkOrFooter(_:)` to recognize web action pills (`Visit ›`, `Share`, `Save`), URI encoding fragments (`%2F`, `http://`, `image%2b`), and common script repository footers/watermarks. Tightly flushes dialogue and discards web chrome.
+3. **Act & Cue Punctuation Hardening ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Added `isActHeading(_:)` to classify `ACT ONE`, `ACT TWO`, `COLD OPEN`, `PROLOGUE` as section dividers rather than character cues.
+   - Enhanced `isLikelyCue(_:)` to strictly reject any line ending with sentence punctuation (`.`, `!`, `?`, `:`) or act/scene prefixes.
+   - Enhanced `isActionOrDescription(_:)` to identify all-caps full sentences with 3+ words ending in punctuation as action descriptions rather than dialogue.
