@@ -91,32 +91,6 @@ struct AuditionDetailView: View {
                 }
                 .buttonStyle(.plain)
 
-                if a.scenes.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .foregroundStyle(OT.warning)
-                                .font(.title3)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("No script sides attached")
-                                    .font(.otHeadline)
-                                    .foregroundStyle(OT.labelPrimary)
-                                Text("Add or scan sides to learn your lines, rehearse with a reader, and shoot scenes.")
-                                    .font(.otFootnote)
-                                    .foregroundStyle(OT.labelSecondary)
-                            }
-                        }
-                        Button {
-                            showSides = true
-                        } label: {
-                            Label("Add or scan sides", systemImage: "doc.badge.plus")
-                        }
-                        .buttonStyle(.otPrimary)
-                    }
-                    .padding(16)
-                    .otCard()
-                }
-
                 upNext(a)
 
                 sidesCard(a)
@@ -205,12 +179,36 @@ struct AuditionDetailView: View {
     }
 
     @ViewBuilder private func sidesCard(_ a: Audition) -> some View {
-        if !a.scenes.isEmpty {
-            HStack {
+        HStack(spacing: 12) {
+            if a.scenes.isEmpty {
+                Image(systemName: "doc.badge.plus")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(width: 34, height: 34)
+                    .background(OT.accentSoft, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sides")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelTertiary)
+                    Text("No sides attached yet")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                }
+                Spacer()
+                Button("Add sides") {
+                    showSides = true
+                }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(OT.accent)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(OT.accentSoft, in: Capsule())
+            } else {
                 VStack(alignment: .leading, spacing: 2) {
                     SectionLabel(text: "Sides")
                     Text("\(a.scenes.count) scene\(a.scenes.count == 1 ? "" : "s") · \(a.scenes.flatMap(\.lines).count) lines")
                         .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
                 }
                 Spacer()
                 Button("Replace / rescan") {
@@ -219,9 +217,9 @@ struct AuditionDetailView: View {
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(OT.accent)
             }
-            .padding(16)
-            .otCard()
         }
+        .padding(16)
+        .otCard()
     }
 
     private func quoteLine(_ text: String) -> some View {

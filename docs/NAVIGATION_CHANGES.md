@@ -309,3 +309,23 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
      - The audition is due in the afternoon/evening (e.g. 1:00 PM or later, where morning and 2-hour alerts are spaced 2+ hours apart).
      - The 2-hour alert is disabled by the user (`twoHours == false`).
      - The 2-hour mark has already passed (`twoBefore <= now`) but 9:00 AM is still upcoming before the deadline.
+
+---
+
+## 14. Refined, Proportional Sides Presentation on Overview and Missing Details
+
+### Problems Identified
+1. **Oversized Sides Card Clashing with Hierarchy**:
+   - In `AuditionDetailView`, an empty-sides state was rendered as a massive, loud warning card with a full-width `.otPrimary` button directly above `upNext`. This competed directly with the hero action ("Take your headshot") and pushed the primary workflow off balance.
+   - In `MissingDetailsView` and `NoticeReviewView`, the sides section used an oversized card with an amber exclamation icon, extensive explanatory copy, and an `.otPrimary` button, clashing with the screen's bottom sticky continue button.
+2. **Visual Clutter & Disproportionate Weight**:
+   - The prominent styling created the impression of an error/alarm state rather than a clean, natural prompt to attach script sides.
+
+### Implementation
+1. **Audition Overview (`AuditionDetailView.swift`)**:
+   - Removed the duplicate oversized banner above `upNext`, restoring `upNext` as the clear, uncluttered hero action for the audition.
+   - Refined `sidesCard(_ a: Audition)` to handle both states (sides present vs. no sides attached) within a sleek, compact card matching the app's standard section styling:
+     - Features a soft accent icon circle (`doc.badge.plus`), "Sides" caption, "No sides attached yet" title, and a compact capsule pill button `[Add sides]`.
+2. **Missing Details & Notice Review (`AddAuditionFlow.swift`)**:
+   - Replaced bulky warning cards with streamlined single-row cards (`.otCard(radius: 20)` and `.otFillField`).
+   - Replaced competing full-width `.otPrimary` buttons with tasteful accent pill buttons (`[Add sides]`), keeping the bottom sticky action button as the single primary call-to-action on the screen.

@@ -594,57 +594,62 @@ struct MissingDetailsView: View {
                     }
                     .padding(16).otCard(radius: 20)
 
-                    SectionLabel(text: "Script Sides" + (store.auditionDraft.hasSides ? "" : " · Needed for lines & takes"))
+                    SectionLabel(text: "Script Sides")
                     let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
                     if parsedScenes.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.text.magnifyingglass")
-                                    .foregroundStyle(OT.warning)
-                                    .font(.title3)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("No sides attached yet")
-                                        .font(.otHeadline)
-                                    Text("Add or scan script sides now to learn lines, rehearse with a reader, and shoot scenes.")
-                                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                                }
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(OT.accent)
+                                .frame(width: 34, height: 34)
+                                .background(OT.accentSoft, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("No sides attached yet")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Optional · for reader track & lines")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
                             }
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    showSidesSheet = true
-                                } label: {
-                                    Label("Add or scan sides", systemImage: "doc.badge.plus")
-                                }
-                                .buttonStyle(.otPrimary)
-
-                                PasteButton(payloadType: String.self) { strings in
-                                    let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !pasted.isEmpty {
-                                        store.auditionDraft.sourceText = pasted
-                                    }
-                                }
-                                .buttonBorderShape(.capsule)
-                                .tint(OT.accent)
+                            Spacer()
+                            Button("Add sides") {
+                                showSidesSheet = true
                             }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(OT.accentSoft, in: Capsule())
+                            .fixedSize()
                         }
-                        .padding(16).otCard(radius: 20)
+                        .padding(14)
+                        .otCard(radius: 20)
                     } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(OT.success)
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(OT.success)
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines")
                                     .font(.otHeadline)
-                                Spacer()
-                                Button("Replace / rescan") {
-                                    showSidesSheet = true
-                                }
-                                .font(.otFootnote.weight(.semibold))
-                                .foregroundStyle(OT.accent)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Ready for lines & reader")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
                             }
+                            Spacer()
+                            Button("Replace") {
+                                showSidesSheet = true
+                            }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(OT.accentSoft, in: Capsule())
+                            .fixedSize()
                         }
-                        .padding(16).otCard(radius: 20)
+                        .padding(14)
+                        .otCard(radius: 20)
                     }
 
                     Button("Choose a different notice") {
@@ -727,51 +732,55 @@ struct NoticeReviewView: View {
                     SectionLabel(text: "Sides & Scenes")
                     let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
                     if parsedScenes.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(OT.warning)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("No sides attached yet")
-                                        .font(.otHeadline)
-                                    Text("Add or scan sides now to learn lines and rehearse with a reader, or add them later.")
-                                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                                }
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(OT.accent)
+                                .frame(width: 34, height: 34)
+                                .background(OT.accentSoft, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("No sides attached yet")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Optional · for reader track & lines")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
                             }
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    showSidesSheet = true
-                                } label: {
-                                    Label("Add or scan sides", systemImage: "doc.badge.plus")
-                                }
-                                .buttonStyle(.otPrimary)
-
-                                PasteButton(payloadType: String.self) { strings in
-                                    let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !pasted.isEmpty {
-                                        store.auditionDraft.sourceText = pasted
-                                    }
-                                }
-                                .buttonBorderShape(.capsule)
-                                .tint(OT.accent)
+                            Spacer()
+                            Button("Add sides") {
+                                showSidesSheet = true
                             }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(OT.accentSoft, in: Capsule())
+                            .fixedSize()
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(OT.success)
-                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines found")
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(OT.success)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines")
                                     .font(.otHeadline)
-                                Spacer()
-                                Button("Replace / rescan") {
-                                    showSidesSheet = true
-                                }
-                                .font(.otFootnote.weight(.semibold))
-                                .foregroundStyle(OT.accent)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Ready for lines & reader")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
                             }
+                            Spacer()
+                            Button("Replace") {
+                                showSidesSheet = true
+                            }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(OT.accentSoft, in: Capsule())
+                            .fixedSize()
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
