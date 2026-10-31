@@ -90,7 +90,7 @@ struct LineDrillView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
             VStack(spacing: 0) {
-                InContentNavHeader(title: "Scene \(scene.number) of \(a.scenes.count)", backLabel: "Back", onBack: { dismiss() })
+                InContentNavHeader(title: "Scene \(scene.number) of \(a.scenes.count)", backLabel: "Back", onBack: { store.pop() })
                     .padding(.horizontal, OT.gutter)
                     .padding(.top, 4)
 
@@ -107,7 +107,7 @@ struct LineDrillView: View {
                     .padding(.bottom, 100)
                 }
                 .safeAreaInset(edge: .bottom) {
-                    Button("Done") { dismiss() }.buttonStyle(.otPrimary).padding(OT.gutter)
+                    Button("Done") { store.pop() }.buttonStyle(.otPrimary).padding(OT.gutter)
                 }
             }
             .otCanvas()
@@ -169,7 +169,7 @@ struct AudioWalkView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
             VStack(spacing: 20) {
-                InContentNavHeader(title: "Audio Walk", backLabel: "Back", onBack: { walker.stop(); dismiss() })
+                InContentNavHeader(title: "Audio Walk", backLabel: "Back", onBack: { walker.stop(); store.pop() })
                     .padding(.top, 4)
 
                 Spacer()

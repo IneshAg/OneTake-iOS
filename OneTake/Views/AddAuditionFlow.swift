@@ -880,6 +880,7 @@ struct NoticeReviewView: View {
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
     @State private var showSidesSheet = false
     @State private var showValidationErrors = false
+    @State private var createdAuditionID: Audition.ID? = nil
 
     private var isProjectEmpty: Bool {
         store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1194,6 +1195,20 @@ struct NoticeReviewView: View {
                 }
             }
         }
+        .onDisappear {
+            // If the user completely backed out of creating this audition (e.g. tapped < Auditions),
+            // clean up any provisionally created audition so no ghost entry is left in the list.
+            if !store.auditionsPath.contains(where: {
+                switch $0 {
+                case .noticeReview, .reader, .recordReader, .auditionDetail: return true
+                default: return false
+                }
+            }) {
+                if let id = createdAuditionID {
+                    store.deleteAudition(id)
+                }
+            }
+        }
     }
 
     private func saveAudition() {
@@ -1204,18 +1219,36 @@ struct NoticeReviewView: View {
             Haptics.warning()
             return
         }
-        let audition = store.auditionDraft.makeAudition()
-        store.add(audition)
+        let auditionID: Audition.ID
+        if let existingID = createdAuditionID, let idx = store.auditions.firstIndex(where: { $0.id == existingID }) {
+            var updated = store.auditions[idx]
+            updated.project = store.auditionDraft.project
+            updated.role = store.auditionDraft.role
+            updated.castingOffice = store.auditionDraft.castingOffice
+            updated.due = store.auditionDraft.due ?? updated.due
+            updated.destination = store.auditionDraft.destination
+            updated.destinationDetail = store.auditionDraft.destinationDetail
+            let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+            if !parsedScenes.isEmpty { updated.scenes = parsedScenes }
+            store.auditions[idx] = updated
+            auditionID = existingID
+        } else {
+            let audition = store.auditionDraft.makeAudition()
+            store.add(audition)
+            createdAuditionID = audition.id
+            auditionID = audition.id
+        }
         store.tab = .auditions
         if readerAudioPlan == .recordNow,
-           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-            store.auditionsPath = [.auditionDetail(audition.id), .reader(audition.id, sceneIndex: firstScene)]
-            store.continueAfterAdd = nil
+           let a = store.audition(auditionID),
+           let firstScene = a.scenes.indices.first(where: { !a.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+            // Push .reader onto the stack so tapping Back on "Who reads [role]" returns here!
+            store.push(.reader(auditionID, sceneIndex: firstScene))
         } else {
-            store.auditionsPath = [.auditionDetail(audition.id)]
-            store.continueAfterAdd = audition.id
+            store.auditionsPath = [.auditionDetail(auditionID)]
+            store.continueAfterAdd = auditionID
+            store.auditionDraft = .blank
         }
-        store.auditionDraft = .blank
         requestNotificationsIfFirstAudition()
     }
 

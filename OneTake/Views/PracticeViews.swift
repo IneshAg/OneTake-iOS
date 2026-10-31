@@ -243,7 +243,7 @@ struct PracticeSetupView: View {
             if showSample {
                 Section("Sample scene") {
                     Button {
-                        dismiss()
+                        store.pop()
                         store.push(.practiceSample)
                     } label: {
                         IconRow(symbol: "play.rectangle", title: "A late goodbye", detail: "Try the sample scene")
@@ -313,7 +313,7 @@ struct PracticeSetupView: View {
 
     private func start(auditionID: Audition.ID, sceneIndex: Int) {
         store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
-        dismiss()
+        store.pop()
         store.push(.runLines(auditionID, sceneIndex: sceneIndex))
     }
 
@@ -326,7 +326,7 @@ struct PracticeSetupView: View {
         var savedScene = scene
         savedScene.title = sceneTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Practice scene" : sceneTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let piece = store.addStandalonePracticePiece(title: savedScene.title, character: role, scene: savedScene)
-        dismiss()
+        store.pop()
         store.push(.standalonePractice(piece.id))
     }
 

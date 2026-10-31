@@ -203,7 +203,7 @@ struct RunLinesView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
             let lines = a.scenes[sceneIndex].lines
             VStack(alignment: .leading, spacing: 18) {
-                InContentNavHeader(title: "Run lines", backLabel: "Back", onBack: { dismiss() })
+                InContentNavHeader(title: "Run lines", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
 
                 // progress
@@ -220,7 +220,7 @@ struct RunLinesView: View {
                         index = 0; finished = false; reachedEnd = false; onYourOwn = []; neededStart = []
                         follower.reset()
                         speakIfReader(lines)
-                    } onClose: { dismiss() }
+                    } onClose: { store.pop() }
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
@@ -466,7 +466,17 @@ struct ReaderView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            Button("Continue") { store.pop() }.buttonStyle(.otPrimary).padding(OT.gutter)
+            Button("Continue") {
+                if store.auditionsPath.contains(.noticeReview) {
+                    store.auditionsPath = [.auditionDetail(auditionID)]
+                    store.continueAfterAdd = auditionID
+                    store.auditionDraft = .blank
+                } else {
+                    store.pop()
+                }
+            }
+            .buttonStyle(.otPrimary)
+            .padding(OT.gutter)
         }
         .fileImporter(isPresented: $showAudioImporter, allowedContentTypes: [.audio]) { result in
             importReaderAudio(result)

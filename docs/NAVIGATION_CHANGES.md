@@ -484,5 +484,32 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **Script Character Dropdown in Audition Details ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
    - In `EditAuditionSheet`, if the audition has script sides attached, added a native `Picker("Character in script")` dropdown menu allowing actors to switch roles directly from the script, with automatic line reclassification via `store.reclassifyRole(for: auditionID)`.
 
+---
+
+## 22. End-to-End Navigation Stack Integrity & Back-Flow Restoration
+
+### Problems Identified
+1. **Notice Review to Reader Stack Overwrite**:
+   - When tapping "Save and add reader audio" in `NoticeReviewView`, the app previously wiped out the navigation history and forcefully assigned `auditionsPath = [.auditionDetail(id), .reader(id)]`.
+   - When the user tapped `< Back` on "Who reads [role]?" (`ReaderView`), `store.pop()` popped `.reader` and dropped the user onto the Audition Detail ("Project overview") screen instead of returning them to the screen they had open before it ("Here's what they want" / `NoticeReviewView`).
+   - Furthermore, both `< Back` and the bottom `"Continue"` button in `ReaderView` were identically executing `store.pop()`, conflating backward navigation with completion.
+2. **Desynchronized Dismissals on Pushed Routes**:
+   - Several pushed routes (`RunLinesView`, `LineDrillView`, `AudioWalkView`, `EditSlateView`, `PracticeSetupView`) were calling SwiftUI's environment `dismiss()` rather than `store.pop()`.
+   - Because the app's root navigation is bound to `NavigationStack(path: $store.auditionsPath)` (and `$store.practicePath`), invoking `dismiss()` on a pushed view led to desynchronization between the visual view stack and the underlying path array, causing subsequent navigation events to jump, freeze, or pop to incorrect screens.
+
+### Implementation
+1. **Navigation History Preservation in Creation Flows ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - In `NoticeReviewView:saveAudition()`, instead of wiping the navigation stack with `auditionsPath = [...]`, the app now cleanly pushes `.reader` onto the existing stack (`store.push(.reader(auditionID, sceneIndex: firstScene))`).
+   - Tapping `< Back` on `ReaderView` now naturally pops back to `NoticeReviewView` ("Here's what they want"), keeping all user draft input intact.
+   - If the user edits fields and taps save again after navigating back, the existing audition is seamlessly updated in place without creating duplicates.
+   - Added an `.onDisappear` cleanup guard so if the user aborts draft creation by backing all the way to root, any provisional audition is discarded.
+2. **Differentiating Back vs. Continue in ReaderView ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Tapping `< Back` executes `store.pop()`, returning the user to the previous screen (whether `NoticeReviewView` during creation or `PrepareView` during rehearsal).
+   - Tapping `"Continue"` marks completion of the reader setup during audition creation and transitions forward to `auditionsPath = [.auditionDetail(auditionID)]`.
+3. **Pushed Route Navigation Normalization ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift), [LineLearningViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/LineLearningViews.swift), [ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift), [PracticeViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PracticeViews.swift))**:
+   - Replaced all stray `dismiss()` calls with `store.pop()` across `RunLinesView`, `LineDrillView`, `AudioWalkView`, and `EditSlateView`.
+   - Updated `PracticeSetupView` scene transitions to cleanly pop the setup route before pushing the target practice scene.
+
+
 
 

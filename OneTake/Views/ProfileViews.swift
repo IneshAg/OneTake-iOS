@@ -293,7 +293,7 @@ struct EditSlateView: View {
                 Button("Save") {
                     focusedField = nil
                     store.slate = draft
-                    dismiss()
+                    store.pop()
                 }
                 .font(.otHeadline)
                 .foregroundStyle(OT.accent)
