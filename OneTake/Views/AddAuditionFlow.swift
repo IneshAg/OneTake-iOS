@@ -1259,7 +1259,7 @@ struct NoticeReviewView: View {
             // clean up any provisionally created audition so no ghost entry is left in the list.
             if !store.auditionsPath.contains(where: {
                 switch $0 {
-                case .noticeReview, .reader, .recordReader, .auditionDetail: return true
+                case .noticeReview, .reader, .recordReader, .sceneAudioFlow, .auditionDetail: return true
                 default: return false
                 }
             }) {

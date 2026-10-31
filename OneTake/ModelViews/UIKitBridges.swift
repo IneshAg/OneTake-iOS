@@ -586,9 +586,21 @@ final class CameraGuidanceSpeaker {
 
 /// Plays the reader lines the actor recorded in "Record Maya". One file per line, saved by RecordReaderView.
 @Observable
-final class ReaderTrackPlayer {
+final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
-    var duration: TimeInterval? { player?.duration }
+    private var displayTimer: Timer?
+
+    var isPlaying: Bool = false
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var currentAuditionID: Audition.ID?
+    var currentSceneIndex: Int?
+    var currentLineIndex: Int?
+    var onPlaybackFinished: (() -> Void)?
+
+    func isPlaying(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
+        return isPlaying && currentAuditionID == auditionID && currentSceneIndex == sceneIndex && currentLineIndex == lineIndex
+    }
 
     /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
     static let folder = "reader"
@@ -613,18 +625,123 @@ final class ReaderTrackPlayer {
         return false
     }
 
-    /// Plays one recorded reader line. Returns false when that line hasn't been recorded.
-    @discardableResult
-    func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, volume: Float = 1) -> Bool {
-        let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
-        guard Self.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) else { return false }  // not recorded yet → silent cue
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
-        player = try? AVAudioPlayer(contentsOf: url)
-        player?.volume = volume
-        return player?.play() ?? false
+    /// Returns the duration of a recorded reader cue in seconds.
+    static func duration(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> TimeInterval {
+        let url = self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
+        guard hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index) else { return 0 }
+        if let p = try? AVAudioPlayer(contentsOf: url) {
+            return p.duration
+        }
+        return 0
     }
 
-    func stop() { player?.stop() }
+    /// Plays one recorded reader line from the beginning or a specific start offset.
+    @discardableResult
+    func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, from time: TimeInterval? = nil, volume: Float = 1) -> Bool {
+        let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+        guard Self.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) else { return false }
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+
+        // Resume or seek within existing player instance if already loaded
+        if let existing = player, currentAuditionID == auditionID, currentSceneIndex == sceneIndex, currentLineIndex == lineIndex {
+            if let startTime = time {
+                existing.currentTime = max(0, min(startTime, existing.duration))
+            }
+            existing.volume = volume
+            if existing.play() {
+                isPlaying = true
+                currentTime = existing.currentTime
+                duration = existing.duration
+                startTimer()
+                return true
+            }
+        }
+
+        stop()
+        guard let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return false }
+        newPlayer.delegate = self
+        newPlayer.volume = volume
+        if let startTime = time {
+            newPlayer.currentTime = max(0, min(startTime, newPlayer.duration))
+        }
+        self.player = newPlayer
+        self.duration = newPlayer.duration
+        self.currentAuditionID = auditionID
+        self.currentSceneIndex = sceneIndex
+        self.currentLineIndex = lineIndex
+
+        if newPlayer.play() {
+            isPlaying = true
+            currentTime = newPlayer.currentTime
+            startTimer()
+            return true
+        }
+        return false
+    }
+
+    func pause() {
+        player?.pause()
+        isPlaying = false
+        stopTimer()
+        if let p = player {
+            currentTime = p.currentTime
+        }
+    }
+
+    func resume() {
+        guard let p = player else { return }
+        if p.play() {
+            isPlaying = true
+            currentTime = p.currentTime
+            startTimer()
+        }
+    }
+
+    func seek(to time: TimeInterval) {
+        guard let p = player else { return }
+        let clamped = max(0, min(time, p.duration))
+        p.currentTime = clamped
+        currentTime = clamped
+    }
+
+    func seekRelative(_ delta: TimeInterval) {
+        guard let p = player else { return }
+        seek(to: p.currentTime + delta)
+    }
+
+    func stop() {
+        stopTimer()
+        player?.stop()
+        player = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+        currentLineIndex = nil
+        currentAuditionID = nil
+        currentSceneIndex = nil
+    }
+
+    private func startTimer() {
+        stopTimer()
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let p = self.player, p.isPlaying else { return }
+            self.currentTime = p.currentTime
+        }
+        displayTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopTimer() {
+        displayTimer?.invalidate()
+        displayTimer = nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        isPlaying = false
+        currentTime = 0
+        stopTimer()
+        onPlaybackFinished?()
+    }
 }
 
 enum ReaderRecordResult {

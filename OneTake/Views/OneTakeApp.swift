@@ -166,6 +166,7 @@ private struct RouteDestinations: ViewModifier {
         case .runLines(let id, let scene):       RunLinesView(auditionID: id, sceneIndex: scene)
         case .reader(let id, let scene):         ReaderView(auditionID: id, sceneIndex: scene)
         case .recordReader(let id, let scene, let initialLine, let readerChar): RecordReaderView(auditionID: id, sceneIndex: scene, initialLineIndex: initialLine, readerCharacter: readerChar)
+        case .sceneAudioFlow(let id, let scene): SceneAudioFlowView(auditionID: id, sceneIndex: scene)
         case .shootSetup(let id, let scene):     ShootSetupView(auditionID: id, scene: scene)
         case .takes(let id, let sceneIndex):     TakesView(auditionID: id, initialScene: sceneIndex)
         case .tapeCheck(let id):                 TapeCheckView(auditionID: id)

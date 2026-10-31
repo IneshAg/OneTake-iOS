@@ -174,5 +174,61 @@ final class ModelTests: XCTestCase {
             XCTFail("Expected success result")
         }
     }
+
+    @MainActor
+    func testReaderTrackPlayerStateAndSeeking() {
+        let player = ReaderTrackPlayer()
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertEqual(player.duration, 0)
+
+        // Seeking when no audio is loaded safely clamps to 0
+        player.seek(to: 5.0)
+        XCTAssertEqual(player.currentTime, 0)
+
+        player.seekRelative(2.0)
+        XCTAssertEqual(player.currentTime, 0)
+
+        player.pause()
+        XCTAssertFalse(player.isPlaying)
+
+        player.stop()
+        XCTAssertNil(player.currentAuditionID)
+        XCTAssertNil(player.currentSceneIndex)
+        XCTAssertNil(player.currentLineIndex)
+    }
+
+    func testSceneAudioFlowRouteAndMapping() {
+        let audID = UUID()
+        let route = Route.sceneAudioFlow(audID, sceneIndex: 0)
+        let route2 = Route.sceneAudioFlow(audID, sceneIndex: 0)
+        XCTAssertEqual(route, route2)
+        XCTAssertEqual(route.hashValue, route2.hashValue)
+
+        let scene = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. CAFE - DAY",
+            lines: [
+                ScriptLine(character: "Kat", text: "Are you sure you're okay?", isMine: true),
+                ScriptLine(character: "Oscar", text: "Do you think I'd know immediately if I had a collapsed lung?", isMine: false),
+                ScriptLine(character: "Kat", text: "It's only fair that you punch me back.", isMine: true),
+                ScriptLine(character: "Oscar", text: "What? No. I'm not going to do that.", isMine: false)
+            ],
+            estimatedSeconds: 30
+        )
+
+        // Verify Oscar's reader cue mapping
+        let oscarLines = scene.lines.filter { !$0.isMine && $0.character.caseInsensitiveCompare("Oscar") == .orderedSame }
+        XCTAssertEqual(oscarLines.count, 2)
+        XCTAssertEqual(oscarLines[0].text, "Do you think I'd know immediately if I had a collapsed lung?")
+        XCTAssertEqual(oscarLines[1].text, "What? No. I'm not going to do that.")
+
+        // Verify index of line 1 is cue 0, and line 3 is cue 1
+        let cue0 = oscarLines.firstIndex(where: { $0.id == scene.lines[1].id })
+        let cue1 = oscarLines.firstIndex(where: { $0.id == scene.lines[3].id })
+        XCTAssertEqual(cue0, 0)
+        XCTAssertEqual(cue1, 1)
+    }
 }
 

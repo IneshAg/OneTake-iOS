@@ -576,6 +576,48 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Contextualized the primary save button:
      `"Save and record Oscar’s audio"` or `"Save and record Kat’s audio"`.
 
+---
+
+## 25. Interactive Audio Scrubbing, Timestamp Seeking, and Full Scene Audio Flow Walkthrough
+
+### Problems Identified
+1. **No Option to Scrub or Playback Audio from Arbitrary Timestamps**:
+   - In `ReaderView` and `RecordReaderView`, recorded reader audio only allowed binary Play/Stop controls.
+   - Actors could not scrub forward or backward, seek to a specific millisecond/second, jump by 5-second intervals, or resume playback after pausing.
+2. **Missing Unified Scene Audio Flow & Walkthrough**:
+   - Actors could not see the complete chronological dialogue flow of the scene (both their own lines and reader cues) in one place.
+   - There was no way to jump into audio playback starting from *any* line in the scene, nor any continuous rehearsal playback that plays reader audio and naturally pauses for actor lines.
+3. **Redundant Remote CI Builds**:
+   - Remote GitHub Actions triggered failed builds on push/PR due to the absence of macOS/Xcode runners in the repository.
+
+### Implementation
+1. **Interactive Audio Scrubber & Seeking ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift), [PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Upgraded `ReaderTrackPlayer` to inherit `NSObject, AVAudioPlayerDelegate`.
+   - Added live `currentTime` tracking via a 50ms `displayTimer`, along with `duration(auditionID:sceneIndex:line:)`, `seek(to: TimeInterval)`, `seekRelative(_ delta: TimeInterval)`, `pause()`, `resume()`, and start offset `play(..., from: TimeInterval?)`.
+   - Created `ReaderAudioScrubberView`:
+     - **Interactive Progress Slider**: Visual timeline bar with draggable thumb and tap-to-seek gesture to jump anywhere from `0.0s` to `duration`.
+     - **Live Timestamps**: Displays formatted elapsed time and total/remaining duration (`0:02.4 / 0:08.5`).
+     - **Jump Controls**: Single-tap Rewind 5s (`gobackward.5`) and Skip 5s (`goforward.5`) buttons.
+     - **Play/Pause/Resume**: Smooth playback toggling with haptic feedback.
+     - **Replay Button**: Instantly resets and replays the recording from `0.0s`.
+   - Integrated `ReaderAudioScrubberView` directly into:
+     - `RecordReaderView`: Displayed on the current line dialogue card whenever a line is recorded, and on every row in the review screen.
+     - `ReaderView`: Expandable on every recorded line row via tap or the audio slider button.
+2. **Dedicated Scene Audio Flow & Walkthrough ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift), [AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift), [OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift))**:
+   - Registered `Route.sceneAudioFlow(Audition.ID, sceneIndex: Int)` in `Route` and connected navigation destinations.
+   - Built `SceneAudioFlowView`:
+     - **Full Scene Script Layout**: Displays every line in the scene in script order, cleanly distinguishing actor lines (`YOU (Maya)`) and reader cues (`OSCAR (Reader)`).
+     - **Play from Anywhere**: Actors can tap ANY line anywhere in the scene to immediately jump playback to that cue.
+     - **Recorded Cues & Durations**: Displays visual status badges (`[▶ Recorded · 0:04.2]` or `[Needs audio]`) for each line.
+     - **Continuous Rehearsal Flow**: Toggleable continuous autoplay mode. Plays reader cues in sequence, automatically pausing with a visual countdown prompt for the actor's lines before continuing.
+     - **Persistent Bottom Player Deck**: Docked controls featuring current line dialogue snippet, Previous Cue (`[|◀]`), Rewind 5s, Play/Pause, Skip 5s, Next Cue (`[▶|]`), and Continuous toggle.
+   - Added direct entry shortcuts:
+     - `ReaderView`: Prominent action card "Scene Audio Flow & Walkthrough — Play from any line in the scene · Scrub between seconds".
+     - `RecordReaderView`: Header button and bottom review action "Rehearse in Scene Audio Flow".
+     - `PrepareView`: Direct shortcut icon next to the reader track summary.
+3. **Disabled GitHub Actions CI ([.github/workflows/build.yml](file:///Users/user76/Downloads/OneTake-iOS/.github/workflows/build.yml))**:
+   - Removed `.github/workflows/build.yml` to prevent remote CI build attempts.
+
 
 
 

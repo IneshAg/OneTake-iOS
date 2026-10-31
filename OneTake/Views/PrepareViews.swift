@@ -44,15 +44,27 @@ struct PrepareView: View {
                     HStack {
                         Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                         Spacer()
-                        Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
-                            let readerLines = scene.lines.filter { !$0.isMine }
-                            let readerName = readerLines.first?.character.capitalized ?? "Reader"
-                            let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
-                            let recorded = specificReaderLines.indices.filter {
-                                ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sceneIndex, line: $0)
-                            }.count
-                            Label("\(readerName) · \(recorded) of \(specificReaderLines.count) recorded", systemImage: recorded == specificReaderLines.count && !specificReaderLines.isEmpty ? "waveform" : "mic")
-                                .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
+                        HStack(spacing: 8) {
+                            Button { store.push(.sceneAudioFlow(a.id, sceneIndex: sceneIndex)) } label: {
+                                Image(systemName: "waveform.badge.magnifyingglass")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(OT.accent)
+                                    .padding(6)
+                                    .background(OT.accentSoft, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Scene audio flow")
+
+                            Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
+                                let readerLines = scene.lines.filter { !$0.isMine }
+                                let readerName = readerLines.first?.character.capitalized ?? "Reader"
+                                let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+                                let recorded = specificReaderLines.indices.filter {
+                                    ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sceneIndex, line: $0)
+                                }.count
+                                Label("\(readerName) · \(recorded) of \(specificReaderLines.count) recorded", systemImage: recorded == specificReaderLines.count && !specificReaderLines.isEmpty ? "waveform" : "mic")
+                                    .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
+                            }
                         }
                     }
                     if let notes = a.castingNotes {
@@ -395,6 +407,7 @@ struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player = ReaderTrackPlayer()
     @State private var playingLine: Int?
+    @State private var expandedLine: Int?
     @State private var showAudioImporter = false
     @State private var importError: String?
     @AppStorage("readerVolume") private var volume = "Quieter"
@@ -600,6 +613,39 @@ struct ReaderView: View {
                 }
                 .listRowBackground(Color.clear)
 
+                // Scene Audio Flow Shortcut
+                Section {
+                    Button {
+                        player.stop()
+                        playingLine = nil
+                        store.push(.sceneAudioFlow(auditionID, sceneIndex: sceneIndex))
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "waveform.badge.magnifyingglass")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(OT.accent)
+                                .frame(width: 40, height: 40)
+                                .background(OT.accentSoft, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Scene Audio Flow & Walkthrough")
+                                    .font(.otSubhead.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Play from any line in the scene · Scrub between seconds")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(OT.labelTertiary)
+                        }
+                        .padding(14)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listRowBackground(Color.clear)
+
                 Section {
                     Text("Record \(effectiveReaderName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
@@ -611,42 +657,88 @@ struct ReaderView: View {
                     } else {
                         ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
                             let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
-                            HStack(spacing: 12) {
-                                Button {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 12) {
+                                    Button {
+                                        if recorded {
+                                            if playingLine == index && player.isPlaying {
+                                                player.pause()
+                                            } else if playingLine == index && !player.isPlaying {
+                                                player.resume()
+                                            } else {
+                                                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index)
+                                                playingLine = index
+                                                expandedLine = index
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: recorded ? (playingLine == index && player.isPlaying ? "pause.fill" : "play.fill") : "mic.slash")
+                                            .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
+                                            .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!recorded)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Line \(index + 1)").font(.otBody)
+                                        Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                    }
+                                    Spacer()
+
                                     if recorded {
-                                        if playingLine == index { player.stop(); playingLine = nil }
-                                        else { player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index); playingLine = index }
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                if expandedLine == index {
+                                                    expandedLine = nil
+                                                } else {
+                                                    expandedLine = index
+                                                }
+                                            }
+                                        } label: {
+                                            Image(systemName: expandedLine == index ? "chevron.up.circle.fill" : "slider.horizontal.3")
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundStyle(expandedLine == index ? OT.accent : OT.labelTertiary)
+                                                .frame(width: 32, height: 32)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel(expandedLine == index ? "Hide audio scrubber" : "Scrub audio")
                                     }
-                                } label: {
-                                    Image(systemName: recorded ? (playingLine == index ? "pause.fill" : "play.fill") : "mic.slash")
-                                        .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
-                                        .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!recorded)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Line \(index + 1)").font(.otBody)
-                                    Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                }
-                                Spacer()
-                                Button {
-                                    player.stop()
-                                    playingLine = nil
-                                    store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: index, readerCharacter: effectiveReaderName))
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: recorded ? "arrow.clockwise" : "mic.fill")
-                                        Text(recorded ? "Retake" : "Record")
+
+                                    Button {
+                                        player.stop()
+                                        playingLine = nil
+                                        store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: index, readerCharacter: effectiveReaderName))
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: recorded ? "arrow.clockwise" : "mic.fill")
+                                            Text(recorded ? "Retake" : "Record")
+                                        }
+                                        .font(.otCaption.weight(.semibold))
+                                        .foregroundStyle(recorded ? OT.accent : OT.reader)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(OT.accentSoft, in: Capsule())
                                     }
-                                    .font(.otCaption.weight(.semibold))
-                                    .foregroundStyle(recorded ? OT.accent : OT.reader)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(OT.accentSoft, in: Capsule())
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if recorded {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            if expandedLine == index {
+                                                expandedLine = nil
+                                            } else {
+                                                expandedLine = index
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if recorded && (expandedLine == index || playingLine == index) {
+                                    ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index, compact: false)
+                                        .padding(.top, 4)
+                                }
                             }
-                            .contentShape(Rectangle())
                         }
                     }
                     Picker("\(effectiveReaderName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
@@ -741,6 +833,7 @@ struct RecordReaderView: View {
     @State private var player = ReaderTrackPlayer()
     @State private var isPreviewPlaying = false
     @State private var playingReviewIndex: Int?
+    @State private var expandedReviewIndex: Int?
     @State private var selectedReader: String? = nil
 
     var body: some View {
@@ -775,7 +868,21 @@ struct RecordReaderView: View {
                     player.stop()
                     recorder.cancel()
                     store.pop()
-                })
+                }) {
+                    Button {
+                        player.stop()
+                        recorder.cancel()
+                        store.push(.sceneAudioFlow(auditionID, sceneIndex: sceneIndex))
+                    } label: {
+                        Image(systemName: "waveform.badge.magnifyingglass")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Scene audio flow")
+                }
                 .padding(.top, 4)
 
                 if availableReaders.count > 1 {
@@ -914,29 +1021,14 @@ struct RecordReaderView: View {
                             .foregroundStyle(OT.labelPrimary)
 
                         if isCurrentRecorded {
-                            HStack(spacing: 10) {
-                                Button {
-                                    if isPreviewPlaying {
-                                        player.stop()
-                                        isPreviewPlaying = false
-                                    } else {
-                                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex)
-                                        isPreviewPlaying = true
-                                    }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: isPreviewPlaying ? "stop.fill" : "play.fill")
-                                        Text(isPreviewPlaying ? "Stop audio" : "Play reader audio")
-                                    }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Play & Scrub Recorded Audio")
                                     .font(.otCaption.weight(.semibold))
-                                    .foregroundStyle(OT.labelPrimary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .background(OT.accentSoft, in: Capsule())
-                                }
-                                .buttonStyle(.plain)
+                                    .foregroundStyle(OT.labelSecondary)
 
-                                Text("Tap Record below to retake")
+                                ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, compact: false)
+
+                                Text("Tap Record below to retake this line")
                                     .font(.otCaption)
                                     .foregroundStyle(OT.labelTertiary)
                             }
@@ -1033,57 +1125,97 @@ struct RecordReaderView: View {
                             VStack(spacing: 10) {
                                 ForEach(Array(readerLines.enumerated()), id: \.offset) { idx, line in
                                     let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: idx)
-                                    HStack(spacing: 12) {
-                                        Button {
-                                            if isPreviewPlaying && playingReviewIndex == idx {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 12) {
+                                            Button {
+                                                if isRec {
+                                                    if player.isPlaying && playingReviewIndex == idx {
+                                                        player.pause()
+                                                    } else if !player.isPlaying && playingReviewIndex == idx {
+                                                        player.resume()
+                                                    } else {
+                                                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx)
+                                                        playingReviewIndex = idx
+                                                        expandedReviewIndex = idx
+                                                    }
+                                                }
+                                            } label: {
+                                                Image(systemName: isRec ? (player.isPlaying && playingReviewIndex == idx ? "pause.fill" : "play.fill") : "mic.slash")
+                                                    .foregroundStyle(isRec ? OT.labelPrimary : OT.labelTertiary)
+                                                    .frame(width: 36, height: 36)
+                                                    .background(OT.accentSoft, in: Circle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .disabled(!isRec)
+
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Line \(idx + 1)")
+                                                    .font(.otHeadline)
+                                                Text(line.text)
+                                                    .font(.otFootnote)
+                                                    .foregroundStyle(OT.labelSecondary)
+                                                    .lineLimit(2)
+                                            }
+
+                                            Spacer()
+
+                                            if isRec {
+                                                Button {
+                                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                                        if expandedReviewIndex == idx {
+                                                            expandedReviewIndex = nil
+                                                        } else {
+                                                            expandedReviewIndex = idx
+                                                        }
+                                                    }
+                                                } label: {
+                                                    Image(systemName: expandedReviewIndex == idx ? "chevron.up.circle.fill" : "slider.horizontal.3")
+                                                        .font(.system(size: 16, weight: .semibold))
+                                                        .foregroundStyle(expandedReviewIndex == idx ? OT.accent : OT.labelTertiary)
+                                                        .frame(width: 32, height: 32)
+                                                }
+                                                .buttonStyle(.plain)
+                                                .accessibilityLabel(expandedReviewIndex == idx ? "Hide audio scrubber" : "Scrub audio")
+                                            }
+
+                                            Button {
                                                 player.stop()
                                                 isPreviewPlaying = false
                                                 playingReviewIndex = nil
-                                            } else {
-                                                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx)
-                                                isPreviewPlaying = true
-                                                playingReviewIndex = idx
+                                                lineIndex = idx
+                                                recordingError = nil
+                                                successBanner = nil
+                                                Haptics.tick()
+                                            } label: {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: isRec ? "arrow.clockwise" : "mic.fill")
+                                                    Text(isRec ? "Retake" : "Record")
+                                                }
+                                                .font(.otCaption.weight(.semibold))
+                                                .foregroundStyle(isRec ? OT.accent : OT.reader)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 6)
+                                                .background(OT.accentSoft, in: Capsule())
                                             }
-                                        } label: {
-                                            Image(systemName: isPreviewPlaying && playingReviewIndex == idx ? "stop.fill" : "play.fill")
-                                                .foregroundStyle(isRec ? OT.labelPrimary : OT.labelTertiary)
-                                                .frame(width: 36, height: 36)
-                                                .background(OT.accentSoft, in: Circle())
+                                            .buttonStyle(.plain)
                                         }
-                                        .buttonStyle(.plain)
-                                        .disabled(!isRec)
-
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Line \(idx + 1)")
-                                                .font(.otHeadline)
-                                            Text(line.text)
-                                                .font(.otFootnote)
-                                                .foregroundStyle(OT.labelSecondary)
-                                                .lineLimit(2)
-                                        }
-
-                                        Spacer()
-
-                                        Button {
-                                            player.stop()
-                                            isPreviewPlaying = false
-                                            playingReviewIndex = nil
-                                            lineIndex = idx
-                                            recordingError = nil
-                                            successBanner = nil
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: isRec ? "arrow.clockwise" : "mic.fill")
-                                                Text(isRec ? "Retake" : "Record")
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            if isRec {
+                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                    if expandedReviewIndex == idx {
+                                                        expandedReviewIndex = nil
+                                                    } else {
+                                                        expandedReviewIndex = idx
+                                                    }
+                                                }
                                             }
-                                            .font(.otCaption.weight(.semibold))
-                                            .foregroundStyle(isRec ? OT.accent : OT.reader)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 6)
-                                            .background(OT.accentSoft, in: Capsule())
                                         }
-                                        .buttonStyle(.plain)
+
+                                        if isRec && (expandedReviewIndex == idx || playingReviewIndex == idx) {
+                                            ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx, compact: false)
+                                                .padding(.top, 4)
+                                        }
                                     }
                                     .padding(12)
                                     .otCard(radius: 14)
@@ -1094,11 +1226,29 @@ struct RecordReaderView: View {
 
                         Spacer()
 
+                        Button {
+                            player.stop()
+                            recorder.cancel()
+                            store.push(.sceneAudioFlow(auditionID, sceneIndex: sceneIndex))
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "waveform.badge.magnifyingglass")
+                                Text("Rehearse in Scene Audio Flow")
+                            }
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+
                         Button("Save and finish") {
                             player.stop()
                             recorder.cancel()
                             store.pop()
                         }
+                        .buttonStyle(.otPrimary)
                         .buttonStyle(.otPrimary)
                     }
                 }
@@ -1212,5 +1362,700 @@ struct RecordReaderView: View {
                 Haptics.warning()
             }
         }
+    }
+}
+
+// MARK: - 14 Reader Audio Scrubber
+
+/// Interactive audio scrubbing and playback component.
+/// Allows actors to scrub to any timestamp (0.0s to duration), tap to seek, jump -5s/+5s, and play/pause/resume.
+struct ReaderAudioScrubberView: View {
+    @Bindable var player: ReaderTrackPlayer
+    let auditionID: Audition.ID
+    let sceneIndex: Int
+    let lineIndex: Int
+    var compact: Bool = false
+    var onSeek: ((TimeInterval) -> Void)? = nil
+
+    @State private var isDragging: Bool = false
+    @State private var dragPosition: Double = 0
+
+    private var isThisLineActive: Bool {
+        player.currentAuditionID == auditionID &&
+        player.currentSceneIndex == sceneIndex &&
+        player.currentLineIndex == lineIndex
+    }
+
+    private var isPlaying: Bool {
+        isThisLineActive && player.isPlaying
+    }
+
+    private var duration: TimeInterval {
+        if isThisLineActive && player.duration > 0 {
+            return player.duration
+        }
+        return ReaderTrackPlayer.duration(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+    }
+
+    private var currentTime: TimeInterval {
+        if isDragging {
+            return dragPosition
+        }
+        if isThisLineActive {
+            return player.currentTime
+        }
+        return 0
+    }
+
+    private var progress: Double {
+        guard duration > 0 else { return 0 }
+        return min(max(currentTime / duration, 0), 1)
+    }
+
+    var body: some View {
+        if compact {
+            compactBody
+        } else {
+            expandedBody
+        }
+    }
+
+    private var compactBody: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                // Play / Pause
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(width: 28, height: 28)
+                        .background(OT.accentSoft, in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                // Scrubber Bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(OT.fillField)
+                            .frame(height: 6)
+
+                        Capsule()
+                            .fill(OT.reader)
+                            .frame(width: max(6, geo.size.width * CGFloat(progress)), height: 6)
+
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 14, height: 14)
+                            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                            .offset(x: max(0, min(geo.size.width * CGFloat(progress) - 7, geo.size.width - 14)))
+                    }
+                    .frame(height: 14)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                isDragging = true
+                                let fraction = max(0, min(value.location.x / geo.size.width, 1.0))
+                                dragPosition = Double(fraction) * duration
+                            }
+                            .onEnded { value in
+                                let fraction = max(0, min(value.location.x / geo.size.width, 1.0))
+                                let targetTime = Double(fraction) * duration
+                                isDragging = false
+                                seek(to: targetTime)
+                            }
+                    )
+                }
+                .frame(height: 14)
+
+                // Time label
+                Text("\(formatTime(currentTime)) / \(formatTime(duration))")
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(OT.labelTertiary)
+            }
+        }
+    }
+
+    private var expandedBody: some View {
+        VStack(spacing: 12) {
+            // Interactive Scrubber Bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // Background track
+                    Capsule()
+                        .fill(OT.fillField)
+                        .frame(height: 8)
+
+                    // Progress track
+                    Capsule()
+                        .fill(LinearGradient(colors: [OT.reader, OT.accent], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(8, geo.size.width * CGFloat(progress)), height: 8)
+
+                    // Scrubber thumb
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 20, height: 20)
+                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                        .offset(x: max(0, min(geo.size.width * CGFloat(progress) - 10, geo.size.width - 20)))
+                }
+                .frame(height: 20)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            isDragging = true
+                            let fraction = max(0, min(value.location.x / geo.size.width, 1.0))
+                            dragPosition = Double(fraction) * duration
+                        }
+                        .onEnded { value in
+                            let fraction = max(0, min(value.location.x / geo.size.width, 1.0))
+                            let targetTime = Double(fraction) * duration
+                            isDragging = false
+                            seek(to: targetTime)
+                        }
+                )
+            }
+            .frame(height: 20)
+
+            // Timestamps: Current time & remaining duration
+            HStack {
+                Text(formatDetailedTime(currentTime))
+                    .font(.otCaption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(OT.labelPrimary)
+
+                Spacer()
+
+                Text("-\(formatDetailedTime(max(0, duration - currentTime)))")
+                    .font(.otCaption.weight(.medium).monospacedDigit())
+                    .foregroundStyle(OT.labelTertiary)
+            }
+
+            // Scrub Controls Row: -5s, Play/Pause, +5s, Replay
+            HStack(spacing: 24) {
+                // Rewind 5s
+                Button {
+                    seekRelative(-5)
+                } label: {
+                    Image(systemName: "gobackward.5")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(OT.labelSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(OT.fillField, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rewind 5 seconds")
+
+                // Main Play / Pause Button
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 52, height: 52)
+                        .background(OT.accent, in: Circle())
+                        .shadow(color: OT.accent.opacity(0.3), radius: 6, y: 3)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+                // Skip +5s
+                Button {
+                    seekRelative(5)
+                } label: {
+                    Image(systemName: "goforward.5")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(OT.labelSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(OT.fillField, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip forward 5 seconds")
+
+                // Replay from start
+                Button {
+                    seek(to: 0)
+                    if !isPlaying {
+                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, from: 0)
+                    }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(OT.labelSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(OT.fillField, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Replay from beginning")
+            }
+        }
+        .padding(14)
+        .background(OT.fillField.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func togglePlay() {
+        if isPlaying {
+            player.pause()
+        } else if isThisLineActive && player.currentTime > 0 && player.currentTime < duration {
+            player.resume()
+        } else {
+            player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, from: isThisLineActive ? player.currentTime : 0)
+        }
+        Haptics.tick()
+    }
+
+    private func seek(to time: TimeInterval) {
+        let clamped = max(0, min(time, duration))
+        if isThisLineActive {
+            player.seek(to: clamped)
+        } else {
+            player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, from: clamped)
+        }
+        onSeek?(clamped)
+        Haptics.tick()
+    }
+
+    private func seekRelative(_ delta: TimeInterval) {
+        if isThisLineActive {
+            player.seekRelative(delta)
+        } else {
+            let target = max(0, min(delta, duration))
+            player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, from: target)
+        }
+        Haptics.tick()
+    }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let clamped = max(0, time)
+        let m = Int(clamped) / 60
+        let s = Int(clamped) % 60
+        return String(format: "%d:%02d", m, s)
+    }
+
+    private func formatDetailedTime(_ time: TimeInterval) -> String {
+        let clamped = max(0, time)
+        let m = Int(clamped) / 60
+        let s = Int(clamped) % 60
+        let tenths = Int((clamped.truncatingRemainder(dividingBy: 1)) * 10)
+        return String(format: "%d:%02d.%d", m, s, tenths)
+    }
+}
+
+// MARK: - 15 Scene Audio Flow & Walkthrough
+
+/// Dedicated scene audio walkthrough allowing actors to see the full scene dialogue flow,
+/// tap ANY line to jump playback immediately to that point, scrub between seconds,
+/// and rehearse with continuous autoplay across cues.
+struct SceneAudioFlowView: View {
+    let auditionID: Audition.ID
+    let sceneIndex: Int
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var player = ReaderTrackPlayer()
+    @State private var activeLineIndex: Int? = nil
+    @State private var isContinuousFlow: Bool = true
+    @State private var waitingForActor: Bool = false
+    @State private var actorCountdown: Int = 3
+    @State private var countdownTimer: Timer? = nil
+
+    private var audition: Audition? {
+        store.audition(auditionID)
+    }
+
+    private var scene: ScriptScene? {
+        guard let a = audition, a.scenes.indices.contains(sceneIndex) else { return nil }
+        return a.scenes[sceneIndex]
+    }
+
+    private var myRole: String {
+        audition?.role ?? "You"
+    }
+
+    private var allLines: [ScriptLine] {
+        scene?.lines ?? []
+    }
+
+    var body: some View {
+        let readerTrackVersion = store.readerTrackVersion
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Scene Audio Flow", backLabel: "Back", onBack: {
+                stopAll()
+                store.pop()
+            })
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 4)
+
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        // Overview Card
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("Scene \(scene?.number ?? 1): Full Dialogue Flow", systemImage: "waveform.badge.magnifyingglass")
+                                    .font(.otSubhead.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                Spacer()
+                                Toggle(isOn: $isContinuousFlow) {
+                                    Text("Continuous")
+                                        .font(.otCaption.weight(.semibold))
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                .toggleStyle(.button)
+                                .tint(OT.accent)
+                            }
+
+                            Text("Tap ANY line below to start playback from that exact moment. Use the scrubber to play from between seconds.")
+                                .font(.otCallout)
+                                .foregroundStyle(OT.labelSecondary)
+
+                            HStack(spacing: 12) {
+                                Button {
+                                    jumpToLine(0)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "play.fill")
+                                        Text("Play scene from start")
+                                    }
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.labelOnAccent)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(OT.accent, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+
+                                if activeLineIndex != nil {
+                                    Button {
+                                        stopAll()
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "stop.fill")
+                                            Text("Stop")
+                                        }
+                                        .font(.otFootnote.weight(.medium))
+                                        .foregroundStyle(OT.labelSecondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(OT.fillField, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .otCard(radius: 18)
+
+                        // Dialogue Lines List
+                        ForEach(Array(allLines.enumerated()), id: \.offset) { index, line in
+                            let isActive = activeLineIndex == index
+                            let sameCharLines = allLines.filter { !$0.isMine && $0.character.caseInsensitiveCompare(line.character) == .orderedSame }
+                            let cueIndex = sameCharLines.firstIndex(where: { $0.id == line.id }) ?? 0
+                            let isRec = !line.isMine && readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex)
+                            let cueDuration = isRec ? ReaderTrackPlayer.duration(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex) : 0
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Header row
+                                HStack(spacing: 8) {
+                                    if line.isMine {
+                                        Text("YOU (\(myRole.isEmpty ? "Your role" : myRole))")
+                                            .font(.otCaption.weight(.bold))
+                                            .foregroundStyle(OT.accent)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(OT.accentSoft, in: Capsule())
+                                    } else {
+                                        Text(line.character.uppercased())
+                                            .font(.otCaption.weight(.bold))
+                                            .foregroundStyle(OT.reader)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(OT.reader.opacity(0.14), in: Capsule())
+
+                                        if isRec {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: isActive && player.isPlaying ? "waveform" : "checkmark.circle.fill")
+                                                Text(formatTime(cueDuration))
+                                            }
+                                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                            .foregroundStyle(OT.reader)
+                                        } else {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "mic.slash")
+                                                Text("Needs audio")
+                                            }
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(OT.labelTertiary)
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    Text("Line \(index + 1)")
+                                        .font(.otCaption)
+                                        .foregroundStyle(OT.labelTertiary)
+                                }
+
+                                // Dialogue text
+                                Text(line.text)
+                                    .font(line.isMine ? .otHeadline : .otBody)
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineSpacing(2)
+
+                                // Active Line controls
+                                if isActive {
+                                    if line.isMine {
+                                        if waitingForActor {
+                                            HStack(spacing: 8) {
+                                                Circle().fill(OT.accent).frame(width: 8, height: 8)
+                                                Text("Your turn! Speak your line (\(actorCountdown)s)...")
+                                                    .font(.otFootnote.weight(.semibold))
+                                                    .foregroundStyle(OT.accent)
+                                                Spacer()
+                                                Button {
+                                                    advanceAfterActorLine()
+                                                } label: {
+                                                    HStack(spacing: 4) {
+                                                        Text("Continue")
+                                                        Image(systemName: "chevron.right")
+                                                    }
+                                                    .font(.otCaption.weight(.bold))
+                                                    .foregroundStyle(OT.labelOnAccent)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 5)
+                                                    .background(OT.accent, in: Capsule())
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                            .padding(10)
+                                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10))
+                                        }
+                                    } else if isRec {
+                                        // Inline scrubber for recorded reader line
+                                        ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIndex, compact: false)
+                                            .padding(.top, 4)
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(isActive ? (line.isMine ? OT.accentSoft.opacity(0.4) : OT.reader.opacity(0.12)) : OT.surfaceCard)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(isActive ? (line.isMine ? OT.accent : OT.reader) : Color.clear, lineWidth: 2)
+                            )
+                            .shadow(color: .black.opacity(isActive ? 0.08 : 0.03), radius: 6, y: 2)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if !line.isMine && !isRec {
+                                    stopAll()
+                                    store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: cueIndex, readerCharacter: line.character))
+                                } else {
+                                    jumpToLine(index)
+                                }
+                            }
+                            .id(index)
+                        }
+                    }
+                    .padding(.horizontal, OT.gutter)
+                    .padding(.bottom, 120)
+                }
+                .onChange(of: activeLineIndex) { _, newIndex in
+                    if let newIndex {
+                        withAnimation {
+                            scrollProxy.scrollTo(newIndex, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+        .otCanvas()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .safeAreaInset(edge: .bottom) {
+            bottomDeck
+        }
+        .onAppear {
+            player.onPlaybackFinished = {
+                handlePlaybackFinished()
+            }
+        }
+        .onDisappear {
+            stopAll()
+        }
+    }
+
+    private var bottomDeck: some View {
+        HStack(spacing: 12) {
+            // Prev Line
+            Button {
+                stepCue(forward: false)
+            } label: {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .frame(width: 44, height: 44)
+                    .background(OT.fillField, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(allLines.isEmpty)
+
+            // Current line info
+            VStack(alignment: .leading, spacing: 2) {
+                if let idx = activeLineIndex, allLines.indices.contains(idx) {
+                    let l = allLines[idx]
+                    Text("Line \(idx + 1) · \(l.isMine ? "YOU" : l.character.capitalized)")
+                        .font(.otSubhead.weight(.bold))
+                        .foregroundStyle(OT.labelPrimary)
+                    Text(l.text)
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelSecondary)
+                        .lineLimit(1)
+                } else {
+                    Text("Tap any line to play")
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.labelSecondary)
+                    Text("Walkthrough all scene cues")
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelTertiary)
+                }
+            }
+
+            Spacer()
+
+            // Play / Pause
+            Button {
+                if let idx = activeLineIndex {
+                    let l = allLines[idx]
+                    if l.isMine {
+                        advanceAfterActorLine()
+                    } else {
+                        if player.isPlaying {
+                            player.pause()
+                        } else if player.currentTime > 0 {
+                            player.resume()
+                        } else {
+                            jumpToLine(idx)
+                        }
+                    }
+                } else {
+                    jumpToLine(0)
+                }
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 48, height: 48)
+                    .background(OT.accent, in: Circle())
+            }
+            .buttonStyle(.plain)
+
+            // Next Line
+            Button {
+                stepCue(forward: true)
+            } label: {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .frame(width: 44, height: 44)
+                    .background(OT.fillField, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(allLines.isEmpty)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 10, y: -2)
+        .padding(.horizontal, OT.gutter)
+        .padding(.bottom, 6)
+    }
+
+    private func jumpToLine(_ index: Int) {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        waitingForActor = false
+        guard allLines.indices.contains(index) else { return }
+        activeLineIndex = index
+        let line = allLines[index]
+
+        if line.isMine {
+            player.stop()
+            if isContinuousFlow {
+                waitingForActor = true
+                actorCountdown = 3
+                let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { t in
+                    if actorCountdown > 1 {
+                        actorCountdown -= 1
+                    } else {
+                        t.invalidate()
+                        advanceAfterActorLine()
+                    }
+                }
+                countdownTimer = timer
+                RunLoop.main.add(timer, forMode: .common)
+            }
+        } else {
+            let sameCharLines = allLines.filter { !$0.isMine && $0.character.caseInsensitiveCompare(line.character) == .orderedSame }
+            let cueIndex = sameCharLines.firstIndex(where: { $0.id == line.id }) ?? 0
+            if ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex) {
+                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIndex, from: 0)
+            } else if isContinuousFlow && index + 1 < allLines.count {
+                jumpToLine(index + 1)
+            }
+        }
+        Haptics.tick()
+    }
+
+    private func advanceAfterActorLine() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        waitingForActor = false
+        guard let current = activeLineIndex, current + 1 < allLines.count else {
+            activeLineIndex = nil
+            return
+        }
+        jumpToLine(current + 1)
+    }
+
+    private func handlePlaybackFinished() {
+        guard isContinuousFlow, let current = activeLineIndex, current + 1 < allLines.count else {
+            activeLineIndex = nil
+            return
+        }
+        jumpToLine(current + 1)
+    }
+
+    private func stepCue(forward: Bool) {
+        guard !allLines.isEmpty else { return }
+        let current = activeLineIndex ?? (forward ? -1 : allLines.count)
+        let next = forward ? current + 1 : current - 1
+        if allLines.indices.contains(next) {
+            jumpToLine(next)
+        } else if forward {
+            jumpToLine(0)
+        } else {
+            jumpToLine(allLines.count - 1)
+        }
+    }
+
+    private func stopAll() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        waitingForActor = false
+        player.stop()
+        activeLineIndex = nil
+    }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let clamped = max(0, time)
+        let m = Int(clamped) / 60
+        let s = Int(clamped) % 60
+        return String(format: "%d:%02d", m, s)
     }
 }
