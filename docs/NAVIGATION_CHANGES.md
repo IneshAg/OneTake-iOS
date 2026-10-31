@@ -354,3 +354,26 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **Gallery Image Picker for Sides ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift), [AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
    - Integrated `PhotosPicker(selection:matching:)` ("Pick from Photos", `photo.on.rectangle`) in both `RevisedSidesSheet` and `AddDraftSidesSheet`.
    - Connected selected images directly into `NoticeOCR.recognizeText(in:)` to extract dialogue text on-device seamlessly.
+
+---
+
+## 16. Destination Email/Link Input in Edit Details & Per-Audition Headshot Options
+
+### Problems Identified
+1. **Missing Destination Details Field in Edit Details**:
+   - Under "Sending to" in `EditAuditionView`, only a dropdown picker for the `Destination` type was displayed. There was no way to inspect or edit the submission email address, portfolio link, or portal account details.
+2. **Lack of Headshot Choice and Photo Library Support for Auditions**:
+   - In `HeadshotsView`, actors could only capture photos via camera with no option to choose existing headshots from the iOS Photo Library.
+   - When opened from an audition checklist, the screen did not clearly distinguish between using the default profile headshot vs. taking or picking a custom one for that audition.
+
+### Implementation
+1. **Destination Details Input ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift), [Models.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/Models.swift), [AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Added `destinationDetail` property to `Audition` and `NoticeParser.Draft`.
+   - Added a context-aware `TextField` under "Sending to" in `EditAuditionView`:
+     - Shows "Email address or submission link" with `.emailAddress` keyboard when "Email or link" is selected.
+     - Shows "[Platform] account or submission notes" when casting platforms like Actors Access or Spotlight are selected.
+     - Automatically updates and keeps in sync with the audition header chip (`Email: ...`).
+2. **Headshot Choice & Photo Gallery Picker ([ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift))**:
+   - Made each individual slot (Front, Left profile, Right profile) an interactive `PhotosPicker`, allowing actors to tap any angle to choose a photo directly from their camera roll.
+   - Added a "Pick from Photos" button to the bottom action bar alongside camera capture.
+   - Added a dedicated status banner when opened from an audition checklist (`auditionID != nil`), confirming default headshot attachment while offering clear actions to either "Keep default & continue" or update/retake photos.

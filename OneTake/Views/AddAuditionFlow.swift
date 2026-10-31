@@ -184,6 +184,7 @@ enum NoticeParser {
         var asks: [String] = []
         var aiGuidance = ""
         var destination: Destination = .actorsAccess
+        var destinationDetail: String? = nil
         /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
         /// sides out of it instead of substituting a canned scene.
         var sourceText = ""
@@ -221,12 +222,14 @@ enum NoticeParser {
                     pieces.append(.init(kind: .scene, title: scene.title, detail: "", isDone: false))
                 }
             }
-            return Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
+            var audition = Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
                             role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: castingOffice.isEmpty ? "Casting office" : castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
                             scriptText: sourceText.isEmpty ? nil : sourceText,
                             destination: destination, status: .due)
+            audition.destinationDetail = destinationDetail
+            return audition
         }
     }
 
@@ -259,6 +262,7 @@ enum NoticeParser {
         if lower.contains("picture") || lower.contains("photo") || lower.contains("headshot") { ask("Headshots") }
         if let email = firstMatch(#"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})"#, in: text) {
             ask("Email: \(email)")
+            d.destinationDetail = email
         }
         if let minutes = detectLengthLimit(in: text) { ask("Under \(minutes) min") }
         if lower.contains("feature") { d.projectType = "Feature film" }

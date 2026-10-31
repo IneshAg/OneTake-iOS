@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import AVKit
 import UniformTypeIdentifiers
 
@@ -978,6 +979,25 @@ struct HeadshotsView: View {
                 InContentNavHeader(title: "Headshots", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
 
+                if auditionID != nil && taken > 0 {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(OT.success)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Default headshot is attached")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text("You can keep your default or pick/take a new photo for this audition.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
                 HStack(spacing: 10) {
                     slot("Front", done: taken >= 1, big: true)
                         .frame(maxWidth: .infinity)
@@ -1015,16 +1035,78 @@ struct HeadshotsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 4) {
+            VStack(spacing: 10) {
                 if let auditionID, taken > 0, let a = store.audition(auditionID) {
-                    Button("Next: \(a.nextAction)") { store.continueAudition(auditionID) }.buttonStyle(.otPrimary)
-                    Button(taken < 3 ? "Add your profiles" : "Retake") { store.camera = .headshot }
-                        .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
+                    Button("Keep default & continue (\(a.nextAction))") {
+                        store.continueAudition(auditionID)
+                    }
+                    .buttonStyle(.otPrimary)
+
+                    HStack(spacing: 12) {
+                        Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot }
+                            .buttonStyle(.otSecondary)
+
+                        PhotosPicker(selection: Binding(
+                            get: { nil },
+                            set: { (item: PhotosPickerItem?) in
+                                guard let item else { return }
+                                Task {
+                                    if let data = try? await item.loadTransferable(type: Data.self),
+                                       let image = UIImage(data: data) {
+                                        await MainActor.run {
+                                            let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key) }?.key ?? "front"
+                                            HeadshotStore.save(image, key: nextKey)
+                                            store.headshotVersion += 1
+                                            store.syncHeadshotPieces()
+                                            Haptics.success()
+                                        }
+                                    }
+                                }
+                            }
+                        ), matching: .images) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "photo.on.rectangle")
+                                Text("Pick from Photos")
+                            }
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
                 } else {
-                    Button(taken == 0 ? "Take your headshot" : taken < 3 ? "Add your profiles" : "Retake") {
+                    Button(taken == 0 ? "Take with Camera" : taken < 3 ? "Add profiles (Camera)" : "Retake with Camera") {
                         store.camera = .headshot
                     }
                     .buttonStyle(.otPrimary)
+
+                    PhotosPicker(selection: Binding(
+                        get: { nil },
+                        set: { (item: PhotosPickerItem?) in
+                            guard let item else { return }
+                            Task {
+                                if let data = try? await item.loadTransferable(type: Data.self),
+                                   let image = UIImage(data: data) {
+                                    await MainActor.run {
+                                        let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key) }?.key ?? "front"
+                                        HeadshotStore.save(image, key: nextKey)
+                                        store.headshotVersion += 1
+                                        store.syncHeadshotPieces()
+                                        Haptics.success()
+                                    }
+                                }
+                            }
+                        }
+                    ), matching: .images) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.on.rectangle")
+                            Text("Pick from Photos")
+                        }
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                 }
             }
             .padding(OT.gutter)
@@ -1093,21 +1175,60 @@ struct HeadshotsView: View {
 
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {
         let key = title == "Front" ? "front" : title == "Left profile" ? "left" : "right"
-        return ZStack(alignment: .bottomLeading) {
-            if done {
-                HeadshotImage(realKey: key)
-                LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
-                Label(title, systemImage: "checkmark").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(12)
-            } else {
-                RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5]))
-                    .foregroundStyle(OT.labelTertiary)
-                VStack { Image(systemName: "person.crop.square"); Text(title).font(.otHeadline); Text("Not taken").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return PhotosPicker(selection: Binding(
+            get: { nil },
+            set: { (item: PhotosPickerItem?) in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        await MainActor.run {
+                            HeadshotStore.save(image, key: key)
+                            store.headshotVersion += 1
+                            store.syncHeadshotPieces()
+                            Haptics.success()
+                        }
+                    }
+                }
             }
+        ), matching: .images) {
+            ZStack(alignment: .bottomLeading) {
+                if done {
+                    HeadshotImage(realKey: key)
+                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
+                    HStack {
+                        Label(title, systemImage: "checkmark")
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "photo.badge.plus")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .padding(12)
+                } else {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5]))
+                        .foregroundStyle(OT.labelTertiary)
+                    VStack(spacing: 6) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: big ? 28 : 20))
+                            .foregroundStyle(OT.accent)
+                        Text(title)
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                        Text("Pick from Photos")
+                            .font(.otCaption)
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .buttonStyle(.plain)
     }
 
     private func tip(_ s: String, _ t: String, _ d: String) -> some View {

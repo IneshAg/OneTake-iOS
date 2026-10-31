@@ -442,6 +442,7 @@ final class AppStore {
                                 asks: original.asks,
                                 pieces: original.pieces.map { Piece(kind: $0.kind, title: $0.title, detail: $0.detail, isDone: false) },
                                 scenes: original.scenes, destination: original.destination, status: .due)
+        callback.destinationDetail = original.destinationDetail
         callback.round = (original.round ?? 1) + 1
         let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         callback.castingNotes = trimmed.isEmpty ? nil : trimmed

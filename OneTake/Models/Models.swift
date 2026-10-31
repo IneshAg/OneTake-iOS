@@ -74,6 +74,7 @@ struct Audition: Identifiable, Hashable, Codable {
     /// were initially treated as one-off speakers. Optional for older saved auditions.
     var scriptText: String? = nil
     var destination: Destination
+    var destinationDetail: String? = nil
     var status: AuditionStatus
     var sentDate: Date?
 

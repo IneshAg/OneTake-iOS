@@ -378,6 +378,37 @@ struct EditAuditionSheet: View {
                         Picker("Destination", selection: audition.destination) {
                             ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
                         }
+                        TextField(
+                            audition.wrappedValue.destination == .emailOrLink
+                                ? "Email address or submission link"
+                                : "\(audition.wrappedValue.destination.rawValue) account or submission notes",
+                            text: Binding(
+                                get: {
+                                    if let detail = audition.wrappedValue.destinationDetail, !detail.isEmpty {
+                                        return detail
+                                    }
+                                    if let emailAsk = audition.wrappedValue.asks.first(where: { $0.hasPrefix("Email: ") }) {
+                                        return emailAsk.replacingOccurrences(of: "Email: ", with: "")
+                                    }
+                                    return ""
+                                },
+                                set: { newValue in
+                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    audition.wrappedValue.destinationDetail = trimmed.isEmpty ? nil : trimmed
+                                    audition.wrappedValue.asks.removeAll { $0.hasPrefix("Email: ") }
+                                    if !trimmed.isEmpty {
+                                        if trimmed.contains("@") {
+                                            audition.wrappedValue.asks.append("Email: \(trimmed)")
+                                        } else {
+                                            audition.wrappedValue.asks.append(trimmed)
+                                        }
+                                    }
+                                }
+                            )
+                        )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(audition.wrappedValue.destination == .emailOrLink ? .emailAddress : .default)
                     }
                     Section {
                         TextField("Notes from casting", text: Binding(
