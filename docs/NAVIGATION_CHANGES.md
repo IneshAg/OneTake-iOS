@@ -211,6 +211,7 @@ Explicitly attached navigation bar and tab bar suppression modifiers across all 
    - Replaced `#/.../#` Swift Regex literal in `isSceneHeading` with standard `NSRegularExpression`, ensuring full compatibility with iOS 14 and earlier iOS releases.
 3. **Single Reader Isolation ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
    - Filtered `readerLines` in `RecordReaderView`, `ReaderView`, and `PrepareView` to isolate lines for the single target reader character (`$0.character.caseInsensitiveCompare(readerName) == .orderedSame`). The reader track never mixes dialogue from two different actors.
+   - Added backward-compatible fallback for microphone recording permissions (`AVAudioSession.sharedInstance().requestRecordPermission`) for iOS 14–16 compatibility alongside iOS 17's `AVAudioApplication`.
 4. **Reactive Recording Status & Reliable File Persistence ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift), [PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
    - Added `ReaderTrackPlayer.hasRecording(auditionID:sceneIndex:line:)` to verify audio files across both raw and standardized paths.
    - Updated `ReaderLineRecorder.start` to ensure destination directories exist and removed aggressive deletion of valid files in `ReaderLineRecorder.stop`.
