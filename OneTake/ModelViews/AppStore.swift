@@ -9,7 +9,7 @@ enum Route: Hashable {
     case prepare(Audition.ID, sceneIndex: Int)
     case runLines(Audition.ID, sceneIndex: Int)
     case reader(Audition.ID, sceneIndex: Int)
-    case recordReader(Audition.ID, sceneIndex: Int)
+    case recordReader(Audition.ID, sceneIndex: Int, initialLineIndex: Int? = nil)
     /// `scene` picks which scene the camera opens on; nil lets it pick the next one still to shoot.
     case shootSetup(Audition.ID, scene: Int? = nil)
     case takes(Audition.ID, sceneIndex: Int? = nil)

@@ -510,6 +510,44 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Replaced all stray `dismiss()` calls with `store.pop()` across `RunLinesView`, `LineDrillView`, `AudioWalkView`, and `EditSlateView`.
    - Updated `PracticeSetupView` scene transitions to cleanly pop the setup route before pushing the target practice scene.
 
+---
+
+## 23. Reader Audio Retakes, Line Navigation, and Speech Validation Before Advancing
+
+### Problems Identified
+1. **No Option to Retake Reader Audio**:
+   - In `RecordReaderView`, lines only advanced monotonically (`lineIndex += 1`). There was no "Previous line" button, no way to jump between lines, and no option to retake a line once recorded.
+   - When all lines were recorded, opening `RecordReaderView` immediately locked the user onto "All lines done" with only a "Save track" button and no way to inspect, listen, or retake any lines.
+   - In `ReaderView`, each row in "Your reader tracks" only had a play button; there was no button to retake or record a specific line directly.
+2. **Accidental Sub-Second / Silent Recordings Accepted**:
+   - When tapping record and immediately tapping stop after one second without speaking (or in silence), `ReaderLineRecorder` previously only checked `fileSize > 0`. Because AAC encoder writes file headers immediately, empty/silent recordings were treated as valid dialogue cues, advancing the user to the next line without any audio or speech captured.
+3. **ScriptParser Parenthetical Cue Loss**:
+   - In `ScriptParser.parseScenes`, cue parentheticals (e.g. `(whispers)` or `(in pain)`) placed immediately under character cues were previously caught by `isActionOrDescription` before reaching the parenthetical filter. This erroneously cleared `currentCharacter` to `nil`, causing the character's spoken dialogue on the very next line to be skipped.
+
+### Implementation
+1. **Interactive Line Navigation & Retakes ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift), [AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift), [OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift))**:
+   - In `RecordReaderView`:
+     - Added `< Prev line` and `Next line >` / `Review` stepper navigation controls.
+     - Transformed each capsule in the top progress bar into an interactive button allowing users to jump directly to any line index.
+     - Added a "Play reader audio" / "Stop audio" preview button and "Recorded ✓" badge on the card when viewing an already-recorded line.
+     - Record button state intelligently indicates `"Tap record to retake this line"` / `"Tap record to replace this take"`.
+     - In Review mode (`lineIndex >= readerLines.count`), added a scrollable review list of all reader cues with individual play/pause preview and "Retake" buttons for each line.
+     - If all lines are already recorded, `RecordReaderView` opens on line 0 instead of trapping the user on the completion screen.
+   - In `ReaderView`:
+     - Added explicit "Retake" (for recorded cues) and "Record" (for unrecorded cues) buttons on every single row in the reader tracks list.
+     - Extended `Route.recordReader` with optional `initialLineIndex: Int? = nil` so tapping "Retake" on any row opens `RecordReaderView` focused directly on that line.
+2. **Spoken Word & Speech Verification Before Advancing ([UIKitBridges.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/UIKitBridges.swift), [PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Upgraded `ReaderLineRecorder` to return `ReaderRecordResult` (`.success`, `.tooShort`, `.noSpeechDetected`, `.recordingFailed`).
+   - **Duration Validation**: Rejects any recording under 1.0 second as an accidental or incomplete tap.
+   - **Speech Recognition Verification**: Analyzes saved audio on-device using `SFSpeechURLRecognitionRequest` with a 1.2-second timeout to confirm spoken dialogue words.
+   - **Acoustic Voice Activity Detection (VAD)**: Continuously samples audio metering every 50ms during recording. Checks for sustained vocal energy (peak power > -24 dBFS and average power > -40 dBFS).
+   - **Silent / Empty Recording Rejection**: If neither words nor acoustic vocal energy are detected (e.g. tapping stop in silence), the recording is rejected.
+   - **Automatic Cleanup & User Guidance**: Failed recordings are automatically removed from disk. Inline warning banners (`"Recording was too short (...s). Please speak the line clearly before stopping."` or `"No speech detected. Please speak the line clearly before tapping stop."`) and `Haptics.warning()` guide the user, preventing advance until valid speech is captured.
+   - **Live Audio Level Meter**: Displays a real-time reactive audio level bar during recording to give the user visual feedback that their voice is being heard.
+3. **ScriptParser Cue Parenthetical Ordering Fix ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
+   - Reordered `(trimmed.hasPrefix("(") && trimmed.hasSuffix(")"))` before `isActionOrDescription` in `parseScenes`, ensuring character parentheticals directly under cues are safely bypassed without flushing `currentCharacter`.
+
+
 
 
 

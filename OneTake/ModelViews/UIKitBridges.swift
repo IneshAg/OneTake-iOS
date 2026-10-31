@@ -627,10 +627,23 @@ final class ReaderTrackPlayer {
     func stop() { player?.stop() }
 }
 
-/// Records one reader line to disk.
+enum ReaderRecordResult {
+    case success(duration: TimeInterval)
+    case tooShort(duration: TimeInterval)
+    case noSpeechDetected
+    case recordingFailed(String)
+}
+
+/// Records one reader line to disk with speech verification and acoustic voice activity detection.
 @Observable
 final class ReaderLineRecorder {
     private var recorder: AVAudioRecorder?
+    private var meterTimer: Timer?
+    var liveAudioLevel: Float = 0.0
+    private var maxPeakPower: Float = -160.0
+    private var speechFramesCount: Int = 0
+    private var totalFramesCount: Int = 0
+    private var startTime: Date = .now
 
     @discardableResult
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
@@ -652,24 +665,130 @@ final class ReaderLineRecorder {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
+        recorder.isMeteringEnabled = true
         self.recorder = recorder
         guard recorder.record() else { self.recorder = nil; return false }
+
+        startTime = Date()
+        maxPeakPower = -160.0
+        speechFramesCount = 0
+        totalFramesCount = 0
+        liveAudioLevel = 0.0
+
+        meterTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let rec = self.recorder, rec.isRecording else { return }
+            rec.updateMeters()
+            let peak = rec.peakPower(forChannel: 0)
+            let avg = rec.averagePower(forChannel: 0)
+            if peak > self.maxPeakPower { self.maxPeakPower = peak }
+            self.totalFramesCount += 1
+            if peak > -24.0 && avg > -40.0 {
+                self.speechFramesCount += 1
+            }
+            let clamped = max(-60.0, min(0.0, peak))
+            let linear = pow(10.0, clamped / 30.0)
+            Task { @MainActor in
+                self.liveAudioLevel = max(0.0, min(1.0, linear))
+            }
+        }
+        meterTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
         return true
     }
 
-    @discardableResult
-    func stop() -> Bool {
-        guard let recorder else { return false }
+    func stop(expectedText: String? = nil) async -> ReaderRecordResult {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        await MainActor.run { self.liveAudioLevel = 0.0 }
+
+        guard let recorder else { return .recordingFailed("Recorder was not active.") }
         let url = recorder.url
+        let duration = max(recorder.currentTime, Date().timeIntervalSince(startTime))
         recorder.stop()
         self.recorder = nil
+
         let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) || fm.fileExists(atPath: url.standardizedFileURL.path) else { return false }
-        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size == 0 {
+        guard fm.fileExists(atPath: url.path) || fm.fileExists(atPath: url.standardizedFileURL.path) else {
+            return .recordingFailed("No audio file was created.")
+        }
+
+        // Accidental quick click and stop: less than 1.0 second cannot be a valid spoken dialogue cue
+        if duration < 1.0 {
             try? fm.removeItem(at: url)
+            return .tooShort(duration: duration)
+        }
+
+        // Check 1: Speech recognition verification (transcribed words)
+        let recognizedSpeech = await checkSpeechWords(in: url)
+        if recognizedSpeech {
+            return .success(duration: duration)
+        }
+
+        // Check 2: Acoustic Voice Activity Detection (VAD)
+        let hasAcousticVoice = (maxPeakPower > -24.0 && speechFramesCount >= 4) || (maxPeakPower > -18.0 && speechFramesCount >= 2)
+        if hasAcousticVoice {
+            return .success(duration: duration)
+        }
+
+        // Neither words nor acoustic vocal energy detected: quiet or empty tap
+        try? fm.removeItem(at: url)
+        return .noSpeechDetected
+    }
+
+    func cancel() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        recorder?.stop()
+        recorder = nil
+        liveAudioLevel = 0.0
+    }
+
+    private func checkSpeechWords(in url: URL) async -> Bool {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
             return false
         }
-        return true
+        let request = SFSpeechURLRecognitionRequest(url: url)
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    var hasResumed = false
+                    let task = recognizer.recognitionTask(with: request) { result, error in
+                        guard !hasResumed else { return }
+                        if let result {
+                            let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !text.isEmpty {
+                                hasResumed = true
+                                continuation.resume(returning: true)
+                            } else if result.isFinal {
+                                hasResumed = true
+                                continuation.resume(returning: false)
+                            }
+                        } else if error != nil {
+                            hasResumed = true
+                            continuation.resume(returning: false)
+                        }
+                    }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+                        if !hasResumed {
+                            hasResumed = true
+                            task.cancel()
+                            continuation.resume(returning: false)
+                        }
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 }
 

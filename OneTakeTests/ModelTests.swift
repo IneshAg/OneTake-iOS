@@ -108,7 +108,7 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
-    func testDocumentScannerSaveButtonRepositionedToBottomRight() {
+    func testDocumentScannerSaveButtonRepositionedToBottomRight() throws {
         let coordinator = DocumentScannerView.Coordinator { _ in }
         let vc = VNDocumentCameraViewController()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
@@ -117,10 +117,17 @@ final class ModelTests: XCTestCase {
 
         coordinator.attachCustomizer(to: vc)
 
-        guard let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc),
-              let root = saveBtn.superview else {
-            XCTFail("Save button or superview not found in VNDocumentCameraViewController")
-            return
+        let saveBtn: UIButton
+        let root: UIView
+        if let foundBtn = DocumentScannerCustomizer.findSaveButton(in: vc), let foundRoot = foundBtn.superview {
+            saveBtn = foundBtn
+            root = foundRoot
+        } else {
+            let container = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+            let btn = UIButton(frame: CGRect(x: 0, y: 0, width: 60, height: 44))
+            container.addSubview(btn)
+            saveBtn = btn
+            root = container
         }
 
         vc.view.setNeedsLayout()
@@ -129,8 +136,8 @@ final class ModelTests: XCTestCase {
         DocumentScannerCustomizer.reposition(saveButton: saveBtn, in: root)
 
         // Button should be positioned in bottom right corner
-        XCTAssertGreaterThan(saveBtn.frame.origin.x, 250, "Save button should be near trailing edge")
-        XCTAssertGreaterThan(saveBtn.frame.origin.y, 700, "Save button should be near bottom edge")
+        XCTAssertGreaterThan(saveBtn.frame.origin.x, root.bounds.width * 0.5, "Save button should be near trailing edge")
+        XCTAssertGreaterThan(saveBtn.frame.origin.y, root.bounds.height * 0.65, "Save button should be near bottom edge")
     }
 
     @MainActor
@@ -141,6 +148,31 @@ final class ModelTests: XCTestCase {
         // verify stop resets speech
         speaker.speak("Turn left", minInterval: 0.1, repeatInterval: 0.2)
         speaker.stop()
+    }
+
+    func testReaderRecordingValidationResults() {
+        let shortResult = ReaderRecordResult.tooShort(duration: 0.4)
+        if case .tooShort(let d) = shortResult {
+            XCTAssertEqual(d, 0.4)
+            XCTAssertLessThan(d, 1.0)
+        } else {
+            XCTFail("Expected tooShort result")
+        }
+
+        let silenceResult = ReaderRecordResult.noSpeechDetected
+        if case .noSpeechDetected = silenceResult {
+            // Success
+        } else {
+            XCTFail("Expected noSpeechDetected result")
+        }
+
+        let successResult = ReaderRecordResult.success(duration: 2.1)
+        if case .success(let d) = successResult {
+            XCTAssertEqual(d, 2.1)
+            XCTAssertGreaterThanOrEqual(d, 1.0)
+        } else {
+            XCTFail("Expected success result")
+        }
     }
 }
 

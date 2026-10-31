@@ -442,11 +442,27 @@ struct ReaderView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(!recorded)
-                                VStack(alignment: .leading) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text("Line \(index + 1)").font(.otBody)
                                     Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                 }
                                 Spacer()
+                                Button {
+                                    player.stop()
+                                    playingLine = nil
+                                    store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: index))
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: recorded ? "arrow.clockwise" : "mic.fill")
+                                        Text(recorded ? "Retake" : "Record")
+                                    }
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(recorded ? OT.accent : OT.reader)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(OT.accentSoft, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
                             .contentShape(Rectangle())
                         }
@@ -521,51 +537,332 @@ struct ReaderView: View {
 struct RecordReaderView: View {
     let auditionID: Audition.ID
     let sceneIndex: Int
+    var initialLineIndex: Int? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var lineIndex = 0
     @State private var recording = false
+    @State private var isProcessing = false
     @State private var microphoneAllowed = false
     @State private var recordingError: String?
+    @State private var successBanner: String?
     @State private var recorder = ReaderLineRecorder()
+    @State private var player = ReaderTrackPlayer()
+    @State private var isPreviewPlaying = false
+    @State private var playingReviewIndex: Int?
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let allUnowned = a.scenes[sceneIndex].lines.filter { !$0.isMine }
             let readerName = allUnowned.first?.character.capitalized ?? "Reader"
             let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
-            VStack(alignment: .leading, spacing: 16) {
-                InContentNavHeader(title: "Record \(readerName)", backLabel: "Back", onBack: { store.pop() })
-                    .padding(.top, 4)
-                HStack(spacing: 4) { ForEach(readerLines.indices, id: \.self) { i in Capsule().fill(i < lineIndex ? OT.reader : (i == lineIndex ? OT.accent : OT.fillQuiet)).frame(height: 4) } }
-                if lineIndex < readerLines.count {
-                    SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
-                    Text(readerLines[lineIndex].text).font(.system(size: 26, weight: .bold))
-                        .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 20)
-                    if let recordingError {
-                        Text(recordingError).font(.otFootnote).foregroundStyle(OT.warning)
-                    }
-                    Spacer()
-                    Text(recording ? "Tap stop when you've said the line" : "Tap record when you're ready").font(.otFootnote).foregroundStyle(OT.labelTertiary).frame(maxWidth: .infinity)
-                    RecordButton(isRecording: recording) {
-                        if recording {
-                            recording = false
-                            if recorder.stop() { store.readerTracksDidChange(); lineIndex += 1; Haptics.success() }
-                            else { recordingError = "No audio was saved. Try recording this line again."; Haptics.warning() }
-                        } else if !microphoneAllowed {
-                            recordingError = "Allow microphone access in Settings to record reader lines."
-                        } else if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) {
+            let readerTrackVersion = store.readerTrackVersion
+
+            VStack(alignment: .leading, spacing: 14) {
+                InContentNavHeader(title: "Record \(readerName)", backLabel: "Back", onBack: {
+                    player.stop()
+                    recorder.cancel()
+                    store.pop()
+                })
+                .padding(.top, 4)
+
+                // Interactive Progress & Line Selector
+                HStack(spacing: 4) {
+                    ForEach(readerLines.indices, id: \.self) { i in
+                        let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: i)
+                        Button {
+                            guard !recording && !isProcessing else { return }
+                            player.stop()
+                            isPreviewPlaying = false
+                            playingReviewIndex = nil
+                            lineIndex = i
                             recordingError = nil
-                            recording = true
+                            Haptics.tick()
+                        } label: {
+                            Capsule()
+                                .fill(i == lineIndex ? OT.accent : (isRec ? OT.reader : OT.fillQuiet))
+                                .frame(height: i == lineIndex ? 6 : 4)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Line \(i + 1)")
+                    }
+                }
+
+                // Prev / Next Line Stepper
+                HStack {
+                    Button {
+                        guard lineIndex > 0, !recording, !isProcessing else { return }
+                        player.stop()
+                        isPreviewPlaying = false
+                        playingReviewIndex = nil
+                        lineIndex -= 1
+                        recordingError = nil
+                        Haptics.tick()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Prev line")
+                        }
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(lineIndex > 0 ? OT.accent : OT.labelTertiary.opacity(0.4))
+                    }
+                    .disabled(lineIndex <= 0 || recording || isProcessing)
+
+                    Spacer()
+
+                    if lineIndex < readerLines.count {
+                        Text("Line \(lineIndex + 1) of \(readerLines.count)")
+                            .font(.otFootnote.weight(.medium))
+                            .foregroundStyle(OT.labelSecondary)
+                    } else {
+                        Text("Reviewing all \(readerLines.count) lines")
+                            .font(.otFootnote.weight(.medium))
+                            .foregroundStyle(OT.reader)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        guard !recording, !isProcessing else { return }
+                        player.stop()
+                        isPreviewPlaying = false
+                        playingReviewIndex = nil
+                        if lineIndex < readerLines.count {
+                            lineIndex += 1
+                        }
+                        recordingError = nil
+                        Haptics.tick()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(lineIndex < readerLines.count - 1 ? "Next line" : (lineIndex == readerLines.count - 1 ? "Review" : ""))
+                            if lineIndex < readerLines.count {
+                                Image(systemName: "chevron.right")
+                            }
+                        }
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(lineIndex < readerLines.count ? OT.accent : Color.clear)
+                    }
+                    .disabled(lineIndex >= readerLines.count || recording || isProcessing)
+                }
+
+                if lineIndex < readerLines.count {
+                    let line = readerLines[lineIndex]
+                    let isCurrentRecorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+
+                    HStack {
+                        SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
+                        Spacer()
+                        if isCurrentRecorded {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Recorded")
+                            }
+                            .font(.otCaption.weight(.semibold))
+                            .foregroundStyle(OT.reader)
                         } else {
-                            recordingError = "Recording couldn't start. Check microphone access and try again."
+                            HStack(spacing: 4) {
+                                Image(systemName: "mic")
+                                Text("Needs audio")
+                            }
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelTertiary)
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    Text("All \(readerLines.count) lines done").font(.otLargeTitle)
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(line.text)
+                            .font(.system(size: 26, weight: .bold))
+                            .lineSpacing(4)
+                            .foregroundStyle(OT.labelPrimary)
+
+                        if isCurrentRecorded {
+                            HStack(spacing: 10) {
+                                Button {
+                                    if isPreviewPlaying {
+                                        player.stop()
+                                        isPreviewPlaying = false
+                                    } else {
+                                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex)
+                                        isPreviewPlaying = true
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: isPreviewPlaying ? "stop.fill" : "play.fill")
+                                        Text(isPreviewPlaying ? "Stop audio" : "Play reader audio")
+                                    }
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(OT.accentSoft, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+
+                                Text("Tap Record below to retake")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .otCard(radius: 20)
+
+                    if let recordingError {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(OT.warning)
+                            Text(recordingError)
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.warning)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    if let successBanner {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(OT.reader)
+                            Text(successBanner)
+                                .font(.otFootnote.weight(.medium))
+                                .foregroundStyle(OT.reader)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.reader.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    }
+
                     Spacer()
-                    Button("Save track") { store.pop() }.buttonStyle(.otPrimary)
+
+                    if recording {
+                        VStack(spacing: 8) {
+                            HStack(spacing: 6) {
+                                Circle().fill(Color.red).frame(width: 8, height: 8)
+                                Text("Listening... Say the line clearly")
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                            }
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(OT.fillField)
+                                        .frame(height: 6)
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(OT.accent)
+                                        .frame(width: max(8, geo.size.width * CGFloat(recorder.liveAudioLevel)), height: 6)
+                                        .animation(.easeOut(duration: 0.08), value: recorder.liveAudioLevel)
+                                }
+                            }
+                            .frame(height: 6)
+                            .padding(.horizontal, 40)
+                            Text("Tap stop when finished")
+                                .font(.otCaption)
+                                .foregroundStyle(OT.labelTertiary)
+                        }
+                    } else if isProcessing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Verifying speech...")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        Text(isCurrentRecorded ? "Tap record to retake this line" : "Tap record when you're ready")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelTertiary)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    RecordButton(isRecording: recording) {
+                        handleRecordTap(readerLines: readerLines, isCurrentRecorded: isCurrentRecorded)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(isProcessing)
+                } else {
+                    // All lines completed or Review Mode
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("All \(readerLines.count) lines done")
+                            .font(.otLargeTitle)
+                        Text("Review your recorded cues below, or retake any line if needed.")
+                            .font(.otCallout)
+                            .foregroundStyle(OT.labelSecondary)
+
+                        ScrollView {
+                            VStack(spacing: 10) {
+                                ForEach(Array(readerLines.enumerated()), id: \.offset) { idx, line in
+                                    let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: idx)
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            if isPreviewPlaying && playingReviewIndex == idx {
+                                                player.stop()
+                                                isPreviewPlaying = false
+                                                playingReviewIndex = nil
+                                            } else {
+                                                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx)
+                                                isPreviewPlaying = true
+                                                playingReviewIndex = idx
+                                            }
+                                        } label: {
+                                            Image(systemName: isPreviewPlaying && playingReviewIndex == idx ? "stop.fill" : "play.fill")
+                                                .foregroundStyle(isRec ? OT.labelPrimary : OT.labelTertiary)
+                                                .frame(width: 36, height: 36)
+                                                .background(OT.accentSoft, in: Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .disabled(!isRec)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Line \(idx + 1)")
+                                                .font(.otHeadline)
+                                            Text(line.text)
+                                                .font(.otFootnote)
+                                                .foregroundStyle(OT.labelSecondary)
+                                                .lineLimit(2)
+                                        }
+
+                                        Spacer()
+
+                                        Button {
+                                            player.stop()
+                                            isPreviewPlaying = false
+                                            playingReviewIndex = nil
+                                            lineIndex = idx
+                                            recordingError = nil
+                                            successBanner = nil
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: isRec ? "arrow.clockwise" : "mic.fill")
+                                                Text(isRec ? "Retake" : "Record")
+                                            }
+                                            .font(.otCaption.weight(.semibold))
+                                            .foregroundStyle(isRec ? OT.accent : OT.reader)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(OT.accentSoft, in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(12)
+                                    .otCard(radius: 14)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+
+                        Spacer()
+
+                        Button("Save and finish") {
+                            player.stop()
+                            recorder.cancel()
+                            store.pop()
+                        }
+                        .buttonStyle(.otPrimary)
+                    }
                 }
             }
             .padding(OT.gutter)
@@ -585,14 +882,82 @@ struct RecordReaderView: View {
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
                     let scene = audition.scenes[sceneIndex]
                     let allUnowned = scene.lines.filter { !$0.isMine }
-                    let readerName = allUnowned.first?.character.capitalized ?? "Reader"
-                    let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
-                    lineIndex = readerLines.indices.first(where: {
-                        !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
-                    }) ?? readerLines.count
+                    let rName = allUnowned.first?.character.capitalized ?? "Reader"
+                    let rLines = allUnowned.filter { $0.character.caseInsensitiveCompare(rName) == .orderedSame }
+
+                    if let initialLineIndex, rLines.indices.contains(initialLineIndex) {
+                        lineIndex = initialLineIndex
+                    } else {
+                        // Open on the first unrecorded line; if all recorded, start on 0 so the user can review/retake
+                        lineIndex = rLines.indices.first(where: {
+                            !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
+                        }) ?? 0
+                    }
                 }
             }
-            .onDisappear { if recording { _ = recorder.stop() } }
+            .onDisappear {
+                player.stop()
+                recorder.cancel()
+            }
+        }
+    }
+
+    private func handleRecordTap(readerLines: [ScriptLine], isCurrentRecorded: Bool) {
+        if recording {
+            recording = false
+            isProcessing = true
+            recordingError = nil
+            let currentLineText = readerLines[lineIndex].text
+            let recordedIndex = lineIndex
+
+            Task {
+                let result = await recorder.stop(expectedText: currentLineText)
+                isProcessing = false
+                switch result {
+                case .success:
+                    store.readerTracksDidChange()
+                    Haptics.success()
+                    successBanner = isCurrentRecorded ? "Retake saved for Line \(recordedIndex + 1)" : "Line \(recordedIndex + 1) recorded"
+                    recordingError = nil
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        if successBanner != nil { successBanner = nil }
+                    }
+
+                    if recordedIndex + 1 < readerLines.count {
+                        lineIndex = recordedIndex + 1
+                    } else {
+                        lineIndex = readerLines.count // Go to Review mode
+                    }
+
+                case .tooShort(let duration):
+                    Haptics.warning()
+                    recordingError = "Recording was too short (\(String(format: "%.1f", duration))s). Please speak the line clearly before stopping."
+
+                case .noSpeechDetected:
+                    Haptics.warning()
+                    recordingError = "No speech detected. Please speak the line clearly before tapping stop."
+
+                case .recordingFailed(let message):
+                    Haptics.warning()
+                    recordingError = message
+                }
+            }
+        } else if !microphoneAllowed {
+            recordingError = "Allow microphone access in Settings to record reader lines."
+            Haptics.warning()
+        } else {
+            player.stop()
+            isPreviewPlaying = false
+            recordingError = nil
+            successBanner = nil
+            if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) {
+                recording = true
+            } else {
+                recordingError = "Recording couldn't start. Check microphone access and try again."
+                Haptics.warning()
+            }
         }
     }
 }

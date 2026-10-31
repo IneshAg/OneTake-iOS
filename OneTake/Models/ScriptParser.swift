@@ -102,12 +102,12 @@ enum ScriptParser {
             } else if isLineOrPageNumber(trimmed) {
                 // Line numbers or page numbers (e.g. "91", "92", "Page 4") - ignore without ending dialogue
                 continue
-            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
-                flush()
-                currentCharacter = nil
             } else if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
                 // Standalone parenthetical stage direction (e.g. "(whispering)") — ignore without flushing speaker
                 continue
+            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
+                flush()
+                currentCharacter = nil
             } else if let colon = trimmed.firstIndex(of: ":"),
                       isLikelyCue(String(trimmed[..<colon])) || speakerKey(String(trimmed[..<colon])).map({ speakers.contains($0) }) == true {
                 flush()
@@ -159,11 +159,6 @@ enum ScriptParser {
     static func isActionOrDescription(_ raw: String, knownSpeakers: Set<String> = []) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
-
-        // Entirely a parenthetical or bracketed stage direction
-        if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
-            return true
-        }
 
         let upper = trimmed.uppercased()
 
