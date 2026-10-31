@@ -618,6 +618,33 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **Disabled GitHub Actions CI ([.github/workflows/build.yml](file:///Users/user76/Downloads/OneTake-iOS/.github/workflows/build.yml))**:
    - Removed `.github/workflows/build.yml` to prevent remote CI build attempts.
 
+---
+
+## 26. Role Dropdown in Adding Details & Clean Reader View Architecture
+
+### Problems Identified
+1. **Misplaced Role Selection Card in Reader View**:
+   - `ReaderView` previously showed a role-switching card (`"You are reading: [Kat ▾] / [Oscar ▾]"`) directly above the reader tracks.
+   - This cluttered the screen and caused confusion, as `ReaderView`'s single responsibility is setting up and recording reader audio (`"Who reads Oscar?"` or `"Who reads Kat?"`).
+2. **Missing Prominent Role Dropdown During Audition Creation**:
+   - In `MissingDetailsView` ("A few details missing") and `NoticeReviewView` ("Here's what they want"), actors need to select their role and see which character becomes the reader.
+   - The role selection lacked a dedicated, prominent dropdown menu and clear indicator of who the reader will be on the subsequent screen.
+
+### Implementation
+1. **Role Dropdown & Pills in Adding Details ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - In both `MissingDetailsView` and `NoticeReviewView`, when characters are detected in the script (e.g. `Kat` and `Oscar`):
+     - Added a prominent dropdown `Menu`: displays `"Select character from script"` or the chosen character name (`Kat ▾` / `Oscar ▾`), with active checkmarks and haptic feedback.
+     - Added quick-selection role pills (`[Kat]` `[Oscar]`) directly beneath the dropdown.
+     - Added dynamic subtitle indicator: `"Next screen will show: Who reads Oscar?"` (when `Kat` is selected) or `"Next screen will show: Who reads Kat?"` (when `Oscar` is selected).
+     - Contextualized the primary save button: `"Save and record Oscar's audio"` or `"Save and record Kat's audio"`.
+2. **Dedicated Role Dropdown in Edit Details ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - In `EditAuditionSheet`, enhanced the role picker with quick pills `[Kat] [Oscar]` and the indicator `"Next screen will show: Who reads [reader]?"`.
+   - When tapping "Done", `store.reclassifyRole(for: auditionID)` reclassifies lines so returning to Reader immediately reflects the updated reader character.
+3. **Streamlined Reader View ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift))**:
+   - Removed the top role-switching card completely from `ReaderView`.
+   - `ReaderView` cleanly displays its reader title: `"Who reads Oscar?"` (if Kat is reading) or `"Who reads Kat?"` (if Oscar is reading).
+   - Removed unused role-switching methods from `ReaderView`, keeping all role management strictly in Adding Details and Edit Details.
+
 
 
 

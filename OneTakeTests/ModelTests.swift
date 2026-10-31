@@ -230,5 +230,26 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(cue0, 0)
         XCTAssertEqual(cue1, 1)
     }
+
+    func testRoleDropdownSelectionAndNextScreenReaderMapping() {
+        let script = """
+        KAT
+        Are you sure you're okay?
+        OSCAR
+        Do you think I'd know immediately if I had a collapsed lung?
+        """
+        let extracted = ScriptParser.extractCharacters(from: script)
+        XCTAssertEqual(extracted, ["Kat", "Oscar"])
+
+        // When user selects Kat in Adding Details:
+        let scenesIfKat = ScriptParser.parseScenes(from: script, myRole: "Kat")
+        let readerLinesIfKat = scenesIfKat[0].lines.filter { !$0.isMine }
+        XCTAssertEqual(readerLinesIfKat.first?.character.capitalized, "Oscar") // Next screen shows "Who reads Oscar?"
+
+        // When user selects Oscar in Adding Details:
+        let scenesIfOscar = ScriptParser.parseScenes(from: script, myRole: "Oscar")
+        let readerLinesIfOscar = scenesIfOscar[0].lines.filter { !$0.isMine }
+        XCTAssertEqual(readerLinesIfOscar.first?.character.capitalized, "Kat") // Next screen shows "Who reads Kat?"
+    }
 }
 

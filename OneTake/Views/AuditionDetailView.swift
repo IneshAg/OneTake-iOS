@@ -407,6 +407,37 @@ struct EditAuditionSheet: View {
                                     Text(char).tag(char)
                                 }
                             }
+
+                            HStack(spacing: 8) {
+                                ForEach(chars, id: \.self) { char in
+                                    let isCurrent = char.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame
+                                    Button {
+                                        audition.wrappedValue.role = char
+                                        Haptics.tick()
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            if isCurrent {
+                                                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                                            }
+                                            Text(char)
+                                        }
+                                        .font(.otCaption.weight(isCurrent ? .bold : .medium))
+                                        .foregroundStyle(isCurrent ? OT.bgCanvas : OT.accent)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 2)
+
+                            let otherChars = chars.filter { $0.caseInsensitiveCompare(audition.wrappedValue.role) != .orderedSame }
+                            if let reader = otherChars.first {
+                                Text("Next screen will show: Who reads \(reader)?")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.reader)
+                            }
                         }
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("Role", text: audition.role)

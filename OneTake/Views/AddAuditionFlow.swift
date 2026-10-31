@@ -657,84 +657,103 @@ struct MissingDetailsView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
                                 Spacer()
-                                if !scriptCharacters.isEmpty {
-                                    Menu {
-                                        ForEach(scriptCharacters, id: \.self) { char in
-                                            Button(char) {
-                                                store.auditionDraft.role = char
-                                                Haptics.tick()
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "person.text.rectangle")
-                                            Text("From script")
-                                            Image(systemName: "chevron.down").font(.caption2)
-                                        }
-                                        .font(.otCaption.weight(.medium))
-                                        .foregroundStyle(OT.accent)
-                                    }
-                                } else if showValidationErrors && isRoleEmpty {
+                                if showValidationErrors && isRoleEmpty {
                                     Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
                                 }
                             }
-                            TextField("e.g. Maya", text: $store.auditionDraft.role)
-                                .textInputAutocapitalization(.words)
-                                .padding(12)
-                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
-                                )
+
                             if !scriptCharacters.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        Text("In script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                        ForEach(scriptCharacters, id: \.self) { char in
-                                            Button {
-                                                store.auditionDraft.role = char
-                                                Haptics.tick()
-                                            } label: {
-                                                HStack(spacing: 4) {
-                                                    if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
-                                                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                                                    }
-                                                    Text(char)
+                                Menu {
+                                    ForEach(scriptCharacters, id: \.self) { char in
+                                        Button {
+                                            store.auditionDraft.role = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack {
+                                                Text(char)
+                                                if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
+                                                    Image(systemName: "checkmark")
                                                 }
-                                                .font(.otFootnote.weight(.medium))
-                                                .foregroundStyle(store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame ? OT.labelPrimary : OT.accent)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 5)
-                                                .background(
-                                                    store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame ? OT.fillQuiet : OT.accentSoft,
-                                                    in: Capsule()
-                                                )
                                             }
-                                            .buttonStyle(.plain)
                                         }
                                     }
-                                    .padding(.vertical, 2)
-                                }
-                            }
-                            if !scriptCharacters.isEmpty && !store.auditionDraft.role.isEmpty {
-                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
-                                if let r = otherChars.first {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "person.wave.2")
-                                            .font(.caption2)
-                                        Text("Reader will be \(r)")
-                                            .font(.otCaption)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(store.auditionDraft.role.isEmpty ? "Select character from script" : store.auditionDraft.role)
+                                                .font(.otHeadline)
+                                                .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
+                                            if !store.auditionDraft.role.isEmpty {
+                                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                                if let r = otherChars.first {
+                                                    Text("Next screen will show: Who reads \(r)?")
+                                                        .font(.otCaption)
+                                                        .foregroundStyle(OT.reader)
+                                                }
+                                            }
+                                        }
+                                        Spacer()
+                                        HStack(spacing: 4) {
+                                            Text(store.auditionDraft.role.isEmpty ? "Select role" : "Change")
+                                                .font(.otCaption.weight(.semibold))
+                                                .foregroundStyle(OT.accent)
+                                            Image(systemName: "chevron.up.chevron.down")
+                                                .font(.caption2.weight(.bold))
+                                                .foregroundStyle(OT.accent)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(OT.accentSoft, in: Capsule())
                                     }
-                                    .foregroundStyle(OT.labelTertiary)
-                                    .padding(.top, 2)
+                                    .padding(14)
+                                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                    )
                                 }
+
+                                // Quick character pills [Kat] [Oscar]
+                                HStack(spacing: 8) {
+                                    Text("From script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
+                                    ForEach(scriptCharacters, id: \.self) { char in
+                                        let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
+                                        Button {
+                                            store.auditionDraft.role = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                if isCurrent {
+                                                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                                                }
+                                                Text(char)
+                                            }
+                                            .font(.otFootnote.weight(isCurrent ? .bold : .medium))
+                                            .foregroundStyle(isCurrent ? Color.white : OT.accent)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            } else {
+                                TextField("e.g. Maya", text: $store.auditionDraft.role)
+                                    .textInputAutocapitalization(.words)
+                                    .padding(12)
+                                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                    )
                             }
+
                             if showValidationErrors && isRoleEmpty {
-                                Label("Please enter the character or role you are reading for", systemImage: "exclamationmark.circle.fill")
+                                Label("Please select or enter the character or role you are reading for", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
                                     .foregroundStyle(Color.red)
                             }
@@ -1050,84 +1069,103 @@ struct NoticeReviewView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
                                 Spacer()
-                                if !scriptCharacters.isEmpty {
-                                    Menu {
-                                        ForEach(scriptCharacters, id: \.self) { char in
-                                            Button(char) {
-                                                store.auditionDraft.role = char
-                                                Haptics.tick()
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "person.text.rectangle")
-                                            Text("From script")
-                                            Image(systemName: "chevron.down").font(.caption2)
-                                        }
-                                        .font(.otCaption.weight(.medium))
-                                        .foregroundStyle(OT.accent)
-                                    }
-                                } else if showValidationErrors && isRoleEmpty {
+                                if showValidationErrors && isRoleEmpty {
                                     Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
                                 }
                             }
-                            TextField("Your role", text: $store.auditionDraft.role)
-                                .textInputAutocapitalization(.words)
-                                .padding(12)
-                                .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
-                                )
+
                             if !scriptCharacters.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        Text("In script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                        ForEach(scriptCharacters, id: \.self) { char in
-                                            Button {
-                                                store.auditionDraft.role = char
-                                                Haptics.tick()
-                                            } label: {
-                                                HStack(spacing: 4) {
-                                                    if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
-                                                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                                                    }
-                                                    Text(char)
+                                Menu {
+                                    ForEach(scriptCharacters, id: \.self) { char in
+                                        Button {
+                                            store.auditionDraft.role = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack {
+                                                Text(char)
+                                                if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
+                                                    Image(systemName: "checkmark")
                                                 }
-                                                .font(.otFootnote.weight(.medium))
-                                                .foregroundStyle(store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame ? OT.labelPrimary : OT.accent)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 5)
-                                                .background(
-                                                    store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame ? OT.fillQuiet : OT.accentSoft,
-                                                    in: Capsule()
-                                                )
                                             }
-                                            .buttonStyle(.plain)
                                         }
                                     }
-                                    .padding(.vertical, 2)
-                                }
-                            }
-                            if !scriptCharacters.isEmpty && !store.auditionDraft.role.isEmpty {
-                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
-                                if let r = otherChars.first {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "person.wave.2")
-                                            .font(.caption2)
-                                        Text("Reader will be \(r)")
-                                            .font(.otCaption)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(store.auditionDraft.role.isEmpty ? "Select character from script" : store.auditionDraft.role)
+                                                .font(.otHeadline)
+                                                .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
+                                            if !store.auditionDraft.role.isEmpty {
+                                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                                if let r = otherChars.first {
+                                                    Text("Next screen will show: Who reads \(r)?")
+                                                        .font(.otCaption)
+                                                        .foregroundStyle(OT.reader)
+                                                }
+                                            }
+                                        }
+                                        Spacer()
+                                        HStack(spacing: 4) {
+                                            Text(store.auditionDraft.role.isEmpty ? "Select role" : "Change")
+                                                .font(.otCaption.weight(.semibold))
+                                                .foregroundStyle(OT.accent)
+                                            Image(systemName: "chevron.up.chevron.down")
+                                                .font(.caption2.weight(.bold))
+                                                .foregroundStyle(OT.accent)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(OT.accentSoft, in: Capsule())
                                     }
-                                    .foregroundStyle(OT.labelTertiary)
-                                    .padding(.top, 2)
+                                    .padding(14)
+                                    .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                    )
                                 }
+
+                                // Quick character pills [Kat] [Oscar]
+                                HStack(spacing: 8) {
+                                    Text("From script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
+                                    ForEach(scriptCharacters, id: \.self) { char in
+                                        let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
+                                        Button {
+                                            store.auditionDraft.role = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                if isCurrent {
+                                                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                                                }
+                                                Text(char)
+                                            }
+                                            .font(.otFootnote.weight(isCurrent ? .bold : .medium))
+                                            .foregroundStyle(isCurrent ? Color.white : OT.accent)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            } else {
+                                TextField("Your role", text: $store.auditionDraft.role)
+                                    .textInputAutocapitalization(.words)
+                                    .padding(12)
+                                    .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                                    )
                             }
+
                             if showValidationErrors && isRoleEmpty {
-                                Label("Please enter your character or role", systemImage: "exclamationmark.circle.fill")
+                                Label("Please select or enter your character or role", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
                                     .foregroundStyle(Color.red)
                             }
