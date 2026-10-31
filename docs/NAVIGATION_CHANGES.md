@@ -377,3 +377,22 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Made each individual slot (Front, Left profile, Right profile) an interactive `PhotosPicker`, allowing actors to tap any angle to choose a photo directly from their camera roll.
    - Added a "Pick from Photos" button to the bottom action bar alongside camera capture.
    - Added a dedicated status banner when opened from an audition checklist (`auditionID != nil`), confirming default headshot attachment while offering clear actions to either "Keep default & continue" or update/retake photos.
+
+---
+
+## 17. Missing Details Continue Button Responsiveness & Disabled State Styling
+
+### Problems Identified
+1. **Unresponsive Continue Button on Missing Details Screen**:
+   - In `MissingDetailsView`, the bottom action button ("Continue without sides" / "Continue") was disabled via `.disabled(!canContinue)` whenever `project` or `role` were empty strings.
+   - However, `PrimaryButtonStyle` had no `isEnabled` environment check or styling, so the button appeared completely active, bright, and solid. Users tapping the button experienced it as frozen or unresponsive.
+2. **Date Picker Desync in Missing Details**:
+   - The date picker state was detached from `store.auditionDraft.due`, causing the header subtitle to report the due date as missing even after a date was picked.
+
+### Implementation
+1. **Button Action Resilience ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Removed the blocking `.disabled(!canContinue)` gate on the continue button.
+   - When tapped, if the actor has not filled in project or role, sensible defaults ("Untitled audition" / "Role") are automatically assigned so they can continue directly to the review step without being locked out.
+   - Synchronized the date picker with `store.auditionDraft.due` on load and change.
+2. **Visual Disabled State ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
+   - Updated `PrimaryButtonStyle` to check `@Environment(\.isEnabled)` and apply dimming (`opacity: 0.6`, background opacity `0.35`) when a primary button is disabled, ensuring clear visual feedback everywhere in the app.

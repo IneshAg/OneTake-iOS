@@ -127,14 +127,15 @@ struct PressableCardStyle: ButtonStyle {
 }
 
 struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var tint: Color = OT.accent
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.otHeadline)
             .foregroundStyle(OT.labelOnAccent)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(tint, in: Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1)
+            .background(isEnabled ? tint : tint.opacity(0.35), in: Capsule())
+            .opacity(configuration.isPressed ? 0.85 : (isEnabled ? 1 : 0.6))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }

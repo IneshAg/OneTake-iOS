@@ -700,11 +700,16 @@ struct MissingDetailsView: View {
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             Button(store.auditionDraft.hasSides ? "Continue" : "Continue without sides") {
+                if store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    store.auditionDraft.project = "Untitled audition"
+                }
+                if store.auditionDraft.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    store.auditionDraft.role = "Role"
+                }
                 if store.auditionDraft.due == nil { store.auditionDraft.due = picked }
                 store.push(.noticeReview)
             }
             .buttonStyle(.otPrimary)
-            .disabled(!canContinue)
             .padding(.horizontal, OT.gutter)
             .padding(.vertical, 10)
             .background(OT.bgCanvas)
@@ -713,9 +718,16 @@ struct MissingDetailsView: View {
             AddDraftSidesSheet(draft: $store.auditionDraft)
         }
         .onAppear {
+            if let due = store.auditionDraft.due {
+                picked = due
+            } else {
+                store.auditionDraft.due = picked
+            }
             let req = store.auditionDraft.missingRequiredDetails
             requestedFields = req.isEmpty ? ["project", "role", "due date"] : req
-            if let due = store.auditionDraft.due { picked = due }
+        }
+        .onChange(of: picked) { _, newDate in
+            store.auditionDraft.due = newDate
         }
     }
 }
