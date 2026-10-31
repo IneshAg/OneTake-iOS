@@ -398,34 +398,216 @@ struct ReaderView: View {
     @State private var showAudioImporter = false
     @State private var importError: String?
     @AppStorage("readerVolume") private var volume = "Quieter"
+    @State private var selectedReader: String? = nil
+
+    private var myRole: String {
+        store.audition(auditionID)?.role ?? ""
+    }
+
+    private var scriptCharacters: [String] {
+        guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return [] }
+        var seen = Set<String>()
+        var list: [String] = []
+        for line in scenes[sceneIndex].lines {
+            let name = line.character.capitalized
+            if !seen.contains(name.lowercased()) {
+                seen.insert(name.lowercased())
+                list.append(name)
+            }
+        }
+        return list
+    }
+
+    private var availableReaders: [String] {
+        guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return [] }
+        let unowned = scenes[sceneIndex].lines.filter { !$0.isMine }
+        var seen = Set<String>()
+        var list: [String] = []
+        for line in unowned {
+            let name = line.character.capitalized
+            if !seen.contains(name.lowercased()) {
+                seen.insert(name.lowercased())
+                list.append(name)
+            }
+        }
+        return list
+    }
+
+    private var effectiveReaderName: String {
+        if let selected = selectedReader, availableReaders.contains(where: { $0.caseInsensitiveCompare(selected) == .orderedSame }) {
+            return selected.capitalized
+        }
+        return availableReaders.first?.capitalized ?? "your reader"
+    }
 
     private var readerLines: [ScriptLine] {
         guard let scenes = store.audition(auditionID)?.scenes, scenes.indices.contains(sceneIndex) else { return [] }
         let allLines = scenes[sceneIndex].lines
         let unowned = allLines.filter { !$0.isMine }
-        guard let targetName = unowned.first?.character else { return [] }
-        return unowned.filter { $0.character.caseInsensitiveCompare(targetName) == .orderedSame }
+        let target = effectiveReaderName
+        return unowned.filter { $0.character.caseInsensitiveCompare(target) == .orderedSame }
     }
-    private var readerName: String { readerLines.first?.character.capitalized ?? "your reader" }
 
     var body: some View {
         // Reader recordings are files, so this observable counter makes the file status update
         // as soon as Record Reader saves a line.
         let readerTrackVersion = store.readerTrackVersion
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Who reads \(readerName)?", backLabel: "Back", onBack: { store.pop() })
+            InContentNavHeader(title: "Who reads \(effectiveReaderName)?", backLabel: "Back", onBack: { store.pop() })
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 4)
 
             List {
+                // Role & Reader Linking Card
                 Section {
-                    Text("Record \(readerName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Your Role row
+                        HStack {
+                            Label("You are reading:", systemImage: "person.fill")
+                                .font(.otSubhead.weight(.semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            if scriptCharacters.count > 1 {
+                                Menu {
+                                    ForEach(scriptCharacters, id: \.self) { char in
+                                        Button {
+                                            updateMyRole(to: char)
+                                        } label: {
+                                            HStack {
+                                                Text(char)
+                                                if char.caseInsensitiveCompare(myRole) == .orderedSame {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(myRole.isEmpty ? "Select role" : myRole)
+                                            .font(.otSubhead.weight(.bold))
+                                            .foregroundStyle(OT.accent)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(OT.accent)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(OT.accentSoft, in: Capsule())
+                                }
+                            } else {
+                                Text(myRole.isEmpty ? "Role" : myRole)
+                                    .font(.otSubhead.weight(.bold))
+                                    .foregroundStyle(OT.accent)
+                            }
+                        }
+
+                        // Quick switch role pills
+                        if scriptCharacters.count > 1 {
+                            HStack(spacing: 8) {
+                                Text("Your role:").font(.otCaption).foregroundStyle(OT.labelTertiary)
+                                ForEach(scriptCharacters, id: \.self) { char in
+                                    let isCurrent = char.caseInsensitiveCompare(myRole) == .orderedSame
+                                    Button {
+                                        updateMyRole(to: char)
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            if isCurrent {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 9, weight: .bold))
+                                            }
+                                            Text(char)
+                                        }
+                                        .font(.otCaption.weight(isCurrent ? .bold : .medium))
+                                        .foregroundStyle(isCurrent ? OT.bgCanvas : OT.labelPrimary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(isCurrent ? OT.accent : OT.fillField, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        Divider().overlay(OT.fillField)
+
+                        // Reader Role row
+                        HStack {
+                            Label("Reader character:", systemImage: "person.wave.2.fill")
+                                .font(.otSubhead.weight(.semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            if availableReaders.count > 1 {
+                                Menu {
+                                    ForEach(availableReaders, id: \.self) { char in
+                                        Button {
+                                            selectedReader = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack {
+                                                Text(char)
+                                                if char.caseInsensitiveCompare(effectiveReaderName) == .orderedSame {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(effectiveReaderName)
+                                            .font(.otSubhead.weight(.bold))
+                                            .foregroundStyle(OT.reader)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(OT.reader)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(OT.reader.opacity(0.15), in: Capsule())
+                                }
+                            } else {
+                                Text(effectiveReaderName)
+                                    .font(.otSubhead.weight(.bold))
+                                    .foregroundStyle(OT.reader)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(OT.reader.opacity(0.15), in: Capsule())
+                            }
+                        }
+
+                        if availableReaders.count > 1 {
+                            HStack(spacing: 8) {
+                                Text("Reader:").font(.otCaption).foregroundStyle(OT.labelTertiary)
+                                ForEach(availableReaders, id: \.self) { char in
+                                    let isCurrent = char.caseInsensitiveCompare(effectiveReaderName) == .orderedSame
+                                    Button {
+                                        selectedReader = char
+                                        Haptics.tick()
+                                    } label: {
+                                        Text(char)
+                                            .font(.otCaption.weight(isCurrent ? .bold : .medium))
+                                            .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(isCurrent ? OT.reader : OT.fillField, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .listRowBackground(Color.clear)
+
+                Section {
+                    Text("Record \(effectiveReaderName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 }
                 .listRowBackground(Color.clear)
                 Section("Your reader tracks") {
                     if readerLines.isEmpty {
-                        Text("No reader lines in this scene yet.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        Text("No reader lines for \(effectiveReaderName) in this scene.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     } else {
                         ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
                             let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
@@ -450,7 +632,7 @@ struct ReaderView: View {
                                 Button {
                                     player.stop()
                                     playingLine = nil
-                                    store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: index))
+                                    store.push(.recordReader(auditionID, sceneIndex: sceneIndex, initialLineIndex: index, readerCharacter: effectiveReaderName))
                                 } label: {
                                     HStack(spacing: 4) {
                                         Image(systemName: recorded ? "arrow.clockwise" : "mic.fill")
@@ -467,10 +649,10 @@ struct ReaderView: View {
                             .contentShape(Rectangle())
                         }
                     }
-                    Picker("\(readerName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
+                    Picker("\(effectiveReaderName)’s volume on the tape", selection: $volume) { ForEach(["Same as me", "Quieter", "Much quieter"], id: \.self) { Text($0) } }
                 }
                 Section {
-                    Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { IconRow(symbol: "mic", title: "Record reader audio", detail: "Record each cue in your own voice") }
+                    Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex, readerCharacter: effectiveReaderName)) } label: { IconRow(symbol: "mic", title: "Record reader audio", detail: "Record each cue in your own voice") }
                         .buttonStyle(.plain)
                     Button { showAudioImporter = true } label: { IconRow(symbol: "waveform.badge.plus", title: "Add an audio file", detail: "Uses the next reader cue that is not recorded") }
                         .buttonStyle(.plain)
@@ -503,6 +685,14 @@ struct ReaderView: View {
             Text(importError ?? "")
         }
         .onDisappear { player.stop() }
+    }
+
+    private func updateMyRole(to newRole: String) {
+        player.stop()
+        playingLine = nil
+        selectedReader = nil
+        store.updateRole(for: auditionID, to: newRole)
+        Haptics.tick()
     }
 
     private func importReaderAudio(_ result: Result<URL, Error>) {
@@ -538,6 +728,7 @@ struct RecordReaderView: View {
     let auditionID: Audition.ID
     let sceneIndex: Int
     var initialLineIndex: Int? = nil
+    var readerCharacter: String? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var lineIndex = 0
@@ -550,11 +741,32 @@ struct RecordReaderView: View {
     @State private var player = ReaderTrackPlayer()
     @State private var isPreviewPlaying = false
     @State private var playingReviewIndex: Int?
+    @State private var selectedReader: String? = nil
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let allUnowned = a.scenes[sceneIndex].lines.filter { !$0.isMine }
-            let readerName = allUnowned.first?.character.capitalized ?? "Reader"
+            let availableReaders: [String] = {
+                var seen = Set<String>()
+                var list: [String] = []
+                for line in allUnowned {
+                    let name = line.character.capitalized
+                    if !seen.contains(name.lowercased()) {
+                        seen.insert(name.lowercased())
+                        list.append(name)
+                    }
+                }
+                return list
+            }()
+            let readerName: String = {
+                if let sel = selectedReader, availableReaders.contains(where: { $0.caseInsensitiveCompare(sel) == .orderedSame }) {
+                    return sel.capitalized
+                }
+                if let rc = readerCharacter, availableReaders.contains(where: { $0.caseInsensitiveCompare(rc) == .orderedSame }) {
+                    return rc.capitalized
+                }
+                return allUnowned.first?.character.capitalized ?? "Reader"
+            }()
             let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
             let readerTrackVersion = store.readerTrackVersion
 
@@ -565,6 +777,32 @@ struct RecordReaderView: View {
                     store.pop()
                 })
                 .padding(.top, 4)
+
+                if availableReaders.count > 1 {
+                    HStack(spacing: 8) {
+                        Text("Reader:").font(.otCaption).foregroundStyle(OT.labelTertiary)
+                        ForEach(availableReaders, id: \.self) { char in
+                            let isCurrent = char.caseInsensitiveCompare(readerName) == .orderedSame
+                            Button {
+                                guard !recording && !isProcessing else { return }
+                                player.stop()
+                                isPreviewPlaying = false
+                                selectedReader = char
+                                lineIndex = 0
+                                recordingError = nil
+                                Haptics.tick()
+                            } label: {
+                                Text(char)
+                                    .font(.otCaption.weight(isCurrent ? .bold : .medium))
+                                    .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(isCurrent ? OT.reader : OT.fillField, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
 
                 // Interactive Progress & Line Selector
                 HStack(spacing: 4) {
@@ -882,7 +1120,22 @@ struct RecordReaderView: View {
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
                     let scene = audition.scenes[sceneIndex]
                     let allUnowned = scene.lines.filter { !$0.isMine }
-                    let rName = allUnowned.first?.character.capitalized ?? "Reader"
+                    let available: [String] = {
+                        var seen = Set<String>()
+                        var list: [String] = []
+                        for line in allUnowned {
+                            let name = line.character.capitalized
+                            if !seen.contains(name.lowercased()) {
+                                seen.insert(name.lowercased())
+                                list.append(name)
+                            }
+                        }
+                        return list
+                    }()
+                    if let readerCharacter, available.contains(where: { $0.caseInsensitiveCompare(readerCharacter) == .orderedSame }) {
+                        selectedReader = readerCharacter
+                    }
+                    let rName = selectedReader ?? readerCharacter ?? available.first ?? "Reader"
                     let rLines = allUnowned.filter { $0.character.caseInsensitiveCompare(rName) == .orderedSame }
 
                     if let initialLineIndex, rLines.indices.contains(initialLineIndex) {

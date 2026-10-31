@@ -720,6 +720,19 @@ struct MissingDetailsView: View {
                                     .padding(.vertical, 2)
                                 }
                             }
+                            if !scriptCharacters.isEmpty && !store.auditionDraft.role.isEmpty {
+                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                if let r = otherChars.first {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "person.wave.2")
+                                            .font(.caption2)
+                                        Text("Reader will be \(r)")
+                                            .font(.otCaption)
+                                    }
+                                    .foregroundStyle(OT.labelTertiary)
+                                    .padding(.top, 2)
+                                }
+                            }
                             if showValidationErrors && isRoleEmpty {
                                 Label("Please enter the character or role you are reading for", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -901,6 +914,26 @@ struct NoticeReviewView: View {
             .contains { $0.lines.contains { !$0.isMine } }
     }
 
+    private var detectedReaderName: String {
+        let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+        let unownedLines = parsedScenes.flatMap(\.lines).filter { !$0.isMine }
+        var seen = Set<String>()
+        var list: [String] = []
+        for line in unownedLines {
+            let name = line.character.capitalized
+            if !seen.contains(name.lowercased()) {
+                seen.insert(name.lowercased())
+                list.append(name)
+            }
+        }
+        return list.first ?? "Reader"
+    }
+
+    private var readerCuesCount: Int {
+        let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+        return parsedScenes.flatMap(\.lines).filter { !$0.isMine }.count
+    }
+
     var body: some View {
         @Bindable var store = store
         VStack(spacing: 0) {
@@ -1080,6 +1113,19 @@ struct NoticeReviewView: View {
                                     .padding(.vertical, 2)
                                 }
                             }
+                            if !scriptCharacters.isEmpty && !store.auditionDraft.role.isEmpty {
+                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                if let r = otherChars.first {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "person.wave.2")
+                                            .font(.caption2)
+                                        Text("Reader will be \(r)")
+                                            .font(.otCaption)
+                                    }
+                                    .foregroundStyle(OT.labelTertiary)
+                                    .padding(.top, 2)
+                                }
+                            }
                             if showValidationErrors && isRoleEmpty {
                                 Label("Please enter your character or role", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -1131,9 +1177,22 @@ struct NoticeReviewView: View {
 
                     if hasReaderLines {
                         SectionLabel(text: "Reader audio")
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Add the other character’s lines now, or record them from the scene later.")
-                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text("Your role:").font(.otCaption.weight(.bold)).foregroundStyle(OT.accent)
+                                        Text(store.auditionDraft.role).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
+                                        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(OT.labelTertiary)
+                                        Text("Reader:").font(.otCaption.weight(.bold)).foregroundStyle(OT.reader)
+                                        Text(detectedReaderName).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.reader)
+                                    }
+                                    Text("Record \(detectedReaderName)’s \(readerCuesCount) cue\(readerCuesCount == 1 ? "" : "s") in your voice so it plays under your takes.")
+                                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                            }
+
                             Picker("Reader audio", selection: $readerAudioPlan) {
                                 Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
                                 Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
@@ -1170,7 +1229,7 @@ struct NoticeReviewView: View {
                     .transition(.opacity.combined(with: .scale))
                 }
 
-                Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and add reader audio" : "Save and start") {
+                Button(hasReaderLines && readerAudioPlan == .recordNow ? "Save and record \(detectedReaderName)’s audio" : "Save and start") {
                     saveAudition()
                 }
                 .buttonStyle(.otPrimary)

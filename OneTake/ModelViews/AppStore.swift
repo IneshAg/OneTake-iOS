@@ -9,7 +9,7 @@ enum Route: Hashable {
     case prepare(Audition.ID, sceneIndex: Int)
     case runLines(Audition.ID, sceneIndex: Int)
     case reader(Audition.ID, sceneIndex: Int)
-    case recordReader(Audition.ID, sceneIndex: Int, initialLineIndex: Int? = nil)
+    case recordReader(Audition.ID, sceneIndex: Int, initialLineIndex: Int? = nil, readerCharacter: String? = nil)
     /// `scene` picks which scene the camera opens on; nil lets it pick the next one still to shoot.
     case shootSetup(Audition.ID, scene: Int? = nil)
     case takes(Audition.ID, sceneIndex: Int? = nil)
@@ -413,6 +413,13 @@ final class AppStore {
             practice[p].linesTotal = scenes[s].lines.filter(\.isMine).count
             practice[p].linesLearned = min(practice[p].linesLearned, practice[p].linesTotal)
         }
+    }
+
+    func updateRole(for id: Audition.ID, to newRole: String) {
+        guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[index].role = newRole
+        reclassifyRole(for: id)
+        readerTracksDidChange()
     }
 
     func reclassifyRole(for id: Audition.ID) {

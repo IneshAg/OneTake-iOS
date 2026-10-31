@@ -547,6 +547,36 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 3. **ScriptParser Cue Parenthetical Ordering Fix ([ScriptParser.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/ScriptParser.swift))**:
    - Reordered `(trimmed.hasPrefix("(") && trimmed.hasSuffix(")"))` before `isActionOrDescription` in `parseScenes`, ensuring character parentheticals directly under cues are safely bypassed without flushing `currentCharacter`.
 
+---
+
+## 24. Dynamic Role-to-Reader Linking & Character Selection in Reader Setup
+
+### Problems Identified
+1. **Hardcoded Reader Character and Confusion over "Who Reads [Role]?"**:
+   - In `ReaderView`, the reader was hardcoded as `scenes[sceneIndex].lines.filter { !$0.isMine }.first?.character`.
+   - When sides contained multiple roles (e.g. `KAT` and `OSCAR`), if the user was set to `Oscar`, `ReaderView` showed `"Who reads Kat?"`. If the user wanted to play `Kat`, there was no way to change it. Users were confused why the app arbitrarily picked `Kat` as the reader, with no option to modify or switch characters.
+2. **Disconnected Role and Reader Flow**:
+   - During audition creation (`NoticeReviewView` and `MissingDetailsView`), the role input and reader audio card were disconnected. Users did not see how entering/selecting their role dynamically determined who the reader was.
+   - In `RecordReaderView`, if the scene featured multiple reader characters (e.g. `Kat`, `Bartender`), the recorder locked onto `allUnowned.first` without any way to select which character's cues were being recorded.
+
+### Implementation
+1. **Role & Reader Linking Card in ReaderView ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift), [AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift))**:
+   - Added a dedicated Role & Reader Linking card at the top of `ReaderView`:
+     - **You are reading**: Displays the actor's current role with a dropdown menu and quick-switch pills (`[Kat] [Oscar]`). Tapping any character calls `store.updateRole(for: auditionID, to: newRole)`.
+     - Automatically reclassifies script lines: when the user taps `Kat`, `Kat` becomes `isMine = true`, and the reader dynamically flips to `Oscar` (`"Who reads Oscar?"`). When the user taps `Oscar`, `Oscar` becomes `isMine = true`, and the reader dynamically flips to `Kat` (`"Who reads Kat?"`).
+     - **Reader character**: If the scene contains multiple unowned characters, provides an interactive menu and selector pills (`[Kat] [Bartender]`) to choose which reader character to inspect or record tracks for.
+2. **Reader Character Selection in RecordReaderView ([PrepareViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/PrepareViews.swift), [AppStore.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/AppStore.swift), [OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift))**:
+   - Supported passing `readerCharacter: String? = nil` in `Route.recordReader`.
+   - If the scene has multiple unowned characters, displays a reader selector bar (`Reader: [Kat (3)] [Bartender (1)]`), allowing the actor to switch between characters and record each cue cleanly.
+3. **Transparent Role-to-Reader Flow in Creation Views ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - In `MissingDetailsView` and `NoticeReviewView`, added dynamic status cues right below the role field:
+     `"Reader will be Oscar"` (when role is `Kat`) or `"Reader will be Kat"` (when role is `Oscar`).
+   - In `NoticeReviewView`'s "Reader audio" section, connected the flow visually:
+     `You: Kat → Reader: Oscar (3 cues)`.
+   - Contextualized the primary save button:
+     `"Save and record Oscar’s audio"` or `"Save and record Kat’s audio"`.
+
+
 
 
 
