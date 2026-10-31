@@ -428,6 +428,7 @@ struct AddDraftSidesSheet: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var reading = false
+    @State private var photoItems: [PhotosPickerItem] = []
 
     private var parsed: [ScriptScene] {
         ScriptParser.parseScenes(from: text, myRole: draft.role)
@@ -473,6 +474,10 @@ struct AddDraftSidesSheet: View {
 
                     Button { showImporter = true } label: {
                         Label("Import a PDF or text file", systemImage: "doc")
+                    }
+
+                    PhotosPicker(selection: $photoItems, matching: .images) {
+                        Label("Pick from Photos", systemImage: "photo.on.rectangle")
                     }
 
                     Button { openScanner() } label: {
@@ -535,6 +540,25 @@ struct AddDraftSidesSheet: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
+        }
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            reading = true
+            Task {
+                var images: [UIImage] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        images.append(image)
+                    }
+                }
+                guard !images.isEmpty else {
+                    await MainActor.run { reading = false }
+                    return
+                }
+                let recognized = await NoticeOCR.recognizeText(in: images)
+                await MainActor.run { text = recognized; reading = false; photoItems = [] }
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 import VisionKit
 
@@ -38,7 +39,6 @@ struct AuditionDetailView: View {
                     Spacer()
 
                     Menu {
-                        Button { showSides = true } label: { Label(a.scenes.isEmpty ? "Add sides" : "Revised sides", systemImage: a.scenes.isEmpty ? "doc.badge.plus" : "doc.badge.arrow.up") }
                         Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                         Divider()
@@ -160,14 +160,8 @@ struct AuditionDetailView: View {
                 }
             } else if next?.kind == .scene {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
-                Text("No sides captured yet").font(.otTitle)
-                Text("Nothing was readable in what you added this audition from — rescan or retype the sides to prepare and shoot this scene.").font(.otCallout).foregroundStyle(OT.labelSecondary)
-                Button {
-                    showSides = true
-                } label: {
-                    Label("Add or scan sides", systemImage: "doc.badge.plus")
-                }
-                .buttonStyle(.otPrimary)
+                Text("Add your sides below").font(.otTitle)
+                Text("Attach your script sides to prepare and shoot this scene.").font(.otCallout).foregroundStyle(OT.labelSecondary)
             } else {
                 SectionLabel(text: "Everything's in")
                 Text("Watch it once, then send").font(.otTitle)
@@ -414,6 +408,7 @@ struct RevisedSidesSheet: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var reading = false
+    @State private var photoItems: [PhotosPickerItem] = []
 
     private var audition: Audition? {
         store.audition(auditionID)
@@ -462,6 +457,10 @@ struct RevisedSidesSheet: View {
 
                     Button { showImporter = true } label: {
                         Label("Import a PDF or text file", systemImage: "doc")
+                    }
+
+                    PhotosPicker(selection: $photoItems, matching: .images) {
+                        Label("Pick from Photos", systemImage: "photo.on.rectangle")
                     }
 
                     Button {
@@ -530,6 +529,25 @@ struct RevisedSidesSheet: View {
                 }
             }
             .ignoresSafeArea()
+        }
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            reading = true
+            Task {
+                var images: [UIImage] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        images.append(image)
+                    }
+                }
+                guard !images.isEmpty else {
+                    await MainActor.run { reading = false }
+                    return
+                }
+                let recognized = await NoticeOCR.recognizeText(in: images)
+                await MainActor.run { text = recognized; reading = false; photoItems = [] }
+            }
         }
     }
 }

@@ -36,9 +36,9 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Button { store.push(.editSlate) } label: {
                         HStack(spacing: 14) {
-                            Circle()
-                                .fill(OT.accent)
+                            HeadshotImage(realKey: "front", iconSize: 28).id(store.headshotVersion)
                                 .frame(width: 64, height: 64)
+                                .clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
                                 Text(store.slate.summary)

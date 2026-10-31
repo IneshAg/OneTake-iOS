@@ -265,6 +265,7 @@ struct HeadshotImage: View {
     /// Which of the actor's own headshots to show (`front`, `left`, `right`). Without one taken —
     /// or with no key — it's a neutral silhouette, never a stand-in photo of someone else.
     var realKey: String? = nil
+    var iconSize: CGFloat? = nil
 
     var body: some View {
         if let realKey, let real = HeadshotStore.load(key: realKey) {
@@ -278,7 +279,7 @@ struct HeadshotImage: View {
                 .contentShape(Rectangle())
         } else {
             LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
-                .overlay(Image(systemName: "person.fill").font(.system(size: 40)).foregroundStyle(.white.opacity(0.35)))
+                .overlay(Image(systemName: "person.fill").font(.system(size: iconSize ?? 40)).foregroundStyle(.white.opacity(0.35)))
         }
     }
 }
@@ -287,6 +288,7 @@ struct HeadshotImage: View {
 
 struct ProfileButton: View {
     var action: () -> Void
+    @Environment(AppStore.self) private var store
 
     private var strokeColor: Color {
         Color(UIColor(light: 0x1E1A22, dark: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.85))
@@ -295,9 +297,10 @@ struct ProfileButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle()
-                    .fill(OT.accent)
+                HeadshotImage(realKey: "front", iconSize: 20)
+                    .id(store.headshotVersion)
                     .frame(width: 44, height: 44)
+                    .clipShape(Circle())
                     .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
             }
             .frame(width: 44, height: 44)

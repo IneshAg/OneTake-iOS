@@ -330,3 +330,27 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
 2. **Missing Details & Notice Review (`AddAuditionFlow.swift`)**:
    - Replaced bulky warning cards with streamlined single-row cards (`.otCard(radius: 20)` and `.otFillField`).
    - Replaced competing full-width `.otPrimary` buttons with tasteful accent pill buttons (`[Add sides]`), keeping the bottom sticky action button as the single primary call-to-action on the screen.
+
+---
+
+## 15. Profile Avatar Fallbacks, Sides De-duplication & Photo Gallery Sides Import
+
+### Problems Identified
+1. **Blank Profile Avatar**:
+   - Both the Profile screen header and the Auditions header `ProfileButton` rendered a blank `Circle().fill(OT.accent)` with no icon, initials, or headshot fallback, appearing as an empty white circle on dark mode.
+2. **Duplicate "Add sides" Actions on Audition Detail Screen**:
+   - Tapping the top-right `...` menu presented a redundant "Add sides" option right above the compact sides card.
+   - When an audition had empty scenes, the `upNext` hero card also displayed a large "No sides captured yet" banner with a full-width `.otPrimary` "Add or scan sides" button directly above the compact `sidesCard`, creating 2-3 duplicate paths for the same action on a single screen.
+3. **Missing Photo Library Option for Script Sides**:
+   - Actors who keep photos of script sides in their photo library could only paste text, import documents (PDF/RTF), or use the camera document scanner, with no option to pick sides photos directly from the gallery.
+
+### Implementation
+1. **Avatar Icon & Photo Fallback ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift), [ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift))**:
+   - Enhanced `HeadshotImage` to support custom `iconSize` while retaining its neutral `person.fill` silhouette on linear gradient fallback.
+   - Updated `ProfileButton` in `Components.swift` and the profile card avatar in `ProfileViews.swift` to render `HeadshotImage(realKey: "front")` with `store.headshotVersion` observation, ensuring actors see their actual headshot or a sleek person silhouette icon instead of a blank white shape.
+2. **Sides UI De-duplication ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - Removed the redundant "Add sides" button from the `...` context menu.
+   - Streamlined the `upNext` empty-sides card to a concise text prompt ("Add your sides below"), removing the competing full-width button so user focus stays on the compact `sidesCard`.
+3. **Gallery Image Picker for Sides ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift), [AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift))**:
+   - Integrated `PhotosPicker(selection:matching:)` ("Pick from Photos", `photo.on.rectangle`) in both `RevisedSidesSheet` and `AddDraftSidesSheet`.
+   - Connected selected images directly into `NoticeOCR.recognizeText(in:)` to extract dialogue text on-device seamlessly.
