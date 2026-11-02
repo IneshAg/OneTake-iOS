@@ -80,15 +80,31 @@ enum NoticeOCR {
     }
 
     /// Extracts text from a file the user picked with the file importer: PDF via PDFKit, RTF via
-    /// NSAttributedString, anything else as plain text. Caller is responsible for the security-scoped
-    /// resource around `url`.
-    static func extractText(fromFileAt url: URL) -> String? {
+    /// NSAttributedString, anything else as plain text. If a PDF is an image-only scan (photocopy)
+    /// without selectable text, automatically rasterizes its pages and runs Apple Vision OCR.
+    /// Caller is responsible for the security-scoped resource around `url`.
+    static func extractText(fromFileAt url: URL) async -> String? {
         switch url.pathExtension.lowercased() {
         case "pdf":
             guard let doc = PDFDocument(url: url) else { return nil }
             var text = ""
             for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
-            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if looksReadable(trimmed) { return trimmed }
+
+            // Scanned PDF fallback: render pages to high-res images and run on-device Apple Vision OCR
+            var images: [UIImage] = []
+            let pageLimit = min(doc.pageCount, 30)
+            for i in 0..<pageLimit {
+                if let page = doc.page(at: i), let img = renderPDFPage(page) {
+                    images.append(img)
+                }
+            }
+            if !images.isEmpty {
+                let ocrText = await recognizeText(in: images)
+                return looksReadable(ocrText) ? ocrText : nil
+            }
+            return nil
         case "rtf":
             guard let data = try? Data(contentsOf: url),
                   let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
@@ -96,6 +112,47 @@ enum NoticeOCR {
             return attributed.string
         default:
             return try? String(contentsOf: url, encoding: .utf8)
+        }
+    }
+
+    /// Synchronous quick extraction for digital text files.
+    static func extractText(fromFileAt url: URL) -> String? {
+        switch url.pathExtension.lowercased() {
+        case "pdf":
+            guard let doc = PDFDocument(url: url) else { return nil }
+            var text = ""
+            for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case "rtf":
+            guard let data = try? Data(contentsOf: url),
+                  let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+            else { return nil }
+            return attributed.string
+        default:
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+    }
+
+    /// Renders a PDF page to a crisp 2048px UIImage upright for Apple Vision OCR.
+    static func renderPDFPage(_ page: PDFPage, targetWidth: CGFloat = 2048) -> UIImage? {
+        let pageRect = page.bounds(for: .mediaBox)
+        guard pageRect.width > 0, pageRect.height > 0 else { return nil }
+        let scale = targetWidth / pageRect.width
+        let targetSize = CGSize(width: targetWidth, height: pageRect.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: targetSize))
+            ctx.cgContext.saveGState()
+            // Invert coordinate system to match PDF bottom-left origin
+            ctx.cgContext.translateBy(x: 0, y: targetSize.height)
+            ctx.cgContext.scaleBy(x: scale, y: -scale)
+            page.draw(with: .mediaBox, to: ctx.cgContext)
+            ctx.cgContext.restoreGState()
         }
     }
 }

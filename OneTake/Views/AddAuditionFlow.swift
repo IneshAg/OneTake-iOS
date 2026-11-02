@@ -42,13 +42,17 @@ struct AddAuditionFlow: View {
                 switch result {
                 case .success(let url):
                     let accessed = url.startAccessingSecurityScopedResource()
-                    let text = NoticeOCR.extractText(fromFileAt: url)
-                    if accessed { url.stopAccessingSecurityScopedResource() }
-                    if let text, NoticeOCR.looksReadable(text) {
-                        let draft = NoticeParser.parse(text)
-                        store.startAuditionDraft(draft)
-                    } else {
-                        unreadableNoticeError = true
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    Task {
+                        let text = await NoticeOCR.extractText(fromFileAt: url)
+                        await MainActor.run {
+                            if let text, NoticeOCR.looksReadable(text) {
+                                let draft = NoticeParser.parse(text)
+                                store.startAuditionDraft(draft)
+                            } else {
+                                unreadableNoticeError = true
+                            }
+                        }
                     }
                 case .failure:
                     unreadableNoticeError = true
@@ -95,7 +99,11 @@ struct AddAuditionFlow: View {
         store.incomingShare = nil
         var parts: [String] = []
         if let text = item.text, !text.isEmpty { parts.append(text) }
-        parts += item.pdfs.compactMap(NoticeOCR.extractText(fromFileAt:))
+        for pdfURL in item.pdfs {
+            if let extracted = await NoticeOCR.extractText(fromFileAt: pdfURL) {
+                parts.append(extracted)
+            }
+        }
         let images = item.images.compactMap { UIImage(contentsOfFile: $0.path) }
         if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
         ShareInbox.remove(item)
@@ -189,11 +197,13 @@ enum NoticeParser {
         /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
         /// sides out of it instead of substituting a canned scene.
         var sourceText = ""
+        var customScenes: [ScriptScene]? = nil
 
         static let blank = Draft()
 
         var hasSides: Bool {
-            !ScriptParser.parseScenes(from: sourceText, myRole: role).isEmpty
+            if let customScenes, !customScenes.isEmpty { return true }
+            return !ScriptParser.parseScenes(from: sourceText, myRole: role).isEmpty
         }
 
         var missingRequiredDetails: [String] {
@@ -206,7 +216,7 @@ enum NoticeParser {
         }
 
         func makeAudition() -> Audition {
-            let parsedScenes = ScriptParser.parseScenes(from: sourceText, myRole: role)
+            let parsedScenes = (customScenes?.isEmpty == false ? customScenes : nil) ?? ScriptParser.parseScenes(from: sourceText, myRole: role)
             var pieces: [Piece] = [
                 .init(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: false)
             ]
@@ -603,12 +613,184 @@ enum NoticeParser {
     }
 }
 
+// MARK: - Interactive Script Review & 1-Tap Line Editor ("Magic Highlighter")
+
+struct ScriptReviewAndEditView: View {
+    @Binding var scenes: [ScriptScene]
+    @State private var editingLine: (sceneIndex: Int, lineIndex: Int)?
+    @State private var editedText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(scenes.enumerated()), id: \.element.id) { sIdx, scene in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(scene.heading)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(OT.accent)
+                        Spacer()
+                        Text("\(scene.lines.count) lines · ≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60))")
+                            .font(.otCaption)
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                    .padding(.bottom, 2)
+
+                    ForEach(Array(scene.lines.enumerated()), id: \.element.id) { lIdx, line in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .center, spacing: 8) {
+                                // 1-Tap Role Toggle Pill
+                                Button {
+                                    toggleSpeaker(sceneIndex: sIdx, lineIndex: lIdx)
+                                    Haptics.tick()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: line.isMine ? "person.crop.circle.fill" : "person.2.fill")
+                                            .font(.system(size: 10, weight: .bold))
+                                        Text(line.isMine ? "\(line.character) (YOU)" : "\(line.character)")
+                                            .font(.system(size: 11, weight: .bold))
+                                    }
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(line.isMine ? OT.prompterGold.opacity(0.2) : OT.reader.opacity(0.18))
+                                            .overlay(
+                                                Capsule().stroke(line.isMine ? OT.prompterGold.opacity(0.5) : OT.reader.opacity(0.4), lineWidth: 1)
+                                            )
+                                    )
+                                    .foregroundStyle(line.isMine ? OT.prompterGold : OT.reader)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+
+                                // Merge with above button (if not first line)
+                                if lIdx > 0 {
+                                    Button {
+                                        mergeWithAbove(sceneIndex: sIdx, lineIndex: lIdx)
+                                        Haptics.tick()
+                                    } label: {
+                                        Image(systemName: "arrow.turn.left.up")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(OT.labelTertiary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Merge with above line")
+                                }
+
+                                // Delete line button
+                                Button {
+                                    deleteLine(sceneIndex: sIdx, lineIndex: lIdx)
+                                    Haptics.tick()
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(OT.labelTertiary.opacity(0.8))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Delete line")
+                            }
+
+                            // Editable Line Text
+                            Text(line.text)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(line.isMine ? .white : OT.labelPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(line.isMine ? Color.white.opacity(0.06) : Color.white.opacity(0.03))
+                                )
+                                .onTapGesture {
+                                    editingLine = (sIdx, lIdx)
+                                    editedText = line.text
+                                }
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+            }
+        }
+        .sheet(item: Binding(
+            get: { editingLine.map { EditLinePayload(sceneIndex: $0.sceneIndex, lineIndex: $0.lineIndex) } },
+            set: { if $0 == nil { editingLine = nil } }
+        )) { payload in
+            NavigationStack {
+                VStack(spacing: 16) {
+                    Text("Edit Line Text")
+                        .font(.otHeadline)
+                        .padding(.top, 16)
+
+                    TextEditor(text: $editedText)
+                        .padding(10)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .frame(minHeight: 120)
+
+                    HStack(spacing: 12) {
+                        Button("Cancel") {
+                            editingLine = nil
+                        }
+                        .buttonStyle(.otSecondary)
+
+                        Button("Save") {
+                            if scenes.indices.contains(payload.sceneIndex),
+                               scenes[payload.sceneIndex].lines.indices.contains(payload.lineIndex) {
+                                scenes[payload.sceneIndex].lines[payload.lineIndex].text = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            editingLine = nil
+                            Haptics.success()
+                        }
+                        .buttonStyle(.otPrimary)
+                    }
+                    .padding(.horizontal, 16)
+
+                    Spacer()
+                }
+                .padding()
+                .preferredColorScheme(.dark)
+            }
+            .presentationDetents([.height(300)])
+        }
+    }
+
+    private func toggleSpeaker(sceneIndex: Int, lineIndex: Int) {
+        guard scenes.indices.contains(sceneIndex),
+              scenes[sceneIndex].lines.indices.contains(lineIndex) else { return }
+        scenes[sceneIndex].lines[lineIndex].isMine.toggle()
+    }
+
+    private func deleteLine(sceneIndex: Int, lineIndex: Int) {
+        guard scenes.indices.contains(sceneIndex),
+              scenes[sceneIndex].lines.indices.contains(lineIndex) else { return }
+        scenes[sceneIndex].lines.remove(at: lineIndex)
+    }
+
+    private func mergeWithAbove(sceneIndex: Int, lineIndex: Int) {
+        guard scenes.indices.contains(sceneIndex),
+              scenes[sceneIndex].lines.indices.contains(lineIndex),
+              lineIndex > 0 else { return }
+        let current = scenes[sceneIndex].lines[lineIndex]
+        scenes[sceneIndex].lines[lineIndex - 1].text += " " + current.text
+        scenes[sceneIndex].lines.remove(at: lineIndex)
+    }
+}
+
+private struct EditLinePayload: Identifiable {
+    var id: String { "\(sceneIndex)_\(lineIndex)" }
+    let sceneIndex: Int
+    let lineIndex: Int
+}
+
 // MARK: - 6.1 Draft sides sheet (Add or replace sides during audition creation)
 
 struct AddDraftSidesSheet: View {
     @Binding var draft: NoticeParser.Draft
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var editableScenes: [ScriptScene] = []
     @State private var showImporter = false
     @State private var showScanner = false
     @State private var scannerUnavailable = false
@@ -617,6 +799,10 @@ struct AddDraftSidesSheet: View {
 
     private var parsed: [ScriptScene] {
         ScriptParser.parseScenes(from: text, myRole: draft.role)
+    }
+
+    private var activeScenes: [ScriptScene] {
+        editableScenes.isEmpty ? parsed : editableScenes
     }
 
     var body: some View {
@@ -628,8 +814,9 @@ struct AddDraftSidesSheet: View {
             ) {
                 Button(draft.hasSides ? "Replace" : "Add") {
                     draft.sourceText = text
-                    if !parsed.isEmpty {
-                        draft.scenes = max(parsed.count, draft.scenes)
+                    draft.customScenes = activeScenes
+                    if !activeScenes.isEmpty {
+                        draft.scenes = max(activeScenes.count, draft.scenes)
                     }
                     dismiss()
                 }
@@ -648,7 +835,10 @@ struct AddDraftSidesSheet: View {
                         Spacer()
                         PasteButton(payloadType: String.self) { strings in
                             let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !pasted.isEmpty { text = pasted }
+                            if !pasted.isEmpty {
+                                text = pasted
+                                editableScenes = ScriptParser.parseScenes(from: pasted, myRole: draft.role)
+                            }
                         }
                         .buttonBorderShape(.capsule)
                         .tint(OT.accent)
@@ -656,6 +846,9 @@ struct AddDraftSidesSheet: View {
 
                     TextField("Or paste or type sides here...", text: $text, axis: .vertical)
                         .lineLimit(6...14)
+                        .onChange(of: text) { _, newText in
+                            editableScenes = ScriptParser.parseScenes(from: newText, myRole: draft.role)
+                        }
 
                     Button { showImporter = true } label: {
                         Label("Import a PDF or text file", systemImage: "doc")
@@ -679,33 +872,13 @@ struct AddDraftSidesSheet: View {
                 }
 
                 if !text.isEmpty {
-                    Section("Detected from sides") {
-                        if !parsed.isEmpty {
-                            LabeledContent("Scenes", value: "\(parsed.count)")
-                            LabeledContent("Your lines (\(draft.role.isEmpty ? "Your role" : draft.role))", value: "\(parsed.flatMap(\.lines).filter(\.isMine).count)")
-                            LabeledContent("Total character lines", value: "\(parsed.flatMap(\.lines).count)")
+                    Section("Detected from sides (Tap speaker or text to edit)") {
+                        if !activeScenes.isEmpty {
+                            LabeledContent("Scenes", value: "\(activeScenes.count)")
+                            LabeledContent("Your lines (\(draft.role.isEmpty ? "Your role" : draft.role))", value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)")
+                            LabeledContent("Total character lines", value: "\(activeScenes.flatMap(\.lines).count)")
 
-                            // Character turn breakdown preview
-                            ForEach(parsed) { scene in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(scene.heading)
-                                        .font(.otCaption.weight(.bold))
-                                        .foregroundStyle(OT.accent)
-                                    ForEach(scene.lines) { line in
-                                        HStack(alignment: .top, spacing: 6) {
-                                            Text(line.isMine ? "\(line.character) (YOU)" : line.character)
-                                                .font(.otCaption.weight(.bold))
-                                                .foregroundStyle(line.isMine ? OT.prompterGold : OT.reader)
-                                                .frame(width: 85, alignment: .leading)
-                                            Text(line.text)
-                                                .font(.otFootnote)
-                                                .foregroundStyle(OT.labelPrimary)
-                                                .lineLimit(2)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
+                            ScriptReviewAndEditView(scenes: $editableScenes)
                         } else {
                             Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
                                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -719,8 +892,9 @@ struct AddDraftSidesSheet: View {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(draft.hasSides ? "Replace sides" : "Add sides") {
                     draft.sourceText = text
-                    if !parsed.isEmpty {
-                        draft.scenes = max(parsed.count, draft.scenes)
+                    draft.customScenes = activeScenes
+                    if !activeScenes.isEmpty {
+                        draft.scenes = max(activeScenes.count, draft.scenes)
                     }
                     dismiss()
                 }
@@ -736,15 +910,31 @@ struct AddDraftSidesSheet: View {
         .onAppear {
             if draft.hasSides {
                 text = draft.sourceText
+                if let custom = draft.customScenes, !custom.isEmpty {
+                    editableScenes = custom
+                } else {
+                    editableScenes = ScriptParser.parseScenes(from: draft.sourceText, myRole: draft.role)
+                }
             } else {
                 text = ""
+                editableScenes = []
             }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()
-            if let extracted = NoticeOCR.extractText(fromFileAt: url) { text = extracted }
-            if accessed { url.stopAccessingSecurityScopedResource() }
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            reading = true
+            Task {
+                let extracted = await NoticeOCR.extractText(fromFileAt: url)
+                await MainActor.run {
+                    if let extracted {
+                        text = extracted
+                        editableScenes = ScriptParser.parseScenes(from: extracted, myRole: draft.role)
+                    }
+                    reading = false
+                }
+            }
         }
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in

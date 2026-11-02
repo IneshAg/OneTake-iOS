@@ -627,6 +627,7 @@ struct RevisedSidesSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var editableScenes: [ScriptScene] = []
     @State private var showImporter = false
     @State private var showScanner = false
     @State private var scannerUnavailable = false
@@ -641,9 +642,17 @@ struct RevisedSidesSheet: View {
         audition?.scenes.isEmpty ?? true
     }
 
+    private var parsed: [ScriptScene] {
+        let role = audition?.role ?? ""
+        return ScriptParser.parseScenes(from: text, myRole: role)
+    }
+
+    private var activeScenes: [ScriptScene] {
+        editableScenes.isEmpty ? parsed : editableScenes
+    }
+
     var body: some View {
         let role = audition?.role ?? ""
-        let parsed = ScriptParser.parseScenes(from: text, myRole: role)
         VStack(spacing: 0) {
             InContentNavHeader(
                 title: isNewSides ? "Add sides" : "Revised sides",
@@ -651,12 +660,12 @@ struct RevisedSidesSheet: View {
                 onBack: { dismiss() }
             ) {
                 Button(isNewSides ? "Add" : "Replace") {
-                    store.replaceSides(of: auditionID, with: parsed, sourceText: text)
+                    store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
                     dismiss()
                 }
                 .font(.otHeadline)
                 .foregroundStyle(OT.accent)
-                .disabled(parsed.isEmpty)
+                .disabled(activeScenes.isEmpty)
             }
             .padding(.horizontal, OT.gutter)
             .padding(.top, 16)
@@ -669,7 +678,10 @@ struct RevisedSidesSheet: View {
                         Spacer()
                         PasteButton(payloadType: String.self) { strings in
                             let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !pasted.isEmpty { text = pasted }
+                            if !pasted.isEmpty {
+                                text = pasted
+                                editableScenes = ScriptParser.parseScenes(from: pasted, myRole: role)
+                            }
                         }
                         .buttonBorderShape(.capsule)
                         .tint(OT.accent)
@@ -677,6 +689,9 @@ struct RevisedSidesSheet: View {
 
                     TextField(isNewSides ? "Or paste or type sides here..." : "Paste the new sides", text: $text, axis: .vertical)
                         .lineLimit(6...14)
+                        .onChange(of: text) { _, newText in
+                            editableScenes = ScriptParser.parseScenes(from: newText, myRole: role)
+                        }
 
                     Button { showImporter = true } label: {
                         Label("Import a PDF or text file", systemImage: "doc")
@@ -708,33 +723,13 @@ struct RevisedSidesSheet: View {
                 }
 
                 if !text.isEmpty {
-                    Section("Detected from sides") {
-                        if !parsed.isEmpty {
-                            LabeledContent("Scenes", value: "\(parsed.count)")
-                            LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(parsed.flatMap(\.lines).filter(\.isMine).count)")
-                            LabeledContent("Total character lines", value: "\(parsed.flatMap(\.lines).count)")
+                    Section("Detected from sides (Tap speaker or text to edit)") {
+                        if !activeScenes.isEmpty {
+                            LabeledContent("Scenes", value: "\(activeScenes.count)")
+                            LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)")
+                            LabeledContent("Total character lines", value: "\(activeScenes.flatMap(\.lines).count)")
 
-                            // Character turn breakdown preview
-                            ForEach(parsed) { scene in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(scene.heading)
-                                        .font(.otCaption.weight(.bold))
-                                        .foregroundStyle(OT.accent)
-                                    ForEach(scene.lines) { line in
-                                        HStack(alignment: .top, spacing: 6) {
-                                            Text(line.isMine ? "\(line.character) (YOU)" : line.character)
-                                                .font(.otCaption.weight(.bold))
-                                                .foregroundStyle(line.isMine ? OT.prompterGold : OT.reader)
-                                                .frame(width: 85, alignment: .leading)
-                                            Text(line.text)
-                                                .font(.otFootnote)
-                                                .foregroundStyle(OT.labelPrimary)
-                                                .lineLimit(2)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
+                            ScriptReviewAndEditView(scenes: $editableScenes)
                         } else {
                             Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
                                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -747,11 +742,11 @@ struct RevisedSidesSheet: View {
         .safeAreaInset(edge: .bottom) {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(isNewSides ? "Add sides" : "Replace sides") {
-                    store.replaceSides(of: auditionID, with: parsed, sourceText: text)
+                    store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
                     dismiss()
                 }
                 .buttonStyle(.otPrimary)
-                .disabled(parsed.isEmpty)
+                .disabled(activeScenes.isEmpty)
                 .padding(.horizontal, OT.gutter)
                 .padding(.vertical, 12)
                 .background(.ultraThinMaterial)
@@ -763,6 +758,7 @@ struct RevisedSidesSheet: View {
         .onAppear {
             if !isNewSides, let existing = audition?.scriptText, !existing.isEmpty {
                 text = existing
+                editableScenes = audition?.scenes ?? ScriptParser.parseScenes(from: existing, myRole: role)
             }
         }
         .alert("Camera scanning not available", isPresented: $scannerUnavailable) {
@@ -773,8 +769,18 @@ struct RevisedSidesSheet: View {
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()
-            if let extracted = NoticeOCR.extractText(fromFileAt: url) { text = extracted }
-            if accessed { url.stopAccessingSecurityScopedResource() }
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            reading = true
+            Task {
+                let extracted = await NoticeOCR.extractText(fromFileAt: url)
+                await MainActor.run {
+                    if let extracted {
+                        text = extracted
+                        editableScenes = ScriptParser.parseScenes(from: extracted, myRole: role)
+                    }
+                    reading = false
+                }
+            }
         }
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in

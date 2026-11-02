@@ -328,9 +328,13 @@ struct PracticeSetupView: View {
             switch result {
             case .success(let url):
                 let accessed = url.startAccessingSecurityScopedResource()
-                let text = NoticeOCR.extractText(fromFileAt: url) ?? ""
-                if accessed { url.stopAccessingSecurityScopedResource() }
-                importText(text)
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                Task {
+                    let text = await NoticeOCR.extractText(fromFileAt: url) ?? ""
+                    await MainActor.run {
+                        importText(text)
+                    }
+                }
             case .failure:
                 errorMessage = "Couldn't open that file. Try another one or paste the sides."
             }

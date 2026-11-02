@@ -131,6 +131,11 @@ enum ScriptParser {
                 continue
             }
 
+            // Watermarks, timestamps, and page numbering
+            if isWatermarkOrHeader(trimmed) {
+                continue
+            }
+
             // Character header in multi-character sides packet (e.g. "NOOR · She/her · Early 60s")
             if let match = characterHeaderRegex?.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
                let r = Range(match.range(at: 1), in: trimmed) {
@@ -362,6 +367,34 @@ enum ScriptParser {
 
     /// Formats raw dialogue text extracted from scripts, PDFs, scans, or text files:
     /// - Unwraps physical line breaks into clean, flowing prose rather than disjointed line wraps.
+    /// Strips recurring watermarks and headers (e.g. "CONFIDENTIAL", page numbers like "Page 1 of 5", agency stamps).
+    static func isWatermarkOrHeader(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        let upper = trimmed.uppercased()
+
+        if upper.contains("CONFIDENTIAL") || upper.contains("PROPERTY OF") || upper.contains("ALL RIGHTS RESERVED") {
+            return true
+        }
+        if upper.contains("NOT FOR DISTRIBUTION") || upper.contains("DO NOT DISTRIBUTE") {
+            return true
+        }
+        // Page numbering: "Page 1", "PAGE 1 OF 4", "1 of 5"
+        if let pageRegex = try? NSRegularExpression(pattern: #"^(PAGE\s+)?\d+(\s+OF\s+\d+)?$"#, options: [.caseInsensitive]),
+           pageRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        // Timestamp / date lines: "11/02/2026 14:30" or "02-11-2026"
+        if let dateRegex = try? NSRegularExpression(pattern: #"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?)?$"#),
+           dateRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        return false
+    }
+
+    /// Formats dialogue extracted from sides OCR:
+    /// - Normalizes smart quotes and apostrophes.
+    /// - Heals broken split contractions (e.g. "don ' t" -> "don't", "I ' m" -> "I'm", "can ' t" -> "can't").
     /// - Heals hyphenated line-wrap word breaks (e.g. "inter- / rogation" -> "interrogation").
     /// - Preserves and normalizes all commas, full stops, question marks, and exclamation marks.
     /// - Ensures valid punctuation spacing (e.g. "word,word" -> "word, word", "word , word" -> "word, word").
@@ -370,33 +403,49 @@ enum ScriptParser {
         let unparenthetical = stripParentheticals(raw)
         guard !unparenthetical.isEmpty else { return "" }
 
-        // 1. Unify newlines and tabs into spaces so physical page line breaks are removed
+        // 1. Unify newlines, tabs, and non-breaking spaces into standard whitespace
         var text = unparenthetical
             .replacingOccurrences(of: "\r\n", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
             .replacingOccurrences(of: "\u{200B}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "‘", with: "'")
+            .replacingOccurrences(of: "“", with: "\"")
+            .replacingOccurrences(of: "”", with: "\"")
 
-        // 2. Heal hyphenated line-wrap word breaks: e.g. "inter- rogation" -> "interrogation"
+        // 2. Heal split contractions caused by OCR (e.g. "don ' t" -> "don't", "I ' m" -> "I'm")
+        if let contractionRegex = try? NSRegularExpression(pattern: #"\b([A-Za-z]+)\s*'\s*([stmdre]|ve|ll)\b"#, options: [.caseInsensitive]) {
+            text = contractionRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1'$2")
+        }
+        if let cantRegex = try? NSRegularExpression(pattern: #"\b([Cc])\s*a\s*n\s*'\s*t\b"#) {
+            text = cantRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1an't")
+        }
+        if let wontRegex = try? NSRegularExpression(pattern: #"\b([Ww])\s*o\s*n\s*'\s*t\b"#) {
+            text = wontRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1on't")
+        }
+
+        // 3. Heal hyphenated line-wrap word breaks: e.g. "inter- rogation" -> "interrogation"
         if let regex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s+([a-z]{2,}\b)"#) {
             text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
         }
 
-        // 3. Fix spacing before punctuation (commas, periods, exclamation, question marks, semicolons)
+        // 4. Fix spacing before punctuation (commas, periods, exclamation, question marks, semicolons)
         if let spaceBeforePunct = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
             text = spaceBeforePunct.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1")
         }
 
-        // 4. Fix missing space after commas, periods, exclamation points, question marks when followed directly by a letter
+        // 5. Fix missing space after commas, periods, exclamation points, question marks when followed directly by a letter
         if let missingSpaceAfter = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
             text = missingSpaceAfter.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1 $2")
         }
 
-        // 5. Clean up multiple spaces
+        // 6. Clean up multiple spaces
         text = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 6. Ensure sentence ends with a full stop if missing ending punctuation and it's not trailing with an ellipsis or dash
+        // 7. Ensure sentence ends with a full stop if missing ending punctuation and it's not trailing with an ellipsis or dash
         if !text.isEmpty {
             let lastChar = text.last!
             if !".!?…\"'—".contains(lastChar) {
