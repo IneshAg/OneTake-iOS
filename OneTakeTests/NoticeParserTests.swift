@@ -29,7 +29,7 @@ final class NoticeParserTests: XCTestCase {
         Shortlisted candidates will be contacted.
         Anti-Casting
         """
-        let draft = NoticeParser.parse(text)
+        var draft = NoticeParser.parse(text)
         XCTAssertEqual(draft.project, "Heer Ranjha")
         XCTAssertEqual(draft.projectType, "Feature film")
         XCTAssertEqual(draft.role, "Female Lead (20 - 26 years)")
@@ -72,13 +72,13 @@ final class NoticeParserTests: XCTestCase {
         Mention "Escape Plan" in the subject
         Ankita Bajaj CASTING
         """
-        let draft = NoticeParser.parse(text)
+        var draft = NoticeParser.parse(text)
         XCTAssertEqual(draft.project, "Escape Plan")
         XCTAssertEqual(draft.castingOffice, "Ankita Bajaj Casting")
         XCTAssertTrue(draft.asks.contains("Location: Bengaluru"))
         XCTAssertTrue(draft.asks.contains("Email: casting2cast@gmail.com"))
         XCTAssertEqual(draft.candidateRoles, ["Male Actor (20-40 years)", "Female Actor (22-60 years)"])
-        XCTAssertEqual(draft.role, "Male Actor (20-40 years)")
+        XCTAssertTrue(draft.role.isEmpty)
         XCTAssertFalse(draft.hasSides)
         XCTAssertEqual(draft.scenes, 0)
         XCTAssertTrue(ScriptParser.parseScenes(from: text, myRole: draft.role).isEmpty)
@@ -130,12 +130,14 @@ final class NoticeParserTests: XCTestCase {
         Setting: Hotel room in Mecca.
         I can't talk to her right now.
         """
-        let draft = NoticeParser.parse(text)
+        var draft = NoticeParser.parse(text)
         XCTAssertEqual(draft.project, "Pilgrimage")
         XCTAssertFalse(draft.candidateRoles.contains("Multiple Roles"))
         XCTAssertFalse(draft.candidateRoles.contains("Setting"))
         XCTAssertFalse(draft.candidateRoles.contains("Casting Sides"))
         XCTAssertEqual(draft.candidateRoles, ["Noor", "Maryam", "Nadia", "Sosan", "Fatima"])
+        XCTAssertTrue(draft.role.isEmpty) // When multiple characters exist, app prompts the user to pick their role
+        draft.role = "Noor"
         XCTAssertEqual(draft.role, "Noor")
 
         let noorScenes = ScriptParser.parseScenes(from: text, myRole: "Noor")

@@ -246,7 +246,13 @@ enum NoticeParser {
         d.due = detectDate(in: text)
         let candidates = detectCandidateRoles(in: text)
         d.candidateRoles = candidates
-        if let role = candidates.first { d.role = role }
+        if candidates.count == 1 {
+            d.role = candidates[0]
+        } else {
+            // When multiple roles are present, do not arbitrarily choose one:
+            // leave it empty so the app explicitly asks the actor which role they are auditioning for.
+            d.role = ""
+        }
         if let project = detectProject(in: text) { d.project = project }
         if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
@@ -836,90 +842,94 @@ struct MissingDetailsView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                Text("Which role are you auditioning for?").font(.otCaption.weight(.bold)).foregroundStyle(OT.labelPrimary)
                                 Spacer()
                                 if showValidationErrors && isRoleEmpty {
                                     Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
                                 }
                             }
+                            Text("Select your character so OneTake knows which lines are yours to speak and which belong to your reader.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
 
                             if !availableRoles.isEmpty {
-                                Menu {
-                                    ForEach(availableRoles, id: \.self) { char in
-                                        Button {
-                                            store.auditionDraft.role = char
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack {
-                                                Text(char)
-                                                if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
-                                                    Image(systemName: "checkmark")
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(availableRoles, id: \.self) { char in
+                                            let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
+                                            Button {
+                                                store.auditionDraft.role = char
+                                                let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: char)
+                                                if !parsed.isEmpty {
+                                                    store.auditionDraft.scenes = parsed.count
                                                 }
+                                                Haptics.tick()
+                                            } label: {
+                                                HStack(spacing: 6) {
+                                                    Image(systemName: isCurrent ? "checkmark.circle.fill" : "person.fill")
+                                                        .font(.system(size: 13, weight: .bold))
+                                                    Text(char)
+                                                        .font(.otSubhead.weight(isCurrent ? .bold : .semibold))
+                                                }
+                                                .foregroundStyle(isCurrent ? Color.white : OT.accent)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 9)
+                                                .background(isCurrent ? OT.accent : OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                             }
+                                            .buttonStyle(.plain)
                                         }
                                     }
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select character / role" : store.auditionDraft.role)
-                                                .font(.otHeadline)
-                                                .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
-                                            if !store.auditionDraft.role.isEmpty && hasReaderLines {
-                                                let otherChars = availableRoles.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
-                                                if let r = otherChars.first {
-                                                    Text("Next screen will show: Who reads \(r)?")
-                                                        .font(.otCaption)
-                                                        .foregroundStyle(OT.reader)
-                                                }
-                                            }
-                                        }
-                                        Spacer()
-                                        HStack(spacing: 4) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select role" : "Change")
-                                                .font(.otCaption.weight(.semibold))
-                                                .foregroundStyle(OT.accent)
-                                            Image(systemName: "chevron.up.chevron.down")
-                                                .font(.caption2.weight(.bold))
-                                                .foregroundStyle(OT.accent)
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(OT.accentSoft, in: Capsule())
-                                    }
-                                    .padding(14)
-                                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
-                                    )
+                                    .padding(.vertical, 2)
                                 }
 
-                                // Quick role pills
-                                let hasScriptScenes = !ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty
-                                HStack(spacing: 8) {
-                                    Text(hasScriptScenes ? "From script:" : "Suggested:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                    ForEach(availableRoles, id: \.self) { char in
-                                        let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
-                                        Button {
-                                            store.auditionDraft.role = char
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack(spacing: 4) {
-                                                if isCurrent {
-                                                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                                                }
-                                                Text(char)
-                                            }
-                                            .font(.otFootnote.weight(isCurrent ? .bold : .medium))
-                                            .foregroundStyle(isCurrent ? Color.white : OT.accent)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                            .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                if !store.auditionDraft.role.isEmpty {
+                                    let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+                                    let myLinesCount = parsed.flatMap(\.lines).filter(\.isMine).count
+                                    let readerLines = parsed.flatMap(\.lines).filter { !$0.isMine }
+                                    let readerLinesCount = readerLines.count
+                                    let readerNames = Array(Set(readerLines.map { $0.character.capitalized })).sorted()
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "person.wave.2.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(OT.accent)
+                                            Text("Spoken by you (\(store.auditionDraft.role)):")
+                                                .font(.otFootnote.weight(.semibold))
+                                                .foregroundStyle(OT.accent)
+                                            Spacer()
+                                            Text("\(myLinesCount) line\(myLinesCount == 1 ? "" : "s")")
+                                                .font(.otCaption.weight(.bold))
+                                                .foregroundStyle(OT.labelPrimary)
                                         }
-                                        .buttonStyle(.plain)
+
+                                        if readerLinesCount > 0 {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "speaker.wave.2.fill")
+                                                    .font(.caption)
+                                                    .foregroundStyle(OT.reader)
+                                                Text("Spoken by reader (\(readerNames.joined(separator: ", "))):")
+                                                    .font(.otFootnote.weight(.semibold))
+                                                    .foregroundStyle(OT.reader)
+                                                Spacer()
+                                                Text("\(readerLinesCount) line\(readerLinesCount == 1 ? "" : "s")")
+                                                    .font(.otCaption.weight(.bold))
+                                                    .foregroundStyle(OT.labelPrimary)
+                                            }
+                                        } else if !parsed.isEmpty {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "sparkles")
+                                                    .font(.caption)
+                                                    .foregroundStyle(OT.labelTertiary)
+                                                Text("Solo side · no reader lines needed")
+                                                    .font(.otFootnote)
+                                                    .foregroundStyle(OT.labelSecondary)
+                                            }
+                                        }
                                     }
+                                    .padding(10)
+                                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 }
                             } else {
                                 TextField("e.g. Maya", text: $store.auditionDraft.role)
@@ -985,11 +995,13 @@ struct MissingDetailsView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 18))
                                 .foregroundStyle(OT.success)
+                            let myCount = parsedScenes.flatMap(\.lines).filter(\.isMine).count
+                            let readerCount = parsedScenes.flatMap(\.lines).filter { !$0.isMine }.count
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines")
+                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(myCount) for you\(readerCount > 0 ? " · \(readerCount) for reader" : "")")
                                     .font(.otHeadline)
                                     .foregroundStyle(OT.labelPrimary)
-                                Text("Ready for lines & reader")
+                                Text(readerCount > 0 ? "Reader lines will play under your takes" : "Solo monologue ready for practice & shoot")
                                     .font(.otFootnote)
                                     .foregroundStyle(OT.labelSecondary)
                             }
@@ -1206,11 +1218,13 @@ struct NoticeReviewView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 18))
                                 .foregroundStyle(OT.success)
+                            let myCount = parsedScenes.flatMap(\.lines).filter(\.isMine).count
+                            let readerCount = parsedScenes.flatMap(\.lines).filter { !$0.isMine }.count
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(parsedScenes.flatMap(\.lines).count) lines")
+                                Text("\(parsedScenes.count) scene\(parsedScenes.count == 1 ? "" : "s") · \(myCount) for you\(readerCount > 0 ? " · \(readerCount) for reader" : "")")
                                     .font(.otHeadline)
                                     .foregroundStyle(OT.labelPrimary)
-                                Text("Ready for lines & reader")
+                                Text(readerCount > 0 ? "Reader lines will play under your takes" : "Solo monologue ready for practice & shoot")
                                     .font(.otFootnote)
                                     .foregroundStyle(OT.labelSecondary)
                             }
@@ -1267,90 +1281,94 @@ struct NoticeReviewView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Text("Your role").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                Text("Which role are you auditioning for?").font(.otCaption.weight(.bold)).foregroundStyle(OT.labelPrimary)
                                 Spacer()
                                 if showValidationErrors && isRoleEmpty {
                                     Text("Required").font(.otCaption.weight(.semibold)).foregroundStyle(Color.red)
                                 }
                             }
+                            Text("Select your character so OneTake knows which lines are yours to speak and which belong to your reader.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
 
                             if !availableRoles.isEmpty {
-                                Menu {
-                                    ForEach(availableRoles, id: \.self) { char in
-                                        Button {
-                                            store.auditionDraft.role = char
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack {
-                                                Text(char)
-                                                if store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame {
-                                                    Image(systemName: "checkmark")
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(availableRoles, id: \.self) { char in
+                                            let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
+                                            Button {
+                                                store.auditionDraft.role = char
+                                                let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: char)
+                                                if !parsed.isEmpty {
+                                                    store.auditionDraft.scenes = parsed.count
                                                 }
+                                                Haptics.tick()
+                                            } label: {
+                                                HStack(spacing: 6) {
+                                                    Image(systemName: isCurrent ? "checkmark.circle.fill" : "person.fill")
+                                                        .font(.system(size: 13, weight: .bold))
+                                                    Text(char)
+                                                        .font(.otSubhead.weight(isCurrent ? .bold : .semibold))
+                                                }
+                                                .foregroundStyle(isCurrent ? Color.white : OT.accent)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 9)
+                                                .background(isCurrent ? OT.accent : OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                             }
+                                            .buttonStyle(.plain)
                                         }
                                     }
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select character / role" : store.auditionDraft.role)
-                                                .font(.otHeadline)
-                                                .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
-                                            if !store.auditionDraft.role.isEmpty && hasReaderLines {
-                                                let otherChars = availableRoles.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
-                                                if let r = otherChars.first {
-                                                    Text("Next screen will show: Who reads \(r)?")
-                                                        .font(.otCaption)
-                                                        .foregroundStyle(OT.reader)
-                                                }
-                                            }
-                                        }
-                                        Spacer()
-                                        HStack(spacing: 4) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select role" : "Change")
-                                                .font(.otCaption.weight(.semibold))
-                                                .foregroundStyle(OT.accent)
-                                            Image(systemName: "chevron.up.chevron.down")
-                                                .font(.caption2.weight(.bold))
-                                                .foregroundStyle(OT.accent)
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(OT.accentSoft, in: Capsule())
-                                    }
-                                    .padding(14)
-                                    .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
-                                    )
+                                    .padding(.vertical, 2)
                                 }
 
-                                // Quick role pills
-                                let hasScriptScenes = !ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty
-                                HStack(spacing: 8) {
-                                    Text(hasScriptScenes ? "From script:" : "Suggested:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                    ForEach(availableRoles, id: \.self) { char in
-                                        let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
-                                        Button {
-                                            store.auditionDraft.role = char
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack(spacing: 4) {
-                                                if isCurrent {
-                                                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                                                }
-                                                Text(char)
-                                            }
-                                            .font(.otFootnote.weight(isCurrent ? .bold : .medium))
-                                            .foregroundStyle(isCurrent ? Color.white : OT.accent)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                            .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                if !store.auditionDraft.role.isEmpty {
+                                    let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+                                    let myLinesCount = parsed.flatMap(\.lines).filter(\.isMine).count
+                                    let readerLines = parsed.flatMap(\.lines).filter { !$0.isMine }
+                                    let readerLinesCount = readerLines.count
+                                    let readerNames = Array(Set(readerLines.map { $0.character.capitalized })).sorted()
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "person.wave.2.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(OT.accent)
+                                            Text("Spoken by you (\(store.auditionDraft.role)):")
+                                                .font(.otFootnote.weight(.semibold))
+                                                .foregroundStyle(OT.accent)
+                                            Spacer()
+                                            Text("\(myLinesCount) line\(myLinesCount == 1 ? "" : "s")")
+                                                .font(.otCaption.weight(.bold))
+                                                .foregroundStyle(OT.labelPrimary)
                                         }
-                                        .buttonStyle(.plain)
+
+                                        if readerLinesCount > 0 {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "speaker.wave.2.fill")
+                                                    .font(.caption)
+                                                    .foregroundStyle(OT.reader)
+                                                Text("Spoken by reader (\(readerNames.joined(separator: ", "))):")
+                                                    .font(.otFootnote.weight(.semibold))
+                                                    .foregroundStyle(OT.reader)
+                                                Spacer()
+                                                Text("\(readerLinesCount) line\(readerLinesCount == 1 ? "" : "s")")
+                                                    .font(.otCaption.weight(.bold))
+                                                    .foregroundStyle(OT.labelPrimary)
+                                            }
+                                        } else if !parsed.isEmpty {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "sparkles")
+                                                    .font(.caption)
+                                                    .foregroundStyle(OT.labelTertiary)
+                                                Text("Solo side · no reader lines needed")
+                                                    .font(.otFootnote)
+                                                    .foregroundStyle(OT.labelSecondary)
+                                            }
+                                        }
                                     }
+                                    .padding(10)
+                                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 }
                             } else {
                                 TextField("Your role", text: $store.auditionDraft.role)
