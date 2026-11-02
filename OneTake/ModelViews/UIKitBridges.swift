@@ -310,7 +310,7 @@ final class SpeechFollower {
     private(set) var lastCommand: Command?
     private(set) var isListening = false
 
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -464,7 +464,8 @@ final class SpeechFollower {
 
     @MainActor
     func handle(_ words: [String]) {
-        if words.count < totalWords {
+        if words.count < totalWords || wordOffset >= words.count {
+            wordOffset = 0
             lastFiredIndex = -1
             pendingWord = nil
             pendingIndex = -1
@@ -522,8 +523,7 @@ final class SpeechFollower {
     }
 
     func reset() {
-        totalWords = 0
-        wordOffset = 0
+        wordOffset = totalWords
         spokenWordCount = 0
         transcript = ""
         lastCommand = nil
@@ -800,7 +800,7 @@ final class ReaderLineRecorder {
             let avg = rec.averagePower(forChannel: 0)
             if peak > self.maxPeakPower { self.maxPeakPower = peak }
             self.totalFramesCount += 1
-            if peak > -24.0 && avg > -40.0 {
+            if peak > -38.0 && avg > -55.0 {
                 self.speechFramesCount += 1
             }
             let clamped = max(-60.0, min(0.0, peak))
@@ -830,25 +830,26 @@ final class ReaderLineRecorder {
             return .recordingFailed("No audio file was created.")
         }
 
-        // Accidental quick click and stop: less than 1.0 second cannot be a valid spoken dialogue cue
-        if duration < 1.0 {
+        // Accidental quick click and stop: less than 0.4s cannot be a valid spoken dialogue cue
+        if duration < 0.4 {
             try? fm.removeItem(at: url)
             return .tooShort(duration: duration)
         }
 
-        // Check 1: Speech recognition verification (transcribed words)
+        // Check 1: Acoustic Voice Activity Detection (VAD) from live metering
+        // Peak power of speech into iPhone microphone: silence is < -55dB, normal speech is -38dB to -15dB
+        let hasAcousticVoice = (maxPeakPower > -40.0 && speechFramesCount >= 2) || maxPeakPower > -30.0
+        if hasAcousticVoice {
+            return .success(duration: duration)
+        }
+
+        // Check 2: Speech recognition verification (transcribed words) from recorded file
         let recognizedSpeech = await checkSpeechWords(in: url)
         if recognizedSpeech {
             return .success(duration: duration)
         }
 
-        // Check 2: Acoustic Voice Activity Detection (VAD)
-        let hasAcousticVoice = (maxPeakPower > -24.0 && speechFramesCount >= 4) || (maxPeakPower > -18.0 && speechFramesCount >= 2)
-        if hasAcousticVoice {
-            return .success(duration: duration)
-        }
-
-        // Neither words nor acoustic vocal energy detected: quiet or empty tap
+        // Neither acoustic vocal energy nor transcribed speech detected: quiet or empty tap
         try? fm.removeItem(at: url)
         return .noSpeechDetected
     }
@@ -862,13 +863,11 @@ final class ReaderLineRecorder {
     }
 
     private func checkSpeechWords(in url: URL) async -> Bool {
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
             return false
         }
         let request = SFSpeechURLRecognitionRequest(url: url)
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
+        request.shouldReportPartialResults = true
         return await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 await withCheckedContinuation { continuation in
@@ -889,7 +888,7 @@ final class ReaderLineRecorder {
                             continuation.resume(returning: false)
                         }
                     }
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
                         if !hasResumed {
                             hasResumed = true
                             task.cancel()
@@ -899,7 +898,7 @@ final class ReaderLineRecorder {
                 }
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
                 return false
             }
             let result = await group.next() ?? false

@@ -244,28 +244,112 @@ func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> S
 
 /// Confirms that speech follows the current line before voice-controlled screens advance.
 enum SpokenLineMatcher {
+    static let contractionMap: [String: [String]] = [
+        "dont": ["do", "not"],
+        "cant": ["can", "not"],
+        "wont": ["will", "not"],
+        "im": ["i", "am"],
+        "youre": ["you", "are"],
+        "theyre": ["they", "are"],
+        "were": ["we", "are"],
+        "isnt": ["is", "not"],
+        "arent": ["are", "not"],
+        "wasnt": ["was", "not"],
+        "werent": ["were", "not"],
+        "hasnt": ["has", "not"],
+        "havent": ["have", "not"],
+        "hadnt": ["had", "not"],
+        "wouldnt": ["would", "not"],
+        "couldnt": ["could", "not"],
+        "shouldnt": ["should", "not"],
+        "thats": ["that", "is"],
+        "whats": ["what", "is"],
+        "its": ["it", "is"],
+        "lets": ["let", "us"],
+        "gonna": ["going", "to"],
+        "wanna": ["want", "to"],
+        "gotta": ["got", "to"]
+    ]
+
+    static func cleanWord(_ raw: String) -> String {
+        let punct = CharacterSet(charactersIn: ".,!?:;\"'‘’“”()[]{}—–-")
+        let trimmed = raw.trimmingCharacters(in: punct).lowercased()
+        return trimmed.replacingOccurrences(of: "'", with: "")
+                      .replacingOccurrences(of: "’", with: "")
+    }
+
+    static func cleanWord(_ raw: Substring) -> String {
+        cleanWord(String(raw))
+    }
+
+    /// Matches spoken transcript against expected text, returning exact token indices in `text.split(separator: " ")`
+    /// so highlighting and prompter advancement remain perfectly synchronized.
     static func matchedWordIndices(in expectedText: String, transcript: String) -> Set<Int> {
-        let expected = words(in: expectedText)
-        let spoken = words(in: transcript)
+        let expectedTokens = expectedText.split(separator: " ")
+        guard !expectedTokens.isEmpty else { return [] }
+
+        let spokenWords = transcript.split(separator: " ").map { cleanWord($0) }.filter { !$0.isEmpty }
+        guard !spokenWords.isEmpty else { return [] }
+
         var result = Set<Int>()
         var cursor = 0
-        for (index, word) in expected.enumerated() {
-            guard cursor < spoken.count else { break }
-            if let match = spoken[cursor...].firstIndex(of: word) {
+
+        for (index, token) in expectedTokens.enumerated() {
+            let target = cleanWord(token)
+            guard !target.isEmpty else { continue }
+
+            // 1. Direct sequential match at or after cursor
+            if cursor < spokenWords.count, let found = spokenWords[cursor...].firstIndex(of: target) {
                 result.insert(index)
-                cursor = match + 1
+                cursor = found + 1
+                continue
+            }
+
+            // 2. Out-of-order or repeated word match anywhere in spoken words
+            if spokenWords.contains(target) {
+                result.insert(index)
+                continue
+            }
+
+            // 3. Contraction expansion (e.g. expected "don't", spoken "do not")
+            if let expansion = contractionMap[target] {
+                if cursor < spokenWords.count {
+                    if let first = spokenWords[cursor...].firstIndex(of: expansion[0]),
+                       first + 1 < spokenWords.count, spokenWords[first + 1] == expansion[1] {
+                        result.insert(index)
+                        cursor = first + 2
+                        continue
+                    }
+                }
+                if spokenWords.contains(expansion[0]) && spokenWords.contains(expansion[1]) {
+                    result.insert(index)
+                    continue
+                }
+            }
+
+            // 4. Reverse contraction match (e.g. expected "do not", spoken "don't")
+            for (contraction, expansion) in contractionMap {
+                if expansion.contains(target), spokenWords.contains(contraction) {
+                    result.insert(index)
+                    break
+                }
             }
         }
+
         return result
     }
 
     static func requiredMatches(for text: String) -> Int {
-        let count = words(in: text).count
-        return count <= 2 ? count : Int(ceil(Double(count) * 0.8))
-    }
-
-    private static func words(in text: String) -> [String] {
-        text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let tokens = text.split(separator: " ").map { cleanWord($0) }.filter { !$0.isEmpty }
+        let count = tokens.count
+        switch count {
+        case 0: return 0
+        case 1: return 1
+        case 2: return 1
+        case 3...4: return 2
+        case 5...7: return max(2, Int(Double(count) * 0.55))
+        default: return max(3, Int(Double(count) * 0.55))
+        }
     }
 }
 

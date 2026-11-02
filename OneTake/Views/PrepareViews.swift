@@ -1121,15 +1121,7 @@ struct RecordReaderView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
             .task {
-                if #available(iOS 17.0, *) {
-                    microphoneAllowed = await AVAudioApplication.requestRecordPermission()
-                } else {
-                    microphoneAllowed = await withCheckedContinuation { continuation in
-                        AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                            continuation.resume(returning: granted)
-                        }
-                    }
-                }
+                microphoneAllowed = await SpeechFollower.requestAccess()
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
                     let scene = audition.scenes[sceneIndex]
                     let allUnowned = scene.lines.filter { !$0.isMine }

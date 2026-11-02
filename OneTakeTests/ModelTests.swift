@@ -108,6 +108,66 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSpeechFollowerLineAdvancementContinuousSession() {
+        let follower = SpeechFollower()
+        // Line 1: Speech recognizer transcribes continuously
+        follower.handle(["i", "am", "ready"])
+        XCTAssertEqual(follower.transcript, "i am ready")
+
+        // Actor advances line: follower resets
+        follower.reset()
+        XCTAssertEqual(follower.transcript, "")
+
+        // Apple Speech continues same recognition session appending line 2
+        follower.handle(["i", "am", "ready", "what", "is", "next"])
+        XCTAssertEqual(follower.transcript, "what is next")
+
+        // Next word in line 2
+        follower.handle(["i", "am", "ready", "what", "is", "next", "scene"])
+        XCTAssertEqual(follower.transcript, "what is next scene")
+    }
+
+    func testSpokenLineMatcherContractionsAndAlignments() {
+        let line = "I don't think we should go in there right now."
+        // Partial speech
+        let m1 = SpokenLineMatcher.matchedWordIndices(in: line, transcript: "i don't think")
+        XCTAssertEqual(m1, [0, 1, 2]) // Exactly indices 0 ("I"), 1 ("don't"), 2 ("think")
+
+        // Contraction expansion: actor says "do not"
+        let m2 = SpokenLineMatcher.matchedWordIndices(in: line, transcript: "i do not think we should")
+        XCTAssertTrue(m2.contains(0)) // "I"
+        XCTAssertTrue(m2.contains(1)) // "don't" (matched via "do not")
+        XCTAssertTrue(m2.contains(2)) // "think"
+        XCTAssertTrue(m2.contains(3)) // "we"
+        XCTAssertTrue(m2.contains(4)) // "should"
+
+        // Reverse contraction: line has "do not", actor says "don't"
+        let line2 = "I do not know."
+        let m3 = SpokenLineMatcher.matchedWordIndices(in: line2, transcript: "i don't know")
+        XCTAssertTrue(m3.contains(0))
+        XCTAssertTrue(m3.contains(1))
+        XCTAssertTrue(m3.contains(2))
+        XCTAssertTrue(m3.contains(3))
+    }
+
+    func testSpokenLineMatcherFlexibleAdvancementThresholds() {
+        // 1-word line
+        XCTAssertEqual(SpokenLineMatcher.requiredMatches(for: "Yes."), 1)
+
+        // 2-word line (50% is enough to advance)
+        XCTAssertEqual(SpokenLineMatcher.requiredMatches(for: "Come here."), 1)
+
+        // 3-word line
+        XCTAssertEqual(SpokenLineMatcher.requiredMatches(for: "Who is that?"), 2)
+
+        // Full line verification
+        let line = "Wait for me near the front door."
+        let transcript = "wait for me near front door" // "the" was skipped
+        let matched = SpokenLineMatcher.matchedWordIndices(in: line, transcript: transcript)
+        XCTAssertGreaterThanOrEqual(matched.count, SpokenLineMatcher.requiredMatches(for: line))
+    }
+
+    @MainActor
     func testDocumentScannerSaveButtonRepositionedToBottomRight() throws {
         let coordinator = DocumentScannerView.Coordinator { _ in }
         let vc = VNDocumentCameraViewController()
