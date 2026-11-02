@@ -132,4 +132,33 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(scenes[0].lines[0].text, "I can't do this anymore.")
         XCTAssertEqual(scenes[0].lines[1].text, "Please listen to me.")
     }
+
+    func testLongMonologueIsDividedIntoDeliverableThoughtUnits() {
+        let monologue = """
+        NOOR
+        You know I've called you my miracle child, Maryam. I had such trouble conceiving.
+        I thought it was my fault, that I was the cause. But I wasn't.
+        Right after the Russians invaded Afghanistan, they were rounding up anyone who
+        was not a communist sympathizer. They took your father—my husband—in for
+        interrogation. People didn't return home to their families after these types of
+        arrests. After two weeks of no information, no answers, I thought the worst.
+        """
+        let scenes = ScriptParser.parseScenes(from: monologue, myRole: "Noor")
+        XCTAssertEqual(scenes.count, 1)
+        // Instead of 1 gigantic unreadable 78-word wall of text, it should be divided into digestible beats
+        XCTAssertGreaterThan(scenes[0].lines.count, 2)
+        for line in scenes[0].lines {
+            XCTAssertEqual(line.character, "Noor")
+            XCTAssertTrue(line.isMine)
+            let wordCount = line.text.split(separator: " ").count
+            XCTAssertLessThanOrEqual(wordCount, 25, "Line should be a digestible teleprompter beat: \(line.text)")
+        }
+    }
+
+    func testProtectedAbbreviationsDoNotSplitSentences() {
+        let text = "Dr. Stone met with Lt. Col. Davis at 6 p.m. in the U.S. capital."
+        let units = ScriptParser.divideIntoThoughtUnits(text)
+        XCTAssertEqual(units.count, 1)
+        XCTAssertEqual(units[0], "Dr. Stone met with Lt. Col. Davis at 6 p.m. in the U.S. capital.")
+    }
 }

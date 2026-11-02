@@ -83,7 +83,10 @@ enum ScriptParser {
                 return
             }
             let mine = isSameCharacter(normalizedName(character), roleName)
-            lines.append(ScriptLine(character: character.capitalized, text: cleaned, isMine: mine))
+            let beats = divideIntoThoughtUnits(cleaned)
+            for beat in beats {
+                lines.append(ScriptLine(character: character.capitalized, text: beat, isMine: mine))
+            }
             currentText = ""
         }
 
@@ -478,5 +481,177 @@ enum ScriptParser {
     private static func isActHeading(_ raw: String) -> Bool {
         let upper = raw.trimmingCharacters(in: .whitespaces).uppercased()
         return upper.hasPrefix("ACT ") || upper.hasPrefix("ACT ONE") || upper.hasPrefix("ACT TWO") || upper.hasPrefix("COLD OPEN") || upper.hasPrefix("PROLOGUE") || upper.hasPrefix("EPILOGUE")
+    }
+
+    // MARK: - Thought Unit & Beat Division (Algorithmic Model)
+
+    /// Divides long dialogue blocks or monologues into natural, deliverable thought units / breath beats
+    /// (typically 8 to 22 words) so that:
+    /// 1. Teleprompter cards are easily readable at high font sizes without overwhelming blocks of text.
+    /// 2. Speech recognition matches each beat smoothly and advances accurately.
+    /// 3. Memory drills (First Letter, Mask & Reveal) operate on digestible chunks.
+    /// Works offline deterministically with high accuracy across all iOS versions.
+    static func divideIntoThoughtUnits(_ text: String) -> [String] {
+        let cleaned = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return [] }
+
+        // Short lines (under 22 words) stay intact
+        let words = cleaned.split(separator: " ")
+        if words.count <= 22 {
+            return [cleaned]
+        }
+
+        // 1. Split into raw sentences using punctuation boundaries (. ! ? …) while protecting abbreviations
+        let rawSentences = splitIntoSentences(cleaned)
+        guard rawSentences.count > 1 || words.count > 28 else {
+            return [cleaned]
+        }
+
+        var units: [String] = []
+        var currentUnit = ""
+        var currentWordCount = 0
+
+        for sentence in rawSentences {
+            let sTrimmed = sentence.trimmingCharacters(in: .whitespaces)
+            guard !sTrimmed.isEmpty else { continue }
+            let sWords = sTrimmed.split(separator: " ").count
+
+            // If a single sentence is very long (> 28 words), split it at clause boundaries
+            if sWords > 28 {
+                if !currentUnit.isEmpty {
+                    units.append(currentUnit)
+                    currentUnit = ""
+                    currentWordCount = 0
+                }
+                let clauses = splitLongSentenceIntoClauses(sTrimmed)
+                for clause in clauses {
+                    units.append(clause)
+                }
+                continue
+            }
+
+            // If adding this sentence keeps the unit under ~20 words, group them (e.g. short question + short answer)
+            if currentUnit.isEmpty {
+                currentUnit = sTrimmed
+                currentWordCount = sWords
+            } else if currentWordCount + sWords <= 20 {
+                currentUnit += " " + sTrimmed
+                currentWordCount += sWords
+            } else {
+                units.append(currentUnit)
+                currentUnit = sTrimmed
+                currentWordCount = sWords
+            }
+        }
+
+        if !currentUnit.isEmpty {
+            units.append(currentUnit)
+        }
+
+        return units.isEmpty ? [cleaned] : units
+    }
+
+    /// Splits text into sentences by looking for punctuation followed by whitespace,
+    /// protecting common titles, abbreviations, initials, and decimal numbers.
+    private static func splitIntoSentences(_ text: String) -> [String] {
+        var protected = text
+
+        // Known abbreviations
+        let abbrevs = [
+            "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Rev.", "Capt.", "Lt.", "Col.", "Gen.", "Sgt.", "St.",
+            "U.S.", "U.K.", "E.U.", "N.Y.", "D.C.", "e.g.", "i.e.", "etc.", "vs.", "a.m.", "p.m.",
+            "I-H-R-A-M."
+        ]
+        let token = "\u{FFFC}"
+        for abbrev in abbrevs {
+            let escaped = abbrev.replacingOccurrences(of: ".", with: token)
+            protected = protected.replacingOccurrences(of: abbrev, with: escaped)
+            protected = protected.replacingOccurrences(of: abbrev.lowercased(), with: escaped.lowercased())
+        }
+
+        // Single letter initials like "J. Doe" or "A. Smith"
+        if let regex = try? NSRegularExpression(pattern: #"\b([A-Za-z])\."#) {
+            let range = NSRange(protected.startIndex..., in: protected)
+            protected = regex.stringByReplacingMatches(in: protected, range: range, withTemplate: "$1\(token)")
+        }
+
+        // Decimals like "3.5"
+        if let regex = try? NSRegularExpression(pattern: #"(\d)\.(\d)"#) {
+            let range = NSRange(protected.startIndex..., in: protected)
+            protected = regex.stringByReplacingMatches(in: protected, range: range, withTemplate: "$1\(token)$2")
+        }
+
+        // Split on sentence terminals: . ! ? … followed by whitespace or quotes
+        var sentences: [String] = []
+        var current = ""
+        let chars = Array(protected)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            current.append(c)
+
+            let isTerminal = (c == "." || c == "!" || c == "?" || c == "…")
+            if isTerminal {
+                // Check if followed by quote and then whitespace, or directly whitespace
+                var peek = i + 1
+                while peek < chars.count && (chars[peek] == "\"" || chars[peek] == "”" || chars[peek] == "’" || chars[peek] == "'") {
+                    current.append(chars[peek])
+                    peek += 1
+                    i = peek - 1
+                }
+
+                if peek < chars.count && chars[peek].isWhitespace {
+                    let restored = current.replacingOccurrences(of: token, with: ".").trimmingCharacters(in: .whitespaces)
+                    if !restored.isEmpty {
+                        sentences.append(restored)
+                        current = ""
+                    }
+                    while peek < chars.count && chars[peek].isWhitespace {
+                        peek += 1
+                    }
+                    i = peek - 1
+                }
+            }
+            i += 1
+        }
+
+        let remaining = current.replacingOccurrences(of: token, with: ".").trimmingCharacters(in: .whitespaces)
+        if !remaining.isEmpty {
+            sentences.append(remaining)
+        }
+
+        return sentences
+    }
+
+    /// Breaks a long sentence (> 28 words) at natural clause boundaries (semicolons, dashes, or conjunction commas)
+    private static func splitLongSentenceIntoClauses(_ sentence: String) -> [String] {
+        // First try splitting on semicolons or em-dashes
+        let dashOrSemiSeparators = ["; ", " — ", "—", " -- ", " --"]
+        for sep in dashOrSemiSeparators {
+            if sentence.contains(sep) {
+                let parts = sentence.components(separatedBy: sep)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                if parts.count > 1 && parts.allSatisfy({ $0.split(separator: " ").count >= 5 }) {
+                    return parts
+                }
+            }
+        }
+
+        // Try splitting on conjunction commas (e.g. ", but ", ", so ", ", and ", ", because ", ", which ")
+        let conjunctions = [", but ", ", so ", ", and ", ", because ", ", which ", ", where ", ", though "]
+        for conj in conjunctions {
+            if let range = sentence.range(of: conj) {
+                let first = String(sentence[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let second = String(sentence[range.lowerBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", ").union(.whitespaces))
+                let fCount = first.split(separator: " ").count
+                let sCount = second.split(separator: " ").count
+                if fCount >= 8 && sCount >= 8 {
+                    return [first, second]
+                }
+            }
+        }
+
+        return [sentence]
     }
 }

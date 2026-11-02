@@ -75,6 +75,26 @@ enum OnDeviceIntelligence {
         return await respond(to: prompt)
     }
 
+    /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
+    /// If unavailable or offline, returns nil, allowing the high-precision algorithmic beat divider
+    /// in ScriptParser to seamlessly handle segmentation on all iPhones.
+    static func formatAndSegmentSides(text: String, character: String) async -> [String]? {
+        let prompt = """
+        Format and divide this audition monologue or dialogue for an actor's teleprompter into
+        natural, deliverable thought units (1-2 sentences each, roughly 10-22 words per beat).
+        Output each beat on its own line. Do not include character labels or metadata.
+
+        Character: \(character)
+        Text:
+        \(text)
+        """
+        guard let answer = await respond(to: prompt) else { return nil }
+        let lines = answer.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.count > 1 ? lines : nil
+    }
+
     private static func respond(to prompt: String) async -> String? {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
