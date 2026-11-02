@@ -645,7 +645,7 @@ final class AppStore {
 
     func recordStandaloneRun(pieceID: PracticePiece.ID, linesOnYourOwn: Int) {
         guard let index = practice.firstIndex(where: { $0.id == pieceID }) else { return }
-        practice[index].linesLearned = min(linesOnYourOwn, practice[index].linesTotal)
+        practice[index].linesLearned = max(0, min(linesOnYourOwn, practice[index].linesTotal))
         promotePracticePiece(pieceID)
     }
 
@@ -680,7 +680,7 @@ final class AppStore {
         let piece = practicePiece(for: auditionID, sceneIndex: sceneIndex)
         guard let i = practice.firstIndex(where: { $0.id == piece.id }) else { return }
         var updated = practice[i]
-        updated.linesLearned = min(linesOnYourOwn, updated.linesTotal)
+        updated.linesLearned = max(0, min(linesOnYourOwn, updated.linesTotal))
         practice.remove(at: i)
         practice.insert(updated, at: 0)
     }

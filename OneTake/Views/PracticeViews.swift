@@ -36,6 +36,23 @@ struct PracticeView: View {
                                 }
                             }
                             .padding(18).otCard()
+                            .contextMenu {
+                                if piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 {
+                                    Button {
+                                        store.recordStandaloneRun(pieceID: piece.id, linesOnYourOwn: 0)
+                                        Haptics.tick()
+                                    } label: {
+                                        Label("Mark unlearned", systemImage: "arrow.counterclockwise")
+                                    }
+                                } else {
+                                    Button {
+                                        store.recordStandaloneRun(pieceID: piece.id, linesOnYourOwn: piece.linesTotal)
+                                        Haptics.success()
+                                    } label: {
+                                        Label("Mark lines learned", systemImage: "checkmark.circle")
+                                    }
+                                }
+                            }
                         }
 
                         if !store.auditions.isEmpty && !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
@@ -60,6 +77,31 @@ struct PracticeView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(!canOpen(p))
+                            .contextMenu {
+                                if p.linesLearned >= p.linesTotal && p.linesTotal > 0 {
+                                    Button {
+                                        store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: 0)
+                                        Haptics.tick()
+                                    } label: {
+                                        Label("Mark unlearned", systemImage: "arrow.counterclockwise")
+                                    }
+                                } else {
+                                    Button {
+                                        store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: p.linesTotal)
+                                        Haptics.success()
+                                    } label: {
+                                        Label("Mark lines learned", systemImage: "checkmark.circle")
+                                    }
+                                }
+                                if p.linesLearned > 0 && p.linesLearned < p.linesTotal {
+                                    Button(role: .destructive) {
+                                        store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: 0)
+                                        Haptics.tick()
+                                    } label: {
+                                        Label("Reset progress", systemImage: "arrow.counterclockwise")
+                                    }
+                                }
+                            }
                             Divider()
                         }
                     }
@@ -400,13 +442,51 @@ struct StandalonePracticeView: View {
                             }
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 16)
                         }
-                        if let pieceID, !isSample {
+                        let targetPieceID: PracticePiece.ID? = isSample ? savedSampleID : pieceID
+                        if let targetID = targetPieceID {
                             HStack {
-                                Label("\(piece.linesLearned) of \(piece.linesTotal) learned", systemImage: "checkmark.circle")
-                                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                Label("\(piece.linesLearned) of \(piece.linesTotal) learned",
+                                      systemImage: piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 ? "checkmark.circle.fill" : "checkmark.circle")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 ? OT.accent : OT.labelTertiary)
                                 Spacer()
-                                Button("Mark lines learned") { store.recordStandaloneRun(pieceID: pieceID, linesOnYourOwn: piece.linesTotal) }
+                                if piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 {
+                                    Button("Mark unlearned") {
+                                        store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                        Haptics.tick()
+                                    }
                                     .buttonStyle(.otSecondary)
+                                } else {
+                                    HStack(spacing: 8) {
+                                        if piece.linesLearned > 0 {
+                                            Button("Reset") {
+                                                store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                                Haptics.tick()
+                                            }
+                                            .buttonStyle(.otSecondary)
+                                        }
+                                        Button("Mark lines learned") {
+                                            store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: piece.linesTotal)
+                                            Haptics.success()
+                                        }
+                                        .buttonStyle(.otSecondary)
+                                    }
+                                }
+                            }
+                        } else if isSample && !scene.lines.isEmpty {
+                            HStack {
+                                Label("0 of \(scene.lines.filter(\.isMine).count) learned", systemImage: "checkmark.circle")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelTertiary)
+                                Spacer()
+                                Button("Mark lines learned") {
+                                    let saved = store.addStandalonePracticePiece(title: piece.title, character: piece.character,
+                                                                                scene: scene, detail: "Sample scene")
+                                    savedSampleID = saved.id
+                                    store.recordStandaloneRun(pieceID: saved.id, linesOnYourOwn: piece.linesTotal)
+                                    Haptics.success()
+                                }
+                                .buttonStyle(.otSecondary)
                             }
                         }
                     }

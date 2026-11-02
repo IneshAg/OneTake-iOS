@@ -42,7 +42,35 @@ struct PrepareView: View {
                     }
                     .pickerStyle(.segmented)
                     HStack {
-                        Text("\(learned(scene)) of \(scene.lines.filter(\.isMine).count) lines learned").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                        let totalMine = scene.lines.filter(\.isMine).count
+                        Menu {
+                            if learned(scene) > 0 {
+                                Button(role: .destructive) {
+                                    store.recordRun(auditionID: a.id, sceneIndex: sceneIndex, linesOnYourOwn: 0)
+                                    Haptics.tick()
+                                } label: {
+                                    Label("Mark unlearned", systemImage: "arrow.counterclockwise")
+                                }
+                            }
+                            if learned(scene) < totalMine {
+                                Button {
+                                    store.recordRun(auditionID: a.id, sceneIndex: sceneIndex, linesOnYourOwn: totalMine)
+                                    Haptics.success()
+                                } label: {
+                                    Label("Mark all lines learned", systemImage: "checkmark.circle")
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("\(learned(scene)) of \(totalMine) lines learned")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(learned(scene) == totalMine && totalMine > 0 ? OT.accent : OT.labelTertiary)
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                        }
+                        .buttonStyle(.plain)
                         Spacer()
                         HStack(spacing: 8) {
                             Button { store.push(.sceneAudioFlow(a.id, sceneIndex: sceneIndex)) } label: {
