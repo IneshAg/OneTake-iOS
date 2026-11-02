@@ -10,10 +10,17 @@ import SwiftUI
 
 struct PackageView: View {
     enum Phase { case review, sending, readyToShare, failed, sent }
+    enum ExportStage: Equatable {
+        case composing
+        case archiving
+        case uploading
+        case finalizing
+    }
 
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @State private var phase: Phase = .review
+    @State private var exportStage: ExportStage = .composing
     @State private var showDestination = false
     @State private var showShare = false
     @State private var progress = 0.0
@@ -31,7 +38,7 @@ struct PackageView: View {
             Group {
                 switch phase {
                 case .review:  review(a)
-                case .sending: SendProgressView(audition: a, progress: progress, uploading: uploading, onCancel: cancelExport)
+                case .sending: SendProgressView(audition: a, progress: progress, exportStage: exportStage, uploading: uploading, onCancel: cancelExport)
                 case .readyToShare: DeliveryReadyView(destination: a.destination, onShare: { showShare = true }, onBack: { phase = .review })
                 case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
@@ -181,27 +188,44 @@ struct PackageView: View {
         uploading = false
         phase = .sending
         progress = 0
+        exportStage = .composing
         exportErrorMessage = nil
         let takesForAudition = store.takes.filter { $0.auditionID == a.id }
         let slate = store.slate
         exportTask?.cancel()
         exportTask = Task {
             do {
+                // Stage 1: Composing video file (0% to 75% for files, 0% to 55% for link)
+                let videoWeight = asLink ? 0.55 : 0.75
                 let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
-                    // Leave the last stretch of the bar for the iCloud upload when sending a link.
-                    Task { @MainActor in progress = asLink ? p * 0.8 : p }
+                    Task { @MainActor in
+                        progress = min(videoWeight, p * videoWeight)
+                    }
+                }
+
+                // Stage 2: Archiving separate clips & headshots
+                await MainActor.run {
+                    exportStage = .archiving
+                    progress = videoWeight + 0.05
                 }
                 let archiveURL = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
                 await MainActor.run {
                     store.setExportedFile(url, for: a.id)
                     store.setSeparateArchive(archiveURL, for: a.id)
+                    progress = asLink ? 0.75 : 0.95
                 }
+
+                // Stage 3 (if link): Uploading to iCloud
                 if asLink {
-                    await MainActor.run { uploading = true }
+                    await MainActor.run {
+                        exportStage = .uploading
+                        uploading = true
+                        progress = 0.80
+                    }
                     let link = try await CloudLink.publish(url)
                     await MainActor.run {
                         store.setShareLink(link, for: a.id)
-                        progress = 1
+                        progress = 0.95
                         // Uploads can take minutes; if the actor wandered off, tell them it's ready.
                         if UIApplication.shared.applicationState != .active,
                            UserDefaults.standard.object(forKey: "n.delivery") as? Bool ?? true {
@@ -209,8 +233,17 @@ struct PackageView: View {
                         }
                     }
                 }
+
+                // Stage 4: Finalizing & smooth completion
+                await MainActor.run {
+                    exportStage = .finalizing
+                    progress = 1.0
+                }
+                // Brief pause so the user sees 100% and success state before transitioning
+                try? await Task.sleep(nanoseconds: 350_000_000)
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
+                    Haptics.success()
                     phase = .readyToShare
                 }
             } catch is CancellationError {
@@ -412,34 +445,80 @@ struct DestinationSheet: View {
 struct SendProgressView: View {
     let audition: Audition
     let progress: Double
+    var exportStage: PackageView.ExportStage = .composing
     var uploading = false
     var onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionLabel(text: "Packaging your tape").padding(.top, 20)
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(Int(progress * 100))").font(.system(size: 72, weight: .bold)).monospacedDigit()
                 Text("%").font(.otTitle)
+                Spacer()
+                if progress < 1.0 {
+                    ProgressView()
+                        .tint(OT.accent)
+                        .scaleEffect(1.1)
+                } else {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(OT.success)
+                }
             }
-            ProgressView(value: progress).tint(OT.accent)
+            ProgressView(value: min(1.0, max(0.0, progress))).tint(OT.accent)
+
+            Text(statusMessage)
+                .font(.otCallout)
+                .foregroundStyle(OT.labelSecondary)
+                .padding(.top, 2)
+
             SectionLabel(text: "Steps").padding(.top, 8)
-            step("Found your recorded pieces", done: true)
-            step("Composing one file", done: uploading || progress >= 1, active: !uploading && progress < 1)
+            step("Found your recorded pieces", done: true, active: false)
+            step("Composing main audition video",
+                 done: exportStage != .composing,
+                 active: exportStage == .composing)
+            step("Archiving separate clips & headshots",
+                 done: exportStage == .uploading || exportStage == .finalizing || progress >= 1.0,
+                 active: exportStage == .archiving)
             if audition.destination == .emailOrLink {
-                step("Uploading to your iCloud", done: progress >= 1, active: uploading && progress < 1)
+                step("Uploading to your iCloud",
+                     done: exportStage == .finalizing || progress >= 1.0,
+                     active: exportStage == .uploading)
             }
-            step("Tape ready", done: progress >= 1)
+            step("Tape ready", done: progress >= 1.0, active: exportStage == .finalizing)
             Spacer()
             Button("Cancel", action: onCancel).buttonStyle(.otSecondary)
         }
         .padding(.horizontal, OT.gutter)
     }
 
+    private var statusMessage: String {
+        switch exportStage {
+        case .composing:
+            return "Combining chosen takes and slate into one deliverable video..."
+        case .archiving:
+            return "Packaging individual clips and headshots into deliverable ZIP..."
+        case .uploading:
+            return "Uploading your package to iCloud..."
+        case .finalizing:
+            return "Finalizing delivery package..."
+        }
+    }
+
     private func step(_ t: String, done: Bool, active: Bool = false) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: done ? "checkmark.circle.fill" : active ? "arrow.triangle.2.circlepath.circle.fill" : "circle")
-                .foregroundStyle(done ? OT.success : active ? OT.accent : OT.labelTertiary)
+            if done {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(OT.success)
+            } else if active {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(OT.accent)
+            } else {
+                Image(systemName: "circle")
+                    .foregroundStyle(OT.labelTertiary)
+            }
             Text(t).font(.otBody).foregroundStyle(done || active ? OT.labelPrimary : OT.labelTertiary)
         }
         .frame(minHeight: 36)
