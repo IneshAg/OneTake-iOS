@@ -769,6 +769,19 @@ struct PracticeTakeView: View {
                     .padding(.bottom, 6)
                 }
 
+                if let lines = piece?.scene?.lines, lines.indices.contains(lineIndex), camera.state == .recording {
+                    let cur = lines[lineIndex]
+                    VoiceFollowingPill(
+                        isListening: follower.isListening,
+                        isActorLine: cur.isMine,
+                        characterName: cur.character,
+                        isFollowingVoice: true,
+                        isReaderPlaying: false
+                    )
+                    .padding(.bottom, 2)
+                    .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
+
                 if let lines = piece?.scene?.lines, !lines.isEmpty, camera.state == .recording {
                     HStack(spacing: 8) {
                         Button {

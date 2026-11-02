@@ -37,6 +37,87 @@ struct RecordButton: View {
     }
 }
 
+// MARK: - Dedicated "Following your voice" Floating Glass Pill (Figma y: 668)
+
+struct VoiceFollowingPill: View {
+    var isListening: Bool
+    var isActorLine: Bool
+    var characterName: String
+    var isFollowingVoice: Bool
+    var isReaderPlaying: Bool
+    @State private var waveAnimating = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if isActorLine {
+                if isFollowingVoice {
+                    // Audio waveform visualization
+                    HStack(spacing: 2.5) {
+                        ForEach(0..<4) { index in
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(isListening ? OT.prompterGold : Color.white.opacity(0.4))
+                                .frame(width: 2.5, height: barHeight(for: index))
+                        }
+                    }
+                    .frame(width: 16, height: 16)
+
+                    Text(isListening ? "Following your voice" : "Voice follower paused")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isListening ? OT.prompterGold : Color.white.opacity(0.8))
+                } else {
+                    Image(systemName: "timer")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Timed auto-advance")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            } else {
+                Image(systemName: isReaderPlaying ? "speaker.wave.2.fill" : "speaker.wave.1")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(OT.reader)
+                Text(characterName.isEmpty ? "Reader speaking" : "\(characterName) speaking")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(OT.reader)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color.black.opacity(0.6))
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            isActorLine && isFollowingVoice && isListening
+                                ? OT.prompterGold.opacity(0.35)
+                                : Color.white.opacity(0.15),
+                            lineWidth: 1
+                        )
+                )
+        )
+        .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+                waveAnimating = true
+            }
+        }
+    }
+
+    private func barHeight(for index: Int) -> CGFloat {
+        guard isListening else { return 4 }
+        let heights: [(CGFloat, CGFloat)] = [
+            (5, 13),
+            (11, 6),
+            (15, 8),
+            (7, 14)
+        ]
+        let (minH, maxH) = heights[index % heights.count]
+        return waveAnimating ? maxH : minH
+    }
+}
+
 // MARK: - 13c Before you roll
 // Solo-only for MVP: the solo/multi-device picker and the whole pairing flow are cut. Framing is
 // checked after the fact by Tape Check, and the prompter is the solo flow's own, below.
@@ -225,6 +306,7 @@ struct ShootFlow: View {
                         .transition(.scale(scale: 1.3).combined(with: .opacity)).id(countdown)
                     Spacer()
                 }
+                voiceStatusPill
                 sceneActionBar
                 hud
                 bottomControls
@@ -536,11 +618,27 @@ struct ShootFlow: View {
         .background(.black.opacity(0.55), in: Capsule())
     }
 
+    @ViewBuilder
+    private var voiceStatusPill: some View {
+        if stage == .scene, camera.state == .recording,
+           let lines = sceneLines, lines.indices.contains(lineIndex) {
+            let cur = lines[lineIndex]
+            VoiceFollowingPill(
+                isListening: follower.isListening,
+                isActorLine: cur.isMine,
+                characterName: cur.character,
+                isFollowingVoice: followVoice,
+                isReaderPlaying: reader.isPlaying
+            )
+            .padding(.bottom, 2)
+            .transition(.scale(scale: 0.95).combined(with: .opacity))
+        }
+    }
+
     private var hud: some View {
         HStack(spacing: 6) {
-            // Real values only: the session preset, whether exposure is actually locked, free space.
+            // Dedicated technical camera parameters: preset, AE/AF lock, storage, gesture coach.
             chip(nil, "1080p · 30")
-            chip(follower.isListening ? "mic.fill" : "mic.slash", follower.isListening ? "Listening" : "Voice off")
             Button {
                 camera.toggleExposureLock()
                 Haptics.tick()
@@ -586,33 +684,6 @@ struct ShootFlow: View {
                     .padding(.horizontal, 10)
                     .frame(height: 36)
                     .background(OT.cameraGlass, in: Capsule())
-                }
-
-                if camera.state == .recording, lines.indices.contains(lineIndex) {
-                    let cur = lines[lineIndex]
-                    if cur.isMine {
-                        HStack(spacing: 4) {
-                            Image(systemName: followVoice ? "waveform" : "timer")
-                                .font(.caption2)
-                            Text(followVoice ? "Following voice" : "Timed")
-                                .font(.otCaption.weight(.semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .frame(height: 36)
-                        .background(OT.cameraGlass, in: Capsule())
-                    } else {
-                        HStack(spacing: 4) {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.caption2)
-                            Text("\(cur.character) answering")
-                                .font(.otCaption.weight(.semibold))
-                        }
-                        .foregroundStyle(OT.reader)
-                        .padding(.horizontal, 10)
-                        .frame(height: 36)
-                        .background(OT.cameraGlass, in: Capsule())
-                    }
                 }
             }
         }
