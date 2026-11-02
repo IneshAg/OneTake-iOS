@@ -713,6 +713,28 @@ struct RevisedSidesSheet: View {
                             LabeledContent("Scenes", value: "\(parsed.count)")
                             LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(parsed.flatMap(\.lines).filter(\.isMine).count)")
                             LabeledContent("Total character lines", value: "\(parsed.flatMap(\.lines).count)")
+
+                            // Character turn breakdown preview
+                            ForEach(parsed) { scene in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(scene.heading)
+                                        .font(.otCaption.weight(.bold))
+                                        .foregroundStyle(OT.accent)
+                                    ForEach(scene.lines) { line in
+                                        HStack(alignment: .top, spacing: 6) {
+                                            Text(line.isMine ? "\(line.character) (YOU)" : line.character)
+                                                .font(.otCaption.weight(.bold))
+                                                .foregroundStyle(line.isMine ? OT.prompterGold : OT.reader)
+                                                .frame(width: 85, alignment: .leading)
+                                            Text(line.text)
+                                                .font(.otFootnote)
+                                                .foregroundStyle(OT.labelPrimary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
                         } else {
                             Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
                                 .font(.otFootnote).foregroundStyle(OT.labelTertiary)
@@ -721,6 +743,19 @@ struct RevisedSidesSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button(isNewSides ? "Add sides" : "Replace sides") {
+                    store.replaceSides(of: auditionID, with: parsed, sourceText: text)
+                    dismiss()
+                }
+                .buttonStyle(.otPrimary)
+                .disabled(parsed.isEmpty)
+                .padding(.horizontal, OT.gutter)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial)
+            }
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)

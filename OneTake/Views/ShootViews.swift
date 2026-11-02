@@ -1175,20 +1175,23 @@ struct SidesPrompterView: View {
                 }
 
                 // Current line dialogue (large, high-contrast monospace)
-                if cur.isMine {
-                    let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: cur.text, transcript: spokenTranscript)
-                    attributedPromptText(cur.text, matchedIndices: matchedIndices)
-                        .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                        .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(cur.text)
-                        .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                        .italic()
-                        .foregroundStyle(Color.white.opacity(0.88))
-                        .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                        .fixedSize(horizontal: false, vertical: true)
+                ScrollView(.vertical, showsIndicators: false) {
+                    if cur.isMine {
+                        let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: cur.text, transcript: spokenTranscript)
+                        attributedPromptText(cur.text, matchedIndices: matchedIndices)
+                            .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(cur.text)
+                            .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                            .italic()
+                            .foregroundStyle(Color.white.opacity(0.88))
+                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .frame(maxHeight: 180)
             }
 
             // Next line context (anticipate cue)
