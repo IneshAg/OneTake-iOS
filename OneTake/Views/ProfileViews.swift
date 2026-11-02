@@ -1087,11 +1087,6 @@ struct HeadshotsView: View {
                 }
                 .frame(height: 300)
 
-                HStack(alignment: .top) {
-                    tip("square.split.bottomrightquarter", "Face a window", "not a lamp")
-                    tip("rectangle", "Plain wall", "an arm’s length behind")
-                    tip("iphone", "Eye level", "a little above is fine")
-                }
                 if taken > 0 {
                     Button {
                         framingRatio = .headshot
@@ -1114,18 +1109,11 @@ struct HeadshotsView: View {
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
-                if let auditionID, let a = store.audition(auditionID) {
-                    if taken > 0 {
-                        Button("Keep headshots & continue (\(a.nextAction))") {
-                            store.continueAudition(auditionID)
-                        }
-                        .buttonStyle(.otPrimary)
-                    } else {
-                        Button("Continue without headshots (\(a.nextAction))") {
-                            store.continueAudition(auditionID)
-                        }
-                        .buttonStyle(.otPrimary)
+                if let auditionID {
+                    Button(taken > 0 ? "Continue" : "Skip & continue") {
+                        store.continueAudition(auditionID)
                     }
+                    .buttonStyle(.otPrimary)
 
                     HStack(spacing: 12) {
                         Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot(auditionID: auditionID) }
@@ -1343,15 +1331,6 @@ struct HeadshotsView: View {
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private func tip(_ s: String, _ t: String, _ d: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: s).foregroundStyle(OT.labelSecondary)
-            Text(t).font(.otSubhead.weight(.semibold))
-            Text(d).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
