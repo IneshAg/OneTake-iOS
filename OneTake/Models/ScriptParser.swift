@@ -392,6 +392,60 @@ enum ScriptParser {
         return false
     }
 
+    /// Sanitizes and properly formats text pasted from clipboard (emails, Notes, PDF text, Word docs):
+    /// - Normalizes line breaks (\r\n and \r -> \n).
+    /// - Strips zero-width and non-breaking unicode artifacts (\u{200B}, \u{FEFF}, \u{00A0}).
+    /// - Converts smart quotes (‘, ’, “, ”) to standard typewriter quotes (', ").
+    /// - Fixes broken contractions from PDF/OCR copies (e.g. "don ' t" -> "don't", "I ' m" -> "I'm").
+    /// - Fixes spacing before and after punctuation marks (commas, periods, question marks, colons).
+    /// - Preserves screenplay formatting: keeps ALL-CAPS character cue lines and dialogue blocks intact.
+    static func cleanPastedText(_ raw: String) -> String {
+        guard !raw.isEmpty else { return "" }
+
+        var text = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .replacingOccurrences(of: "\u{200B}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "‘", with: "'")
+            .replacingOccurrences(of: "“", with: "\"")
+            .replacingOccurrences(of: "”", with: "\"")
+
+        // Heal split contractions
+        if let contractionRegex = try? NSRegularExpression(pattern: #"\b([A-Za-z]+)\s*'\s*([stmdre]|ve|ll)\b"#, options: [.caseInsensitive]) {
+            text = contractionRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1'$2")
+        }
+        if let cantRegex = try? NSRegularExpression(pattern: #"\b([Cc])\s*a\s*n\s*'\s*t\b"#) {
+            text = cantRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1an't")
+        }
+        if let wontRegex = try? NSRegularExpression(pattern: #"\b([Ww])\s*o\s*n\s*'\s*t\b"#) {
+            text = wontRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1on't")
+        }
+
+        // Heal hyphenated line-wrap word breaks: e.g. "inter-\nrogation" or "inter- rogation" -> "interrogation"
+        if let hyphenRegex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s*\n?\s*([a-z]{2,}\b)"#) {
+            text = hyphenRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
+        }
+
+        // Clean up line-by-line whitespace
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            var l = line.trimmingCharacters(in: .whitespaces)
+            // Fix spaces before punctuation: "hello , world" -> "hello, world"
+            if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
+                l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
+            }
+            // Fix missing space after punctuation when followed directly by letter
+            if let missingSpace = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
+                l = missingSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
+            }
+            return l
+        }
+
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Formats dialogue extracted from sides OCR:
     /// - Normalizes smart quotes and apostrophes.
     /// - Heals broken split contractions (e.g. "don ' t" -> "don't", "I ' m" -> "I'm", "can ' t" -> "can't").

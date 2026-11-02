@@ -256,6 +256,23 @@ struct PracticeSetupView: View {
 
             Form {
             Section("Practice your own scene") {
+                HStack {
+                    Text("Paste sides from clipboard")
+                        .font(.otHeadline)
+                    Spacer()
+                    PasteButton(payloadType: String.self) { strings in
+                        let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cleaned = ScriptParser.cleanPastedText(pasted)
+                        if !cleaned.isEmpty {
+                            sidesText = cleaned
+                            autoFillFromSides(cleaned)
+                            Haptics.success()
+                        }
+                    }
+                    .buttonBorderShape(.capsule)
+                    .tint(OT.accent)
+                }
+
                 TextField("Scene name", text: $sceneTitle)
                 TextField("Your character", text: $character)
                 HStack(spacing: 18) {
@@ -268,6 +285,9 @@ struct PracticeSetupView: View {
                 .font(.otFootnote.weight(.medium))
                 TextEditor(text: $sidesText)
                     .frame(minHeight: 150)
+                    .onChange(of: sidesText) { _, newSides in
+                        autoFillFromSides(newSides)
+                    }
                     .overlay(alignment: .topLeading) {
                         if sidesText.isEmpty {
                             Text("Paste sides with character cues, e.g. MAYA: Hello\nREADER: Hi")
@@ -386,8 +406,27 @@ struct PracticeSetupView: View {
             errorMessage = "No text found. Try a clearer image or paste the sides."
             return
         }
-        sidesText = text
+        let cleaned = ScriptParser.cleanPastedText(text)
+        sidesText = cleaned
+        autoFillFromSides(cleaned)
         errorMessage = nil
+    }
+
+    private func autoFillFromSides(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let chars = ScriptParser.extractCharacters(from: text)
+        if character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let firstChar = chars.first {
+            character = firstChar
+        }
+        if sceneTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let firstScene = ScriptParser.parseScenes(from: text, myRole: character).first, firstScene.heading != "SIDES" {
+                sceneTitle = firstScene.heading.capitalized
+            } else if let firstChar = chars.first {
+                sceneTitle = "\(firstChar)'s scene"
+            } else {
+                sceneTitle = "Practice scene"
+            }
+        }
     }
 }
 

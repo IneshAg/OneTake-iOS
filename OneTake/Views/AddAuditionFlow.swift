@@ -140,8 +140,10 @@ struct AddAuditionFlow: View {
                     PasteButton(payloadType: String.self) { strings in
                         let text = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !text.isEmpty else { return }
-                        let draft = NoticeParser.parse(text)
+                        let cleaned = ScriptParser.cleanPastedText(text)
+                        let draft = NoticeParser.parse(cleaned)
                         store.startAuditionDraft(draft)
+                        Haptics.success()
                     }
                     .buttonBorderShape(.capsule)
                     .tint(OT.accent)
@@ -248,13 +250,18 @@ enum NoticeParser {
 
     static func parse(_ rawText: String) -> Draft {
         var d = Draft()
-        d.sourceText = rawText
+        let cleaned = ScriptParser.cleanPastedText(rawText)
+        d.sourceText = cleaned
         // OCR joins lines oddly and swaps quotes/dashes; work on a tidied copy for field detection.
-        let text = tidy(rawText)
+        let text = tidy(cleaned)
         let lower = text.lowercased()
 
         d.due = detectDate(in: text)
-        let candidates = detectCandidateRoles(in: text)
+        var candidates = detectCandidateRoles(in: text)
+        // If notice labels didn't have explicit roles, check if screenplay cues contain characters
+        if candidates.isEmpty {
+            candidates = ScriptParser.extractCharacters(from: cleaned)
+        }
         d.candidateRoles = candidates
         if candidates.count == 1 {
             d.role = candidates[0]
@@ -263,7 +270,12 @@ enum NoticeParser {
             // leave it empty so the app explicitly asks the actor which role they are auditioning for.
             d.role = ""
         }
-        if let project = detectProject(in: text) { d.project = project }
+        if let project = detectProject(in: text) {
+            d.project = project
+        } else if let firstScene = ScriptParser.parseScenes(from: cleaned, myRole: d.role).first,
+                  firstScene.heading != "SIDES" {
+            d.project = firstScene.heading.capitalized
+        }
         if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
         }
@@ -273,7 +285,7 @@ enum NoticeParser {
         if let explicit = detectSceneCount(in: text) {
             d.scenes = max(explicit, 0)
         } else {
-            d.scenes = ScriptParser.parseScenes(from: rawText, myRole: d.role).count
+            d.scenes = ScriptParser.parseScenes(from: cleaned, myRole: d.role).count
         }
 
         func ask(_ s: String) { if !d.asks.contains(s) { d.asks.append(s) } }
@@ -835,9 +847,11 @@ struct AddDraftSidesSheet: View {
                         Spacer()
                         PasteButton(payloadType: String.self) { strings in
                             let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !pasted.isEmpty {
-                                text = pasted
-                                editableScenes = ScriptParser.parseScenes(from: pasted, myRole: draft.role)
+                            let cleaned = ScriptParser.cleanPastedText(pasted)
+                            if !cleaned.isEmpty {
+                                text = cleaned
+                                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
+                                Haptics.success()
                             }
                         }
                         .buttonBorderShape(.capsule)

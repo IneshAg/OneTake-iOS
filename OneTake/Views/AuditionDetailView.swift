@@ -678,9 +678,11 @@ struct RevisedSidesSheet: View {
                         Spacer()
                         PasteButton(payloadType: String.self) { strings in
                             let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !pasted.isEmpty {
-                                text = pasted
-                                editableScenes = ScriptParser.parseScenes(from: pasted, myRole: role)
+                            let cleaned = ScriptParser.cleanPastedText(pasted)
+                            if !cleaned.isEmpty {
+                                text = cleaned
+                                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                                Haptics.success()
                             }
                         }
                         .buttonBorderShape(.capsule)
