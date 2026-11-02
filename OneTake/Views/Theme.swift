@@ -55,6 +55,10 @@ enum OT {
     static let warning  = Color(UIColor(light: 0x8E6210, dark: 0xE2BE7A))
     static let reader   = Color(UIColor(light: 0x3C7A86, dark: 0x7DC0CB))
 
+    // Teleprompter tokens (mirrors Figma's systemYellow accent for your lines on camera)
+    static let prompterGold     = Color(UIColor(hex: 0xFFCC00))
+    static let prompterGoldSoft = Color(UIColor(hex: 0xFFCC00, alpha: 0.35))
+
     // Script
     static let scriptHighlight   = Color(UIColor(light: 0xF2E8D5, dark: 0x3A3122))
     static let scriptOnHighlight = Color(UIColor(light: 0x1E1A22, dark: 0xF7EEDC))

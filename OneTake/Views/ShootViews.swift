@@ -207,6 +207,17 @@ struct ShootFlow: View {
 
             VStack(spacing: 12) {
                 topBar
+                if camera.state == .recording {
+                    HStack(spacing: 5) {
+                        Capsule().fill(OT.prompterGold).frame(width: 3, height: 14)
+                        Text("LOOK AT LENS")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(OT.prompterGold)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 22)
+                    .background(Color.black.opacity(0.65), in: Capsule())
+                }
                 if let a { overlay(for: a) }
                 Spacer()
                 if let countdown {
@@ -214,6 +225,7 @@ struct ShootFlow: View {
                         .transition(.scale(scale: 1.3).combined(with: .opacity)).id(countdown)
                     Spacer()
                 }
+                sceneActionBar
                 hud
                 bottomControls
             }
@@ -334,11 +346,15 @@ struct ShootFlow: View {
 
     private var topBar: some View {
         HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.headline).foregroundStyle(.white)
-                    .frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
+            if camera.state == .recording {
+                Color.clear.frame(width: 44, height: 44)
+            } else {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.headline).foregroundStyle(.white)
+                        .frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
+                }
+                .accessibilityLabel("Close")
             }
-            .accessibilityLabel("Close")
             Spacer()
             HStack(spacing: 6) {
                 if camera.state == .recording { Circle().fill(OT.recRed).frame(width: 8, height: 8) }
@@ -414,22 +430,22 @@ struct ShootFlow: View {
         case .scene:
             if camera.state != .recording { scenePicker(a) }
             let lines = sceneLines ?? []
-            if lines.indices.contains(lineIndex) {
-                let line = lines[lineIndex]
-                let eyebrow: String = if line.isMine {
-                    "\(line.character) · you"
-                } else if readerAudioMissing {
-                    "\(line.character) · no recording · tap to continue"
-                } else {
-                    line.character
-                }
-                promptCard(eyebrow: eyebrow, text: line.text, mine: line.isMine)
-                    // Tap to move on early; swipe right to go back a line.
-                    .onTapGesture { advanceLine() }
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-                        if value.translation.width > 60 { stopReader(); lineIndex = max(0, lineIndex - 1); follower.reset() }
-                        else if value.translation.width < -60 { advanceLine() }
-                    })
+            if !lines.isEmpty {
+                SidesPrompterView(
+                    lines: lines,
+                    currentIndex: lineIndex,
+                    spokenTranscript: follower.transcript,
+                    prompterSize: prompterSize,
+                    mirror: mirrorPrompter,
+                    readerIsPlaying: reader.isPlaying,
+                    readerAudioMissing: readerAudioMissing,
+                    onAdvance: { advanceLine() },
+                    onPrevious: {
+                        stopReader()
+                        lineIndex = max(0, lineIndex - 1)
+                        follower.reset()
+                    }
+                )
             }
         case .saved:
             if let next = nextUnshotScene(in: a) {
@@ -532,6 +548,68 @@ struct ShootFlow: View {
             }
         }
         .opacity(stage == .saved || stage == .slateDone ? 0 : 1)
+    }
+
+    @ViewBuilder
+    private var sceneActionBar: some View {
+        if stage == .scene, let lines = sceneLines, !lines.isEmpty {
+            HStack(spacing: 8) {
+                Button {
+                    advanceLine()
+                    Haptics.tick()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.right").font(.system(size: 13, weight: .bold))
+                        Text("Next line").font(.otFootnote.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .background(OT.cameraGlass, in: Capsule())
+                }
+
+                Button {
+                    prompterSize = (prompterSize + 1) % 3
+                    Haptics.tick()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "textformat.size").font(.caption)
+                        Text(["Regular", "Big", "Huge"][prompterSize]).font(.otCaption.weight(.bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .frame(height: 36)
+                    .background(OT.cameraGlass, in: Capsule())
+                }
+
+                if camera.state == .recording, lines.indices.contains(lineIndex) {
+                    let cur = lines[lineIndex]
+                    if cur.isMine {
+                        HStack(spacing: 4) {
+                            Image(systemName: followVoice ? "waveform" : "timer")
+                                .font(.caption2)
+                            Text(followVoice ? "Following voice" : "Timed")
+                                .font(.otCaption.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .background(OT.cameraGlass, in: Capsule())
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.caption2)
+                            Text("\(cur.character) answering")
+                                .font(.otCaption.weight(.semibold))
+                        }
+                        .foregroundStyle(OT.reader)
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .background(OT.cameraGlass, in: Capsule())
+                    }
+                }
+            }
+        }
     }
 
     private var bottomControls: some View {
@@ -877,27 +955,45 @@ struct ShootFlow: View {
     @ViewBuilder
     private func promptCard(eyebrow: String, text: String, mine: Bool = true) -> some View {
         let spokenWords = mine ? SpokenLineMatcher.matchedWordIndices(in: text, transcript: follower.transcript) : []
-        VStack(alignment: .leading, spacing: 6) {
-            Text(eyebrow.uppercased()).font(.otCaption.weight(.semibold)).foregroundStyle(mine ? OT.cameraLabel2 : OT.reader)
-            Text(highlightedPrompterText(text, matchedWords: spokenWords, mine: mine))
-                .font(.system(size: [20, 26, 34][min(max(prompterSize, 0), 2)], weight: .bold))
-                .shadow(color: spokenWords.isEmpty ? .clear : OT.accent.opacity(0.55), radius: 7)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(eyebrow.uppercased())
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .tracking(0.6)
+                .foregroundStyle(mine ? OT.prompterGold : OT.reader)
+            highlightedPrompterText(text, matchedWords: spokenWords, mine: mine)
+                .font(.system(size: [22, 27, 34][min(max(prompterSize, 0), 2)], weight: .bold, design: .monospaced))
                 .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
         }
-        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color.black.opacity(0.88), Color.black.opacity(0.78)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
     }
 
-    /// Spoken words turn to the prompter accent as speech recognition hears them. This is only a
-    /// visual guide: it never evaluates acting or prevents the actor from continuing.
-    private func highlightedPrompterText(_ text: String, matchedWords: Set<Int>, mine: Bool) -> AttributedString {
-        var output = AttributedString()
-        for (index, word) in text.split(separator: " ").enumerated() {
-            var piece = AttributedString(String(word) + " ")
-            piece.foregroundColor = mine && matchedWords.contains(index) ? OT.accent : (mine ? .white : Color.white.opacity(0.7))
-            output += piece
+    /// Spoken words turn to prompter gold (#FFCC00) as speech recognition hears them (matching Figma).
+    private func highlightedPrompterText(_ text: String, matchedWords: Set<Int>, mine: Bool) -> Text {
+        let words = text.split(separator: " ")
+        var result = Text("")
+        for (index, word) in words.enumerated() {
+            let piece = Text(String(word) + (index < words.count - 1 ? " " : ""))
+            if mine && matchedWords.contains(index) {
+                result = result + piece.foregroundColor(OT.prompterGold)
+            } else if mine {
+                result = result + piece.foregroundColor(.white)
+            } else {
+                result = result + piece.foregroundColor(Color.white.opacity(0.8))
+            }
         }
-        return output
+        return result
     }
 
     private func resultCard(title: String, detail: String, primary: (String, () -> Void), secondary: (String, () -> Void), more: [(String, () -> Void)] = []) -> some View {
@@ -956,5 +1052,177 @@ private struct SlateTrimReviewView: View {
         .padding(.horizontal, OT.gutter)
         .presentationDetents([.large])
         .interactiveDismissDisabled()
+    }
+}
+
+// MARK: - Sides Teleprompter (mirrors Figma 17_Recording.html / 17.2_RecYourLine.html / 24e_PracticeRecording.html)
+
+struct SidesPrompterView: View {
+    let lines: [ScriptLine]
+    let currentIndex: Int
+    var spokenTranscript: String = ""
+    var prompterSize: Int = 1 // 0: Regular (22), 1: Big (27), 2: Huge (34)
+    var mirror: Bool = false
+    var readerIsPlaying: Bool = false
+    var readerAudioMissing: Bool = false
+    var onAdvance: () -> Void = {}
+    var onPrevious: () -> Void = {}
+
+    private var currentLine: ScriptLine? {
+        lines.indices.contains(currentIndex) ? lines[currentIndex] : nil
+    }
+
+    private var prevLine: ScriptLine? {
+        currentIndex > 0 && lines.indices.contains(currentIndex - 1) ? lines[currentIndex - 1] : nil
+    }
+
+    private var nextLine: ScriptLine? {
+        currentIndex + 1 < lines.count ? lines[currentIndex + 1] : nil
+    }
+
+    private var fontSize: CGFloat {
+        switch prompterSize {
+        case 0: return 22
+        case 2: return 34
+        default: return 27
+        }
+    }
+
+    private var progress: Double {
+        guard !lines.isEmpty else { return 0 }
+        return Double(currentIndex + 1) / Double(lines.count)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Previous line context (dimmed, courier monospace)
+            if let prev = prevLine {
+                HStack(spacing: 6) {
+                    Text(prev.isMine ? "YOU" : prev.character.uppercased())
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.48))
+                    Text(prev.text)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.40))
+                        .lineLimit(1)
+                }
+            } else {
+                Text("Top of scene")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.35))
+            }
+
+            // Current speaker header
+            if let cur = currentLine {
+                HStack(spacing: 8) {
+                    Text(cur.isMine ? "\(cur.character.uppercased()) · YOU" : cur.character.uppercased())
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(cur.isMine ? OT.prompterGold : OT.reader)
+
+                    if !cur.isMine {
+                        if readerIsPlaying {
+                            HStack(spacing: 3) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("Reading")
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            }
+                            .foregroundStyle(OT.reader)
+                        } else if readerAudioMissing {
+                            Text("No audio · tap to continue")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(OT.due)
+                        }
+                    }
+
+                    Spacer()
+
+                    Text("\(currentIndex + 1) of \(lines.count)")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.50))
+                }
+
+                // Current line dialogue (large, high-contrast monospace)
+                if cur.isMine {
+                    let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: cur.text, transcript: spokenTranscript)
+                    attributedPromptText(cur.text, matchedIndices: matchedIndices)
+                        .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                        .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(cur.text)
+                        .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                        .italic()
+                        .foregroundStyle(Color.white.opacity(0.88))
+                        .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // Next line context (anticipate cue)
+            if let next = nextLine {
+                HStack(spacing: 6) {
+                    Text(next.isMine ? "YOU" : next.character.uppercased())
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.48))
+                    Text(next.text)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.40))
+                        .lineLimit(1)
+                }
+            } else {
+                Text("End of scene")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.35))
+            }
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.18)).frame(height: 3)
+                    Capsule().fill(Color.white)
+                        .frame(width: max(6, geo.size.width * CGFloat(progress)), height: 3)
+                }
+            }
+            .frame(height: 3)
+            .padding(.top, 4)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color.black.opacity(0.88), Color.black.opacity(0.78), Color.black.opacity(0.68)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onAdvance() }
+        .gesture(
+            DragGesture(minimumDistance: 30).onEnded { value in
+                if value.translation.width > 60 { onPrevious() }
+                else if value.translation.width < -60 { onAdvance() }
+            }
+        )
+    }
+
+    private func attributedPromptText(_ text: String, matchedIndices: Set<Int>) -> Text {
+        let words = text.split(separator: " ")
+        var result = Text("")
+        for (idx, word) in words.enumerated() {
+            let isMatched = matchedIndices.contains(idx)
+            let wordText = Text(String(word) + (idx < words.count - 1 ? " " : ""))
+            if isMatched {
+                result = result + wordText.foregroundColor(OT.prompterGold)
+            } else {
+                result = result + wordText.foregroundColor(.white)
+            }
+        }
+        return result
     }
 }

@@ -564,6 +564,9 @@ struct PracticeTakeView: View {
     @State private var recordedTakeDuration: Int = 0
     @State private var showPlayer = false
     @State private var activePieceID: PracticePiece.ID?
+    @State private var lineIndex = 0
+    @AppStorage("prompter.size") private var prompterSize = 1
+    @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
     private var piece: PracticePiece? {
         if let id = activePieceID ?? pieceID {
@@ -595,6 +598,7 @@ struct PracticeTakeView: View {
     private func advanceToNextScene() {
         guard let p = piece else { return }
         recordedTakeURL = nil
+        lineIndex = 0
         if let audID = p.auditionID, let sIdx = p.sceneIndex, let audition = store.audition(audID) {
             if sIdx + 1 < audition.scenes.count {
                 let nextPiece = store.practicePiece(for: audID, sceneIndex: sIdx + 1)
@@ -665,6 +669,37 @@ struct PracticeTakeView: View {
                     .padding(.top, 4)
                 }
 
+                if camera.state == .recording {
+                    HStack(spacing: 5) {
+                        Capsule().fill(OT.prompterGold).frame(width: 3, height: 14)
+                        Text("LOOK AT LENS")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(OT.prompterGold)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 22)
+                    .background(Color.black.opacity(0.65), in: Capsule())
+                }
+
+                if let lines = piece?.scene?.lines, !lines.isEmpty {
+                    SidesPrompterView(
+                        lines: lines,
+                        currentIndex: lineIndex,
+                        spokenTranscript: "",
+                        prompterSize: prompterSize,
+                        mirror: mirrorPrompter,
+                        readerIsPlaying: false,
+                        readerAudioMissing: false,
+                        onAdvance: {
+                            if lineIndex + 1 < lines.count { lineIndex += 1; Haptics.tick() }
+                        },
+                        onPrevious: {
+                            lineIndex = max(0, lineIndex - 1)
+                            Haptics.tick()
+                        }
+                    )
+                }
+
                 Spacer()
 
                 // Post-take review & next scene options
@@ -730,6 +765,38 @@ struct PracticeTakeView: View {
                     .padding(14)
                     .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .padding(.bottom, 6)
+                }
+
+                if let lines = piece?.scene?.lines, !lines.isEmpty, camera.state == .recording {
+                    HStack(spacing: 8) {
+                        Button {
+                            if lineIndex + 1 < lines.count { lineIndex += 1; Haptics.tick() }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.right").font(.system(size: 13, weight: .bold))
+                                Text("Next line").font(.otFootnote.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(OT.cameraGlass, in: Capsule())
+                        }
+
+                        Button {
+                            prompterSize = (prompterSize + 1) % 3
+                            Haptics.tick()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "textformat.size").font(.caption)
+                                Text(["Regular", "Big", "Huge"][prompterSize]).font(.otCaption.weight(.bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 36)
+                            .background(OT.cameraGlass, in: Capsule())
+                        }
+                    }
+                    .padding(.bottom, 4)
                 }
 
                 RecordButton(isRecording: camera.state == .recording) {
