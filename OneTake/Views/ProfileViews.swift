@@ -968,6 +968,10 @@ struct HeadshotsView: View {
     @Environment(AppStore.self) private var store
     @State private var framingRatio: FramingRatio?
     @State private var adjustItem: HeadshotAdjustItem?
+    @State private var previewItem: HeadshotViewerItem?
+    @State private var pickAngle: String?
+    @State private var showPicker = false
+    @State private var pickerItem: PhotosPickerItem?
     @State private var isFraming = false
 
     /// Counted from the real files on disk for this specific audition or profile
@@ -1119,24 +1123,26 @@ struct HeadshotsView: View {
                         Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot(auditionID: auditionID) }
                             .buttonStyle(.otSecondary)
 
-                        PhotosPicker(selection: Binding(
-                            get: { nil },
-                            set: { (item: PhotosPickerItem?) in
-                                guard let item else { return }
-                                Task {
-                                    if let data = try? await item.loadTransferable(type: Data.self),
-                                       let image = UIImage(data: data) {
-                                        await MainActor.run {
-                                            let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key, auditionID: auditionID) }?.key ?? "front"
-                                            HeadshotStore.save(image, key: nextKey, auditionID: auditionID)
-                                            store.headshotVersion += 1
-                                            store.syncHeadshotPieces()
-                                            Haptics.success()
-                                        }
-                                    }
-                                }
+                        Menu {
+                            Button {
+                                pickAngle = "front"
+                                showPicker = true
+                            } label: {
+                                Label("Front Headshot", systemImage: HeadshotStore.exists(key: "front", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
                             }
-                        ), matching: .images) {
+                            Button {
+                                pickAngle = "left"
+                                showPicker = true
+                            } label: {
+                                Label("Left Profile", systemImage: HeadshotStore.exists(key: "left", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
+                            }
+                            Button {
+                                pickAngle = "right"
+                                showPicker = true
+                            } label: {
+                                Label("Right Profile", systemImage: HeadshotStore.exists(key: "right", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
+                            }
+                        } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "photo.on.rectangle")
                                 Text("Pick from Photos")
@@ -1153,24 +1159,26 @@ struct HeadshotsView: View {
                     }
                     .buttonStyle(.otPrimary)
 
-                    PhotosPicker(selection: Binding(
-                        get: { nil },
-                        set: { (item: PhotosPickerItem?) in
-                            guard let item else { return }
-                            Task {
-                                if let data = try? await item.loadTransferable(type: Data.self),
-                                   let image = UIImage(data: data) {
-                                    await MainActor.run {
-                                        let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key, auditionID: nil) }?.key ?? "front"
-                                        HeadshotStore.save(image, key: nextKey, auditionID: nil)
-                                        store.headshotVersion += 1
-                                        store.syncHeadshotPieces()
-                                        Haptics.success()
-                                    }
-                                }
-                            }
+                    Menu {
+                        Button {
+                            pickAngle = "front"
+                            showPicker = true
+                        } label: {
+                            Label("Front Headshot", systemImage: HeadshotStore.exists(key: "front", auditionID: nil) ? "checkmark.circle.fill" : "circle")
                         }
-                    ), matching: .images) {
+                        Button {
+                            pickAngle = "left"
+                            showPicker = true
+                        } label: {
+                            Label("Left Profile", systemImage: HeadshotStore.exists(key: "left", auditionID: nil) ? "checkmark.circle.fill" : "circle")
+                        }
+                        Button {
+                            pickAngle = "right"
+                            showPicker = true
+                        } label: {
+                            Label("Right Profile", systemImage: HeadshotStore.exists(key: "right", auditionID: nil) ? "checkmark.circle.fill" : "circle")
+                        }
+                    } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "photo.on.rectangle")
                             Text("Pick from Photos")
@@ -1185,6 +1193,32 @@ struct HeadshotsView: View {
             .padding(OT.gutter)
         }
         .onAppear { store.syncHeadshotPieces() }
+        .photosPicker(isPresented: $showPicker, selection: $pickerItem, matching: .images)
+        .onChange(of: pickerItem) { _, newItem in
+            guard let newItem, let key = pickAngle else { return }
+            let title = key == "front" ? "Front" : key == "left" ? "Left profile" : "Right profile"
+            let isProfile = (key == "left" || key == "right")
+            Task {
+                if let data = try? await newItem.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await MainActor.run {
+                        HeadshotStore.save(image, key: key, auditionID: auditionID)
+                        store.headshotVersion += 1
+                        store.syncHeadshotPieces()
+                        Haptics.success()
+                        pickerItem = nil
+                        pickAngle = nil
+                        // Immediately open adjustment for the picked photo so user can frame it!
+                        adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile, auditionID: auditionID)
+                    }
+                }
+            }
+        }
+        .sheet(item: $previewItem) { item in
+            HeadshotViewerSheet(item: item, onAdjust: {
+                adjustItem = HeadshotAdjustItem(key: item.key, title: item.title, isProfile: item.isProfile, auditionID: item.auditionID)
+            })
+        }
         .sheet(item: $adjustItem) { item in
             HeadshotAdjustSheet(item: item)
         }
@@ -1261,17 +1295,26 @@ struct HeadshotsView: View {
         let isProfile = (key == "left" || key == "right")
 
         if done {
-            Button {
-                adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile, auditionID: auditionID)
-            } label: {
-                ZStack(alignment: .bottomLeading) {
-                    HeadshotImage(realKey: key, auditionID: auditionID)
-                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
-                    HStack {
-                        Label(title, systemImage: "checkmark")
-                            .font(.otFootnote.weight(.semibold))
-                            .foregroundStyle(.white)
-                        Spacer()
+            ZStack(alignment: .bottomLeading) {
+                // Tapping the photo opens the inspection viewer so the actor can check it out
+                HeadshotImage(realKey: key, auditionID: auditionID)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        previewItem = HeadshotViewerItem(key: key, title: title, isProfile: isProfile, auditionID: auditionID)
+                    }
+
+                LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
+                    .allowsHitTesting(false)
+
+                HStack {
+                    Label(title, systemImage: "checkmark")
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    // Tapping Adjust opens the crop tool directly
+                    Button {
+                        adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile, auditionID: auditionID)
+                    } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "crop")
                                 .font(.system(size: 11, weight: .bold))
@@ -1281,33 +1324,19 @@ struct HeadshotsView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3.5)
-                        .background(.black.opacity(0.45), in: Capsule())
+                        .background(.black.opacity(0.55), in: Capsule())
                     }
-                    .padding(10)
+                    .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(10)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else {
-            PhotosPicker(selection: Binding(
-                get: { nil },
-                set: { (item: PhotosPickerItem?) in
-                    guard let item else { return }
-                    Task {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let image = UIImage(data: data) {
-                            await MainActor.run {
-                                HeadshotStore.save(image, key: key, auditionID: auditionID)
-                                store.headshotVersion += 1
-                                store.syncHeadshotPieces()
-                                Haptics.success()
-                            }
-                        }
-                    }
-                }
-            ), matching: .images) {
+            Button {
+                pickAngle = key
+                showPicker = true
+            } label: {
                 ZStack(alignment: .bottomLeading) {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5]))
@@ -2262,6 +2291,139 @@ struct HeadshotAdjustSheet: View {
                 path.addLine(to: CGPoint(x: w, y: h - arm))
             }
             .stroke(Color.white.opacity(0.8), lineWidth: 2.5)
+        }
+    }
+}
+
+// MARK: - 11 Full-Screen Headshot Inspection Sheet
+
+struct HeadshotViewerItem: Identifiable {
+    let key: String
+    let title: String
+    let isProfile: Bool
+    var auditionID: UUID? = nil
+    var id: String { "view-\(key)-\(auditionID?.uuidString ?? "profile")" }
+}
+
+struct HeadshotViewerSheet: View {
+    let item: HeadshotViewerItem
+    let onAdjust: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
+    @State private var replacePickerItem: PhotosPickerItem?
+
+    private var image: UIImage? {
+        HeadshotStore.load(key: item.key, auditionID: item.auditionID)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            InContentNavHeader(
+                title: item.title,
+                backLabel: "Done",
+                onDark: true,
+                onBack: { dismiss() }
+            )
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+            .background(Color.black)
+
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                if let img = image {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .padding(.horizontal, 16)
+                } else {
+                    ProgressView().tint(.white)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            // Bottom action bar
+            HStack(spacing: 12) {
+                // Adjust button
+                Button {
+                    dismiss()
+                    onAdjust()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "crop")
+                        Text("Adjust & Frame")
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                // Replace menu (Photos or Camera)
+                Menu {
+                    PhotosPicker(selection: $replacePickerItem, matching: .images) {
+                        Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        dismiss()
+                        store.camera = .headshot(auditionID: item.auditionID)
+                    } label: {
+                        Label("Take with Camera", systemImage: "camera")
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("Replace")
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                // Remove button
+                Button(role: .destructive) {
+                    let dir = item.auditionID != nil
+                        ? MediaStore.directory("audition_headshots/\(item.auditionID!.uuidString)")
+                        : MediaStore.directory("headshots")
+                    try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key).jpg"))
+                    try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key)_original.jpg"))
+                    HeadshotStore.clearCache()
+                    store.headshotVersion += 1
+                    store.syncHeadshotPieces()
+                    Haptics.warning()
+                    dismiss()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.danger)
+                        .frame(width: 46, height: 46)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.vertical, 14)
+            .background(OT.surfaceRaised)
+        }
+        .preferredColorScheme(.dark)
+        .onChange(of: replacePickerItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                if let data = try? await newItem.loadTransferable(type: Data.self),
+                   let img = UIImage(data: data) {
+                    await MainActor.run {
+                        HeadshotStore.save(img, key: item.key, auditionID: item.auditionID)
+                        store.headshotVersion += 1
+                        store.syncHeadshotPieces()
+                        Haptics.success()
+                        dismiss()
+                        onAdjust()
+                    }
+                }
+            }
         }
     }
 }
