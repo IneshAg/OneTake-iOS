@@ -488,8 +488,6 @@ struct PracticeTakeView: View {
                     Color.clear.frame(width: 44)
                 }
                 Spacer()
-                Label("Practice · no slate, never sent", systemImage: "lock.fill").font(.otFootnote).foregroundStyle(.white)
-                    .padding(.horizontal, 12).frame(height: 30).background(.black.opacity(0.55), in: Capsule())
                 RecordButton(isRecording: camera.state == .recording) {
                     camera.state == .recording ? camera.stopRecording() : camera.startRecording()
                 }
