@@ -562,8 +562,11 @@ enum NoticeParser {
             d.destinationDetail = email
             d.destination = .emailOrLink
         }
-        // Detect cloud storage link for script sides (Google Drive, Dropbox, Box, OneDrive)
-        if let sidesLink = detectSidesLink(in: text) {
+
+        // Context-aware link classification: inspects the text and labels immediately before each URL
+        // to distinguish whether a link is for uploading/submitting tapes vs downloading/reading script sides.
+        let classified = detectClassifiedLinks(in: text)
+        if let sidesLink = classified.sidesLink {
             d.sidesLink = sidesLink
             if sidesLink.contains("drive.google.com") {
                 ask("Sides: Google Drive link")
@@ -575,22 +578,10 @@ enum NoticeParser {
                 ask("Sides link attached")
             }
         }
-
-        // Capture submission URLs / portal links: e.g. "kalnaga.com/pilgrimage/casting.html" or "https://forms.gle/..."
-        // Excludes sides links (e.g. Google Drive folders) so they don't pollute the submission destination column
-        let urlPattern = #"(?i)\b((?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co|us|uk|ca|gov|edu)\/[^\s<>"'\)]*)"#
-        if let regex = try? NSRegularExpression(pattern: urlPattern) {
-            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-            for m in matches {
-                guard let r = Range(m.range, in: text) else { continue }
-                let cleanLink = clean(String(text[r]))
-                if !cleanLink.contains("@") && cleanLink != d.sidesLink {
-                    if d.destinationDetail == nil || d.destinationDetail?.contains("@") == false {
-                        d.destinationDetail = cleanLink
-                        d.destination = .emailOrLink
-                        break
-                    }
-                }
+        if let subLink = classified.submissionLink {
+            if d.destinationDetail == nil || d.destinationDetail?.contains("@") == false {
+                d.destinationDetail = subLink
+                d.destination = .emailOrLink
             }
         }
         if let minutes = detectLengthLimit(in: text) { ask("Under \(minutes) min") }
@@ -1058,39 +1049,120 @@ enum NoticeParser {
         return Int(v)
     }
 
-    /// Detects cloud storage / drive links specifically attached for script sides or audition packets.
-    /// Distinguishes sides links (Google Drive, Dropbox, Box, OneDrive) from submission destinations.
-    private static func detectSidesLink(in text: String) -> String? {
-        // 1. Explicit labeled sides links: "Sides link: https://...", "Download sides: https://...", "Script link: https://...", etc.
-        let labeledPattern = #"(?i)(?:sides(?:\s+link|\s+url|\s+folder)?|download\s+sides|script(?:\s+link|\s+url|\s+folder)?|audition\s+material|access\s+sides|sides\s+available\s+at|sides\s+attached|find\s+sides\s+at|drive\s+link\s+for\s+sides)\s*[:\-]?\s*(\b(?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co)\/[^\s<>"'\)]*)"#
-        if let match = firstMatch(labeledPattern, in: text) {
-            let cleanLink = clean(match)
-            if !cleanLink.contains("@") && !cleanLink.contains("forms.gle") && !cleanLink.contains("docs.google.com/forms") {
-                return cleanLink
+    /// Context-aware link classifier that inspects the text and labels immediately before each URL
+    /// to determine whether each link is intended for tape upload/submission or for script sides/audition material.
+    private static func detectClassifiedLinks(in text: String) -> (sidesLink: String?, submissionLink: String?) {
+        let urlPattern = #"(?i)\b((?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co|us|uk|ca|gov|edu|me|ly|gl)\/[^\s<>"'\)]*)"#
+        guard let regex = try? NSRegularExpression(pattern: urlPattern) else { return (nil, nil) }
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+        var sidesLink: String?
+        var submissionLink: String?
+
+        let uploadKeywords = [
+            "upload", "upload tape", "upload your tape", "upload audition", "upload video", "upload here",
+            "submit", "submit tape", "submit audition", "submit your tape", "submit here", "submission",
+            "submission link", "submission form", "submission url", "send tape", "send your tape",
+            "send audition", "send submissions", "send video", "apply", "apply here", "application form",
+            "audition form", "tape link", "form to submit", "google form", "tape upload", "turn in",
+            "drop tape", "share your tape", "link to submit", "link for tape", "link for submission"
+        ]
+
+        let sidesKeywords = [
+            "sides", "sides link", "sides url", "sides folder", "audition sides", "dialogue sides", "casting sides",
+            "script", "script link", "script url", "script folder", "full script", "screenplay", "lines",
+            "download sides", "download script", "download scenes", "download material", "download lines",
+            "scenes", "scene material", "audition material", "material link", "reading material", "packet",
+            "find sides", "access sides", "sides attached", "sides available", "drive link for sides",
+            "sides can be found", "script attached", "scene sides", "materials"
+        ]
+
+        for m in matches {
+            guard let r = Range(m.range, in: text) else { continue }
+            let link = clean(String(text[r]))
+            guard !link.contains("@") else { continue }
+
+            // 1. Inspect text immediately preceding this link (same line + preceding line, up to 160 characters)
+            let lineRange = text.lineRange(for: r)
+            let lineBefore = String(text[lineRange.lowerBound..<r.lowerBound]).lowercased()
+
+            var priorLine = ""
+            if lineRange.lowerBound > text.startIndex {
+                let prevIdx = text.index(before: lineRange.lowerBound)
+                let prevLineRange = text.lineRange(for: prevIdx..<prevIdx)
+                priorLine = String(text[prevLineRange]).lowercased()
             }
-        }
 
-        // 2. Cloud storage URLs commonly used specifically for script sides (Google Drive, Dropbox, Box, OneDrive)
-        let cloudDrivePattern = #"(?i)\b((?:https?:\/\/|www\.)?(?:drive\.google\.com\/(?:drive\/folders\/|file\/d\/|open\?id=)[^\s<>"'\)]+|docs\.google\.com\/document\/d\/[^\s<>"'\)]+|dropbox\.com\/[^\s<>"'\)]+|1drv\.ms\/[^\s<>"'\)]+|onedrive\.live\.com\/[^\s<>"'\)]+|box\.com\/s\/[^\s<>"'\)]+))"#
-        if let match = firstMatch(cloudDrivePattern, in: text) {
-            let cleanLink = clean(match)
-            return cleanLink
-        }
+            let startOffset = max(text.startIndex, text.index(r.lowerBound, offsetBy: -160, limitedBy: text.startIndex) ?? text.startIndex)
+            let contextBefore = String(text[startOffset..<r.lowerBound]).lowercased()
 
-        // 3. Any line mentioning sides, script, scenes, dialogue, or packet that contains a URL
-        for line in text.components(separatedBy: .newlines) {
-            let lowerLine = line.lowercased()
-            if lowerLine.contains("side") || lowerLine.contains("script") || lowerLine.contains("scene") || lowerLine.contains("packet") || lowerLine.contains("material") || lowerLine.contains("dialogue") {
-                let urlPattern = #"(?i)\b((?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co)\/[^\s<>"'\)]*)"#
-                if let url = firstMatch(urlPattern, in: line) {
-                    let cleanLink = clean(url)
-                    if !cleanLink.contains("@") && !cleanLink.contains("forms.gle") && !cleanLink.contains("docs.google.com/forms") {
-                        return cleanLink
+            // 2. Check for upload vs sides keywords in the preceding context
+            var hasUpload = false
+            var lastUploadIdx = -1
+            for kw in uploadKeywords {
+                if let range = contextBefore.range(of: kw, options: .backwards) {
+                    hasUpload = true
+                    let dist = contextBefore.distance(from: contextBefore.startIndex, to: range.lowerBound)
+                    lastUploadIdx = max(lastUploadIdx, dist)
+                } else if priorLine.contains(kw) {
+                    hasUpload = true
+                    lastUploadIdx = max(lastUploadIdx, 0)
+                }
+            }
+
+            var hasSides = false
+            var lastSidesIdx = -1
+            for kw in sidesKeywords {
+                if let range = contextBefore.range(of: kw, options: .backwards) {
+                    hasSides = true
+                    let dist = contextBefore.distance(from: contextBefore.startIndex, to: range.lowerBound)
+                    lastSidesIdx = max(lastSidesIdx, dist)
+                } else if priorLine.contains(kw) {
+                    hasSides = true
+                    lastSidesIdx = max(lastSidesIdx, 0)
+                }
+            }
+
+            // 3. Classify based on text preceding the link
+            if hasUpload && !hasSides {
+                if submissionLink == nil { submissionLink = link }
+            } else if hasSides && !hasUpload {
+                if sidesLink == nil { sidesLink = link }
+            } else if hasUpload && hasSides {
+                // If both keywords appear, the keyword closest to the link wins
+                if lastUploadIdx >= lastSidesIdx {
+                    if submissionLink == nil { submissionLink = link }
+                } else {
+                    if sidesLink == nil { sidesLink = link }
+                }
+            } else {
+                // 4. Neither keyword in preceding text: fall back to domain/service heuristics
+                let lowerLink = link.lowercased()
+                if lowerLink.contains("forms.gle") || lowerLink.contains("docs.google.com/forms") ||
+                   lowerLink.contains("typeform.com") || lowerLink.contains("airtable.com") {
+                    if submissionLink == nil { submissionLink = link }
+                } else if lowerLink.contains("drive.google.com") || lowerLink.contains("docs.google.com/document") ||
+                          lowerLink.contains("dropbox.com") || lowerLink.contains("1drv.ms") ||
+                          lowerLink.contains("onedrive.live.com") || lowerLink.contains("box.com") {
+                    if sidesLink == nil { sidesLink = link }
+                } else {
+                    // Check URL path clues
+                    if lowerLink.contains("upload") || lowerLink.contains("submit") || lowerLink.contains("form") || lowerLink.contains("apply") {
+                        if submissionLink == nil { submissionLink = link }
+                    } else if lowerLink.contains("side") || lowerLink.contains("script") || lowerLink.contains("material") || lowerLink.contains("scene") {
+                        if sidesLink == nil { sidesLink = link }
+                    } else if submissionLink == nil {
+                        submissionLink = link
                     }
                 }
             }
         }
-        return nil
+
+        return (sidesLink, submissionLink)
+    }
+
+    private static func detectSidesLink(in text: String) -> String? {
+        detectClassifiedLinks(in: text).sidesLink
     }
 }
 

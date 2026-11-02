@@ -334,4 +334,43 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(draft.destinationDetail, "casting@thelostcity.com")
         XCTAssertFalse(draft.missingRequiredDetails.contains("script sides"))
     }
+
+    func testPrecedingTextDeterminesDriveUploadVsDriveSides() {
+        let text = """
+        CASTING CALL
+        Project: The Silent Valley
+        Role: Detective Roy
+
+        Download sides and scene dialogue from:
+        https://drive.google.com/drive/folders/sidesPacket789
+
+        Upload your self-tape video to Google Drive:
+        https://drive.google.com/drive/folders/uploadTapes123
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "The Silent Valley")
+        XCTAssertEqual(draft.role, "Detective Roy")
+        // Both are Google Drive links! Preceding text correctly separates sides from submission upload:
+        XCTAssertEqual(draft.sidesLink, "https://drive.google.com/drive/folders/sidesPacket789")
+        XCTAssertEqual(draft.destinationDetail, "https://drive.google.com/drive/folders/uploadTapes123")
+        XCTAssertEqual(draft.destination, .emailOrLink)
+    }
+
+    func testShortenedUrlClassifiedByPrecedingText() {
+        let text = """
+        Project: Secret Garden
+        Role: Mary
+
+        Audition sides link:
+        https://bit.ly/secret-garden-sides
+
+        Submit your tape here:
+        https://bit.ly/secret-garden-upload
+        """
+        let draft = NoticeParser.parse(text)
+        // Both are bit.ly links! Preceding text classifies them accurately:
+        XCTAssertEqual(draft.sidesLink, "https://bit.ly/secret-garden-sides")
+        XCTAssertEqual(draft.destinationDetail, "https://bit.ly/secret-garden-upload")
+        XCTAssertEqual(draft.destination, .emailOrLink)
+    }
 }
