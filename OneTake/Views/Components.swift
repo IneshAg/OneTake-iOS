@@ -353,7 +353,7 @@ struct InContentNavHeader<TrailingContent: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back")
+            .accessibilityLabel(backLabel)
 
             Spacer()
 

@@ -645,6 +645,28 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - `ReaderView` cleanly displays its reader title: `"Who reads Oscar?"` (if Kat is reading) or `"Who reads Kat?"` (if Oscar is reading).
    - Removed unused role-switching methods from `ReaderView`, keeping all role management strictly in Adding Details and Edit Details.
 
+---
+
+## 27. Universal Navigation Consistency: Standard In-Content Text & Chevron Back Button
+
+### Problem & Inconsistency
+- On most screens (`MissingDetailsView`, `NoticeReviewView`, `PrepareView`, `HeadshotsView`, `PackageView`, `ShootSetupView`, `TakesView`, etc.), navigation used an in-content text and chevron style (`< Back`, `< Auditions`, `< Cancel`).
+- However, on `AuditionDetailView`, the back button was rendered as an isolated circular icon button (`[<]` inside a 38×38 pt circle disc).
+- On `HeadshotAdjustSheet`, navigation had defaulted to system UIKit/SwiftUI navigation bar toolbar items.
+- This visual divergence created cognitive friction, as users encountered different back button paradigms across interconnected flows.
+
+### Implementation
+1. **Audition Detail View ([AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift))**:
+   - Replaced the standalone circular button with `InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() })`.
+   - The trailing `...` menu remains anchored on the right, providing symmetric visual balance and matching `MissingDetailsView`.
+2. **Headshot Adjust Sheet ([ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift))**:
+   - Replaced `.navigationTitle` and `.toolbar` with `InContentNavHeader(title: "Adjust \(item.title)", backLabel: "Cancel", onDark: true, onBack: { dismiss() })` and trailing `"Save"` button.
+   - Suppressed system navigation bar with `.toolbar(.hidden, for: .navigationBar)`.
+3. **Accessibility & Tap Targets ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
+   - Updated `InContentNavHeader`'s `.accessibilityLabel` to announce the exact contextual `backLabel` (`"Auditions"`, `"Cancel"`, `"Back"`, etc.) instead of generic "Back".
+   - Maintained full 44×44 pt touch targets complying with Apple Human Interface Guidelines.
+
+
 
 
 

@@ -25,19 +25,7 @@ struct AuditionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 // Top controls (back & options)
-                HStack {
-                    Button { store.pop() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 38, height: 38)
-                            .background(OT.fillField, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Back")
-
-                    Spacer()
-
+                InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() }) {
                     Menu {
                         Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }

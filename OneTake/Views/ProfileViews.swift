@@ -1879,168 +1879,170 @@ struct HeadshotAdjustSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Viewport area
-                ZStack {
-                    Color.black.ignoresSafeArea()
+        VStack(spacing: 0) {
+            InContentNavHeader(
+                title: "Adjust \(item.title)",
+                backLabel: "Cancel",
+                onDark: true,
+                onBack: { dismiss() }
+            ) {
+                Button("Save") { saveCrop() }
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.accent)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+            .background(Color.black)
 
-                    if let img = originalImage {
-                        let baseScale = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
-                        let currentZoom = max(1.0, min(zoom * pinchScale, 4.0))
-                        let effectiveOffset = clampOffset(
-                            CGSize(width: offset.width + dragOffset.width, height: offset.height + dragOffset.height),
-                            zoomFactor: currentZoom
-                        )
+            // Viewport area
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-                        // Clamped crop frame
-                        ZStack {
-                            Image(uiImage: img)
-                                .resizable()
-                                .frame(width: img.size.width * baseScale * currentZoom,
-                                       height: img.size.height * baseScale * currentZoom)
-                                .offset(effectiveOffset)
+                if let img = originalImage {
+                    let baseScale = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+                    let currentZoom = max(1.0, min(zoom * pinchScale, 4.0))
+                    let effectiveOffset = clampOffset(
+                        CGSize(width: offset.width + dragOffset.width, height: offset.height + dragOffset.height),
+                        zoomFactor: currentZoom
+                    )
 
-                            // Rule of thirds subtle grid guides
-                            gridLines
+                    // Clamped crop frame
+                    ZStack {
+                        Image(uiImage: img)
+                            .resizable()
+                            .frame(width: img.size.width * baseScale * currentZoom,
+                                   height: img.size.height * baseScale * currentZoom)
+                            .offset(effectiveOffset)
 
-                            // Corner crop brackets
-                            cornerBrackets
-                        }
-                        .frame(width: frameSize.width, height: frameSize.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
-                        )
-                        .gesture(
-                            SimultaneousGesture(
-                                DragGesture()
-                                    .onChanged { val in dragOffset = val.translation }
-                                    .onEnded { val in
-                                        offset = clampOffset(
-                                            CGSize(width: offset.width + val.translation.width, height: offset.height + val.translation.height),
-                                            zoomFactor: zoom
-                                        )
-                                        dragOffset = .zero
-                                    },
-                                MagnificationGesture()
-                                    .onChanged { val in pinchScale = val }
-                                    .onEnded { val in
-                                        zoom = max(1.0, min(zoom * val, 4.0))
-                                        pinchScale = 1.0
-                                        offset = clampOffset(offset, zoomFactor: zoom)
-                                    }
-                            )
-                        )
-                    } else {
-                        ProgressView()
-                            .tint(.white)
+                        // Rule of thirds subtle grid guides
+                        gridLines
+
+                        // Corner crop brackets
+                        cornerBrackets
                     }
+                    .frame(width: frameSize.width, height: frameSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+                    )
+                    .gesture(
+                        SimultaneousGesture(
+                            DragGesture()
+                                .onChanged { val in dragOffset = val.translation }
+                                .onEnded { val in
+                                    offset = clampOffset(
+                                        CGSize(width: offset.width + val.translation.width, height: offset.height + val.translation.height),
+                                        zoomFactor: zoom
+                                    )
+                                    dragOffset = .zero
+                                },
+                            MagnificationGesture()
+                                .onChanged { val in pinchScale = val }
+                                .onEnded { val in
+                                    zoom = max(1.0, min(zoom * val, 4.0))
+                                    pinchScale = 1.0
+                                    offset = clampOffset(offset, zoomFactor: zoom)
+                                }
+                        )
+                    )
+                } else {
+                    ProgressView()
+                        .tint(.white)
                 }
-                .frame(maxHeight: .infinity)
+            }
+            .frame(maxHeight: .infinity)
 
-                // Bottom control panel
-                VStack(spacing: 16) {
-                    // Zoom slider
-                    HStack(spacing: 12) {
-                        Image(systemName: "minus.magnifyingglass")
-                            .font(.system(size: 14))
-                            .foregroundStyle(OT.labelTertiary)
-                        Slider(value: $zoom, in: 1.0...3.5)
-                            .tint(OT.accent)
-                            .onChange(of: zoom) { _, newZoom in
-                                offset = clampOffset(offset, zoomFactor: newZoom)
-                            }
-                        Image(systemName: "plus.magnifyingglass")
-                            .font(.system(size: 14))
-                            .foregroundStyle(OT.labelTertiary)
-                    }
-                    .padding(.horizontal, 24)
-
-                    // Action buttons
-                    HStack(spacing: 12) {
-                        Button {
-                            autoFrame()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "sparkles")
-                                Text("Auto-frame")
-                            }
-                            .font(.otSubhead.weight(.semibold))
-                            .foregroundStyle(OT.accent)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                zoom = 1.0
-                                offset = .zero
-                                dragOffset = .zero
-                                pinchScale = 1.0
-                            }
-                            Haptics.tick()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.counterclockwise")
-                                Text("Reset")
-                            }
-                            .font(.otSubhead.weight(.semibold))
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-
-                        Menu {
-                            PhotosPicker(selection: $photoItem, matching: .images) {
-                                Label("Choose from Photos", systemImage: "photo.on.rectangle")
-                            }
-                            Button {
-                                dismiss()
-                                store.camera = .headshot
-                            } label: {
-                                Label("Take with Camera", systemImage: "camera")
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                Text("Replace")
-                            }
-                            .font(.otSubhead.weight(.semibold))
-                            .foregroundStyle(OT.labelSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                    }
-                    .padding(.horizontal, OT.gutter)
-
-                    Text(item.isProfile
-                         ? "Drag to pan, pinch or slide to resize. Auto-frame keeps hair, jawline, and chin within profile bounds."
-                         : "Drag to pan, pinch or slide to resize. Auto-frame centers head and shoulders with generous headroom.")
-                        .font(.otCaption)
+            // Bottom control panel
+            VStack(spacing: 16) {
+                // Zoom slider
+                HStack(spacing: 12) {
+                    Image(systemName: "minus.magnifyingglass")
+                        .font(.system(size: 14))
                         .foregroundStyle(OT.labelTertiary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 8)
+                    Slider(value: $zoom, in: 1.0...3.5)
+                        .tint(OT.accent)
+                        .onChange(of: zoom) { _, newZoom in
+                            offset = clampOffset(offset, zoomFactor: newZoom)
+                        }
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.system(size: 14))
+                        .foregroundStyle(OT.labelTertiary)
                 }
-                .padding(.top, 14)
-                .background(OT.surfaceRaised)
-            }
-            .navigationTitle("Adjust \(item.title)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(OT.labelSecondary)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveCrop() }
-                        .font(.otHeadline)
+                .padding(.horizontal, 24)
+
+                // Action buttons
+                HStack(spacing: 12) {
+                    Button {
+                        autoFrame()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                            Text("Auto-frame")
+                        }
+                        .font(.otSubhead.weight(.semibold))
                         .foregroundStyle(OT.accent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                            zoom = 1.0
+                            offset = .zero
+                            dragOffset = .zero
+                            pinchScale = 1.0
+                        }
+                        Haptics.tick()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset")
+                        }
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    Menu {
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                        }
+                        Button {
+                            dismiss()
+                            store.camera = .headshot
+                        } label: {
+                            Label("Take with Camera", systemImage: "camera")
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Replace")
+                        }
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.labelSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
                 }
+                .padding(.horizontal, OT.gutter)
+
+                Text(item.isProfile
+                     ? "Drag to pan, pinch or slide to resize. Auto-frame keeps hair, jawline, and chin within profile bounds."
+                     : "Drag to pan, pinch or slide to resize. Auto-frame centers head and shoulders with generous headroom.")
+                    .font(.otCaption)
+                    .foregroundStyle(OT.labelTertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
             }
+            .padding(.top, 14)
+            .background(OT.surfaceRaised)
         }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .onAppear { loadPhoto() }
         .onChange(of: photoItem) { _, newItem in
             guard let newItem else { return }
