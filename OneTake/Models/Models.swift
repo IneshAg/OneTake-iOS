@@ -390,11 +390,43 @@ enum SpokenLineMatcher {
         "lets": ["let", "us"],
         "gonna": ["going", "to"],
         "wanna": ["want", "to"],
-        "gotta": ["got", "to"]
+        "gotta": ["got", "to"],
+        "didnt": ["did", "not"],
+        "doesnt": ["does", "not"],
+        "ive": ["i", "have"],
+        "youve": ["you", "have"],
+        "weve": ["we", "have"],
+        "theyve": ["they", "have"],
+        "ill": ["i", "will"],
+        "youll": ["you", "will"],
+        "hell": ["he", "will"],
+        "shell": ["she", "will"],
+        "theyll": ["they", "will"],
+        "well": ["we", "will"],
+        "cuz": ["because"],
+        "cause": ["because"],
+        "yeah": ["yes"],
+        "yep": ["yes"],
+        "nope": ["no"],
+        "ok": ["okay"],
+        "okay": ["ok"]
+    ]
+
+    static let numberWordMap: [String: String] = [
+        "1": "one", "one": "1",
+        "2": "two", "two": "2",
+        "3": "three", "three": "3",
+        "4": "four", "four": "4",
+        "5": "five", "five": "5",
+        "6": "six", "six": "6",
+        "7": "seven", "seven": "7",
+        "8": "eight", "eight": "8",
+        "9": "nine", "nine": "9",
+        "10": "ten", "ten": "10"
     ]
 
     static func cleanWord(_ raw: String) -> String {
-        let punct = CharacterSet(charactersIn: ".,!?:;\"'‘’“”()[]{}—–-")
+        let punct = CharacterSet(charactersIn: ".,!?:;\"'‘’“”()[]{}—–-…")
         let trimmed = raw.trimmingCharacters(in: punct).lowercased()
         return trimmed.replacingOccurrences(of: "'", with: "")
                       .replacingOccurrences(of: "’", with: "")
@@ -404,8 +436,23 @@ enum SpokenLineMatcher {
         cleanWord(String(raw))
     }
 
-    /// Matches spoken transcript against expected text, returning exact token indices in `text.split(separator: " ")`
-    /// so highlighting and prompter advancement remain perfectly synchronized.
+    /// Evaluates whether two single tokens match acoustically or semantically.
+    static func wordsMatch(_ w1: String, _ w2: String) -> Bool {
+        if w1 == w2 { return true }
+        if let exp1 = contractionMap[w1], exp1.contains(w2) { return true }
+        if let exp2 = contractionMap[w2], exp2.contains(w1) { return true }
+        if let num1 = numberWordMap[w1], num1 == w2 { return true }
+        if let num2 = numberWordMap[w2], num2 == w1 { return true }
+        // Tolerant prefix matching for trailing phonetic endings (e.g. "looking" vs "lookin")
+        if w1.count >= 5 && w2.count >= 5 {
+            if w1.hasPrefix(w2) || w2.hasPrefix(w1) { return true }
+        }
+        return false
+    }
+
+    /// Matches spoken transcript against expected text, returning exact token indices in `text.split(separator: " ")`.
+    /// Uses forward-monotonic speech frontier alignment so future/repeated words (e.g. "you", "the", "I")
+    /// are NEVER highlighted prematurely out of order.
     static func matchedWordIndices(in expectedText: String, transcript: String) -> Set<Int> {
         let expectedTokens = expectedText.split(separator: " ")
         guard !expectedTokens.isEmpty else { return [] }
@@ -413,52 +460,85 @@ enum SpokenLineMatcher {
         let spokenWords = transcript.split(separator: " ").map { cleanWord($0) }.filter { !$0.isEmpty }
         guard !spokenWords.isEmpty else { return [] }
 
-        var result = Set<Int>()
-        var cursor = 0
+        var matchedIndices = Set<Int>()
+        var expectedPos = 0
+        var spokenPos = 0
 
-        for (index, token) in expectedTokens.enumerated() {
-            let target = cleanWord(token)
-            guard !target.isEmpty else { continue }
+        while spokenPos < spokenWords.count && expectedPos < expectedTokens.count {
+            let spoken = spokenWords[spokenPos]
+            let expectedClean = cleanWord(expectedTokens[expectedPos])
 
-            // 1. Direct sequential match at or after cursor
-            if cursor < spokenWords.count, let found = spokenWords[cursor...].firstIndex(of: target) {
-                result.insert(index)
-                cursor = found + 1
+            // 1. Direct match at current expected position
+            if wordsMatch(expectedClean, spoken) {
+                matchedIndices.insert(expectedPos)
+                expectedPos += 1
+                spokenPos += 1
                 continue
             }
 
-            // 2. Out-of-order or repeated word match anywhere in spoken words
-            if spokenWords.contains(target) {
-                result.insert(index)
+            // 2. Contraction expansion: expected is "don't", spoken is "do not"
+            if let expansion = contractionMap[expectedClean],
+               expansion.count == 2,
+               wordsMatch(expansion[0], spoken),
+               spokenPos + 1 < spokenWords.count,
+               wordsMatch(expansion[1], spokenWords[spokenPos + 1]) {
+                matchedIndices.insert(expectedPos)
+                expectedPos += 1
+                spokenPos += 2
                 continue
             }
 
-            // 3. Contraction expansion (e.g. expected "don't", spoken "do not")
-            if let expansion = contractionMap[target] {
-                if cursor < spokenWords.count {
-                    if let first = spokenWords[cursor...].firstIndex(of: expansion[0]),
-                       first + 1 < spokenWords.count, spokenWords[first + 1] == expansion[1] {
-                        result.insert(index)
-                        cursor = first + 2
-                        continue
-                    }
-                }
-                if spokenWords.contains(expansion[0]) && spokenWords.contains(expansion[1]) {
-                    result.insert(index)
+            // 3. Reverse contraction: expected is "do not", spoken is "don't"
+            if expectedPos + 1 < expectedTokens.count {
+                let nextExpectedClean = cleanWord(expectedTokens[expectedPos + 1])
+                if let expansion = contractionMap[spoken],
+                   expansion.count == 2,
+                   wordsMatch(expansion[0], expectedClean),
+                   wordsMatch(expansion[1], nextExpectedClean) {
+                    matchedIndices.insert(expectedPos)
+                    matchedIndices.insert(expectedPos + 1)
+                    expectedPos += 2
+                    spokenPos += 1
                     continue
                 }
             }
 
-            // 4. Reverse contraction match (e.g. expected "do not", spoken "don't")
-            for (contraction, expansion) in contractionMap {
-                if expansion.contains(target), spokenWords.contains(contraction) {
-                    result.insert(index)
+            // 4. Lookahead in expected tokens: actor skipped 1 or 2 filler words in the script
+            var matchedInLookahead = false
+            for lookahead in 1...3 {
+                let candidateIdx = expectedPos + lookahead
+                guard candidateIdx < expectedTokens.count else { break }
+                let candidateClean = cleanWord(expectedTokens[candidateIdx])
+                if wordsMatch(candidateClean, spoken) {
+                    matchedIndices.insert(candidateIdx)
+                    expectedPos = candidateIdx + 1
+                    spokenPos += 1
+                    matchedInLookahead = true
                     break
                 }
             }
+            if matchedInLookahead { continue }
+
+            // 5. Lookahead in spoken words: actor repeated a word, stumbled, or speech recognizer caught filler
+            var matchedSpokenLookahead = false
+            for lookahead in 1...2 {
+                let candidateSpokenIdx = spokenPos + lookahead
+                guard candidateSpokenIdx < spokenWords.count else { break }
+                if wordsMatch(expectedClean, spokenWords[candidateSpokenIdx]) {
+                    matchedIndices.insert(expectedPos)
+                    expectedPos += 1
+                    spokenPos = candidateSpokenIdx + 1
+                    matchedSpokenLookahead = true
+                    break
+                }
+            }
+            if matchedSpokenLookahead { continue }
+
+            // 6. If no match at current frontier, advance spoken position
+            spokenPos += 1
         }
 
-        return result
+        return matchedIndices
     }
 
     static func requiredMatches(for text: String) -> Int {
@@ -469,8 +549,8 @@ enum SpokenLineMatcher {
         case 1: return 1
         case 2: return 1
         case 3...4: return 2
-        case 5...7: return max(2, Int(Double(count) * 0.55))
-        default: return max(3, Int(Double(count) * 0.55))
+        case 5...7: return max(2, Int(Double(count) * 0.50))
+        default: return max(3, Int(Double(count) * 0.50))
         }
     }
 }

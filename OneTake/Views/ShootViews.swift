@@ -1128,14 +1128,15 @@ struct SidesPrompterView: View {
         VStack(alignment: .leading, spacing: 10) {
             // Previous line context (dimmed, courier monospace)
             if let prev = prevLine {
-                HStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
                     Text(prev.isMine ? "YOU" : prev.character.uppercased())
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.48))
+                        .frame(width: 55, alignment: .leading)
                     Text(prev.text)
                         .font(.system(size: 13, weight: .regular, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.40))
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             } else {
                 Text("Top of scene")
@@ -1175,6 +1176,8 @@ struct SidesPrompterView: View {
                 }
 
                 // Current line dialogue (large, high-contrast monospace)
+                // Dynamically sizes so full speech turns remain completely visible without being chopped in half
+                let dynamicHeight: CGFloat = cur.text.count > 200 ? 250 : (cur.text.count > 100 ? 210 : 160)
                 ScrollView(.vertical, showsIndicators: false) {
                     if cur.isMine {
                         let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: cur.text, transcript: spokenTranscript)
@@ -1191,19 +1194,20 @@ struct SidesPrompterView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .frame(maxHeight: 180)
+                .frame(maxHeight: dynamicHeight)
             }
 
             // Next line context (anticipate cue)
             if let next = nextLine {
-                HStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
                     Text(next.isMine ? "YOU" : next.character.uppercased())
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.48))
+                        .frame(width: 55, alignment: .leading)
                     Text(next.text)
                         .font(.system(size: 13, weight: .regular, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.40))
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             } else {
                 Text("End of scene")
@@ -1252,7 +1256,7 @@ struct SidesPrompterView: View {
             let isMatched = matchedIndices.contains(idx)
             let wordText = Text(String(word) + (idx < words.count - 1 ? " " : ""))
             if isMatched {
-                result = result + wordText.foregroundColor(OT.prompterGold)
+                result = result + wordText.foregroundColor(OT.prompterGold).fontWeight(.heavy)
             } else {
                 result = result + wordText.foregroundColor(.white)
             }

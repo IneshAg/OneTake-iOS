@@ -565,6 +565,7 @@ struct PracticeTakeView: View {
     @State private var showPlayer = false
     @State private var activePieceID: PracticePiece.ID?
     @State private var lineIndex = 0
+    @State private var follower = SpeechFollower()
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
@@ -685,16 +686,17 @@ struct PracticeTakeView: View {
                     SidesPrompterView(
                         lines: lines,
                         currentIndex: lineIndex,
-                        spokenTranscript: "",
+                        spokenTranscript: follower.transcript,
                         prompterSize: prompterSize,
                         mirror: mirrorPrompter,
                         readerIsPlaying: false,
                         readerAudioMissing: false,
                         onAdvance: {
-                            if lineIndex + 1 < lines.count { lineIndex += 1; Haptics.tick() }
+                            if lineIndex + 1 < lines.count { lineIndex += 1; follower.reset(); Haptics.tick() }
                         },
                         onPrevious: {
                             lineIndex = max(0, lineIndex - 1)
+                            follower.reset()
                             Haptics.tick()
                         }
                     )
@@ -817,6 +819,28 @@ struct PracticeTakeView: View {
             if await CameraController.requestAccess() {
                 camera.configure()
             }
+            if await SpeechFollower.requestAccess() {
+                follower.start()
+            }
+        }
+        .onChange(of: follower.transcript) { _, transcript in
+            guard camera.state == .recording, let lines = piece?.scene?.lines,
+                  lines.indices.contains(lineIndex), lines[lineIndex].isMine,
+                  SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
+            if lineIndex + 1 < lines.count {
+                lineIndex += 1
+                follower.reset()
+                Haptics.tick()
+            }
+        }
+        .onChange(of: follower.lastCommand) { _, cmd in
+            if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready {
+                recordedTakeURL = nil
+                camera.startRecording()
+            }
+            if cmd?.word == "cut", camera.state == .recording {
+                camera.stopRecording()
+            }
         }
         .onCameraCaptureEvent { event in
             guard event.phase == .ended else { return }
@@ -842,7 +866,10 @@ struct PracticeTakeView: View {
                 PracticeVideoPlayerSheet(url: url)
             }
         }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            camera.stop()
+            follower.stop()
+        }
     }
 }
 

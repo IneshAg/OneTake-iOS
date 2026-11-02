@@ -365,7 +365,11 @@ struct RunLinesView: View {
         let matched = SpokenLineMatcher.matchedWordIndices(in: text, transcript: follower.transcript)
         for (i, w) in text.split(separator: " ").enumerated() {
             var part = AttributedString(String(w) + " ")
-            part.foregroundColor = matched.contains(i) ? OT.accent : OT.labelTertiary
+            if matched.contains(i) {
+                part.foregroundColor = OT.prompterGold
+            } else {
+                part.foregroundColor = OT.labelPrimary.opacity(0.85)
+            }
             out += part
         }
         return out
@@ -440,6 +444,7 @@ struct ReaderView: View {
     @State private var importError: String?
     @AppStorage("readerVolume") private var volume = "Quieter"
     @State private var selectedReader: String? = nil
+    @State private var showFullScript = false
 
     private var myRole: String {
         store.audition(auditionID)?.role ?? ""
@@ -726,6 +731,7 @@ struct RecordReaderView: View {
     @State private var playingReviewIndex: Int?
     @State private var expandedReviewIndex: Int?
     @State private var selectedReader: String? = nil
+    @State private var showFullScript = false
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
@@ -881,9 +887,142 @@ struct RecordReaderView: View {
                     .disabled(lineIndex >= readerLines.count || recording || isProcessing)
                 }
 
+                let allSceneLines = a.scenes[sceneIndex].lines
+
+                // View Mode: Focused Cue (with preceding actor context) vs Full Scene Script
+                HStack(spacing: 8) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFullScript = false }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "quote.bubble")
+                            Text("Cue focus")
+                        }
+                        .font(.otCaption.weight(!showFullScript ? .bold : .medium))
+                        .foregroundStyle(!showFullScript ? OT.bgCanvas : OT.labelSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(!showFullScript ? OT.accent : OT.fillField, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFullScript = true }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "text.alignleft")
+                            Text("All \(allSceneLines.count) lines")
+                        }
+                        .font(.otCaption.weight(showFullScript ? .bold : .medium))
+                        .foregroundStyle(showFullScript ? OT.bgCanvas : OT.labelSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(showFullScript ? OT.accent : OT.fillField, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                }
+
+                if showFullScript {
+                    // Full Scene Script: Every line is visible with active line highlighted
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(allSceneLines) { sLine in
+                                let isTargetReader = sLine.character.caseInsensitiveCompare(readerName) == .orderedSame
+                                let matchedReaderIdx = readerLines.firstIndex(where: { $0.id == sLine.id })
+                                let isCurrentActive = matchedReaderIdx == lineIndex
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text(sLine.isMine ? "\(sLine.character.uppercased()) (YOU)" : sLine.character.uppercased())
+                                            .font(.otCaption.weight(.bold))
+                                            .foregroundStyle(sLine.isMine ? OT.prompterGold : OT.reader)
+
+                                        if isCurrentActive {
+                                            Text("RECORDING CUE")
+                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .foregroundStyle(OT.bgCanvas)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(OT.reader, in: Capsule())
+                                        }
+
+                                        Spacer()
+
+                                        if let rIdx = matchedReaderIdx {
+                                            let hasRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: rIdx)
+                                            if hasRec {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.caption)
+                                                    .foregroundStyle(OT.reader)
+                                            }
+                                        }
+                                    }
+
+                                    Text(sLine.text)
+                                        .font(.otBody)
+                                        .foregroundStyle(OT.labelPrimary)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(isCurrentActive ? OT.reader.opacity(0.18) : (sLine.isMine ? Color.white.opacity(0.04) : OT.fillField))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(isCurrentActive ? OT.reader : Color.clear, lineWidth: 1.5)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if let rIdx = matchedReaderIdx, !recording, !isProcessing {
+                                        player.stop()
+                                        isPreviewPlaying = false
+                                        lineIndex = rIdx
+                                        Haptics.tick()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .frame(maxHeight: 260)
+                }
+
                 if lineIndex < readerLines.count {
                     let line = readerLines[lineIndex]
                     let isCurrentRecorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+                    let currentGlobalIdx = allSceneLines.firstIndex(where: { $0.id == line.id })
+                    let prevCue: ScriptLine? = {
+                        guard let idx = currentGlobalIdx, idx > 0 else { return nil }
+                        return allSceneLines[idx - 1]
+                    }()
+                    let nextCue: ScriptLine? = {
+                        guard let idx = currentGlobalIdx, idx + 1 < allSceneLines.count else { return nil }
+                        return allSceneLines[idx + 1]
+                    }()
+
+                    if !showFullScript, let prev = prevCue {
+                        // Preceding line context: what the reader is responding to
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.turn.down.right")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("CUE: \(prev.isMine ? "\(prev.character.uppercased()) (YOU)" : prev.character.uppercased())")
+                                    .font(.otCaption.weight(.bold))
+                            }
+                            .foregroundStyle(prev.isMine ? OT.prompterGold : OT.reader)
+
+                            Text(prev.text)
+                                .font(.otCallout)
+                                .foregroundStyle(OT.labelSecondary)
+                                .lineLimit(3)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                    }
 
                     HStack {
                         SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
@@ -929,6 +1068,19 @@ struct RecordReaderView: View {
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .otCard(radius: 20)
+
+                    if !showFullScript, let next = nextCue {
+                        HStack(spacing: 6) {
+                            Text("NEXT:")
+                                .font(.otCaption.weight(.bold))
+                                .foregroundStyle(next.isMine ? OT.prompterGold : OT.reader)
+                            Text("\(next.isMine ? "\(next.character.uppercased()) (YOU)" : next.character.uppercased()): \(next.text)")
+                                .font(.otCaption)
+                                .foregroundStyle(OT.labelTertiary)
+                                .lineLimit(2)
+                        }
+                        .padding(.horizontal, 4)
+                    }
 
                     if let recordingError {
                         HStack(spacing: 8) {
