@@ -361,7 +361,7 @@ struct PackageView: View {
         case .separateZip:
             return separateZipSizeLabel(a)
         case .headshotsOnly:
-            let count = HeadshotStore.taken.count
+            let count = HeadshotStore.taken(auditionID: a.id).count
             return "\(count) photo\(count == 1 ? "" : "s")"
         case .completePackage:
             return "\(exportedSizeLabel(a)) + ZIP"
@@ -594,7 +594,7 @@ struct PackageView: View {
                 items.append(video)
             }
         case .headshotsOnly:
-            let headshots = HeadshotStore.deliverables(baseName: baseName)
+            let headshots = HeadshotStore.deliverables(baseName: baseName, auditionID: a.id)
             items.append(contentsOf: headshots)
             if items.isEmpty, let zip = a.separateArchiveURL {
                 items.append(zip)
@@ -602,7 +602,7 @@ struct PackageView: View {
         case .completePackage:
             if let video = a.exportedFileURL { items.append(video) }
             if let zip = a.separateArchiveURL { items.append(zip) }
-            let headshots = HeadshotStore.deliverables(baseName: baseName)
+            let headshots = HeadshotStore.deliverables(baseName: baseName, auditionID: a.id)
             items.append(contentsOf: headshots)
         }
 

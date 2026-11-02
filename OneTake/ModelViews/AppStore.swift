@@ -41,16 +41,18 @@ enum CameraFlow: Identifiable, Hashable {
     }
 
     case shoot(Audition.ID, scene: Int? = nil, start: ShootStart = .check)  // camera check → slate → full length → scene → take saved
-    case headshot                    // front → left → right → crop
+    case headshot(auditionID: Audition.ID? = nil)                           // front → left → right → crop
     case scanSides
     case practiceTake
+
+    static var headshot: CameraFlow { .headshot(auditionID: nil) }
 
     var id: String {
         switch self {
         case .shoot(let id, _, let start): "shoot-\(id)-\(start.rawValue)"
-        case .headshot:      "headshot"
-        case .scanSides:     "scan"
-        case .practiceTake:  "practice"
+        case .headshot(let auditionID):    "headshot-\(auditionID?.uuidString ?? "profile")"
+        case .scanSides:                   "scan"
+        case .practiceTake:                "practice"
         }
     }
 }
@@ -287,14 +289,13 @@ final class AppStore {
         syncHeadshotPieces()
     }
 
-    /// Headshots belong to the actor, not one audition: once a real front headshot exists, every
-    /// unsent audition's headshot piece is done.
+    /// Audition headshots are independent from the profile default headshot. Each audition's headshot
+    /// piece is marked done only if that specific audition has a headshot attached.
     func syncHeadshotPieces() {
-        guard HeadshotStore.exists(key: "front") else { return }
-        // Only writes when something actually changes — every write persists and re-renders.
         for i in auditions.indices where auditions[i].status != .sent {
-            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot && !auditions[i].pieces[j].isDone {
-                auditions[i].pieces[j].isDone = true
+            let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: auditions[i].id)
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
+                auditions[i].pieces[j].isDone = hasAuditionHeadshot
             }
             if auditions[i].nextPiece == nil, auditions[i].status == .due { auditions[i].status = .ready }
         }
@@ -343,22 +344,31 @@ final class AppStore {
     }
 
     /// The one "Next" action used everywhere an audition offers to continue: opens whatever its next
-    /// unfinished piece needs, or the package once everything is in.
+    /// unfinished piece needs, prioritizing shooting (slate, scenes) while keeping headshots optional.
     func continueAudition(_ id: Audition.ID) {
         syncHeadshotPieces()
         guard let a = audition(id) else { return }
-        guard let next = a.nextPiece else { push(.package(id)); return }
-        switch next.kind {
-        case .headshot:                   push(.headshots(for: id))
-        case .slate, .fullLength, .scene: camera = .shoot(id)
+        // Headshots are completely optional: prioritize recording slate and scenes first.
+        if let rec = a.pieces.first(where: { !$0.isDone && $0.kind != .headshot }) {
+            switch rec.kind {
+            case .slate, .fullLength, .scene: camera = .shoot(id)
+            default: break
+            }
+            return
         }
+        if let headshot = a.pieces.first(where: { !$0.isDone && $0.kind == .headshot }) {
+            push(.headshots(for: id))
+            return
+        }
+        push(.package(id))
     }
 
     /// Removes an audition and everything recorded for it on this iPhone: takes, slate and full
-    /// length, reader tracks, practice pieces made from its scenes, and its exported tape. The iCloud
-    /// copy behind a sent link is left alone — casting may still be using that link.
+    /// length, reader tracks, practice pieces made from its scenes, its exported tape, and its
+    /// audition-specific headshots. Profile default headshots are left untouched.
     func deleteAudition(_ id: Audition.ID) {
         guard let audition = audition(id) else { return }
+        HeadshotStore.removeAuditionHeadshots(for: id)
         let fm = FileManager.default
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("audition-\(id.uuidString)", isDirectory: true))
         try? fm.removeItem(at: MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true))

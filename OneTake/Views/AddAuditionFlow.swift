@@ -208,9 +208,11 @@ enum NoticeParser {
         func makeAudition() -> Audition {
             let parsedScenes = ScriptParser.parseScenes(from: sourceText, myRole: role)
             var pieces: [Piece] = [
-                .init(kind: .headshot, title: "Headshot", detail: "Front", isDone: false),
                 .init(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: false)
             ]
+            if asks.contains("Headshots") {
+                pieces.append(.init(kind: .headshot, title: "Headshot (Optional)", detail: "Photos", isDone: false))
+            }
             if parsedScenes.isEmpty {
                 // No sides could be read from what was captured — be honest about that rather than
                 // filling in a stand-in scene. Pieces still exist so the checklist has something to
@@ -1145,7 +1147,11 @@ struct NoticeReviewView: View {
                             .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
-                        field("person.2", "\(store.auditionDraft.role.isEmpty ? "Role" : store.auditionDraft.role) · \(store.auditionDraft.scenes) scenes", "Your lines found")
+                        if store.auditionDraft.hasSides {
+                            field("person.2", "\(store.auditionDraft.role.isEmpty ? "Role" : store.auditionDraft.role) · \(store.auditionDraft.scenes) scene\(store.auditionDraft.scenes == 1 ? "" : "s")", "Your lines found")
+                        } else {
+                            field("person.2", "\(store.auditionDraft.role.isEmpty ? "Role" : store.auditionDraft.role)", "Sides not attached · optional")
+                        }
                         ForEach(store.auditionDraft.asks, id: \.self) { ask in field(symbol(for: ask), ask, "") }
                     }
 

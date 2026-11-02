@@ -138,7 +138,7 @@ struct RootTabView: View {
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {
             case .shoot(let id, let scene, let start): ShootFlow(auditionID: id, initialScene: scene, initialStage: start)
-            case .headshot:       HeadshotFlow()
+            case .headshot(let auditionID): HeadshotFlow(auditionID: auditionID)
             case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
             case .practiceTake:   PracticeTakeView()
             }

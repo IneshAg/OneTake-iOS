@@ -970,26 +970,103 @@ struct HeadshotsView: View {
     @State private var adjustItem: HeadshotAdjustItem?
     @State private var isFraming = false
 
-    /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
-    /// headshot showed as taken before it ever was.
-    private var taken: Int { HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key) }.count }
+    /// Counted from the real files on disk for this specific audition or profile
+    private var taken: Int {
+        HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key, auditionID: auditionID) }.count
+    }
+
+    private var profileTaken: Int {
+        HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key, auditionID: nil) }.count
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                InContentNavHeader(title: "Headshots", backLabel: "Back", onBack: { store.pop() })
-                    .padding(.top, 4)
+                InContentNavHeader(
+                    title: auditionID != nil ? "Audition Headshots" : "Default Headshots",
+                    backLabel: "Back",
+                    onBack: { store.pop() }
+                )
+                .padding(.top, 4)
 
-                if auditionID != nil && taken > 0 {
+                if let auditionID {
+                    if taken > 0 {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(OT.success)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(taken) photo\(taken == 1 ? "" : "s") attached to this audition")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Independent copy for this audition · sent with this tape.")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                HeadshotStore.removeAuditionHeadshots(for: auditionID)
+                                store.headshotVersion += 1
+                                store.syncHeadshotPieces()
+                                Haptics.warning()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash")
+                                    Text("Remove")
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.danger)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(OT.fillField, in: Capsule())
+                            }
+                        }
+                        .padding(14)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(OT.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Headshots are optional")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("You can skip headshots, attach your default profile photo, or take a new one.")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                            }
+                            if profileTaken > 0 {
+                                Button {
+                                    HeadshotStore.copyProfileHeadshots(to: auditionID)
+                                    store.headshotVersion += 1
+                                    store.syncHeadshotPieces()
+                                    Haptics.success()
+                                } label: {
+                                    Label("Attach default profile photo", systemImage: "doc.on.doc")
+                                        .font(.otSubhead.weight(.semibold))
+                                        .foregroundStyle(OT.accent)
+                                        .frame(maxWidth: .infinity, minHeight: 38)
+                                        .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                } else {
                     HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
+                        Image(systemName: "person.crop.square.fill")
                             .font(.title3)
-                            .foregroundStyle(OT.success)
+                            .foregroundStyle(OT.accent)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Default headshot is attached")
+                            Text("Default profile headshots")
                                 .font(.otHeadline)
                                 .foregroundStyle(OT.labelPrimary)
-                            Text("You can keep your default or pick/take a new photo for this audition.")
+                            Text("These are your default actor headshots. Auditions can attach them or use their own photos.")
                                 .font(.otFootnote)
                                 .foregroundStyle(OT.labelSecondary)
                         }
@@ -1037,14 +1114,21 @@ struct HeadshotsView: View {
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
-                if let auditionID, taken > 0, let a = store.audition(auditionID) {
-                    Button("Keep default & continue (\(a.nextAction))") {
-                        store.continueAudition(auditionID)
+                if let auditionID, let a = store.audition(auditionID) {
+                    if taken > 0 {
+                        Button("Keep headshots & continue (\(a.nextAction))") {
+                            store.continueAudition(auditionID)
+                        }
+                        .buttonStyle(.otPrimary)
+                    } else {
+                        Button("Continue without headshots (\(a.nextAction))") {
+                            store.continueAudition(auditionID)
+                        }
+                        .buttonStyle(.otPrimary)
                     }
-                    .buttonStyle(.otPrimary)
 
                     HStack(spacing: 12) {
-                        Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot }
+                        Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot(auditionID: auditionID) }
                             .buttonStyle(.otSecondary)
 
                         PhotosPicker(selection: Binding(
@@ -1055,8 +1139,8 @@ struct HeadshotsView: View {
                                     if let data = try? await item.loadTransferable(type: Data.self),
                                        let image = UIImage(data: data) {
                                         await MainActor.run {
-                                            let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key) }?.key ?? "front"
-                                            HeadshotStore.save(image, key: nextKey)
+                                            let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key, auditionID: auditionID) }?.key ?? "front"
+                                            HeadshotStore.save(image, key: nextKey, auditionID: auditionID)
                                             store.headshotVersion += 1
                                             store.syncHeadshotPieces()
                                             Haptics.success()
@@ -1077,7 +1161,7 @@ struct HeadshotsView: View {
                     }
                 } else {
                     Button(taken == 0 ? "Take with Camera" : taken < 3 ? "Add profiles (Camera)" : "Retake with Camera") {
-                        store.camera = .headshot
+                        store.camera = .headshot(auditionID: nil)
                     }
                     .buttonStyle(.otPrimary)
 
@@ -1089,8 +1173,8 @@ struct HeadshotsView: View {
                                 if let data = try? await item.loadTransferable(type: Data.self),
                                    let image = UIImage(data: data) {
                                     await MainActor.run {
-                                        let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key) }?.key ?? "front"
-                                        HeadshotStore.save(image, key: nextKey)
+                                        let nextKey = HeadshotStore.angles.first { !HeadshotStore.exists(key: $0.key, auditionID: nil) }?.key ?? "front"
+                                        HeadshotStore.save(image, key: nextKey, auditionID: nil)
                                         store.headshotVersion += 1
                                         store.syncHeadshotPieces()
                                         Haptics.success()
@@ -1122,8 +1206,8 @@ struct HeadshotsView: View {
                 isFraming = true
                 // Always reframe from the original capture, so applying again (or a different
                 // ratio) re-crops the full photo instead of zooming further into the last crop.
-                let keys = HeadshotStore.taken.map(\.key)
-                let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key).map { (key, $0) } }
+                let keys = HeadshotStore.taken(auditionID: auditionID).map(\.key)
+                let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key, auditionID: auditionID).map { (key, $0) } }
                 Task.detached(priority: .userInitiated) {
                     let framed = originals.compactMap { key, image in
                         let isProfile = (key == "left" || key == "right")
@@ -1135,7 +1219,7 @@ struct HeadshotsView: View {
                         return ImageFramer.crop(image, ratio: ratio, isProfile: isProfile).map { (key, $0) }
                     }
                     await MainActor.run {
-                        for (key, image) in framed { HeadshotStore.replace(image, key: key) }
+                        for (key, image) in framed { HeadshotStore.replace(image, key: key, auditionID: auditionID) }
                         store.headshotVersion += 1
                         isFraming = false
                         if framed.isEmpty { Haptics.warning() } else { Haptics.success() }
@@ -1190,10 +1274,10 @@ struct HeadshotsView: View {
 
         if done {
             Button {
-                adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile)
+                adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile, auditionID: auditionID)
             } label: {
                 ZStack(alignment: .bottomLeading) {
-                    HeadshotImage(realKey: key)
+                    HeadshotImage(realKey: key, auditionID: auditionID)
                     LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
                     HStack {
                         Label(title, systemImage: "checkmark")
@@ -1227,7 +1311,7 @@ struct HeadshotsView: View {
                         if let data = try? await item.loadTransferable(type: Data.self),
                            let image = UIImage(data: data) {
                             await MainActor.run {
-                                HeadshotStore.save(image, key: key)
+                                HeadshotStore.save(image, key: key, auditionID: auditionID)
                                 store.headshotVersion += 1
                                 store.syncHeadshotPieces()
                                 Haptics.success()
@@ -1276,6 +1360,7 @@ struct HeadshotsView: View {
 struct HeadshotFlow: View {
     enum Angle: String, CaseIterable { case front = "Front", left = "Left", right = "Right" }
 
+    var auditionID: Audition.ID? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(AppStore.self) private var store
     @State private var camera = CameraController()
@@ -1379,6 +1464,7 @@ struct HeadshotFlow: View {
         .sheet(isPresented: $showMatchGuide) {
             HeadshotReferenceGuideSheet(
                 angle: angle,
+                auditionID: auditionID,
                 showGhostOverlay: $showGhostOverlay,
                 voiceGuidanceEnabled: $voiceGuidanceEnabled
             )
@@ -1632,14 +1718,14 @@ struct HeadshotFlow: View {
     }
 
     private func thumbnailImageForCurrentOrPriorAngle() -> UIImage? {
-        if let current = HeadshotStore.load(key: angle.rawValue) {
+        if let current = HeadshotStore.load(key: angle.rawValue, auditionID: auditionID) {
             return current
         }
-        if angle == .left, let front = HeadshotStore.load(key: "Front") {
+        if angle == .left, let front = HeadshotStore.load(key: "Front", auditionID: auditionID) {
             return front
         }
         if angle == .right {
-            return HeadshotStore.load(key: "Left") ?? HeadshotStore.load(key: "Front")
+            return HeadshotStore.load(key: "Left", auditionID: auditionID) ?? HeadshotStore.load(key: "Front", auditionID: auditionID)
         }
         return nil
     }
@@ -1659,8 +1745,9 @@ struct HeadshotFlow: View {
         camera.capturePhoto { image in
             justCaptured = false
             guard let image else { captureFailed = true; Haptics.warning(); return }
-            HeadshotStore.save(image, key: angle.rawValue)
+            HeadshotStore.save(image, key: angle.rawValue, auditionID: auditionID)
             store.headshotVersion += 1
+            store.syncHeadshotPieces()
             Haptics.success()
             if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
                 let saved = angle.rawValue
@@ -1685,6 +1772,7 @@ struct HeadshotFlow: View {
 
 struct HeadshotReferenceGuideSheet: View {
     let angle: HeadshotFlow.Angle
+    var auditionID: Audition.ID? = nil
     @Binding var showGhostOverlay: Bool
     @Binding var voiceGuidanceEnabled: Bool
     @Environment(\.dismiss) private var dismiss
@@ -1704,7 +1792,7 @@ struct HeadshotReferenceGuideSheet: View {
                                 .fill(Color.white.opacity(0.06))
                                 .frame(height: 200)
 
-                            if let saved = HeadshotStore.load(key: angle.rawValue) {
+                            if let saved = HeadshotStore.load(key: angle.rawValue, auditionID: auditionID) {
                                 Image(uiImage: saved)
                                     .resizable()
                                     .scaledToFit()
@@ -1851,7 +1939,8 @@ struct HeadshotAdjustItem: Identifiable {
     let key: String
     let title: String
     let isProfile: Bool
-    var id: String { key }
+    var auditionID: UUID? = nil
+    var id: String { "\(key)-\(auditionID?.uuidString ?? "profile")" }
 }
 
 struct HeadshotAdjustSheet: View {
@@ -2012,7 +2101,7 @@ struct HeadshotAdjustSheet: View {
                         }
                         Button {
                             dismiss()
-                            store.camera = .headshot
+                            store.camera = .headshot(auditionID: item.auditionID)
                         } label: {
                             Label("Take with Camera", systemImage: "camera")
                         }
@@ -2051,7 +2140,7 @@ struct HeadshotAdjustSheet: View {
                    let img = UIImage(data: data),
                    let upright = ImageFramer.normalized(img) {
                     await MainActor.run {
-                        HeadshotStore.save(upright, key: item.key)
+                        HeadshotStore.save(upright, key: item.key, auditionID: item.auditionID)
                         originalImage = upright
                         zoom = 1.0
                         offset = .zero
@@ -2067,7 +2156,7 @@ struct HeadshotAdjustSheet: View {
     }
 
     private func loadPhoto() {
-        if let raw = HeadshotStore.loadOriginal(key: item.key) ?? HeadshotStore.load(key: item.key),
+        if let raw = HeadshotStore.loadOriginal(key: item.key, auditionID: item.auditionID) ?? HeadshotStore.load(key: item.key, auditionID: item.auditionID),
            let upright = ImageFramer.normalized(raw) {
             originalImage = upright
         }
@@ -2144,7 +2233,7 @@ struct HeadshotAdjustSheet: View {
         }
 
         let croppedImage = UIImage(cgImage: croppedCG, scale: 1, orientation: .up)
-        HeadshotStore.replace(croppedImage, key: item.key)
+        HeadshotStore.replace(croppedImage, key: item.key, auditionID: item.auditionID)
         store.headshotVersion += 1
         store.syncHeadshotPieces()
         Haptics.success()

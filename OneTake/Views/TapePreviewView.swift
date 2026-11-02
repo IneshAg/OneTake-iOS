@@ -261,7 +261,7 @@ struct TapePreviewView: View {
         failed = false
         guard let a = store.audition(auditionID) else { return }
         let takes = store.takes
-        photos = HeadshotStore.taken.compactMap { angle in HeadshotStore.load(key: angle.key).map { (title: angle.title, image: $0) } }
+        photos = HeadshotStore.taken(auditionID: auditionID).compactMap { angle in HeadshotStore.load(key: angle.key, auditionID: auditionID).map { (title: angle.title, image: $0) } }
         showingPhotos = !photos.isEmpty
         photoIndex = 0
         guard let built = try? await MediaExporter.build(MediaExporter.clips(for: a, takes: takes)),

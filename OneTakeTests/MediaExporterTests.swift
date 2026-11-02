@@ -193,13 +193,13 @@ final class MediaExporterTests: XCTestCase {
         let scene = ScriptScene(number: 1, title: "Scene 1", heading: "STAGE", lines: [], estimatedSeconds: 25)
         var audition = makeAudition(role: "Maya", project: "The Last Summer", scenes: [scene])
 
-        // Save a mock front headshot image
+        // Save a mock front headshot image for this audition
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 160))
         let mockImage = renderer.image { ctx in
             UIColor.blue.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: 120, height: 160))
         }
-        HeadshotStore.save(mockImage, key: "front")
+        HeadshotStore.save(mockImage, key: "front", auditionID: audition.id)
 
         let slateURL = tempDirectory.appendingPathComponent("slate.mov")
         let fullURL = tempDirectory.appendingPathComponent("full.mov")
@@ -280,7 +280,7 @@ final class MediaExporterTests: XCTestCase {
             UIColor.green.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: 80, height: 100))
         }
-        HeadshotStore.save(mockImage, key: "front")
+        HeadshotStore.save(mockImage, key: "front", auditionID: audition.id)
 
         let slate = SlateInfo(name: "Asha Rao")
         let archiveURL = try MediaExporter.makeSeparateArchive(audition, takes: [], slate: slate)

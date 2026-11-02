@@ -81,7 +81,7 @@ enum MediaExporter {
             let name = clip.label.replacingOccurrences(of: " · ", with: " - ").replacingOccurrences(of: " ", with: "_")
             entries.append(ZipArchive.Entry(name: "Videos/\(name).\(ext)", fileURL: clip.url))
         }
-        for url in HeadshotStore.deliverables(baseName: baseName) {
+        for url in HeadshotStore.deliverables(baseName: baseName, auditionID: audition.id) {
             entries.append(ZipArchive.Entry(name: "Headshots/\(url.lastPathComponent)", fileURL: url))
         }
         guard !entries.isEmpty else { throw ExportError.nothingToExport }

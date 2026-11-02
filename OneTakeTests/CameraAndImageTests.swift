@@ -473,5 +473,44 @@ final class CameraAndImageTests: XCTestCase {
         recorder.switchCamera()
         XCTAssertEqual(recorder.position, .front, "Camera flip must be rejected while recording")
     }
+
+    func testAuditionHeadshotsUnlinkedFromProfileAndOptional() {
+        let auditionID = UUID()
+        let profileKey = "front"
+        let profileImage = createTestImage(width: 500, height: 600)
+        let auditionImage = createTestImage(width: 300, height: 400)
+
+        // 1. Save profile headshot (auditionID: nil)
+        HeadshotStore.save(profileImage, key: profileKey, auditionID: nil)
+        defer {
+            HeadshotStore.removeAuditionHeadshots(for: auditionID)
+            let dir = MediaStore.directory("headshots")
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(profileKey).jpg"))
+            HeadshotStore.clearCache()
+        }
+
+        // 2. Audition headshots must initially be empty (unlinked from profile)
+        XCTAssertFalse(HeadshotStore.exists(key: profileKey, auditionID: auditionID))
+        XCTAssertEqual(HeadshotStore.taken(auditionID: auditionID).count, 0)
+        XCTAssertTrue(HeadshotStore.exists(key: profileKey, auditionID: nil))
+
+        // 3. Save audition headshot
+        HeadshotStore.save(auditionImage, key: profileKey, auditionID: auditionID)
+        XCTAssertTrue(HeadshotStore.exists(key: profileKey, auditionID: auditionID))
+        XCTAssertEqual(HeadshotStore.load(key: profileKey, auditionID: auditionID)?.cgImage?.width, 300)
+        XCTAssertEqual(HeadshotStore.load(key: profileKey, auditionID: nil)?.cgImage?.width, 500, "Audition headshot save must never alter profile headshot")
+
+        // 4. Remove audition headshots
+        HeadshotStore.removeAuditionHeadshots(for: auditionID)
+        XCTAssertFalse(HeadshotStore.exists(key: profileKey, auditionID: auditionID))
+        XCTAssertTrue(HeadshotStore.exists(key: profileKey, auditionID: nil), "Removing audition headshots must not remove profile headshot")
+
+        // 5. Auditions without "Headshots" in asks do NOT get a mandatory .headshot piece
+        var draft = NoticeParser.Draft()
+        draft.project = "Escape Plan"
+        draft.role = "Lead Actor"
+        let audition = draft.makeAudition()
+        XCTAssertFalse(audition.pieces.contains(where: { $0.kind == .headshot }), "Headshot piece must not be added when notice did not ask for it")
+    }
 }
 

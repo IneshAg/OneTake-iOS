@@ -83,6 +83,8 @@ struct AuditionDetailView: View {
 
                 sidesCard(a)
 
+                headshotsCard(a)
+
                 if let then = thenLine(a) {
                     Button { showPackage = true } label: {
                         HStack {
@@ -118,14 +120,18 @@ struct AuditionDetailView: View {
     // MARK: Up next panel
 
     @ViewBuilder private func upNext(_ a: Audition) -> some View {
-        let next = a.nextPiece
+        // Prioritize recording slate and scenes first. Headshots are optional and should never block the actor.
+        let recordingPiece = a.pieces.first { !$0.isDone && $0.kind != .headshot }
+        let next = recordingPiece ?? a.nextPiece
         VStack(alignment: .leading, spacing: 12) {
             if next?.kind == .headshot {
-                HStack { SectionLabel(text: "Up next · piece 1 of \(a.totalCount)"); Spacer(); Text("≈ 2 min").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
-                Text("Your headshot").font(.otTitle)
-                Text("FRONT · LEFT · RIGHT").font(.otCaption).foregroundStyle(OT.labelTertiary)
-                quoteLine("Casting sees this first. A window and a plain wall is all you need.")
-                Button("Take your headshot") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
+                HStack { SectionLabel(text: "Headshots (Optional)"); Spacer(); Text("≈ 2 min").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+                Text("Audition headshots").font(.otTitle)
+                quoteLine("Optional · sent alongside your video tape as photos.")
+                HStack(spacing: 10) {
+                    Button("Manage headshots") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
+                    Button("Ready to send") { store.push(.package(a.id)) }.buttonStyle(.otSecondary)
+                }
             } else if next?.kind == .slate || next?.kind == .fullLength {
                 SectionLabel(text: "Up next · \(next?.title ?? "")")
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
@@ -199,6 +205,35 @@ struct AuditionDetailView: View {
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(OT.accent)
             }
+        }
+        .padding(16)
+        .otCard()
+    }
+
+    @ViewBuilder private func headshotsCard(_ a: Audition) -> some View {
+        let hasHeadshots = HeadshotStore.exists(key: "front", auditionID: a.id)
+        let count = HeadshotStore.taken(auditionID: a.id).count
+        HStack(spacing: 12) {
+            Image(systemName: hasHeadshots ? "photo.fill" : "photo.badge.plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(OT.accent)
+                .frame(width: 34, height: 34)
+                .background(OT.accentSoft, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                SectionLabel(text: "Headshots (Optional)")
+                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : "None attached · optional")
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.labelPrimary)
+            }
+            Spacer()
+            Button(hasHeadshots ? "Manage" : "Add") {
+                store.push(.headshots(for: a.id))
+            }
+            .font(.otFootnote.weight(.semibold))
+            .foregroundStyle(OT.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(OT.accentSoft, in: Capsule())
         }
         .padding(16)
         .otCard()

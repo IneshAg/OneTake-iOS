@@ -266,10 +266,11 @@ struct HeadshotImage: View {
     /// Which of the actor's own headshots to show (`front`, `left`, `right`). Without one taken —
     /// or with no key — it's a neutral silhouette, never a stand-in photo of someone else.
     var realKey: String? = nil
+    var auditionID: UUID? = nil
     var iconSize: CGFloat? = nil
 
     var body: some View {
-        if let realKey, let real = HeadshotStore.load(key: realKey) {
+        if let realKey, let real = HeadshotStore.load(key: realKey, auditionID: auditionID) {
             Color.clear
                 .overlay {
                     Image(uiImage: real)
