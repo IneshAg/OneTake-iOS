@@ -271,6 +271,11 @@ struct TapeCheckView: View {
             let result = await TapeAnalyzer.analyze(a, takes: takes)
             guard !Task.isCancelled else { return }
             report = result
+            if result.findings.isEmpty {
+                Haptics.success()
+            } else {
+                Haptics.warning()
+            }
         }
         .sheet(item: $finding) { f in
             FindingSheet(finding: f, onDismiss: { finding = nil }, onRetake: retakeAction(for: f))

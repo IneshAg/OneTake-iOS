@@ -25,11 +25,25 @@ struct RecordButton: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isRecording)
         .contentShape(Circle())
-        .onTapGesture { if !(isRecording && holdToStop) { action() } }
+        .onTapGesture {
+            if !(isRecording && holdToStop) {
+                if isRecording {
+                    Haptics.impact(.medium)
+                } else {
+                    Haptics.impact(.heavy)
+                }
+                action()
+            }
+        }
         .onLongPressGesture(minimumDuration: 0.8, perform: {
-            if isRecording && holdToStop { holdProgress = 0; action() }
+            if isRecording && holdToStop {
+                holdProgress = 0
+                Haptics.impact(.medium)
+                action()
+            }
         }, onPressingChanged: { pressing in
             guard isRecording && holdToStop else { return }
+            if pressing { Haptics.tick() }
             withAnimation(pressing ? .linear(duration: 0.8) : .easeOut(duration: 0.2)) { holdProgress = pressing ? 1 : 0 }
         })
         .accessibilityLabel(isRecording ? (holdToStop ? "Stop recording, press and hold" : "Stop recording") : "Record")
@@ -882,6 +896,7 @@ struct ShootFlow: View {
     }
 
     private func advanceLine() {
+        Haptics.tick()
         stopReader()
         timedAdvance?.cancel()
         timedAdvance = nil
@@ -976,11 +991,13 @@ struct ShootFlow: View {
                 }
             }
             withAnimation { countdown = nil }
+            Haptics.impact(.heavy)
             camera.startRecording()
         }
     }
 
     private func cut() {
+        Haptics.impact(.medium)
         let cutStage = stage
         // Wait for the file to be finalized — reading `lastRecording` right after stopping would pick
         // up nothing (first clip) or the previous clip.
@@ -994,10 +1011,15 @@ struct ShootFlow: View {
         let failed = "Nothing was written to this iPhone. Record it again."
         switch cutStage {
         case .slate:
-            guard let url = MediaStore.persist(recording, as: "slate-original.mov", in: folder) else { saveError = failed; return }
+            guard let url = MediaStore.persist(recording, as: "slate-original.mov", in: folder) else {
+                saveError = failed
+                Haptics.warning()
+                return
+            }
             store.keepOriginalSlate(url, for: auditionID)
             // Done as soon as it's on disk, so closing the camera here doesn't lose the progress.
             store.markDone(.slate, in: auditionID)
+            Haptics.success()
             stage = .slateDone
             isAnalyzingSlate = true
             Task {
@@ -1007,21 +1029,29 @@ struct ShootFlow: View {
                 slateTrimReview = SlateTrimReview(original: url, trimmed: trimmed, suggestion: suggestion)
             }
         case .fullLength:
-            guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else { saveError = failed; return }
+            guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else {
+                saveError = failed
+                Haptics.warning()
+                return
+            }
             store.setFullLengthVideo(url, for: auditionID)
             store.markDone(.fullLength, in: auditionID)
+            Haptics.success()
             stage = .scene
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
             let takeID = UUID()
             // The take's own ID in the file name means a new take can never replace another's file.
             guard let url = MediaStore.persist(recording, as: "take-\(number)-\(takeID.uuidString).mov", in: "\(folder)/scene-\(sceneIndex)") else {
-                saveError = failed; return
+                saveError = failed
+                Haptics.warning()
+                return
             }
             let take = Take(id: takeID, number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
                              fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
             store.addTake(take)
             takeNumber = number
+            Haptics.success()
             stage = .saved
         default: break
         }

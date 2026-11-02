@@ -836,8 +836,10 @@ struct PracticeTakeView: View {
 
                 RecordButton(isRecording: camera.state == .recording) {
                     if camera.state == .recording {
+                        Haptics.impact(.medium)
                         camera.stopRecording()
                     } else {
+                        Haptics.impact(.heavy)
                         recordedTakeURL = nil
                         camera.startRecording()
                     }
@@ -870,18 +872,22 @@ struct PracticeTakeView: View {
         }
         .onChange(of: follower.lastCommand) { _, cmd in
             if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready {
+                Haptics.impact(.heavy)
                 recordedTakeURL = nil
                 camera.startRecording()
             }
             if cmd?.word == "cut", camera.state == .recording {
+                Haptics.impact(.medium)
                 camera.stopRecording()
             }
         }
         .onCameraCaptureEvent { event in
             guard event.phase == .ended else { return }
             if camera.state == .recording {
+                Haptics.impact(.medium)
                 camera.stopRecording()
             } else {
+                Haptics.impact(.heavy)
                 recordedTakeURL = nil
                 camera.startRecording()
             }

@@ -1392,6 +1392,7 @@ struct RecordReaderView: View {
             successBanner = nil
             if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) {
                 recording = true
+                Haptics.impact(.heavy)
             } else {
                 recordingError = "Recording couldn't start. Check microphone access and try again."
                 Haptics.warning()
