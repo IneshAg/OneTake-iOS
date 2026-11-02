@@ -45,16 +45,76 @@ enum AuditionStatus: String, Codable, Hashable {
 
 enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
     case actorsAccess = "Actors Access"
+    case backstage = "Backstage"
     case castingNetworks = "Casting Networks"
     case spotlight = "Spotlight"
+    case email = "Direct Email"
+    case localFiles = "Save to Files / AirDrop"
     case emailOrLink = "Email or link"
+
     var id: String { rawValue }
     var spec: String {
         switch self {
-        case .actorsAccess:    "H.264 .mp4 · 1080p · under 500 MB"
+        case .actorsAccess:    "H.264 .mp4 · separate clips or full tape · under 500 MB"
+        case .backstage:       "H.264 .mp4 · 1080p · application upload"
         case .castingNetworks: "H.264 .mp4 · 1080p · up to 300 MB"
         case .spotlight:       "H.264 .mp4 · 1080p"
-        case .emailOrLink:     "Download link · needs Apple or Google sign-in"
+        case .email:           "Email tape or link directly to casting office"
+        case .localFiles:      "Export .mp4 video, separate clips .zip, or photos to iPhone Files"
+        case .emailOrLink:     "Shareable link (Drive / iCloud) for external forms"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .actorsAccess:    return "ticket.fill"
+        case .backstage:       return "theatermasks.fill"
+        case .castingNetworks: return "network"
+        case .spotlight:       return "sun.max.fill"
+        case .email:           return "envelope.fill"
+        case .localFiles:      return "folder.fill"
+        case .emailOrLink:     return "link"
+        }
+    }
+}
+
+/// The deliverable packaging choice: single composed video, separate clips ZIP archive, headshots, or all deliverables.
+enum PackageDeliverable: String, Codable, CaseIterable, Identifiable {
+    case combinedVideo = "Combined Video (.mp4)"
+    case separateZip = "Separate Clips (.zip)"
+    case headshotsOnly = "Headshots / Photos"
+    case completePackage = "Full Package (Video + ZIP + Photos)"
+
+    var id: String { rawValue }
+
+    var shortTitle: String {
+        switch self {
+        case .combinedVideo: return "Video (.mp4)"
+        case .separateZip: return "Clips (.zip)"
+        case .headshotsOnly: return "Photos"
+        case .completePackage: return "All Deliverables"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .combinedVideo:
+            return "Slate + scenes joined in order (H.264 1080p)"
+        case .separateZip:
+            return "Individual scene takes, separate slate video, and photos"
+        case .headshotsOnly:
+            return "Captured high-res audition headshots"
+        case .completePackage:
+            return "Merged video deliverable, clips ZIP, and photos"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .combinedVideo: return "film"
+        case .separateZip: return "doc.zipper"
+        case .headshotsOnly: return "photo.on.rectangle"
+        case .completePackage: return "shippingbox.fill"
         }
     }
 }
@@ -75,6 +135,7 @@ struct Audition: Identifiable, Hashable, Codable {
     var scriptText: String? = nil
     var destination: Destination
     var destinationDetail: String? = nil
+    var packageDeliverable: PackageDeliverable? = .combinedVideo
     var status: AuditionStatus
     var sentDate: Date?
 
@@ -133,6 +194,67 @@ struct Audition: Identifiable, Hashable, Codable {
         let first = parts.count > 1 ? String(parts.first!) : ""
         let pieces = [token(last), token(first), token(role), token(project)].filter { !$0.isEmpty }
         return pieces.joined(separator: "_") + ".mp4"
+    }
+
+    /// Detected casting email address from requirements or destination detail.
+    var castingEmail: String? {
+        if let direct = destinationDetail, direct.contains("@") {
+            return direct.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        for ask in asks {
+            if ask.hasPrefix("Email: ") {
+                let addr = ask.replacingOccurrences(of: "Email: ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if addr.contains("@") { return addr }
+            }
+            if ask.contains("@") {
+                let parts = ask.split(whereSeparator: \.isWhitespace)
+                if let found = parts.first(where: { $0.contains("@") }) {
+                    return String(found).trimmingCharacters(in: CharacterSet(charactersIn: ".,;\"'()<>"))
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Automatically formats subject line based on notice instructions (e.g. Mention "Escape Plan" in subject) or standard casting protocol.
+    func emailSubject(slate: SlateInfo) -> String {
+        let actorName = slate.isEmpty ? "Actor" : slate.name
+        for ask in asks {
+            let lower = ask.lowercased()
+            if lower.contains("in the subject") || lower.contains("subject:") {
+                let clean = ask.replacingOccurrences(of: "Mention ", with: "")
+                               .replacingOccurrences(of: "mention ", with: "")
+                               .replacingOccurrences(of: "in the subject", with: "")
+                               .replacingOccurrences(of: "Subject:", with: "")
+                               .replacingOccurrences(of: "subject:", with: "")
+                               .trimmingCharacters(in: CharacterSet(charactersIn: " \"'“”"))
+                if !clean.isEmpty {
+                    return "\(clean) - \(role) - \(actorName)"
+                }
+            }
+        }
+        return "\(project) - \(role) - \(actorName)"
+    }
+
+    /// Professional casting submission cover email.
+    func emailBody(slate: SlateInfo) -> String {
+        let actorName = slate.isEmpty ? "Actor" : slate.name
+        let slateDetails = slate.isEmpty ? "" : "\n• Details: \(slate.summary)"
+        let agencyLine = slate.representation.isEmpty ? "" : "\n• Agency: \(slate.representation)"
+        return """
+        Dear Casting Team,
+
+        Please find attached my self-tape submission for "\(project)".
+
+        • Role: \(role)
+        • Actor: \(actorName)\(slateDetails)\(agencyLine)
+        • Casting Office: \(castingOffice.isEmpty ? "Casting" : castingOffice)
+
+        Thank you for your time and consideration.
+
+        Best regards,
+        \(actorName)
+        """
     }
 }
 

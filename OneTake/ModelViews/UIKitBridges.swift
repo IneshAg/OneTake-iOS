@@ -22,10 +22,14 @@ enum Haptics {
 /// finished a share action (vs. dismissing), which is what "sent" should mean with no real backend.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    var subject: String? = nil
     var onComplete: ((Bool) -> Void)? = nil
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let subject, !subject.isEmpty {
+            vc.setValue(subject, forKey: "subject")
+        }
         vc.completionWithItemsHandler = { _, completed, _, _ in onComplete?(completed) }
         return vc
     }

@@ -69,8 +69,11 @@ final class PackageAndSentTests: XCTestCase {
         // All other direct casting export destinations produce "It’s on its way."
         let otherDestinations: [Destination] = [
             .actorsAccess,
+            .backstage,
             .castingNetworks,
-            .spotlight
+            .spotlight,
+            .email,
+            .localFiles
         ]
 
         for dest in otherDestinations {
@@ -97,8 +100,11 @@ final class PackageAndSentTests: XCTestCase {
 
     func testSentViewDestinationRawValues() {
         XCTAssertEqual(Destination.actorsAccess.rawValue, "Actors Access")
+        XCTAssertEqual(Destination.backstage.rawValue, "Backstage")
         XCTAssertEqual(Destination.castingNetworks.rawValue, "Casting Networks")
         XCTAssertEqual(Destination.spotlight.rawValue, "Spotlight")
+        XCTAssertEqual(Destination.email.rawValue, "Direct Email")
+        XCTAssertEqual(Destination.localFiles.rawValue, "Save to Files / AirDrop")
         XCTAssertEqual(Destination.emailOrLink.rawValue, "Email or link")
     }
 
@@ -176,18 +182,51 @@ final class PackageAndSentTests: XCTestCase {
     func testStressAllDestinationRawValuesAndSpecs() {
         let expectedDestinations: [Destination: (raw: String, headline: String)] = [
             .actorsAccess: ("Actors Access", "It’s on its way."),
+            .backstage: ("Backstage", "It’s on its way."),
             .castingNetworks: ("Casting Networks", "It’s on its way."),
             .spotlight: ("Spotlight", "It’s on its way."),
+            .email: ("Direct Email", "It’s on its way."),
+            .localFiles: ("Save to Files / AirDrop", "It’s on its way."),
             .emailOrLink: ("Email or link", "Your link is ready.")
         ]
 
-        XCTAssertEqual(Destination.allCases.count, 4)
+        XCTAssertEqual(Destination.allCases.count, 7)
 
         for (dest, expected) in expectedDestinations {
             XCTAssertEqual(dest.rawValue, expected.raw)
             let headline = (dest == .emailOrLink ? "Your link is ready." : "It’s on its way.")
             XCTAssertEqual(headline, expected.headline)
         }
+    }
+
+    func testPackageDeliverablesAndExportChoices() {
+        XCTAssertEqual(PackageDeliverable.allCases.count, 4)
+        XCTAssertEqual(PackageDeliverable.combinedVideo.shortTitle, "Video (.mp4)")
+        XCTAssertEqual(PackageDeliverable.separateZip.shortTitle, "Clips (.zip)")
+        XCTAssertEqual(PackageDeliverable.headshotsOnly.shortTitle, "Photos")
+        XCTAssertEqual(PackageDeliverable.completePackage.shortTitle, "All Deliverables")
+
+        let audition = makeAudition()
+        XCTAssertEqual(audition.packageDeliverable, .combinedVideo)
+    }
+
+    func testAuditionNoticeEmailExtraction() {
+        var audition = makeAudition()
+        audition.project = "Escape Plan"
+        audition.role = "Male Actor (20-40 years)"
+        audition.asks = [
+            "Location: Bengaluru",
+            "Email: casting2cast@gmail.com",
+            "Mention \"Escape Plan\" in the subject"
+        ]
+        let slate = SlateInfo(name: "Inesh Agarwal")
+
+        XCTAssertEqual(audition.castingEmail, "casting2cast@gmail.com")
+        XCTAssertEqual(audition.emailSubject(slate: slate), "Escape Plan - Male Actor (20-40 years) - Inesh Agarwal")
+        let body = audition.emailBody(slate: slate)
+        XCTAssertTrue(body.contains("Escape Plan"))
+        XCTAssertTrue(body.contains("Male Actor (20-40 years)"))
+        XCTAssertTrue(body.contains("Inesh Agarwal"))
     }
 
     func testStressSceneCountFormattingBoundaryValues() {
