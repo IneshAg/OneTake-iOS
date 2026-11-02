@@ -284,4 +284,54 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(draft.destination, .emailOrLink)
         XCTAssertEqual(draft.destinationDetail, "kalnaga.com/pilgrimage/casting.html")
     }
+
+    func testGoogleDriveSidesLinkDetection() {
+        let text = """
+        CASTING CALL
+        Project: Crimson Tide
+        Role: Captain Vance
+        Sides link: https://drive.google.com/drive/folders/1A2B3C4D5E6F7G
+        Due: Nov 15, 2026
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Crimson Tide")
+        XCTAssertEqual(draft.role, "Captain Vance")
+        XCTAssertEqual(draft.sidesLink, "https://drive.google.com/drive/folders/1A2B3C4D5E6F7G")
+        // Drive link for sides must NOT be treated as the submission destination
+        XCTAssertNil(draft.destinationDetail)
+        XCTAssertFalse(draft.missingRequiredDetails.contains("script sides"))
+    }
+
+    func testSidesLinkAndSubmissionFormCoexistInCorrectColumns() {
+        let text = """
+        Project: Monsoon Memories
+        Role: Rahul
+        Download sides from Google Drive: https://drive.google.com/file/d/12345/view
+        Self-tape due by November 20, 2026
+        Submit tape and details via Google Form: https://forms.gle/xyzAuditionForm
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Monsoon Memories")
+        XCTAssertEqual(draft.role, "Rahul")
+        // Sides link in sides column
+        XCTAssertEqual(draft.sidesLink, "https://drive.google.com/file/d/12345/view")
+        // Submission form in destination column
+        XCTAssertEqual(draft.destinationDetail, "https://forms.gle/xyzAuditionForm")
+        XCTAssertEqual(draft.destination, .emailOrLink)
+        // Neither column pollutes the other
+        XCTAssertNotEqual(draft.sidesLink, draft.destinationDetail)
+    }
+
+    func testDropboxSidesLinkDetection() {
+        let text = """
+        Project: The Lost City
+        Role: Elena
+        Sides attached at: https://dropbox.com/s/sample_sides.pdf
+        Email tape to: casting@thelostcity.com
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.sidesLink, "https://dropbox.com/s/sample_sides.pdf")
+        XCTAssertEqual(draft.destinationDetail, "casting@thelostcity.com")
+        XCTAssertFalse(draft.missingRequiredDetails.contains("script sides"))
+    }
 }

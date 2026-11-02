@@ -135,6 +135,9 @@ struct Audition: Identifiable, Hashable, Codable {
     var scriptText: String? = nil
     var destination: Destination
     var destinationDetail: String? = nil
+    /// A cloud link (Google Drive, Dropbox, WeTransfer, iCloud) where the casting team has
+    /// shared the script sides — distinct from `destinationDetail` which is the submission URL.
+    var sidesLink: String? = nil
     var packageDeliverable: PackageDeliverable? = .combinedVideo
     var status: AuditionStatus
     var sentDate: Date?

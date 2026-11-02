@@ -169,7 +169,7 @@ struct AuditionDetailView: View {
     @ViewBuilder private func sidesCard(_ a: Audition) -> some View {
         HStack(spacing: 12) {
             if a.scenes.isEmpty {
-                Image(systemName: "doc.badge.plus")
+                Image(systemName: a.sidesLink != nil ? "link.circle.fill" : "doc.badge.plus")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(OT.accent)
                     .frame(width: 34, height: 34)
@@ -178,12 +178,27 @@ struct AuditionDetailView: View {
                     Text("Sides")
                         .font(.otCaption.weight(.medium))
                         .foregroundStyle(OT.labelTertiary)
-                    Text("No sides attached yet")
-                        .font(.otHeadline)
-                        .foregroundStyle(OT.labelPrimary)
+                    if let sidesLink = a.sidesLink, !sidesLink.isEmpty {
+                        Text(sidesLink.contains("drive.google") ? "Google Drive link attached" : "Sides link attached")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                    } else {
+                        Text("No sides attached yet")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                    }
                 }
                 Spacer()
-                Button("Add sides") {
+                if let sidesLink = a.sidesLink, let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                    Link(destination: url) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 16))
+                            .foregroundStyle(OT.accent)
+                            .frame(width: 32, height: 32)
+                            .background(OT.accentSoft, in: Circle())
+                    }
+                }
+                Button(a.sidesLink != nil ? "Import" : "Add sides") {
                     showSides = true
                 }
                 .font(.otFootnote.weight(.semibold))
@@ -557,6 +572,27 @@ struct EditAuditionSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(audition.wrappedValue.destination == .emailOrLink ? .emailAddress : .default)
+                    }
+                    Section("Sides / Script Link") {
+                        TextField("Google Drive, Dropbox, or cloud link", text: Binding(
+                            get: { audition.wrappedValue.sidesLink ?? "" },
+                            set: { audition.wrappedValue.sidesLink = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        ))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                        if let sidesLink = audition.wrappedValue.sidesLink,
+                           let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                            Link(destination: url) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.right.square")
+                                    Text("Open in browser")
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                            }
+                        }
                     }
                     Section {
                         TextField("Notes from casting", text: Binding(

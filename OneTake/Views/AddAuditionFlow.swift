@@ -205,6 +205,8 @@ private struct OCRReviewSheet: View {
     @State private var projectText: String
     @State private var roleText: String
     @State private var castingOfficeText: String
+    @State private var sidesLinkText: String
+    @State private var destinationDetailText: String
     @State private var dueDate: Date
     @State private var hasDueDate: Bool
 
@@ -215,6 +217,8 @@ private struct OCRReviewSheet: View {
         self._projectText = State(initialValue: draft.project)
         self._roleText = State(initialValue: draft.role)
         self._castingOfficeText = State(initialValue: draft.castingOffice)
+        self._sidesLinkText = State(initialValue: draft.sidesLink ?? "")
+        self._destinationDetailText = State(initialValue: draft.destinationDetail ?? "")
         self._hasDueDate = State(initialValue: draft.due != nil)
         self._dueDate = State(initialValue: draft.due ?? .now.addingTimeInterval(3 * 86400))
     }
@@ -255,6 +259,41 @@ private struct OCRReviewSheet: View {
                         text: $castingOfficeText,
                         isRequired: false
                     )
+
+                    // Sides link (Google Drive / Dropbox / Cloud link for script sides)
+                    if !sidesLinkText.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            reviewField(
+                                icon: "folder.badge.person.crop",
+                                label: "Sides / Script link (Google Drive / Cloud)",
+                                placeholder: "Optional",
+                                text: $sidesLinkText,
+                                isRequired: false
+                            )
+                            if let url = URL(string: sidesLinkText.hasPrefix("http") ? sidesLinkText : "https://\(sidesLinkText)") {
+                                Link(destination: url) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.up.right.square")
+                                        Text("Open sides in browser")
+                                    }
+                                    .font(.otCaption.weight(.medium))
+                                    .foregroundStyle(OT.accent)
+                                }
+                                .padding(.leading, 4)
+                            }
+                        }
+                    }
+
+                    // Submission destination detail (email, upload link, or WhatsApp)
+                    if !destinationDetailText.isEmpty || draft.destination == .emailOrLink {
+                        reviewField(
+                            icon: destinationDetailText.contains("@") ? "envelope" : "paperplane",
+                            label: destinationDetailText.contains("@") ? "Submission email" : "Submission link / WhatsApp",
+                            placeholder: "Optional",
+                            text: $destinationDetailText,
+                            isRequired: false
+                        )
+                    }
 
                     // Due date
                     VStack(alignment: .leading, spacing: 6) {
@@ -316,6 +355,8 @@ private struct OCRReviewSheet: View {
                         confirmed.project = projectText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.role = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.castingOffice = castingOfficeText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.sidesLink = sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.destinationDetail = destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.due = hasDueDate ? dueDate : nil
                         onConfirm(confirmed)
                     }
@@ -373,7 +414,7 @@ private struct OCRReviewSheet: View {
 enum NoticeParser {
     struct Draft: Hashable, Identifiable {
         /// Stable identity so `.sheet(item:)` can distinguish different parsed drafts.
-        var id: String { "\(project)|\(role)|\(castingOffice)|\(due?.timeIntervalSince1970 ?? 0)" }
+        var id: String { "\(project)|\(role)|\(castingOffice)|\(due?.timeIntervalSince1970 ?? 0)|\(sidesLink ?? "")" }
         var project = ""
         var role = ""
         var candidateRoles: [String] = []
@@ -387,6 +428,8 @@ enum NoticeParser {
         /// True when the notice explicitly says sides will be provided at the audition, so
         /// `missingRequiredDetails` does not ask the actor to add them in advance.
         var sidesOnArrival = false
+        /// A cloud drive link (Google Drive, Dropbox, WeTransfer, OneDrive) where script sides or materials are hosted.
+        var sidesLink: String? = nil
         var destination: Destination = .actorsAccess
         var destinationDetail: String? = nil
         /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
@@ -406,7 +449,7 @@ enum NoticeParser {
             if project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("project") }
             if role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("role") }
             if due == nil { missing.append("due date") }
-            if !hasSides && !sidesOnArrival { missing.append("script sides") }
+            if !hasSides && !sidesOnArrival && (sidesLink == nil || sidesLink?.isEmpty == true) { missing.append("script sides") }
             return missing
         }
 
@@ -437,6 +480,7 @@ enum NoticeParser {
                             scriptText: sourceText.isEmpty ? nil : sourceText,
                             destination: destination, status: .due)
             audition.destinationDetail = destinationDetail
+            audition.sidesLink = sidesLink
             return audition
         }
     }
@@ -518,14 +562,34 @@ enum NoticeParser {
             d.destinationDetail = email
             d.destination = .emailOrLink
         }
+        // Detect cloud storage link for script sides (Google Drive, Dropbox, Box, OneDrive)
+        if let sidesLink = detectSidesLink(in: text) {
+            d.sidesLink = sidesLink
+            if sidesLink.contains("drive.google.com") {
+                ask("Sides: Google Drive link")
+            } else if sidesLink.contains("dropbox.com") {
+                ask("Sides: Dropbox link")
+            } else if sidesLink.contains("wetransfer.com") {
+                ask("Sides: WeTransfer link")
+            } else {
+                ask("Sides link attached")
+            }
+        }
+
         // Capture submission URLs / portal links: e.g. "kalnaga.com/pilgrimage/casting.html" or "https://forms.gle/..."
+        // Excludes sides links (e.g. Google Drive folders) so they don't pollute the submission destination column
         let urlPattern = #"(?i)\b((?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co|us|uk|ca|gov|edu)\/[^\s<>"'\)]*)"#
-        if let link = firstMatch(urlPattern, in: text) {
-            let cleanLink = clean(link)
-            if !cleanLink.contains("@") {
-                if d.destinationDetail == nil || d.destinationDetail?.contains("@") == false {
-                    d.destinationDetail = cleanLink
-                    d.destination = .emailOrLink
+        if let regex = try? NSRegularExpression(pattern: urlPattern) {
+            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                guard let r = Range(m.range, in: text) else { continue }
+                let cleanLink = clean(String(text[r]))
+                if !cleanLink.contains("@") && cleanLink != d.sidesLink {
+                    if d.destinationDetail == nil || d.destinationDetail?.contains("@") == false {
+                        d.destinationDetail = cleanLink
+                        d.destination = .emailOrLink
+                        break
+                    }
                 }
             }
         }
@@ -993,6 +1057,41 @@ enum NoticeParser {
         guard let v = firstMatch(pattern, in: text, options: .caseInsensitive) else { return nil }
         return Int(v)
     }
+
+    /// Detects cloud storage / drive links specifically attached for script sides or audition packets.
+    /// Distinguishes sides links (Google Drive, Dropbox, Box, OneDrive) from submission destinations.
+    private static func detectSidesLink(in text: String) -> String? {
+        // 1. Explicit labeled sides links: "Sides link: https://...", "Download sides: https://...", "Script link: https://...", etc.
+        let labeledPattern = #"(?i)(?:sides(?:\s+link|\s+url|\s+folder)?|download\s+sides|script(?:\s+link|\s+url|\s+folder)?|audition\s+material|access\s+sides|sides\s+available\s+at|sides\s+attached|find\s+sides\s+at|drive\s+link\s+for\s+sides)\s*[:\-]?\s*(\b(?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co)\/[^\s<>"'\)]*)"#
+        if let match = firstMatch(labeledPattern, in: text) {
+            let cleanLink = clean(match)
+            if !cleanLink.contains("@") && !cleanLink.contains("forms.gle") && !cleanLink.contains("docs.google.com/forms") {
+                return cleanLink
+            }
+        }
+
+        // 2. Cloud storage URLs commonly used specifically for script sides (Google Drive, Dropbox, Box, OneDrive)
+        let cloudDrivePattern = #"(?i)\b((?:https?:\/\/|www\.)?(?:drive\.google\.com\/(?:drive\/folders\/|file\/d\/|open\?id=)[^\s<>"'\)]+|docs\.google\.com\/document\/d\/[^\s<>"'\)]+|dropbox\.com\/[^\s<>"'\)]+|1drv\.ms\/[^\s<>"'\)]+|onedrive\.live\.com\/[^\s<>"'\)]+|box\.com\/s\/[^\s<>"'\)]+))"#
+        if let match = firstMatch(cloudDrivePattern, in: text) {
+            let cleanLink = clean(match)
+            return cleanLink
+        }
+
+        // 3. Any line mentioning sides, script, scenes, dialogue, or packet that contains a URL
+        for line in text.components(separatedBy: .newlines) {
+            let lowerLine = line.lowercased()
+            if lowerLine.contains("side") || lowerLine.contains("script") || lowerLine.contains("scene") || lowerLine.contains("packet") || lowerLine.contains("material") || lowerLine.contains("dialogue") {
+                let urlPattern = #"(?i)\b((?:https?:\/\/|www\.)[^\s<>"'\)]+|[a-zA-Z0-9.\-]+\.(?:com|org|net|io|in|co)\/[^\s<>"'\)]*)"#
+                if let url = firstMatch(urlPattern, in: line) {
+                    let cleanLink = clean(url)
+                    if !cleanLink.contains("@") && !cleanLink.contains("forms.gle") && !cleanLink.contains("docs.google.com/forms") {
+                        return cleanLink
+                    }
+                }
+            }
+        }
+        return nil
+    }
 }
 
 // MARK: - Interactive Script Review & 1-Tap Line Editor ("Magic Highlighter")
@@ -1210,6 +1309,35 @@ struct AddDraftSidesSheet: View {
             .padding(.top, 16)
 
             Form {
+                if let sidesLink = draft.sidesLink, !sidesLink.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Image(systemName: sidesLink.contains("drive.google") ? "externaldrive.fill.badge.icloud" : "link")
+                                    .foregroundStyle(OT.accent)
+                                Text(sidesLink.contains("drive.google") ? "Google Drive sides attached" : "Sides link attached")
+                                    .font(.otHeadline)
+                            }
+                            Text("Open the link to download the PDF or copy script text, then import or paste it below.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                            if let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                                Link(destination: url) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "safari")
+                                        Text("Open sides in browser")
+                                        Image(systemName: "arrow.up.right")
+                                    }
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                }
+                                .padding(.top, 2)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
                 Section {
                     HStack {
                         Text("Paste from clipboard")
@@ -1610,33 +1738,80 @@ struct MissingDetailsView: View {
                     SectionLabel(text: "Script Sides")
                     let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
                     if parsedScenes.isEmpty {
-                        HStack(spacing: 12) {
-                            Image(systemName: "doc.badge.plus")
-                                .font(.system(size: 16, weight: .semibold))
+                        if let sidesLink = store.auditionDraft.sidesLink, !sidesLink.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: sidesLink.contains("drive.google") ? "externaldrive.fill.badge.icloud" : "link.circle.fill")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(OT.accent)
+                                        .frame(width: 34, height: 34)
+                                        .background(OT.accentSoft, in: Circle())
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(sidesLink.contains("drive.google") ? "Google Drive sides attached" : "Sides link attached")
+                                            .font(.otHeadline)
+                                            .foregroundStyle(OT.labelPrimary)
+                                        Text("Open link to view/download sides, then import or paste here")
+                                            .font(.otFootnote)
+                                            .foregroundStyle(OT.labelSecondary)
+                                    }
+                                    Spacer()
+                                    Button("Add sides") {
+                                        showSidesSheet = true
+                                    }
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(OT.accentSoft, in: Capsule())
+                                    .fixedSize()
+                                }
+
+                                if let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                                    Link(destination: url) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "safari")
+                                            Text("Open \(sidesLink.contains("drive.google") ? "Google Drive link" : "Sides link")")
+                                            Image(systemName: "arrow.up.right")
+                                        }
+                                        .font(.otCaption.weight(.semibold))
+                                        .foregroundStyle(OT.accent)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(OT.accentSoft.opacity(0.8), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .otCard(radius: 20)
+                        } else {
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc.badge.plus")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(OT.accent)
+                                    .frame(width: 34, height: 34)
+                                    .background(OT.accentSoft, in: Circle())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("No sides attached yet")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("Optional · for reader track & lines")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                                Button("Add sides") {
+                                    showSidesSheet = true
+                                }
+                                .font(.otFootnote.weight(.semibold))
                                 .foregroundStyle(OT.accent)
-                                .frame(width: 34, height: 34)
-                                .background(OT.accentSoft, in: Circle())
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("No sides attached yet")
-                                    .font(.otHeadline)
-                                    .foregroundStyle(OT.labelPrimary)
-                                Text("Optional · for reader track & lines")
-                                    .font(.otFootnote)
-                                    .foregroundStyle(OT.labelSecondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(OT.accentSoft, in: Capsule())
+                                .fixedSize()
                             }
-                            Spacer()
-                            Button("Add sides") {
-                                showSidesSheet = true
-                            }
-                            .font(.otFootnote.weight(.semibold))
-                            .foregroundStyle(OT.accent)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(OT.accentSoft, in: Capsule())
-                            .fixedSize()
+                            .padding(14)
+                            .otCard(radius: 20)
                         }
-                        .padding(14)
-                        .otCard(radius: 20)
                     } else {
                         HStack(spacing: 12) {
                             Image(systemName: "checkmark.circle.fill")
