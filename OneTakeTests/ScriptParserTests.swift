@@ -339,4 +339,25 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(scenes[0].lines[1].character, "Man")
         XCTAssertFalse(scenes[0].lines[1].isMine)
     }
+
+    func testFormattingDialogueWithFullStopsAndCommas() {
+        // Physical wrapped lines with missing space after commas/periods and missing final period
+        let rawInput = """
+        Candace,I'm about to embark on a journey that Prophet Muhammad,Peace Be
+        Upon Him,made in 632 to retake Mecca.So,tell their lawyers that I'm in the state
+        of Ihram and can't be bothered with earthly problems
+        """
+        let formatted = ScriptParser.formatDialogueText(rawInput)
+
+        // Line wraps unwrapped into continuous prose
+        XCTAssertFalse(formatted.contains("\n"))
+
+        // Commas and full stops properly preserved with clean spacing
+        XCTAssertTrue(formatted.contains("Candace, I'm about"))
+        XCTAssertTrue(formatted.contains("Prophet Muhammad, Peace Be Upon Him, made"))
+        XCTAssertTrue(formatted.contains("Mecca. So, tell"))
+
+        // Final full stop added
+        XCTAssertTrue(formatted.hasSuffix("earthly problems."))
+    }
 }

@@ -104,17 +104,17 @@ enum ScriptParser {
 
         func flush() {
             guard let character = currentCharacter else { return }
-            let cleaned = stripParentheticals(currentText)
-            guard !cleaned.isEmpty else {
+            let formatted = formatDialogueText(currentText)
+            guard !formatted.isEmpty else {
                 currentText = ""
                 return
             }
-            if isNoticeText(cleaned) {
+            if isNoticeText(formatted) {
                 currentText = ""
                 return
             }
             let mine = isSameCharacter(normalizedName(character), roleName)
-            lines.append(ScriptLine(character: character.capitalized, text: cleaned, isMine: mine))
+            lines.append(ScriptLine(character: character.capitalized, text: formatted, isMine: mine))
             currentText = ""
         }
 
@@ -358,6 +358,53 @@ enum ScriptParser {
             result.removeSubrange(open...close)
         }
         return result.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Formats raw dialogue text extracted from scripts, PDFs, scans, or text files:
+    /// - Unwraps physical line breaks into clean, flowing prose rather than disjointed line wraps.
+    /// - Heals hyphenated line-wrap word breaks (e.g. "inter- / rogation" -> "interrogation").
+    /// - Preserves and normalizes all commas, full stops, question marks, and exclamation marks.
+    /// - Ensures valid punctuation spacing (e.g. "word,word" -> "word, word", "word , word" -> "word, word").
+    /// - Ensures complete ending punctuation if missing from an utterance.
+    static func formatDialogueText(_ raw: String) -> String {
+        let unparenthetical = stripParentheticals(raw)
+        guard !unparenthetical.isEmpty else { return "" }
+
+        // 1. Unify newlines and tabs into spaces so physical page line breaks are removed
+        var text = unparenthetical
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\u{200B}", with: "")
+
+        // 2. Heal hyphenated line-wrap word breaks: e.g. "inter- rogation" -> "interrogation"
+        if let regex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s+([a-z]{2,}\b)"#) {
+            text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
+        }
+
+        // 3. Fix spacing before punctuation (commas, periods, exclamation, question marks, semicolons)
+        if let spaceBeforePunct = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
+            text = spaceBeforePunct.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1")
+        }
+
+        // 4. Fix missing space after commas, periods, exclamation points, question marks when followed directly by a letter
+        if let missingSpaceAfter = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
+            text = missingSpaceAfter.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1 $2")
+        }
+
+        // 5. Clean up multiple spaces
+        text = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 6. Ensure sentence ends with a full stop if missing ending punctuation and it's not trailing with an ellipsis or dash
+        if !text.isEmpty {
+            let lastChar = text.last!
+            if !".!?…\"'—".contains(lastChar) {
+                text.append(".")
+            }
+        }
+
+        return text
     }
 
     /// Notice headers, flyer keywords, and locations that must never be treated as screenplay cues.
