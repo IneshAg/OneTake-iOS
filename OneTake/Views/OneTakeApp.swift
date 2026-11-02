@@ -140,7 +140,7 @@ struct RootTabView: View {
             case .shoot(let id, let scene, let start): ShootFlow(auditionID: id, initialScene: scene, initialStage: start)
             case .headshot(let auditionID): HeadshotFlow(auditionID: auditionID)
             case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
-            case .practiceTake:   PracticeTakeView()
+            case .practiceTake(let pieceID): PracticeTakeView(pieceID: pieceID)
             }
         }
     }

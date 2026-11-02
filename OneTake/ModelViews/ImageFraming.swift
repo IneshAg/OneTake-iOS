@@ -55,9 +55,30 @@ enum ImageFramer {
         let imageW = imageSize.width, imageH = imageSize.height
         guard imageW > 0, imageH > 0, ratio > 0 else { return .zero }
 
-        let targetFaceHeightFraction = isProfile ? 0.32 : faceHeightFraction
-        let targetAnchorFromTop = isProfile ? 0.44 : faceCenterFromTop
-        let targetMinFaceWidths = isProfile ? 2.2 : minFaceWidths
+        let targetFaceHeightFraction: CGFloat
+        let targetAnchorFromTop: CGFloat
+        let targetMinFaceWidths: CGFloat
+
+        if isProfile {
+            // Profile shots live in wide cards (~1.18 ratio, height ~145 pt).
+            // Head needs to fill ~45% of the frame height with proper headroom,
+            // avoiding tiny heads with vast ceilings.
+            targetFaceHeightFraction = 0.45
+            targetAnchorFromTop = 0.42
+            targetMinFaceWidths = 2.0
+        } else if ratio < 0.7 {
+            // Front slot in HeadshotsView is tall (~0.57 ratio, width 171.5 / height 300).
+            // A face fraction around 0.21 gives comfortable headroom (~15%)
+            // and full shoulders, preventing the face from blowing up into the chin and forehead.
+            targetFaceHeightFraction = 0.21
+            targetAnchorFromTop = 0.35
+            targetMinFaceWidths = 2.4
+        } else {
+            // Standard theatrical 4:5 headshots (ratio ~0.8)
+            targetFaceHeightFraction = faceHeightFraction
+            targetAnchorFromTop = faceCenterFromTop
+            targetMinFaceWidths = minFaceWidths
+        }
 
         var w: CGFloat
         var h: CGFloat
@@ -91,8 +112,8 @@ enum ImageFramer {
                 h = w / ratio
             }
             centerX = imageW / 2
-            anchorY = imageH * (isProfile ? 0.45 : 0.42)
-            anchorFromTop = isProfile ? 0.45 : 0.42
+            anchorY = imageH * (isProfile ? 0.42 : 0.38)
+            anchorFromTop = isProfile ? 0.42 : 0.38
         }
 
         // Fit inside the photo, keeping the ratio (never upscale past the original pixels).
@@ -116,18 +137,51 @@ enum ImageFramer {
         }
     }
 
-    /// The largest face, in top-left pixel space; falls back to an upper body for profile shots
+    /// The largest face, in top-left pixel space; falls back to human body pose / upper body for profile shots
     /// where face detection can miss.
     static func detectSubject(in cgImage: CGImage, size: CGSize, isProfile: Bool = false) -> CGRect? {
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
+
+        // 1. Standard face detection
         let faces = VNDetectFaceRectanglesRequest()
         #if compiler(>=6.0)
         faces.revision = VNDetectFaceRectanglesRequestRevision3
         #endif
         try? handler.perform([faces])
-        if let face = faces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }) {
+        if let face = faces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }),
+           face.confidence > 0.3 {
             return pixelRect(face.boundingBox, in: size)
         }
+
+        // 2. Human body pose detection for tracking head joints even in side profile (ears, nose, neck)
+        let poseRequest = VNDetectHumanBodyPoseRequest()
+        try? handler.perform([poseRequest])
+        if let pose = poseRequest.results?.first {
+            let headJoints: [VNHumanBodyPoseObservation.JointName] = [.nose, .leftEye, .rightEye, .leftEar, .rightEar, .neck]
+            let recognized = headJoints.compactMap { joint -> CGPoint? in
+                guard let pt = try? pose.recognizedPoint(joint), pt.confidence > 0.2 else { return nil }
+                return CGPoint(x: pt.location.x * size.width, y: (1 - pt.location.y) * size.height)
+            }
+            if !recognized.isEmpty {
+                let minX = recognized.map(\.x).min()!
+                let maxX = recognized.map(\.x).max()!
+                let minY = recognized.map(\.y).min()!
+                let maxY = recognized.map(\.y).max()!
+                let w = max(maxX - minX, size.width * 0.12)
+                let h = max(maxY - minY, size.height * 0.12)
+                let padX = w * 0.25
+                let padYTop = h * 0.35
+                let padYBottom = h * 0.15
+                return CGRect(
+                    x: max(0, minX - padX),
+                    y: max(0, minY - padYTop),
+                    width: min(size.width, w + padX * 2),
+                    height: min(size.height, h + padYTop + padYBottom)
+                )
+            }
+        }
+
+        // 3. Upper body detection fallback
         let body = VNDetectHumanRectanglesRequest()
         body.upperBodyOnly = true
         try? handler.perform([body])

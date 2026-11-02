@@ -32,7 +32,7 @@ struct PracticeView: View {
                                 ReadinessDashes(done: piece.linesLearned, total: piece.linesTotal)
                                 HStack {
                                     Button { open(piece) } label: { Label("Practise", systemImage: "play.fill") }.buttonStyle(.otPrimary)
-                                    Button("Record a take") { store.promotePracticePiece(piece.id); store.camera = .practiceTake }.buttonStyle(.otSecondary)
+                                    Button("Record a take") { store.promotePracticePiece(piece.id); store.camera = .practiceTake(pieceID: piece.id) }.buttonStyle(.otSecondary)
                                 }
                             }
                             .padding(18).otCard()
@@ -414,19 +414,25 @@ struct StandalonePracticeView: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     Button("Record a take") {
+                        let targetID: PracticePiece.ID
                         if isSample {
                             if let savedSampleID {
                                 store.promotePracticePiece(savedSampleID)
+                                targetID = savedSampleID
                             } else {
                                 let saved = store.addStandalonePracticePiece(title: piece.title, character: piece.character,
                                                                             scene: scene, detail: "Sample scene")
                                 savedSampleID = saved.id
                                 store.promotePracticePiece(saved.id)
+                                targetID = saved.id
                             }
                         } else if let pieceID {
                             store.promotePracticePiece(pieceID)
+                            targetID = pieceID
+                        } else {
+                            targetID = piece.id
                         }
-                        store.camera = .practiceTake
+                        store.camera = .practiceTake(pieceID: targetID)
                     }
                     .buttonStyle(.otPrimary).padding(OT.gutter)
                 }
@@ -467,29 +473,192 @@ private enum PracticeSample {
     }
 }
 
-// MARK: - 24e Practice take (no slate, never sent)
+// MARK: - 24e Practice take
 
 struct PracticeTakeView: View {
+    var pieceID: PracticePiece.ID? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
+    @State private var recordedTakeURL: URL?
+    @State private var recordedTakeDuration: Int = 0
+    @State private var showPlayer = false
+    @State private var activePieceID: PracticePiece.ID?
 
-    private var piece: PracticePiece? { store.practice.first }
+    private var piece: PracticePiece? {
+        if let id = activePieceID ?? pieceID {
+            return store.practice.first { $0.id == id }
+        }
+        return store.practice.first
+    }
+
+    private var sceneTitle: String {
+        piece?.scene?.title ?? piece?.title ?? "Practice"
+    }
+
+    private var takeNumber: Int {
+        (piece?.takesRecorded ?? 0) + 1
+    }
+
+    /// Checks if a next scene is available (either from the parent audition or next practice piece)
+    private var nextSceneAvailable: Bool {
+        guard let p = piece else { return false }
+        if let audID = p.auditionID, let sIdx = p.sceneIndex, let audition = store.audition(audID) {
+            return sIdx + 1 < audition.scenes.count
+        }
+        if let idx = store.practice.firstIndex(where: { $0.id == p.id }) {
+            return idx + 1 < store.practice.count
+        }
+        return false
+    }
+
+    private func advanceToNextScene() {
+        guard let p = piece else { return }
+        recordedTakeURL = nil
+        if let audID = p.auditionID, let sIdx = p.sceneIndex, let audition = store.audition(audID) {
+            if sIdx + 1 < audition.scenes.count {
+                let nextPiece = store.practicePiece(for: audID, sceneIndex: sIdx + 1)
+                activePieceID = nextPiece.id
+                store.promotePracticePiece(nextPiece.id)
+                Haptics.tick()
+                return
+            }
+        }
+        if let idx = store.practice.firstIndex(where: { $0.id == p.id }), idx + 1 < store.practice.count {
+            let nextPiece = store.practice[idx + 1]
+            activePieceID = nextPiece.id
+            store.promotePracticePiece(nextPiece.id)
+            Haptics.tick()
+        }
+    }
+
+    private func formatElapsed(_ seconds: Double) -> String {
+        let total = Int(seconds)
+        let mins = total / 60
+        let secs = total % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
 
     var body: some View {
         ZStack {
             CameraBackground(controller: camera)
+
             VStack {
-                HStack {
-                    Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(.white).frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle()) }
-                    Spacer()
-                    Text("Practice · TK \((piece?.takesRecorded ?? 0) + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 12).frame(height: 32).background(OT.cameraGlass, in: Capsule())
-                    Spacer()
-                    Color.clear.frame(width: 44)
+                // Top header bar:
+                // When recording: HIDE close button and title pill completely; show subtle red recording indicator.
+                // When idle: Show close button and scene title + take pill.
+                if camera.state == .recording {
+                    HStack(spacing: 6) {
+                        Circle().fill(Color.red).frame(width: 8, height: 8)
+                        Text(formatElapsed(camera.elapsed))
+                            .font(.otFootnote.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(.top, 8)
+                } else {
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(OT.cameraGlass, in: Circle())
+                        }
+                        .accessibilityLabel("Close")
+
+                        Spacer()
+
+                        Text("\(sceneTitle) · TK \(takeNumber)")
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(OT.cameraGlass, in: Capsule())
+
+                        Spacer()
+
+                        Color.clear.frame(width: 44)
+                    }
+                    .padding(.top, 4)
                 }
+
                 Spacer()
+
+                // Post-take review & next scene options
+                if camera.state != .recording, let _ = recordedTakeURL {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(OT.success)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Take \(takeNumber - 1) saved")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(.white)
+                                Text("\(formatElapsed(Double(recordedTakeDuration))) · \(sceneTitle)")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+
+                            Spacer()
+
+                            Button {
+                                showPlayer = true
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "play.fill")
+                                        .font(.caption)
+                                    Text("Watch take")
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(OT.cameraGlass, in: Capsule())
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            if nextSceneAvailable {
+                                Button {
+                                    advanceToNextScene()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Text("Next scene")
+                                        Image(systemName: "chevron.right")
+                                    }
+                                    .font(.otHeadline)
+                                    .foregroundStyle(Color.black)
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .background(OT.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                            }
+
+                            Button("Done") {
+                                dismiss()
+                            }
+                            .font(.otHeadline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                    .padding(14)
+                    .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding(.bottom, 6)
+                }
+
                 RecordButton(isRecording: camera.state == .recording) {
-                    camera.state == .recording ? camera.stopRecording() : camera.startRecording()
+                    if camera.state == .recording {
+                        camera.stopRecording()
+                    } else {
+                        recordedTakeURL = nil
+                        camera.startRecording()
+                    }
                 }
                 .padding(.bottom, 12)
             }
@@ -497,18 +666,54 @@ struct PracticeTakeView: View {
         }
         .preferredColorScheme(.dark)
         .keepScreenAwake()
-        .task { if await CameraController.requestAccess() { camera.configure() } }
+        .task {
+            if await CameraController.requestAccess() {
+                camera.configure()
+            }
+        }
         .onCameraCaptureEvent { event in
             guard event.phase == .ended else { return }
-            if camera.state == .recording { camera.stopRecording() } else { camera.startRecording() }
+            if camera.state == .recording {
+                camera.stopRecording()
+            } else {
+                recordedTakeURL = nil
+                camera.startRecording()
+            }
         }
         .onChange(of: camera.state) { _, newState in
-            guard newState == .ready, let url = camera.lastRecording, let piece else { return }
-            let number = piece.takesRecorded + 1
-            if MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(piece.id.uuidString)") != nil {
-                store.incrementPracticeTakes(for: piece.id)
+            guard newState == .ready, let url = camera.lastRecording, let p = piece else { return }
+            let number = p.takesRecorded + 1
+            recordedTakeDuration = Int(camera.elapsed)
+            if let saved = MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(p.id.uuidString)") {
+                store.incrementPracticeTakes(for: p.id)
+                recordedTakeURL = saved
+                Haptics.success()
+            }
+        }
+        .sheet(isPresented: $showPlayer) {
+            if let url = recordedTakeURL {
+                PracticeVideoPlayerSheet(url: url)
             }
         }
         .onDisappear { camera.stop() }
+    }
+}
+
+private struct PracticeVideoPlayerSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Preview take", backLabel: "Close", onDark: true, onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+                .background(Color.black)
+
+            VideoPlayer(player: AVPlayer(url: url))
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .preferredColorScheme(.dark)
     }
 }

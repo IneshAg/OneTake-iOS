@@ -1093,7 +1093,7 @@ struct HeadshotsView: View {
 
                 if taken > 0 {
                     Button {
-                        framingRatio = .headshot
+                        autoFrameAllHeadshots()
                     } label: {
                         HStack(spacing: 8) {
                             if isFraming { ProgressView() }
@@ -1222,70 +1222,26 @@ struct HeadshotsView: View {
         .sheet(item: $adjustItem) { item in
             HeadshotAdjustSheet(item: item)
         }
-        .sheet(item: $framingRatio) { ratio in
-            FramingRatioSheet(ratio: ratio) { selectedRatio in
-                framingRatio = nil
-                isFraming = true
-                // Always reframe from the original capture, so applying again (or a different
-                // ratio) re-crops the full photo instead of zooming further into the last crop.
-                let keys = HeadshotStore.taken(auditionID: auditionID).map(\.key)
-                let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key, auditionID: auditionID).map { (key, $0) } }
-                Task.detached(priority: .userInitiated) {
-                    let framed = originals.compactMap { key, image in
-                        let isProfile = (key == "left" || key == "right")
-                        // Profile slots have an aspect ratio of ~1.18 - 1.21.
-                        // Front slot uses the selectedRatio (e.g. 4:5 or custom).
-                        // Applying a vertical ratio to profile cards chops 35% of head/chin;
-                        // use 1.18 for profiles so head, hair, and chin fit comfortably.
-                        let ratio = isProfile ? 1.18 : selectedRatio
-                        return ImageFramer.crop(image, ratio: ratio, isProfile: isProfile).map { (key, $0) }
-                    }
-                    await MainActor.run {
-                        for (key, image) in framed { HeadshotStore.replace(image, key: key, auditionID: auditionID) }
-                        store.headshotVersion += 1
-                        isFraming = false
-                        if framed.isEmpty { Haptics.warning() } else { Haptics.success() }
-                    }
-                }
-            }
-        }
     }
 
-    private struct FramingRatioSheet: View {
-        @Environment(\.dismiss) private var dismiss
-        @State var ratio: FramingRatio
-        let apply: (CGFloat) -> Void
-        @State private var customWidth = "4"
-        @State private var customHeight = "5"
-        @State private var useCustom = false
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Auto-frame photos").font(.otTitle)
-                Text("Frames head and shoulders around your face, from the original photo. Run it again any time — it never crops a crop.")
-                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                Picker("Ratio", selection: $ratio) {
-                    ForEach(FramingRatio.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                Toggle("Use custom ratio", isOn: $useCustom)
-                HStack {
-                    TextField("Width", text: $customWidth).keyboardType(.numberPad)
-                    Text(":").foregroundStyle(OT.labelTertiary)
-                    TextField("Height", text: $customHeight).keyboardType(.numberPad)
-                }
-                .padding(12)
-                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                Spacer()
-                Button("Apply") {
-                    let width = CGFloat(Double(customWidth) ?? 0)
-                    let height = CGFloat(Double(customHeight) ?? 0)
-                    apply(useCustom && width > 0 && height > 0 ? width / height : ratio.value)
-                }.buttonStyle(.otPrimary)
-                Button("Cancel") { dismiss() }.buttonStyle(.otSecondary)
+    private func autoFrameAllHeadshots() {
+        isFraming = true
+        let keys = HeadshotStore.taken(auditionID: auditionID).map(\.key)
+        let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key, auditionID: auditionID).map { (key, $0) } }
+        Task.detached(priority: .userInitiated) {
+            let framed = originals.compactMap { key, image in
+                let isProfile = (key == "left" || key == "right")
+                // Front slot has aspect ratio 171.5 / 300 = 0.5716 (height 300 pt)
+                // Profile slot has aspect ratio 171.5 / 145 = 1.1827 (height 145 pt)
+                let ratio: CGFloat = isProfile ? (171.5 / 145.0) : (171.5 / 300.0)
+                return ImageFramer.crop(image, ratio: ratio, isProfile: isProfile).map { (key, $0) }
             }
-            .padding(OT.gutter)
-            .presentationDetents([.height(300)])
+            await MainActor.run {
+                for (key, image) in framed { HeadshotStore.replace(image, key: key, auditionID: auditionID) }
+                store.headshotVersion += 1
+                isFraming = false
+                if framed.isEmpty { Haptics.warning() } else { Haptics.success() }
+            }
         }
     }
 
@@ -1965,13 +1921,13 @@ struct HeadshotAdjustSheet: View {
     @State private var isAutoFraming = false
 
     /// Display frame dimensions inside the sheet matching slot proportions.
-    /// Front slot is 175.5 x 300 (ratio 0.585).
-    /// Profile slots are 175.5 x 145 (ratio 1.21).
+    /// Front slot is 171.5 x 300 (ratio 0.5716).
+    /// Profile slots are 171.5 x 145 (ratio 1.1827).
     private var frameSize: CGSize {
         if item.isProfile {
-            return CGSize(width: 312, height: 260)
+            return CGSize(width: 300, height: 254)
         } else {
-            return CGSize(width: 216, height: 370)
+            return CGSize(width: 216, height: 378)
         }
     }
 
@@ -2167,6 +2123,7 @@ struct HeadshotAdjustSheet: View {
         if let raw = HeadshotStore.loadOriginal(key: item.key, auditionID: item.auditionID) ?? HeadshotStore.load(key: item.key, auditionID: item.auditionID),
            let upright = ImageFramer.normalized(raw) {
             originalImage = upright
+            autoFrame(animated: false)
         }
     }
 
@@ -2182,7 +2139,7 @@ struct HeadshotAdjustSheet: View {
         )
     }
 
-    private func autoFrame() {
+    private func autoFrame(animated: Bool = true) {
         guard let img = originalImage, let cg = img.cgImage else { return }
         let imgSize = CGSize(width: cg.width, height: cg.height)
         let face = ImageFramer.detectSubject(in: cg, size: imgSize, isProfile: item.isProfile)
@@ -2201,13 +2158,21 @@ struct HeadshotAdjustSheet: View {
         let requiredOffsetX = (imageCenterInPoints.x - cropCenterInPoints.x) * base * targetZoom
         let requiredOffsetY = (imageCenterInPoints.y - cropCenterInPoints.y) * base * targetZoom
 
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        let applyTransform = {
             zoom = targetZoom
             offset = clampOffset(CGSize(width: requiredOffsetX, height: requiredOffsetY), zoomFactor: targetZoom)
             dragOffset = .zero
             pinchScale = 1.0
         }
-        Haptics.tick()
+
+        if animated {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                applyTransform()
+            }
+            Haptics.tick()
+        } else {
+            applyTransform()
+        }
     }
 
     private func saveCrop() {

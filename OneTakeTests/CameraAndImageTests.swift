@@ -224,6 +224,22 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertEqual(ImageFramer.minFaceWidths, 3.0, accuracy: 0.001, "Includes full shoulders with min 3.0 face widths")
     }
 
+    func testFrontSlotTallRatioPreservesHeadroomAndShoulders() {
+        // Front slot ratio ~0.57 (171.5 / 300)
+        let size = CGSize(width: 3024, height: 4032)
+        let face = CGRect(x: 1212, y: 1200, width: 600, height: 750)
+        let frontRatio: CGFloat = 171.5 / 300.0
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: frontRatio, isProfile: false)
+
+        XCTAssertEqual(rect.width / rect.height, frontRatio, accuracy: 0.02, "Tall front slot crop adheres to ~0.57 ratio")
+        XCTAssertTrue(rect.contains(face), "Contains full face")
+        XCTAssertLessThan(rect.minY, face.minY, "Preserves headroom above hair")
+        XCTAssertGreaterThan(rect.maxY, face.maxY, "Preserves neck and shoulders below chin")
+        // Face height fraction is balanced (~0.21) so face does not blow up to fill whole card
+        let fraction = face.height / rect.height
+        XCTAssertLessThanOrEqual(fraction, 0.25, "Face does not blow up excessively in tall slot")
+    }
+
     func testRotatedCameraPhotoIsNormalizedBeforeCropping() {
         // A camera photo: raw buffer is landscape 400x300 but displays as portrait 300x400 (.right).
         let raw = createTestImage(width: 400, height: 300)
