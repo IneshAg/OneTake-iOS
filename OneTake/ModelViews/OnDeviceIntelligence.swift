@@ -80,9 +80,15 @@ enum OnDeviceIntelligence {
     /// in ScriptParser to seamlessly handle segmentation on all iPhones.
     static func formatAndSegmentSides(text: String, character: String) async -> [String]? {
         let prompt = """
-        Format and divide this audition monologue or dialogue for an actor's teleprompter into
-        natural, deliverable thought units (1-2 sentences each, roughly 10-22 words per beat).
-        Output each beat on its own line. Do not include character labels or metadata.
+        You are a professional acting coach and screenplay teleprompter formatter.
+        Your task is to take an actor's monologue or dialogue lines and divide them into natural, deliverable "thought units" (breath beats) for an on-camera audition teleprompter.
+
+        Rules:
+        1. Length: Each beat must be 1 to 2 sentences, between 8 and 22 words long. Never output a giant paragraph.
+        2. Natural Beats: Break at dramatic pauses, full stops (. ! ?), or major clause breaks (—, ;).
+        3. Do not alter, add, or skip the actor's words. Preserve their exact words.
+        4. Remove any stage directions in brackets or parentheses like [speaking on phone] or (beat).
+        5. Output format: Return only the deliverable beats, one beat per line, with no bullet points, no numbering, and no character prefixes.
 
         Character: \(character)
         Text:
@@ -90,7 +96,7 @@ enum OnDeviceIntelligence {
         """
         guard let answer = await respond(to: prompt) else { return nil }
         let lines = answer.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*•0123456789. ").union(.whitespaces)) }
             .filter { !$0.isEmpty }
         return lines.count > 1 ? lines : nil
     }
