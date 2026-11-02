@@ -346,7 +346,18 @@ struct CallbackSheet: View {
 
             Form {
                 Section { LabeledContent(audition.project, value: "Round \((audition.round ?? 1) + 1)") }
-                Section("When is it due?") { DatePicker("Due", selection: $due, in: Date.now...) }
+                Section("When is it due?") {
+                    DatePicker("Due", selection: $due, in: Date.now...)
+                    HStack(spacing: 8) {
+                        Text("Presets:")
+                            .font(.otCaption)
+                            .foregroundStyle(OT.labelSecondary)
+                        presetTimeChip("5:00 PM") { setDueTime(hour: 17, minute: 0) }
+                        presetTimeChip("10:00 AM") { setDueTime(hour: 10, minute: 0) }
+                        presetTimeChip("Noon") { setDueTime(hour: 12, minute: 0) }
+                        presetTimeChip("11:59 PM") { setDueTime(hour: 23, minute: 59) }
+                    }
+                }
                 Section("Scenes to tape") { ForEach(audition.scenes) { Label("\($0.number) · \($0.title)", systemImage: "checkmark.circle.fill") } }
                 Section {
                     TextField("e.g. “Less angry, more hurt.”", text: $notes, axis: .vertical)
@@ -362,6 +373,33 @@ struct CallbackSheet: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+    }
+
+    private func presetTimeChip(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            action()
+            Haptics.tick()
+        }) {
+            Text(title)
+                .font(.otCaption.weight(.medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .foregroundStyle(OT.accent)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func setDueTime(hour: Int, minute: Int) {
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+        var comps = calendar.dateComponents([.year, .month, .day], from: due)
+        comps.hour = hour
+        comps.minute = minute
+        comps.second = 0
+        if let newDate = calendar.date(from: comps) {
+            due = newDate
+        }
     }
 }
 
@@ -472,7 +510,18 @@ struct EditAuditionSheet: View {
                         }
                         TextField("Size (lead, supporting…)", text: audition.roleSize)
                     }
-                    Section("Due") { DatePicker("Due", selection: audition.due) }
+                    Section("Due") {
+                        DatePicker("Due", selection: audition.due)
+                        HStack(spacing: 8) {
+                            Text("Presets:")
+                                .font(.otCaption)
+                                .foregroundStyle(OT.labelSecondary)
+                            presetTimeChip("5:00 PM") { setAuditionDueTime(audition: audition, hour: 17, minute: 0) }
+                            presetTimeChip("10:00 AM") { setAuditionDueTime(audition: audition, hour: 10, minute: 0) }
+                            presetTimeChip("Noon") { setAuditionDueTime(audition: audition, hour: 12, minute: 0) }
+                            presetTimeChip("11:59 PM") { setAuditionDueTime(audition: audition, hour: 23, minute: 59) }
+                        }
+                    }
                     Section("Sending to") {
                         Picker("Destination", selection: audition.destination) {
                             ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
@@ -539,6 +588,33 @@ struct EditAuditionSheet: View {
             }
         }
         return found
+    }
+
+    private func presetTimeChip(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            action()
+            Haptics.tick()
+        }) {
+            Text(title)
+                .font(.otCaption.weight(.medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .foregroundStyle(OT.accent)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func setAuditionDueTime(audition: Binding<Audition>, hour: Int, minute: Int) {
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+        var comps = calendar.dateComponents([.year, .month, .day], from: audition.wrappedValue.due)
+        comps.hour = hour
+        comps.minute = minute
+        comps.second = 0
+        if let newDate = calendar.date(from: comps) {
+            audition.wrappedValue.due = newDate
+        }
     }
 }
 

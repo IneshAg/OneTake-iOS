@@ -949,12 +949,28 @@ struct MissingDetailsView: View {
                             }
                         }
 
-                        HStack {
-                            Text("When is it due?").font(.otHeadline)
-                            Spacer()
-                            DatePicker("Due date", selection: $picked, in: Date.now...)
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("When is it due?").font(.otHeadline)
+                                Spacer()
+                                DatePicker("Due date", selection: $picked, in: Date.now...)
+                                    .datePickerStyle(.compact)
+                                    .labelsHidden()
+                            }
+
+                            HStack(spacing: 8) {
+                                Text("Time presets:")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        presetTimeChip("5:00 PM (EOD)") { setPickedTime(hour: 17, minute: 0) }
+                                        presetTimeChip("10:00 AM (Morning)") { setPickedTime(hour: 10, minute: 0) }
+                                        presetTimeChip("12:00 PM (Noon)") { setPickedTime(hour: 12, minute: 0) }
+                                        presetTimeChip("11:59 PM (Midnight)") { setPickedTime(hour: 23, minute: 59) }
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(16)
@@ -1093,6 +1109,33 @@ struct MissingDetailsView: View {
         }
         .onChange(of: store.auditionDraft.role) { _, _ in
             if canContinue { withAnimation { showValidationErrors = false } }
+        }
+    }
+
+    private func presetTimeChip(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            action()
+            Haptics.tick()
+        }) {
+            Text(title)
+                .font(.otCaption.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .foregroundStyle(OT.accent)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func setPickedTime(hour: Int, minute: Int) {
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+        var comps = calendar.dateComponents([.year, .month, .day], from: picked)
+        comps.hour = hour
+        comps.minute = minute
+        comps.second = 0
+        if let newDate = calendar.date(from: comps) {
+            picked = newDate
         }
     }
 }

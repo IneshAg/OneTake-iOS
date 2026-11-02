@@ -78,14 +78,69 @@ struct VideoTrimmer: UIViewControllerRepresentable {
 
 // MARK: - Document scanner (VisionKit, UIKit-only)
 
-/// Helper view added to VisionKit's document camera hierarchy to monitor layout passes
-/// and ensure the Save/Checkmark tick button stays positioned at the bottom right.
-final class DocumentScannerLayoutHelperView: UIView {
-    var onLayout: (() -> Void)?
+/// Overlay view added to VisionKit's document camera hierarchy to guarantee a thumb-reachable
+/// "Done" / Save button in the bottom-right corner across all iOS versions, matching Figma designs.
+final class DocumentScannerOverlayView: UIView {
+    let doneButton = UIButton(type: .system)
+    var onDoneTapped: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        isUserInteractionEnabled = true
+
+        doneButton.setTitle("Done", for: .normal)
+        doneButton.setTitleColor(.black, for: .normal)
+        doneButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
+        doneButton.backgroundColor = UIColor(red: 1.0, green: 0.8, blue: 0.0, alpha: 1.0) // #FFCC00
+        doneButton.layer.cornerRadius = 23
+        doneButton.layer.shadowColor = UIColor.black.cgColor
+        doneButton.layer.shadowOpacity = 0.3
+        doneButton.layer.shadowOffset = CGSize(width: 0, height: 3)
+        doneButton.layer.shadowRadius = 6
+        doneButton.alpha = 0.0
+        doneButton.isHidden = true
+        doneButton.addTarget(self, action: #selector(didTapDone), for: .touchUpInside)
+        addSubview(doneButton)
+    }
+
+    @objc private func didTapDone() {
+        Haptics.success()
+        onDoneTapped?()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        onLayout?()
+        let w: CGFloat = 88
+        let h: CGFloat = 46
+        let marginTrailing: CGFloat = 20
+        let bottomInset = max(safeAreaInsets.bottom, 20)
+        let marginBottom: CGFloat = bottomInset + 18
+        doneButton.frame = CGRect(
+            x: bounds.width - marginTrailing - w,
+            y: bounds.height - marginBottom - h,
+            width: w,
+            height: h
+        )
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Only intercept touches intended for our bottom-right done button.
+        // All other touches (shutter, auto/manual, flash, thumbnail) pass cleanly through to VisionKit.
+        let btnPoint = convert(point, to: doneButton)
+        if !doneButton.isHidden && doneButton.alpha > 0.5 && doneButton.bounds.contains(btnPoint) {
+            return doneButton.hitTest(btnPoint, with: event)
+        }
+        return nil
     }
 }
 
@@ -99,20 +154,46 @@ enum DocumentScannerCustomizer {
     }
 
     /// Recursively searches a view controller and its child hierarchy for the VisionKit Save/Checkmark button.
+    static func findSaveButton(in root: UIView) -> UIButton? {
+        if let btn = root as? UIButton {
+            let className = String(describing: type(of: btn))
+            if className.contains("Save") || className.contains("Done") || className.contains("Checkmark") {
+                return btn
+            }
+            if let title = btn.currentTitle, title.localizedCaseInsensitiveContains("save") || title.localizedCaseInsensitiveContains("done") {
+                return btn
+            }
+            if let title = btn.title(for: .normal), title.localizedCaseInsensitiveContains("save") || title.localizedCaseInsensitiveContains("done") {
+                return btn
+            }
+            if let accessibility = btn.accessibilityLabel, accessibility.localizedCaseInsensitiveContains("save") || accessibility.localizedCaseInsensitiveContains("done") {
+                return btn
+            }
+            if let confTitle = btn.configuration?.title, confTitle.localizedCaseInsensitiveContains("save") || confTitle.localizedCaseInsensitiveContains("done") {
+                return btn
+            }
+        }
+        for sub in root.subviews {
+            if let found = findSaveButton(in: sub) { return found }
+        }
+        return nil
+    }
+
+    /// Recursively searches a view controller and its child hierarchy for the VisionKit Save/Checkmark button.
     static func findSaveButton(in vc: UIViewController) -> UIButton? {
         _ = vc.view
-        if let btn = findView(in: vc.view, className: "SaveButton") as? UIButton {
+        if let btn = findSaveButton(in: vc.view) {
             return btn
         }
         for child in vc.children {
             _ = child.view
-            if let btn = findView(in: child.view, className: "SaveButton") as? UIButton {
+            if let btn = findSaveButton(in: child.view) {
                 return btn
             }
             if let nav = child as? UINavigationController {
                 for childVC in nav.viewControllers {
                     _ = childVC.view
-                    if let btn = findView(in: childVC.view, className: "SaveButton") as? UIButton {
+                    if let btn = findSaveButton(in: childVC.view) {
                         return btn
                     }
                 }
@@ -121,11 +202,41 @@ enum DocumentScannerCustomizer {
         return nil
     }
 
+    /// Triggers the native save/finish action in VisionKit.
+    @discardableResult
+    static func triggerSave(in vc: UIViewController) -> Bool {
+        if let btn = findSaveButton(in: vc) {
+            btn.sendActions(for: .touchUpInside)
+            return true
+        }
+
+        var allButtons: [UIButton] = []
+        func collectButtons(in view: UIView) {
+            if let b = view as? UIButton { allButtons.append(b) }
+            for s in view.subviews { collectButtons(in: s) }
+        }
+        collectButtons(in: vc.view)
+        for child in vc.children {
+            collectButtons(in: child.view)
+        }
+        for b in allButtons {
+            let targets = b.allTargets
+            for t in targets {
+                if let actions = b.actions(forTarget: t, forControlEvent: .touchUpInside) {
+                    for act in actions where act.lowercased().contains("save") || act.lowercased().contains("done") {
+                        b.sendActions(for: .touchUpInside)
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
     /// Positions the Save / Checkmark tick button at the bottom-right corner of the camera viewport
     /// for convenient one-handed thumb reach, aligned horizontally with the shutter and thumbnail.
     static func reposition(saveButton: UIButton, in sv: UIView) {
         guard sv.bounds.height > 0, sv.bounds.width > 0, sv.bounds.height > sv.bounds.width else { return } // portrait only
-        guard saveButton.superview === sv else { return }
 
         let thumb = findView(in: sv, className: "Thumbnail")
         let shutter = findView(in: sv, className: "ShutterButton")
@@ -146,10 +257,10 @@ enum DocumentScannerCustomizer {
         let newY = centerY - (h / 2.0)
         let targetFrame = CGRect(x: newX, y: newY, width: w, height: h)
 
-        if saveButton.frame != targetFrame {
-            saveButton.frame = targetFrame
-        }
         if saveButton.superview === sv {
+            if saveButton.frame != targetFrame {
+                saveButton.frame = targetFrame
+            }
             sv.bringSubviewToFront(saveButton)
         }
     }
@@ -181,7 +292,9 @@ struct DocumentScannerView: UIViewControllerRepresentable {
         private var boundsObservation: NSKeyValueObservation?
         private var isRepositioning = false
         private var isFinished = false
-        private weak var helperView: DocumentScannerLayoutHelperView?
+        private weak var hostVC: VNDocumentCameraViewController?
+        private weak var overlayView: DocumentScannerOverlayView?
+        private var syncTimer: Timer?
 
         init(onFinish: @escaping ([UIImage]) -> Void) { self.onFinish = onFinish }
 
@@ -192,60 +305,86 @@ struct DocumentScannerView: UIViewControllerRepresentable {
         func detachCustomizer() {
             guard !isFinished else { return }
             isFinished = true
+            syncTimer?.invalidate()
+            syncTimer = nil
             boundsObservation?.invalidate()
             boundsObservation = nil
             frameObservation?.invalidate()
             frameObservation = nil
             hiddenObservation?.invalidate()
             hiddenObservation = nil
-            helperView?.onLayout = nil
-            helperView?.removeFromSuperview()
-            helperView = nil
+            overlayView?.removeFromSuperview()
+            overlayView = nil
+            hostVC = nil
         }
 
         func attachCustomizer(to vc: VNDocumentCameraViewController) {
             guard !isFinished else { return }
-            guard let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc),
-                  let root = saveBtn.superview else {
-                return
-            }
+            self.hostVC = vc
 
-            // Layout helper to react to parent layoutSubviews
-            if let existingHelper = root.subviews.first(where: { $0 is DocumentScannerLayoutHelperView }) as? DocumentScannerLayoutHelperView {
-                self.helperView = existingHelper
-            } else {
-                let helper = DocumentScannerLayoutHelperView()
-                helper.isUserInteractionEnabled = false
-                helper.isHidden = false
-                helper.frame = root.bounds
-                helper.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                helper.onLayout = { [weak self, weak root, weak saveBtn] in
-                    guard let self, let root, let saveBtn else { return }
-                    self.performReposition(saveButton: saveBtn, in: root)
+            let root = vc.view!
+
+            // Add bottom-right overlay button if not already added
+            if overlayView == nil || overlayView?.superview == nil {
+                let overlay = DocumentScannerOverlayView(frame: root.bounds)
+                overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                overlay.onDoneTapped = { [weak self, weak vc] in
+                    guard let self, let vc, !self.isFinished else { return }
+                    DocumentScannerCustomizer.triggerSave(in: vc)
                 }
-                root.addSubview(helper)
-                self.helperView = helper
+                root.addSubview(overlay)
+                root.bringSubviewToFront(overlay)
+                self.overlayView = overlay
             }
 
-            // KVO on bounds to react to screen rotation or resizing
-            boundsObservation = root.observe(\.bounds, options: [.new]) { [weak self, weak saveBtn] sv, _ in
-                guard let self, let saveBtn else { return }
-                self.performReposition(saveButton: saveBtn, in: sv)
+            // Sync timer to periodically monitor pages scanned and keep the bottom-right button updated
+            if syncTimer == nil {
+                syncTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+                    self?.syncSaveButtonState()
+                }
             }
 
-            // KVO on frame
-            frameObservation = saveBtn.observe(\.frame, options: [.new]) { [weak self, weak root] btn, _ in
-                guard let self, let root else { return }
-                self.performReposition(saveButton: btn, in: root)
+            syncSaveButtonState()
+        }
+
+        private func syncSaveButtonState() {
+            guard !isFinished, let vc = hostVC, let overlay = overlayView, let root = vc.view else { return }
+
+            // Ensure overlay stays on top
+            if overlay.superview === root {
+                root.bringSubviewToFront(overlay)
             }
 
-            // KVO on isHidden
-            hiddenObservation = saveBtn.observe(\.isHidden, options: [.new]) { [weak self, weak root] btn, _ in
-                guard let self, let root else { return }
-                self.performReposition(saveButton: btn, in: root)
-            }
+            if let saveBtn = DocumentScannerCustomizer.findSaveButton(in: vc) {
+                let isBtnActive = !saveBtn.isHidden && saveBtn.alpha > 0.05 && saveBtn.isEnabled
 
-            performReposition(saveButton: saveBtn, in: root)
+                // If native save button is stuck in the top part of the screen (top-right corner),
+                // hide it so user is not distracted by an out-of-reach button.
+                let btnFrameInRoot = saveBtn.convert(saveBtn.bounds, to: root)
+                if btnFrameInRoot.minY < (root.bounds.height / 3.0) && isBtnActive {
+                    saveBtn.alpha = 0.001
+                } else if saveBtn.superview === root {
+                    performReposition(saveButton: saveBtn, in: root)
+                }
+
+                // Show bottom-right Done button whenever native save button is ready
+                if isBtnActive {
+                    if overlay.doneButton.isHidden || overlay.doneButton.alpha < 0.9 {
+                        overlay.doneButton.isHidden = false
+                        UIView.animate(withDuration: 0.2) {
+                            overlay.doneButton.alpha = 1.0
+                        }
+                    }
+                } else {
+                    if !overlay.doneButton.isHidden && overlay.doneButton.alpha > 0.1 {
+                        UIView.animate(withDuration: 0.15, animations: {
+                            overlay.doneButton.alpha = 0.0
+                        }) { _ in
+                            overlay.doneButton.isHidden = true
+                        }
+                    }
+                }
+            }
         }
 
         private func performReposition(saveButton: UIButton, in sv: UIView) {

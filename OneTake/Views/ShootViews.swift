@@ -175,7 +175,7 @@ struct ShootFlow: View {
     /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
     @State private var sceneIndex = 0
     @State private var countdown: Int?
-    @State private var timerEnabled = true
+    @State private var timerSeconds = 3
     @State private var pinchStartZoom: CGFloat?
     @State private var lineIndex = 0
     @State private var takeNumber = 1
@@ -617,8 +617,39 @@ struct ShootFlow: View {
             HStack(spacing: 8) {
                 cameraChoice("\(zoomLabel)") { camera.cycleZoom() }
                     .disabled(camera.state != .ready || countdown != nil)
-                cameraChoice(timerEnabled ? "Timer 3s" : "Timer off") { timerEnabled.toggle(); Haptics.tick() }
-                    .disabled(camera.state == .recording || countdown != nil)
+                Menu {
+                    Button { timerSeconds = 0; Haptics.tick() } label: {
+                        HStack {
+                            Text("Timer off")
+                            if timerSeconds == 0 { Image(systemName: "checkmark") }
+                        }
+                    }
+                    Button { timerSeconds = 3; Haptics.tick() } label: {
+                        HStack {
+                            Text("3 seconds")
+                            if timerSeconds == 3 { Image(systemName: "checkmark") }
+                        }
+                    }
+                    Button { timerSeconds = 5; Haptics.tick() } label: {
+                        HStack {
+                            Text("5 seconds (walk to mark)")
+                            if timerSeconds == 5 { Image(systemName: "checkmark") }
+                        }
+                    }
+                    Button { timerSeconds = 10; Haptics.tick() } label: {
+                        HStack {
+                            Text("10 seconds (room setup)")
+                            if timerSeconds == 10 { Image(systemName: "checkmark") }
+                        }
+                    }
+                } label: {
+                    Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s")
+                        .font(.otFootnote.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
+                }
+                .disabled(camera.state == .recording || countdown != nil)
             }
             Spacer()
             switch stage {
@@ -870,8 +901,8 @@ struct ShootFlow: View {
         // A tap or "Action" during the countdown must not start a second, overlapping one.
         guard countdown == nil else { return }
         Task {
-            if timerEnabled {
-                for n in [3, 2, 1] {
+            if timerSeconds > 0 {
+                for n in stride(from: timerSeconds, through: 1, by: -1) {
                     withAnimation(.easeOut(duration: 0.3)) { countdown = n }
                     Haptics.tick()
                     try? await Task.sleep(for: .seconds(1))
