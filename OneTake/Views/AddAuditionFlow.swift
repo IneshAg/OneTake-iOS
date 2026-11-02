@@ -177,6 +177,7 @@ enum NoticeParser {
     struct Draft: Hashable {
         var project = ""
         var role = ""
+        var candidateRoles: [String] = []
         var castingOffice = ""
         var projectType = "Feature film"
         var due: Date?
@@ -241,10 +242,15 @@ enum NoticeParser {
         let lower = text.lowercased()
 
         d.due = detectDate(in: text)
-        if let role = detectRole(in: text) { d.role = role }
+        let candidates = detectCandidateRoles(in: text)
+        d.candidateRoles = candidates
+        if let role = candidates.first { d.role = role }
         if let project = detectProject(in: text) { d.project = project }
         if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
+        }
+        if let location = detectLocation(in: text) {
+            ask("Location: \(location)")
         }
         if let explicit = detectSceneCount(in: text) {
             d.scenes = max(explicit, 0)
@@ -322,11 +328,24 @@ enum NoticeParser {
         return matches.first?.date
     }
 
-    /// Labeled "Role:" first, then character phrasing like "reading for Maya", then role types, avoiding pure demographic labels.
-    private static func detectRole(in text: String) -> String? {
-        if let v = labeled(["role", "character", "part", "playing"], in: text) { return v.capitalized }
+    /// Detects all candidate roles mentioned in a casting notice, prioritizing explicit roles, industry tiers, and demographic breakdowns.
+    static func detectCandidateRoles(in text: String) -> [String] {
+        var roles: [String] = []
 
-        // Specific character name phrasing: "reading for Maya", "role of Maya in...", etc.
+        func addRole(_ r: String) {
+            let cleaned = clean(r)
+            guard !cleaned.isEmpty, !roles.contains(cleaned) else { return }
+            let base = cleaned.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? cleaned
+            guard !ScriptParser.isBlacklistedNoticeWord(base) else { return }
+            roles.append(cleaned)
+        }
+
+        // 1. Explicit labeled roles: "Role: Maya", "Character: Arjun"
+        if let v = labeled(["role", "character", "part", "playing"], in: text) {
+            addRole(v.capitalized)
+        }
+
+        // 2. Specific character phrasing: "reading for Maya", "role of Kat"
         let name = #"([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,2}?)"#
         let stop = #"(?=\s+(?:in|on|by|for|from|at|to)\b|\s*[,.;:\n(]|\s*$)"#
         let lead = #"\b(?:role\s+of|part\s+of|character\s+of|playing|audition(?:ing)?\s+for|reading\s+for|self-?tape\s+for|submitting\s+for)\s+(?:the\s+)?(?:role\s+of\s+)?"#
@@ -334,41 +353,85 @@ enum NoticeParser {
             let cleaned = clean(v)
             let lower = cleaned.lowercased()
             if !cleaned.isEmpty, !lower.hasPrefix("age"), !lower.hasPrefix("a ") {
-                return cleaned.capitalized
+                addRole(cleaned.capitalized)
             }
         }
-        if let v = firstMatch(#"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#, in: text) { return v.capitalized }
+        if let v = firstMatch(#"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#, in: text) {
+            addRole(v.capitalized)
+        }
 
-        // Standard industry role tiers (Lead, Supporting, Series Regular)
-        if let v = firstMatch(#"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#, in: text, options: .caseInsensitive) {
-            var res = clean(v).capitalized
-            if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
-                let cleanedAge = clean(age)
-                if !res.contains(cleanedAge) {
-                    res += " (\(cleanedAge))"
+        // 3. Standard industry role tiers (Lead, Supporting, Series Regular)
+        let tierPattern = #"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#
+        if let regex = try? NSRegularExpression(pattern: tierPattern, options: .caseInsensitive) {
+            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let r = Range(m.range, in: text) {
+                    var tier = clean(String(text[r])).capitalized
+                    if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                        let cleanedAge = clean(age)
+                        if !tier.contains(cleanedAge) { tier += " (\(cleanedAge))" }
+                    }
+                    addRole(tier)
                 }
             }
-            return res
         }
 
-        // Seeking/looking for: skip if it's purely a demographic/age descriptor
+        // 4. Demographic breakdowns in casting notices:
+        // "Male Age: 20-40 years", "Female Age: 22-60 years", "Male: 20-40", "Female: 20-40", "Boy Age: 8-12", "Girl Age: 8-12"
+        let demoPattern = #"(?i)\b(male|female|boy|girl|man|woman)\s*(?:actor|actress|age)?\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)"#
+        if let regex = try? NSRegularExpression(pattern: demoPattern) {
+            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                guard let r1 = Range(m.range(at: 1), in: text), let r2 = Range(m.range(at: 2), in: text) else { continue }
+                let gender = String(text[r1]).capitalized
+                let age = clean(String(text[r2]))
+                let roleTitle = "\(gender) Actor (\(age))"
+                addRole(roleTitle)
+            }
+        }
+
+        // 5. Seeking/looking for:
         let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
         if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
             let cleaned = clean(v)
             let lower = cleaned.lowercased()
             let isDemographicOnly = lower.hasPrefix("age") || lower.contains("year old") || lower.contains("yrs old") || lower.range(of: #"^\d{1,2}\s*[-–]"#, options: .regularExpression) != nil
-            if !cleaned.isEmpty, !isDemographicOnly {
+            if !cleaned.isEmpty && !isDemographicOnly && !roles.contains(where: { $0.lowercased().contains(cleaned.lowercased()) }) {
                 var res = cleaned.capitalized
                 if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
                     let cleanedAge = clean(age)
-                    if !res.contains(cleanedAge) {
-                        res += " (\(cleanedAge))"
-                    }
+                    if !res.contains(cleanedAge) { res += " (\(cleanedAge))" }
                 }
-                return res
+                addRole(res)
             }
         }
 
+        // Filter out compound "Male and Female" when individual male and female roles are present
+        if roles.contains(where: { $0.lowercased().hasPrefix("male") }) && roles.contains(where: { $0.lowercased().hasPrefix("female") }) {
+            roles.removeAll(where: { $0.lowercased().contains("male and female") || $0.lowercased().contains("male & female") })
+        }
+
+        // Filter out any blacklisted notice words or location names
+        return roles.filter { role in
+            let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            return !ScriptParser.isBlacklistedNoticeWord(base)
+        }
+    }
+
+    private static func detectRole(in text: String) -> String? {
+        detectCandidateRoles(in: text).first
+    }
+
+    private static func detectLocation(in text: String) -> String? {
+        if let v = labeled(["location", "city", "venue", "place", "based in", "shoot location"], in: text) {
+            return clean(v).capitalized
+        }
+        for city in ["Bengaluru", "Bangalore", "Mumbai", "Delhi", "New Delhi", "Hyderabad", "Chennai", "Kolkata", "Pune", "Goa", "Jaipur", "Kochi", "New York", "Los Angeles", "London", "Toronto", "Vancouver"] {
+            let pattern = #"(?i)\b(?:location|in|at)\s*[:\-]?\s*"# + city + #"\b"#
+            if firstMatch(pattern, in: text) != nil {
+                return city
+            }
+        }
         return nil
     }
 
@@ -400,20 +463,27 @@ enum NoticeParser {
     }
 
     private static func detectCastingOffice(in text: String) -> String? {
-        if let office = labeled(["casting director", "casting office", "casting company", "casting", "agency"], in: text) {
-            return office
+        let ignoredLines: Set<String> = [
+            "casting", "casting call", "casting notice", "urgent casting", "open casting", "open call",
+            "casting call bengaluru", "casting call mumbai", "casting call delhi"
+        ]
+        if let office = labeled(["casting director", "casting office", "casting company", "casting agency", "casting by", "agency"], in: text) {
+            let cleaned = clean(office)
+            if !cleaned.isEmpty && !ignoredLines.contains(cleaned.lowercased()) {
+                return cleaned.capitalized
+            }
         }
-        let ignoredLines = ["casting", "casting call", "casting notice", "urgent casting", "open casting", "open call"]
         for rawLine in text.components(separatedBy: .newlines) {
             let line = clean(rawLine)
             let lower = line.lowercased()
-            if lower.hasSuffix("casting") && !ignoredLines.contains(lower) {
-                return line
+            if lower.hasSuffix("casting") && !ignoredLines.contains(lower) && !lower.contains("casting call") && line.count <= 50 {
+                return line.capitalized
             }
         }
-        if let v = firstMatch(#"\b([A-Za-z0-9\-]+\s*[-.]?\s*Casting)\b"#, in: text, options: .caseInsensitive) {
+        if let v = firstMatch(#"\b((?:[A-Za-z0-9\-]+\s+){1,2}Casting)\b"#, in: text, options: .caseInsensitive) {
             let cleaned = clean(v).replacingOccurrences(of: ".", with: "-")
-            if !ignoredLines.contains(cleaned.lowercased()) {
+            let lower = cleaned.lowercased()
+            if !ignoredLines.contains(lower) && !lower.contains("casting call") {
                 return cleaned.capitalized
             }
         }
@@ -605,8 +675,27 @@ struct MissingDetailsView: View {
         !isProjectEmpty && !isRoleEmpty
     }
 
-    private var scriptCharacters: [String] {
-        ScriptParser.extractCharacters(from: store.auditionDraft.sourceText)
+    private var availableRoles: [String] {
+        var roles = store.auditionDraft.candidateRoles
+        let scriptChars = ScriptParser.extractCharacters(from: store.auditionDraft.sourceText)
+        for char in scriptChars where !roles.contains(char) && !ScriptParser.isBlacklistedNoticeWord(char) {
+            roles.append(char)
+        }
+        // Filter out compound "Male and Female" when individual male and female roles are present
+        if roles.contains(where: { $0.lowercased().hasPrefix("male") }) && roles.contains(where: { $0.lowercased().hasPrefix("female") }) {
+            roles.removeAll(where: { $0.lowercased().contains("male and female") || $0.lowercased().contains("male & female") })
+        }
+
+        // Filter out any blacklisted notice words or location names
+        return roles.filter { role in
+            let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            return !ScriptParser.isBlacklistedNoticeWord(base)
+        }
+    }
+
+    private var hasReaderLines: Bool {
+        !store.auditionDraft.role.isEmpty && ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+            .contains { $0.lines.contains { !$0.isMine } }
     }
 
     private var missing: [String] { store.auditionDraft.missingRequiredDetails }
@@ -666,9 +755,9 @@ struct MissingDetailsView: View {
                                 }
                             }
 
-                            if !scriptCharacters.isEmpty {
+                            if !availableRoles.isEmpty {
                                 Menu {
-                                    ForEach(scriptCharacters, id: \.self) { char in
+                                    ForEach(availableRoles, id: \.self) { char in
                                         Button {
                                             store.auditionDraft.role = char
                                             Haptics.tick()
@@ -684,11 +773,11 @@ struct MissingDetailsView: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 3) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select character from script" : store.auditionDraft.role)
+                                            Text(store.auditionDraft.role.isEmpty ? "Select character / role" : store.auditionDraft.role)
                                                 .font(.otHeadline)
                                                 .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
-                                            if !store.auditionDraft.role.isEmpty {
-                                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                            if !store.auditionDraft.role.isEmpty && hasReaderLines {
+                                                let otherChars = availableRoles.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
                                                 if let r = otherChars.first {
                                                     Text("Next screen will show: Who reads \(r)?")
                                                         .font(.otCaption)
@@ -717,10 +806,11 @@ struct MissingDetailsView: View {
                                     )
                                 }
 
-                                // Quick character pills [Kat] [Oscar]
+                                // Quick role pills
+                                let hasScriptScenes = !ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty
                                 HStack(spacing: 8) {
-                                    Text("From script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                    ForEach(scriptCharacters, id: \.self) { char in
+                                    Text(hasScriptScenes ? "From script:" : "Suggested:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
+                                    ForEach(availableRoles, id: \.self) { char in
                                         let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
                                         Button {
                                             store.auditionDraft.role = char
@@ -924,8 +1014,22 @@ struct NoticeReviewView: View {
         !isProjectEmpty && !isRoleEmpty
     }
 
-    private var scriptCharacters: [String] {
-        ScriptParser.extractCharacters(from: store.auditionDraft.sourceText)
+    private var availableRoles: [String] {
+        var roles = store.auditionDraft.candidateRoles
+        let scriptChars = ScriptParser.extractCharacters(from: store.auditionDraft.sourceText)
+        for char in scriptChars where !roles.contains(char) && !ScriptParser.isBlacklistedNoticeWord(char) {
+            roles.append(char)
+        }
+        // Filter out compound "Male and Female" when individual male and female roles are present
+        if roles.contains(where: { $0.lowercased().hasPrefix("male") }) && roles.contains(where: { $0.lowercased().hasPrefix("female") }) {
+            roles.removeAll(where: { $0.lowercased().contains("male and female") || $0.lowercased().contains("male & female") })
+        }
+
+        // Filter out any blacklisted notice words or location names
+        return roles.filter { role in
+            let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            return !ScriptParser.isBlacklistedNoticeWord(base)
+        }
     }
 
     private var hasReaderLines: Bool {
@@ -1078,9 +1182,9 @@ struct NoticeReviewView: View {
                                 }
                             }
 
-                            if !scriptCharacters.isEmpty {
+                            if !availableRoles.isEmpty {
                                 Menu {
-                                    ForEach(scriptCharacters, id: \.self) { char in
+                                    ForEach(availableRoles, id: \.self) { char in
                                         Button {
                                             store.auditionDraft.role = char
                                             Haptics.tick()
@@ -1096,11 +1200,11 @@ struct NoticeReviewView: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 3) {
-                                            Text(store.auditionDraft.role.isEmpty ? "Select character from script" : store.auditionDraft.role)
+                                            Text(store.auditionDraft.role.isEmpty ? "Select character / role" : store.auditionDraft.role)
                                                 .font(.otHeadline)
                                                 .foregroundStyle(store.auditionDraft.role.isEmpty ? OT.labelTertiary : OT.labelPrimary)
-                                            if !store.auditionDraft.role.isEmpty {
-                                                let otherChars = scriptCharacters.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
+                                            if !store.auditionDraft.role.isEmpty && hasReaderLines {
+                                                let otherChars = availableRoles.filter { $0.caseInsensitiveCompare(store.auditionDraft.role) != .orderedSame }
                                                 if let r = otherChars.first {
                                                     Text("Next screen will show: Who reads \(r)?")
                                                         .font(.otCaption)
@@ -1129,10 +1233,11 @@ struct NoticeReviewView: View {
                                     )
                                 }
 
-                                // Quick character pills [Kat] [Oscar]
+                                // Quick role pills
+                                let hasScriptScenes = !ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role).isEmpty
                                 HStack(spacing: 8) {
-                                    Text("From script:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
-                                    ForEach(scriptCharacters, id: \.self) { char in
+                                    Text(hasScriptScenes ? "From script:" : "Suggested:").font(.system(size: 11, weight: .medium)).foregroundStyle(OT.labelTertiary)
+                                    ForEach(availableRoles, id: \.self) { char in
                                         let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(char) == .orderedSame
                                         Button {
                                             store.auditionDraft.role = char

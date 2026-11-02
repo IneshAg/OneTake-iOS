@@ -54,4 +54,34 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(audition.scenes.count, 2)
         XCTAssertEqual(audition.pieces.filter { $0.kind == .scene }.map(\.title), ["Scene 1", "Scene 2"])
     }
+
+    func testParsesCastingCallFlyerWithoutSides() {
+        let text = """
+        Casting
+        CALL
+        BENGALURU
+        We are looking for male and female actors for an upcoming project.
+        8
+        Male Age:
+        20-40 years
+        Female Age:
+        22-60 years
+        Location:
+        Bengaluru
+        Mail us on casting2cast@gmail.com or DM us
+        Mention "Escape Plan" in the subject
+        Ankita Bajaj CASTING
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Escape Plan")
+        XCTAssertEqual(draft.castingOffice, "Ankita Bajaj Casting")
+        XCTAssertTrue(draft.asks.contains("Location: Bengaluru"))
+        XCTAssertTrue(draft.asks.contains("Email: casting2cast@gmail.com"))
+        XCTAssertEqual(draft.candidateRoles, ["Male Actor (20-40 years)", "Female Actor (22-60 years)"])
+        XCTAssertEqual(draft.role, "Male Actor (20-40 years)")
+        XCTAssertFalse(draft.hasSides)
+        XCTAssertEqual(draft.scenes, 0)
+        XCTAssertTrue(ScriptParser.parseScenes(from: text, myRole: draft.role).isEmpty)
+        XCTAssertTrue(ScriptParser.extractCharacters(from: text).isEmpty)
+    }
 }

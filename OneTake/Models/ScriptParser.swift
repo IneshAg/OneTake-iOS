@@ -72,6 +72,10 @@ enum ScriptParser {
                 currentText = ""
                 return
             }
+            if isNoticeText(cleaned) {
+                currentText = ""
+                return
+            }
             let mine = isSameCharacter(normalizedName(character), roleName)
             lines.append(ScriptLine(character: character.capitalized, text: cleaned, isMine: mine))
             currentText = ""
@@ -219,6 +223,46 @@ enum ScriptParser {
         return result.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Notice headers, flyer keywords, and locations that must never be treated as screenplay cues.
+    static let blacklistedNoticeWords: Set<String> = [
+        "CALL", "CASTING", "AUDITION", "AUDITIONS", "OPEN CALL", "URGENT", "NOTICE", "BREAKDOWN",
+        "SEEKING", "LOOKING FOR", "WE ARE LOOKING", "PROJECT", "UPCOMING", "REQUIREMENTS", "CRITERIA",
+        "SUBMIT", "SUBMISSION", "SUBMISSIONS", "SELF TAPE", "SELF-TAPE", "SELF TAPE FOR", "DEADLINE",
+        "DETAILS", "INSTRUCTIONS", "CONTACT", "DM", "MAIL", "EMAIL", "PHONE", "SLATE", "HEADSHOT",
+        "HEADSHOTS", "PHOTO", "PHOTOS", "VIDEO", "VIDEOS", "SCENE", "SCENES", "SIDES", "ACTOR",
+        "ACTORS", "ACTRESS", "ACTRESSES", "DIRECTOR", "PRODUCER", "PRODUCTION", "AGENCY", "OFFICE",
+        "IMPORTANT", "NOTE", "NOTES", "REMINDER", "STATUS", "DATE", "DATES", "TIME", "CITY", "COUNTRY",
+        "EXPERIENCE", "LANGUAGE", "LANGUAGES", "INFO", "INFORMATION", "APPLY", "COMPENSATION", "RATE",
+        "UNION", "NON-UNION", "NON UNION", "SAG-AFTRA", "EQUITY", "LOCATION", "VENUE", "AGE", "AGES",
+        "MALE", "FEMALE", "MALE AGE", "FEMALE AGE", "YEARS", "YRS", "ESCAPE PLAN", "ANNOUNCEMENT",
+        "BENGALURU", "BANGALORE", "MUMBAI", "BOMBAY", "DELHI", "NEW DELHI", "HYDERABAD", "CHENNAI",
+        "MADRAS", "KOLKATA", "CALCUTTA", "PUNE", "GOA", "AHMEDABAD", "JAIPUR", "CHANDIGARH", "KOCHI",
+        "KERALA", "NOIDA", "GURGAON", "GURUGRAM", "NEW YORK", "LOS ANGELES", "LA", "NYC", "CHICAGO",
+        "ATLANTA", "LONDON", "TORONTO", "VANCOUVER", "SYDNEY", "MELBOURNE", "PARIS", "BERLIN", "DUBAI"
+    ]
+
+    static func isBlacklistedNoticeWord(_ raw: String) -> Bool {
+        let clean = raw.trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—*\"' \t\r\n")).uppercased()
+        if clean.isEmpty { return true }
+        if blacklistedNoticeWords.contains(clean) { return true }
+        let noticePhrases = ["CASTING CALL", "OPEN CALL", "MALE AGE", "FEMALE AGE", "LOOKING FOR", "WE ARE LOOKING"]
+        for p in noticePhrases {
+            if clean.contains(p) { return true }
+        }
+        return false
+    }
+
+    /// Detects casting call / flyer text that should never be spoken as character dialogue.
+    static func isNoticeText(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let indicators = [
+            "we are looking for", "actors for an upcoming", "mail us on", "email us on",
+            "dm us", "in the subject", "casting call", "years old", "shortlisted candidates",
+            "send across your", "need not apply"
+        ]
+        return indicators.contains(where: { lower.contains($0) })
+    }
+
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
     /// one real letter (filters out page numbers, "---", scene-heading punctuation runs, etc).
     private static func isLikelyCue(_ raw: String) -> Bool {
@@ -226,6 +270,8 @@ enum ScriptParser {
         guard trimmed.count > 1, trimmed.count < 28 else { return false }
         guard trimmed.rangeOfCharacter(from: .lowercaseLetters) == nil else { return false }
         guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
+        // Cues never contain digits (filters out "1W", "8A", page markers)
+        guard trimmed.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
         // Cues never end with sentence-ending punctuation or colons
         if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(":") { return false }
         let upper = trimmed.uppercased()
@@ -233,6 +279,7 @@ enum ScriptParser {
         // Reject screenplay sluglines (INT./EXT.) which are also all-caps and short.
         if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") || upper.hasPrefix("INT/EXT") { return false }
         if isTransition(trimmed) || cueName(trimmed).isEmpty { return false }
+        if isBlacklistedNoticeWord(trimmed) { return false }
         return true
     }
 
@@ -248,11 +295,16 @@ enum ScriptParser {
             guard word.unicodeScalars.allSatisfy({ allowed.contains($0) }), word.first?.isUppercase == true else { return nil }
         }
         let key = name.uppercased()
-        let labels: Set<String> = ["ROLE", "PROJECT", "TITLE", "DUE", "DATE", "TIME", "NOTE", "NOTES", "LOCATION", "SIDES",
-                                   "SCENE", "SUBJECT", "FROM", "TO", "CC", "RE", "DEADLINE", "CASTING", "CASTING DIRECTOR",
-                                   "DESTINATION", "FORMAT", "LENGTH", "SLATE", "SUBMIT", "CHARACTER", "PART", "PLAYING",
-                                   "NB", "PS", "P.S.", "STEP", "OPTION", "SENT", "HEIGHT", "AGE", "EMAIL", "PHONE"]
-        return labels.contains(key) ? nil : key
+        if isBlacklistedNoticeWord(key) { return nil }
+        let labelKeywords = ["ROLE", "PROJECT", "TITLE", "DUE", "DATE", "TIME", "NOTE", "NOTES", "LOCATION", "SIDES",
+                             "SCENE", "SUBJECT", "FROM", "TO", "CC", "RE", "DEADLINE", "CASTING", "CASTING DIRECTOR",
+                             "DESTINATION", "FORMAT", "LENGTH", "SLATE", "SUBMIT", "CHARACTER", "PART", "PLAYING",
+                             "NB", "PS", "P.S.", "STEP", "OPTION", "SENT", "HEIGHT", "AGE", "EMAIL", "PHONE",
+                             "MALE", "FEMALE", "YEARS", "YRS", "CITY", "VENUE", "DETAILS", "REQUIREMENTS"]
+        for lk in labelKeywords {
+            if key == lk || key.contains(lk) { return nil }
+        }
+        return key
     }
 
     /// Scene transitions and page furniture: all-caps and short like a cue, but nobody says them.
