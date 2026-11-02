@@ -155,5 +155,7 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(allChars.contains("Setting"))
         XCTAssertFalse(allChars.contains("Casting Sides"))
         XCTAssertFalse(allChars.contains("How To Use These Sides"))
+        XCTAssertFalse(allChars.contains("Pilgrimage"))
+        XCTAssertEqual(Set(allChars), Set(["Noor", "Maryam"]))
     }
 }

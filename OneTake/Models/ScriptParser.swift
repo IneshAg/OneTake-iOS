@@ -343,7 +343,10 @@ enum ScriptParser {
         let indicators = [
             "we are looking for", "actors for an upcoming", "mail us on", "email us on",
             "dm us", "in the subject", "casting call", "years old", "shortlisted candidates",
-            "send across your", "need not apply"
+            "send across your", "need not apply", "how to use these sides", "casting sides",
+            "the characters in this document", "slate first", "video format", "submit your tape",
+            "submit a separate video", "screen time", "instructions on your character",
+            "production quality required", "dialogue sides"
         ]
         return indicators.contains(where: { lower.contains($0) })
     }
