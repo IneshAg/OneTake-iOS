@@ -811,32 +811,22 @@ struct ShootFlow: View {
         readerAudioMissing = false
         follower.reset()
         guard let lines = sceneLines, lineIndex + 1 < lines.count else { return }
-        lineIndex += 1
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            lineIndex += 1
+        }
         speakIfReader()
         scheduleTimedAdvance()
     }
 
     private func interpretTalkback(_ line: ScriptLine) {
-        let spoken = follower.transcript
         talkbackTask?.cancel()
         talkbackTask = Task { @MainActor in
-            // Let a short pause settle the transcript before spending time on an on-device model
-            // request. Continuous speech updates cancel this task, coalescing them into one query.
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
-            let intent = await OnDeviceIntelligence.talkbackIntent(spoken: spoken, expectedLine: line.text)
-            guard !Task.isCancelled, camera.state == .recording, sceneLines?.indices.contains(lineIndex) == true,
+            // Natural 300ms pause after speaking before advancing to next line
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, camera.state == .recording, stage == .scene,
+                  sceneLines?.indices.contains(lineIndex) == true,
                   SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: follower.transcript).count >= SpokenLineMatcher.requiredMatches(for: line.text) else { return }
-            switch intent {
-            case .lineComplete, .nextLine:
-                advanceLine()
-            case .repeatLine:
-                replayReaderBeforeCurrent()
-            case .pause:
-                break
-            case .unknown:
-                advanceLine()
-            }
+            advanceLine()
         }
     }
 
@@ -1126,93 +1116,96 @@ struct SidesPrompterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Previous line context (dimmed, courier monospace)
-            if let prev = prevLine {
-                HStack(alignment: .top, spacing: 6) {
-                    Text(prev.isMine ? "YOU" : prev.character.uppercased())
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.48))
-                        .frame(width: 55, alignment: .leading)
-                    Text(prev.text)
-                        .font(.system(size: 13, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.40))
-                        .lineLimit(2)
-                }
-            } else {
-                Text("Top of scene")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.35))
-            }
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            let isCurrent = (index == currentIndex)
+                            let isPast = (index < currentIndex)
+                            let isUpcoming = (index > currentIndex)
 
-            // Current speaker header
-            if let cur = currentLine {
-                HStack(spacing: 8) {
-                    Text(cur.isMine ? "\(cur.character.uppercased()) · YOU" : cur.character.uppercased())
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .tracking(0.8)
-                        .foregroundStyle(cur.isMine ? OT.prompterGold : OT.reader)
+                            // Render window: 1 past line, current active line, and all upcoming lines below it
+                            if index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 5) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    // Header tag
+                                    HStack(spacing: 8) {
+                                        Text(line.isMine ? "\(line.character.uppercased()) · YOU" : line.character.uppercased())
+                                            .font(.system(size: isCurrent ? 13 : 11, weight: .bold, design: .monospaced))
+                                            .tracking(0.8)
+                                            .foregroundStyle(isCurrent ? (line.isMine ? OT.prompterGold : OT.reader) : Color.white.opacity(0.40))
 
-                    if !cur.isMine {
-                        if readerIsPlaying {
-                            HStack(spacing: 3) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 11, weight: .semibold))
-                                Text("Reading")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        if isCurrent {
+                                            if !line.isMine {
+                                                if readerIsPlaying {
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "waveform")
+                                                            .font(.system(size: 11, weight: .semibold))
+                                                        Text("Reading")
+                                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                    }
+                                                    .foregroundStyle(OT.reader)
+                                                } else if readerAudioMissing {
+                                                    Text("No audio · tap to continue")
+                                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                                        .foregroundStyle(OT.due)
+                                                }
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        if isCurrent {
+                                            Text("\(index + 1) of \(lines.count)")
+                                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(0.50))
+                                        }
+                                    }
+
+                                    // Dialogue content
+                                    if isCurrent {
+                                        if line.isMine {
+                                            let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
+                                            attributedPromptText(line.text, matchedIndices: matchedIndices)
+                                                .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                                                .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        } else {
+                                            Text(line.text)
+                                                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                                .italic()
+                                                .foregroundStyle(Color.white.opacity(0.88))
+                                                .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    } else if isPast {
+                                        Text(line.text)
+                                            .font(.system(size: 13, weight: .regular, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(0.35))
+                                            .lineLimit(2)
+                                    } else {
+                                        // Upcoming lines left below the active line
+                                        Text(line.text)
+                                            .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
+                                            .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                    }
+                                }
+                                .id("prompter_line_\(index)")
+                                .padding(.vertical, isCurrent ? 4 : 1)
                             }
-                            .foregroundStyle(OT.reader)
-                        } else if readerAudioMissing {
-                            Text("No audio · tap to continue")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(OT.due)
                         }
                     }
-
-                    Spacer()
-
-                    Text("\(currentIndex + 1) of \(lines.count)")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.50))
+                    .padding(.vertical, 4)
                 }
-
-                // Current line dialogue (large, high-contrast monospace)
-                // Dynamically sizes so full speech turns remain completely visible without being chopped in half
-                let dynamicHeight: CGFloat = cur.text.count > 200 ? 250 : (cur.text.count > 100 ? 210 : 160)
-                ScrollView(.vertical, showsIndicators: false) {
-                    if cur.isMine {
-                        let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: cur.text, transcript: spokenTranscript)
-                        attributedPromptText(cur.text, matchedIndices: matchedIndices)
-                            .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(cur.text)
-                            .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                            .italic()
-                            .foregroundStyle(Color.white.opacity(0.88))
-                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxHeight: 250)
+                .onChange(of: currentIndex) { _, newIndex in
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
                     }
                 }
-                .frame(maxHeight: dynamicHeight)
-            }
-
-            // Next line context (anticipate cue)
-            if let next = nextLine {
-                HStack(alignment: .top, spacing: 6) {
-                    Text(next.isMine ? "YOU" : next.character.uppercased())
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.48))
-                        .frame(width: 55, alignment: .leading)
-                    Text(next.text)
-                        .font(.system(size: 13, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.40))
-                        .lineLimit(2)
+                .onAppear {
+                    proxy.scrollTo("prompter_line_\(currentIndex)", anchor: .top)
                 }
-            } else {
-                Text("End of scene")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.35))
             }
 
             // Progress bar

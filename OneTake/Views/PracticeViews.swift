@@ -828,7 +828,9 @@ struct PracticeTakeView: View {
                   lines.indices.contains(lineIndex), lines[lineIndex].isMine,
                   SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
             if lineIndex + 1 < lines.count {
-                lineIndex += 1
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                    lineIndex += 1
+                }
                 follower.reset()
                 Haptics.tick()
             }
