@@ -383,6 +383,10 @@ enum NoticeParser {
         var scenes = 0
         var asks: [String] = []
         var aiGuidance = ""
+        var roleSize = "Lead"
+        /// True when the notice explicitly says sides will be provided at the audition, so
+        /// `missingRequiredDetails` does not ask the actor to add them in advance.
+        var sidesOnArrival = false
         var destination: Destination = .actorsAccess
         var destinationDetail: String? = nil
         /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
@@ -402,7 +406,7 @@ enum NoticeParser {
             if project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("project") }
             if role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("role") }
             if due == nil { missing.append("due date") }
-            if !hasSides { missing.append("script sides") }
+            if !hasSides && !sidesOnArrival { missing.append("script sides") }
             return missing
         }
 
@@ -427,7 +431,7 @@ enum NoticeParser {
                 }
             }
             var audition = Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
-                            role: role.isEmpty ? "Role" : role, roleSize: "Lead", castingOffice: castingOffice,
+                            role: role.isEmpty ? "Role" : role, roleSize: roleSize, castingOffice: castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
                             scriptText: sourceText.isEmpty ? nil : sourceText,
@@ -461,6 +465,21 @@ enum NoticeParser {
         }
         if let project = detectProject(in: text) {
             d.project = project
+        }
+        // Detect explicit role size/tier from notice text
+        let roleSizeLower = lower
+        if roleSizeLower.contains("series regular") || roleSizeLower.contains("series lead") {
+            d.roleSize = "Series Regular"
+        } else if roleSizeLower.range(of: #"\bco[-\s]?star\b"#, options: .regularExpression) != nil {
+            d.roleSize = "Co-Star"
+        } else if roleSizeLower.contains("day player") {
+            d.roleSize = "Day Player"
+        } else if roleSizeLower.range(of: #"\bsupporting\b"#, options: .regularExpression) != nil {
+            d.roleSize = "Supporting"
+        } else if roleSizeLower.range(of: #"\b(?:lead|lead role|main role|principal role|feature role)\b"#, options: .regularExpression) != nil {
+            d.roleSize = "Lead"
+        } else if roleSizeLower.contains("principal") {
+            d.roleSize = "Principal"
         }
         if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
@@ -512,8 +531,59 @@ enum NoticeParser {
         }
         if let minutes = detectLengthLimit(in: text) { ask("Under \(minutes) min") }
 
+        // Detect WhatsApp submission (very common in Indian casting notices)
+        if let waNumber = firstMatch(#"(?i)(?:whatsapp|wa\.me|send\s+on\s+whatsapp|submit\s+(?:on|via|to|through)\s+whatsapp)\s*(?:to\s*)?[:\-]?\s*(\+?[\d\s\-]{7,15})"#, in: text, options: .caseInsensitive) {
+            let number = waNumber.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            if number.count >= 7 {
+                d.destinationDetail = "+\(number)"
+                d.destination = .emailOrLink
+                ask("WhatsApp: +\(number)")
+            }
+        }
+        // Detect WeTransfer submission
+        if firstMatch(#"(?i)\bwetransfer\b"#, in: text) != nil {
+            ask("WeTransfer upload")
+        }
+        // Detect Google Form
+        if firstMatch(#"(?i)\bgoogle\s*form\b|forms\.gle\b|docs\.google\.com/forms\b"#, in: text) != nil {
+            ask("Google Form")
+        }
+        // Detect pay/compensation mentions
+        if let pay = firstMatch(#"(?i)\b(?:paid|stipend|honorarium|compensation|fee|per\s+day|day\s+rate|rate\s*[:\-]\s*[\$₹£€]?\d+)"#, in: text) {
+            let _ = pay // just note it exists — set a flag to indicate paid project
+            ask("Paid role")
+        }
+        // If no submission destination found yet, check for a plain phone number
+        if d.destinationDetail == nil {
+            if let phone = firstMatch(#"(?:call|contact|reach|send|submit|whatsapp|call\s+us|contact\s+us)\s*(?:at|on|to)?\s*[:\-]?\s*(\+?[\d\s\(\)\-]{7,18})"#, in: text, options: .caseInsensitive) {
+                let digits = phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                if digits.count >= 7 {
+                    d.destinationDetail = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ask("Call/WhatsApp: \(phone.trimmingCharacters(in: .whitespacesAndNewlines))")
+                }
+            }
+        }
+        // If notice says sides will be given at the audition, do not flag sides as missing
+        if firstMatch(#"(?i)\b(?:sides\s+(?:will\s+be\s+provided|on\s+arrival|given\s+at|provided\s+at|to\s+be\s+provided|at\s+the\s+audition|sent\s+later|will\s+be\s+sent)|audition\s+sides\s+to\s+follow|scripts?\s+(?:will\s+be|to\s+be)\s+(?:provided|sent|given|shared))\b"#, in: text) != nil {
+            d.sidesOnArrival = true
+        }
+
         // Contextual project type
-        if firstMatch(#"(?i)\b(?:feature\s+film|feature\s+length|theatrical\s+film|film\s+project|indie\s+film|cinema)\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:short\s+film|short\s+format|short\s+movie)\b"#, in: text) != nil {
+            d.projectType = "Short film"
+        } else if firstMatch(#"(?i)\b(?:music\s+video|lyric\s+video|album\s+video)\b"#, in: text) != nil {
+            d.projectType = "Music video"
+        } else if firstMatch(#"(?i)\b(?:documentary|docuseries|docu-?series|doc\s+series)\b"#, in: text) != nil {
+            d.projectType = "Documentary"
+        } else if firstMatch(#"(?i)\b(?:web\s+series|ott\s+series|streaming\s+series|digital\s+series)\b"#, in: text) != nil {
+            d.projectType = "Web series"
+        } else if firstMatch(#"(?i)\b(?:reality\s+(?:show|series|tv)|reality\s+program)\b"#, in: text) != nil {
+            d.projectType = "Reality show"
+        } else if firstMatch(#"(?i)\b(?:ott\s+film|ott\s+original|streaming\s+film|direct-to-ott|direct\s+to\s+ott)\b"#, in: text) != nil {
+            d.projectType = "OTT film"
+        } else if firstMatch(#"(?i)\b(?:tv\s+ad|television\s+advertisement|brand\s+film|brand\s+video|product\s+video|social\s+media\s+ad|digital\s+ad|influencer)\b"#, in: text) != nil {
+            d.projectType = "Brand content"
+        } else if firstMatch(#"(?i)\b(?:feature\s+film|feature\s+length|theatrical\s+film|film\s+project|indie\s+film|cinema)\b"#, in: text) != nil {
             d.projectType = "Feature film"
         } else if firstMatch(#"(?i)\b(?:tv\s+series|television\s+series|web\s+series|limited\s+series|mini-?series|episodic|drama\s+series|comedy\s+series|pilot)\b"#, in: text) != nil {
             d.projectType = "Series"
@@ -529,6 +599,20 @@ enum NoticeParser {
                 d.destination = dest
                 ask(dest.rawValue)
                 break
+            }
+        }
+        // Extract director/character notes for AI guidance
+        let guidancePatterns = [
+            #"(?i)(?:director'?s?\s+note|character\s+(?:note|brief|description|background|overview)|about\s+the\s+(?:role|character|project)|role\s+(?:description|brief|overview)|character\s+details?)[:\-]?\s*\n?([\s\S]{20,400}?)(?=\n\s*\n|\z)"#,
+            #"(?i)(?:the\s+(?:story|film|project|series)\s+(?:is\s+about|follows|centers?\s+on)[:\-]?\s*)([\s\S]{20,300}?)(?=\n\s*\n|\z)"#
+        ]
+        for pattern in guidancePatterns {
+            if let note = firstMatch(pattern, in: text, options: .caseInsensitive) {
+                let trimmed = clean(note).trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.count >= 20 {
+                    d.aiGuidance = trimmed
+                    break
+                }
             }
         }
         return d
