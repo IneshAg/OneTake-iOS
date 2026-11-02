@@ -334,20 +334,66 @@ enum NoticeParser {
     static func detectCandidateRoles(in text: String) -> [String] {
         var roles: [String] = []
 
+        let invalidRoleNames: Set<String> = [
+            "multiple roles", "multiple role", "each character", "separate video", "a separate video",
+            "all roles", "any role", "both roles", "various roles", "other characters", "the role",
+            "your role", "character", "setting", "settings", "director note", "slate instruction",
+            "how to use these sides", "casting sides"
+        ]
+
         func addRole(_ r: String) {
             let cleaned = clean(r)
             guard !cleaned.isEmpty, !roles.contains(cleaned) else { return }
+            let lower = cleaned.lowercased()
+            guard !invalidRoleNames.contains(lower) else { return }
             let base = cleaned.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? cleaned
             guard !ScriptParser.isBlacklistedNoticeWord(base) else { return }
             roles.append(cleaned)
         }
 
-        // 1. Explicit labeled roles: "Role: Maya", "Character: Arjun"
+        // 1. Character index list in sides packet: "THE CHARACTERS IN THIS DOCUMENT\nNOOR — Page 2\n..."
+        let indexPattern = #"(?i)CHARACTERS(?:\s+IN\s+THIS\s+DOCUMENT)?\s*[:\n]([\s\S]*?)(?=\n\s*\n|\n==|\z)"#
+        if let r = try? NSRegularExpression(pattern: indexPattern),
+           let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(m.range(at: 1), in: text) {
+            let block = text[range]
+            for line in block.components(separatedBy: .newlines) {
+                let trimmed = clean(line)
+                if let match = trimmed.range(of: #"^([A-Z][A-Za-z0-9'\-]{1,20})\s*[-–—]\s*(?:Page|Pg\.?)\s*\d+"#, options: .regularExpression) {
+                    let name = trimmed[match].components(separatedBy: CharacterSet(charactersIn: "-–—")).first?.trimmingCharacters(in: .whitespaces) ?? ""
+                    addRole(name.capitalized)
+                }
+            }
+        }
+
+        // 2. Character headers on sides pages: "NOOR · She/her · Early 60s"
+        let headerPattern = #"(?m)^([A-Z]{2,20})\s*[·•|\-—]\s*(?:(?:He|She|They)/|[0-9]{1,2}s?\b|Early|Mid|Late)"#
+        if let r = try? NSRegularExpression(pattern: headerPattern) {
+            let matches = r.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let range = Range(m.range(at: 1), in: text) {
+                    addRole(String(text[range]).capitalized)
+                }
+            }
+        }
+
+        // 3. Slate instruction character: "the role you are reading for (NOOR)"
+        let slatePattern = #"(?i)reading\s+for\s*\(([A-Za-z]{2,20})\)"#
+        if let r = try? NSRegularExpression(pattern: slatePattern) {
+            let matches = r.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let range = Range(m.range(at: 1), in: text) {
+                    addRole(String(text[range]).capitalized)
+                }
+            }
+        }
+
+        // 4. Explicit labeled roles: "Role: Maya", "Character: Arjun"
         if let v = labeled(["role", "character", "part", "playing"], in: text) {
             addRole(v.capitalized)
         }
 
-        // 2. Specific character phrasing: "reading for Maya", "role of Kat"
+        // 5. Specific character phrasing: "reading for Maya", "role of Kat"
         let name = #"([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,2}?)"#
         let stop = #"(?=\s+(?:in|on|by|for|from|at|to)\b|\s*[,.;:\n(]|\s*$)"#
         let lead = #"\b(?:role\s+of|part\s+of|character\s+of|playing|audition(?:ing)?\s+for|reading\s+for|self-?tape\s+for|submitting\s+for)\s+(?:the\s+)?(?:role\s+of\s+)?"#
@@ -362,7 +408,7 @@ enum NoticeParser {
             addRole(v.capitalized)
         }
 
-        // 3. Standard industry role tiers (Lead, Supporting, Series Regular)
+        // 6. Standard industry role tiers (Lead, Supporting, Series Regular)
         let tierPattern = #"\b(female\s+lead|male\s+lead|lead\s+female|lead\s+male|lead\s+actress|lead\s+actor|supporting\s+actor|supporting\s+actress|supporting\s+lead|series\s+regular)\b"#
         if let regex = try? NSRegularExpression(pattern: tierPattern, options: .caseInsensitive) {
             let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
@@ -378,7 +424,7 @@ enum NoticeParser {
             }
         }
 
-        // 4. Demographic breakdowns in casting notices:
+        // 7. Demographic breakdowns in casting notices:
         // "Male Age: 20-40 years", "Female Age: 22-60 years", "Male: 20-40", "Female: 20-40", "Boy Age: 8-12", "Girl Age: 8-12"
         let demoPattern = #"(?i)\b(male|female|boy|girl|man|woman)\s*(?:actor|actress|age)?\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)"#
         if let regex = try? NSRegularExpression(pattern: demoPattern) {
@@ -392,7 +438,7 @@ enum NoticeParser {
             }
         }
 
-        // 5. Seeking/looking for:
+        // 8. Seeking/looking for:
         let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
         if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
             let cleaned = clean(v)
@@ -437,19 +483,61 @@ enum NoticeParser {
         return nil
     }
 
-    /// Labeled "Project:" / "Title:", explicit project folder, then a quoted title, then "in THE LAST SUMMER (feature)".
+    private static func isGenericHeadline(_ s: String) -> Bool {
+        let lower = s.lowercased()
+        let words = ["casting", "audition", "sides", "notice", "call", "how to use", "page", "scene", "script", "breakdown", "character", "characters"]
+        return words.contains(where: { lower == $0 || lower.hasPrefix($0 + " ") })
+    }
+
+    /// Labeled "Project:" / "Title:", explicit project folder, prominent header, then a quoted title in header, then "in THE LAST SUMMER (feature)".
     private static func detectProject(in text: String) -> String? {
+        // 1. Prominent project title immediately preceding "CASTING SIDES", "AUDITION SIDES", "CASTING NOTICE", "CASTING CALL"
+        let lines = text.components(separatedBy: .newlines).map { clean($0) }.filter { !$0.isEmpty }
+        let sideKeywords = ["CASTING SIDES", "AUDITION SIDES", "CASTING NOTICE", "CASTING CALL", "AUDITION NOTICE", "SIDES"]
+        for i in 0..<min(lines.count - 1, 8) {
+            let line = lines[i]
+            let nextLine = lines[i + 1].uppercased()
+            if sideKeywords.contains(where: { nextLine == $0 || nextLine.hasPrefix($0) }) {
+                if line.count >= 2 && line.count <= 50 && !isGenericHeadline(line) {
+                    return line.capitalized
+                }
+            }
+        }
+
+        // 2. First line if standalone title followed by author or casting metadata
+        if let firstLine = lines.first, firstLine.count >= 2 && firstLine.count <= 45, !isGenericHeadline(firstLine) {
+            let lower = text.lowercased()
+            if lower.contains("casting") || lower.contains("sides") || lower.contains("audition") {
+                if lines.count > 1 {
+                    let secondLine = lines[1].uppercased()
+                    if secondLine.contains("CASTING") || secondLine.contains("SIDES") || secondLine.contains("BY ") || secondLine.contains("&") || secondLine.contains("DIRECTOR") {
+                        return firstLine.capitalized
+                    }
+                }
+            }
+        }
+
+        // 3. Labeled: "Project: ...", "Title: ...", "Project folder \"...\""
         if let v = firstMatch(#"(?:project\s+folder|project(?:\s+name)?|title)\s*[:\-]?\s*["“]([^"”\n]+)["”]"#, in: text, options: .caseInsensitive) {
             return clean(v).capitalized
         }
         if let v = labeled(["project", "title", "production", "film", "series", "show"], in: text) { return v.capitalized }
 
+        // 4. Quoted title restricted to header region (first 600 characters) or explicit introductory phrasing
         let genericHeadlines = ["casting call", "audition", "auditions", "casting notice", "urgent casting", "casting", "notice", "open call"]
-        if let regex = try? NSRegularExpression(pattern: #"["“]([^"”\n]{3,60})["”]"#) {
-            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        if let v = firstMatch(#"\b(?:project|title|film|in|for|called|titled)\s*[:\-]?\s*["“]([^"”\n]{2,50})["”]"#, in: text, options: .caseInsensitive) {
+            let cleaned = clean(v)
+            if !genericHeadlines.contains(cleaned.lowercased()) {
+                return cleaned.capitalized
+            }
+        }
+
+        let headerText = String(text.prefix(600))
+        if let regex = try? NSRegularExpression(pattern: #"["“]([^"”\n]{3,50})["”]"#) {
+            let matches = regex.matches(in: headerText, range: NSRange(headerText.startIndex..., in: headerText))
             for m in matches {
-                if let r = Range(m.range(at: 1), in: text) {
-                    let candidate = clean(String(text[r]))
+                if let r = Range(m.range(at: 1), in: headerText) {
+                    let candidate = clean(String(headerText[r]))
                     if !genericHeadlines.contains(candidate.lowercased()) {
                         return candidate.capitalized
                     }
