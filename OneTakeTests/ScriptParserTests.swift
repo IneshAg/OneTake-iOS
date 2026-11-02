@@ -161,4 +161,147 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(units.count, 1)
         XCTAssertEqual(units[0], "Dr. Stone met with Lt. Col. Davis at 6 p.m. in the U.S. capital.")
     }
+
+    func testPilgrimageMultiRoleSidesPacket() {
+        let pilgrimageDocument = """
+        PILGRIMAGE
+        CASTING SIDES
+        Humaira Ghilzai & Bridgette Dutta Portman
+        Director: Khaled Abol Naga (Kal)
+        The Lab at Georgetown University · November 2026
+
+        HOW TO USE THESE SIDES
+        Each side has been selected to reveal character, range, and presence within 1–2 minutes of screen time.
+        Please read all instructions on your character's page before recording.
+        Slate first. At the top of your video, look directly into the camera and state your name, pronouns, the role you are reading for, and your city.
+        Submit your tape via the link at: kalnaga.com/pilgrimage/casting.html
+
+        THE CHARACTERS IN THIS DOCUMENT
+        NOOR — Page 2
+        MARYAM — Page 3
+        NADIA — Page 4
+        SOSAN — Page 5
+        FATIMA — Page 6
+
+        NOOR · She/her · Early 60s · Afghan American
+        Director note: What I'm looking for: the weight of a woman who has carried this secret for decades.
+        SLATE INSTRUCTION Before beginning, look directly into camera and state: your full name · your pronouns · the role you are reading for (NOOR).
+        THE SIDE — Noor's Confession (Act II, Scene 4)
+        Setting: At the Kaaba, Mecca. Noor addresses Maryam directly for the first time.
+        You know I've called you my miracle child, Maryam. I had such trouble conceiving.
+        I thought it was my fault, that I was the cause. But I wasn't.
+        Right after the Russians invaded Afghanistan, they were rounding up anyone who was not a communist sympathizer.
+
+        MARYAM · She/her · Mid-30s · Afghan American
+        Director note: Maryam's comedy and devastation are the same instrument.
+        SLATE INSTRUCTION Before beginning, look directly into camera and state: role you are reading for (MARYAM).
+        SIDE A — The Phone Call (Act I, Scene 5)
+        Setting: Hotel lobby, on the phone with Candace.
+        [speaking on phone]
+        Candace, I'm about to embark on a journey that Prophet Muhammad made in 632 to retake Mecca.
+        Tell their lawyers that I'm in the state of Ihram and can't be bothered with earthly problems.
+
+        SIDE B — The Aftermath (Act II, Scene 4)
+        Setting: After Noor's confession at the Kaaba.
+        I can't talk to her right now.
+        I can't believe this. She's been lying all her life.
+
+        NADIA · She/her · Mid-30s · Afghan American
+        SLATE INSTRUCTION Before beginning, look directly into camera and state: role (NADIA).
+        SIDE A — Boo-hoo + The Reveal (Act II, Scene 4)
+        Setting: At the Kaaba.
+        Boo-hoo, the poor misunderstood millionaire. I may not be famous, but my life is stressful too.
+        I'm in love with Fatima.
+
+        SIDE B — You Missed Her Funeral (Act I, Scene 2)
+        Setting: Hotel room in Medina. Nadia confronts Sosan.
+        NADIA
+        You missed her funeral.
+        SOSAN
+        I had work in Nigeria.
+        NADIA
+        You stole my chance to grieve.
+        """
+
+        // 1. Archetype check
+        XCTAssertEqual(ScriptParser.detectArchetype(in: pilgrimageDocument), .multiRolePacket)
+
+        // 2. Candidate roles detection
+        let characters = ScriptParser.extractCharacters(from: pilgrimageDocument)
+        XCTAssertTrue(characters.contains("Noor"))
+        XCTAssertTrue(characters.contains("Maryam"))
+        XCTAssertTrue(characters.contains("Nadia"))
+        XCTAssertFalse(characters.contains("Setting"))
+        XCTAssertFalse(characters.contains("Director Note"))
+
+        // 3. Parsing for Noor
+        let noorScenes = ScriptParser.parseScenes(from: pilgrimageDocument, myRole: "Noor")
+        XCTAssertEqual(noorScenes.count, 1)
+        XCTAssertTrue(noorScenes[0].heading.contains("Noor's Confession"))
+        XCTAssertTrue(noorScenes[0].lines.allSatisfy { $0.character == "Noor" && $0.isMine })
+        XCTAssertTrue(noorScenes[0].lines.contains { $0.text.contains("miracle child") })
+
+        // 4. Parsing for Maryam: Side A and Side B should become 2 distinct scenes
+        let maryamScenes = ScriptParser.parseScenes(from: pilgrimageDocument, myRole: "Maryam")
+        XCTAssertEqual(maryamScenes.count, 2)
+        XCTAssertTrue(maryamScenes[0].heading.contains("The Phone Call"))
+        XCTAssertTrue(maryamScenes[1].heading.contains("The Aftermath"))
+        XCTAssertTrue(maryamScenes[0].lines.allSatisfy { $0.character == "Maryam" && $0.isMine })
+
+        // 5. Parsing for Nadia: Dialogue in Side B should mark Nadia as mine and Sosan as reader
+        let nadiaScenes = ScriptParser.parseScenes(from: pilgrimageDocument, myRole: "Nadia")
+        XCTAssertEqual(nadiaScenes.count, 2)
+        let funeralScene = nadiaScenes[1]
+        XCTAssertTrue(funeralScene.lines.contains { $0.character == "Nadia" && $0.isMine })
+        XCTAssertTrue(funeralScene.lines.contains { $0.character == "Sosan" && !$0.isMine })
+    }
+
+    func testStagePlayPeriodCues() {
+        let play = """
+        ACT I, SCENE II
+        Elsinore. A platform before the castle.
+
+        HAMLET. To be, or not to be, that is the question:
+        Whether 'tis nobler in the mind to suffer
+        The slings and arrows of outrageous fortune.
+
+        HORATIO. (Approaching slowly)
+        My lord, the watch is set.
+
+        HAMLET. Not a mouse stirring.
+        """
+        XCTAssertEqual(ScriptParser.detectArchetype(in: play), .stagePlay)
+        let scenes = ScriptParser.parseScenes(from: play, myRole: "Hamlet")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.filter(\.isMine).count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Hamlet")
+        XCTAssertTrue(scenes[0].lines[0].text.contains("To be, or not to be"))
+        XCTAssertEqual(scenes[0].lines[1].character, "Horatio")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+        XCTAssertEqual(scenes[0].lines[1].text, "My lord, the watch is set.")
+    }
+
+    func testCommercialCopyAudioVideoParsing() {
+        let commercial = """
+        COMMERCIAL COPY — 30 SEC
+        CLIENT: ACME MOTORS
+
+        VIDEO: Hero shot of sleek vehicle accelerating on open mountain highway.
+        AUDIO: ANNCR: The morning commute just got an upgrade.
+
+        VIDEO: Cut to driver smiling, tapping digital dashboard.
+        AUDIO: MAN: Set destination home.
+
+        AUDIO: ANNCR: Drive into the future today.
+        """
+        XCTAssertEqual(ScriptParser.detectArchetype(in: commercial), .commercial)
+        let scenes = ScriptParser.parseScenes(from: commercial, myRole: "Anncr")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 3)
+        XCTAssertEqual(scenes[0].lines[0].character, "Anncr")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "The morning commute just got an upgrade.")
+        XCTAssertEqual(scenes[0].lines[1].character, "Man")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+    }
 }

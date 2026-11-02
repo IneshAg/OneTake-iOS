@@ -6,6 +6,36 @@ import Foundation
 /// and "CHARACTER: dialogue" on one line. Anything that doesn't look like either is skipped rather than
 /// guessed at.
 enum ScriptParser {
+    /// Casting and audition script archetypes encountered across television, film, commercial, and theater sides.
+    enum ScriptArchetype: String, CaseIterable {
+        case multiRolePacket = "Multi-role casting packet"
+        case screenplay = "Screenplay excerpt"
+        case commercial = "Commercial copy"
+        case stagePlay = "Stage play"
+        case standardDialogue = "Dialogue scene"
+    }
+
+    /// Automatically classifies the structural archetype of the sides document to optimize parsing.
+    static func detectArchetype(in text: String) -> ScriptArchetype {
+        let upper = text.uppercased()
+        if upper.contains("CASTING SIDES") || upper.contains("HOW TO USE THESE SIDES")
+            || upper.contains("THE CHARACTERS IN THIS DOCUMENT")
+            || (upper.contains("SIDE A") && upper.contains("SIDE B")) {
+            return .multiRolePacket
+        }
+        if upper.contains("ANNCR:") || upper.contains("ANNCR ") || upper.contains("V.O.")
+            || (upper.contains("VIDEO:") && upper.contains("AUDIO:")) || upper.contains("COMMERCIAL") {
+            return .commercial
+        }
+        if upper.contains("INT.") || upper.contains("EXT.") || upper.contains("INT/EXT") || upper.contains("(CONT'D)") {
+            return .screenplay
+        }
+        if upper.contains("ACT I") || upper.contains("ACT 1") || upper.contains("SCENE I") || upper.contains("SCENE II") {
+            return .stagePlay
+        }
+        return .standardDialogue
+    }
+
     /// Reclassifies the already parsed dialogue when the actor corrects their role name.
     static func reclassify(_ scenes: [ScriptScene], myRole: String) -> [ScriptScene] {
         let roleName = normalizedName(myRole)
@@ -50,6 +80,7 @@ enum ScriptParser {
 
         let characterHeaderRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\s*[·•|\-—]\s*(?:(?:He|She|They)/|[0-9]{1,2}s?\b|Early|Mid|Late)"#)
         let slateInstructionRegex = try? NSRegularExpression(pattern: #"(?i)reading\s+for\s*\(([A-Za-z]{2,20})\)"#)
+        let periodCueRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\.\s+(.*)$"#)
         var activeCharacter: String? = nil
         var inSettingOrNoteBlock = false
         var hasExplicitHeading = false
@@ -92,6 +123,7 @@ enum ScriptParser {
 
         for raw in rawLines {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let upper = trimmed.uppercased()
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
                 // End of the dialogue block
@@ -145,7 +177,6 @@ enum ScriptParser {
             } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
                 flush()
                 currentCharacter = nil
-                let upper = trimmed.uppercased()
                 if upper.hasPrefix("SETTING:") || upper.hasPrefix("SETTINGS:") || upper.hasPrefix("DIRECTOR NOTE:") {
                     inSettingOrNoteBlock = true
                 }
@@ -162,6 +193,32 @@ enum ScriptParser {
                     if currentCharacter != nil {
                         currentText += (currentText.isEmpty ? "" : " ") + trimmed
                     }
+                }
+            } else if upper.hasPrefix("VIDEO:") || upper.hasPrefix("VISUAL:") || upper.hasPrefix("SFX:") || upper.hasPrefix("SUPER:") || upper.hasPrefix("GRAPHIC:") || upper.hasPrefix("DISCLAIMER:") {
+                flush()
+                currentCharacter = nil
+                continue
+            } else if upper.hasPrefix("AUDIO:") {
+                let remainder = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                if let colon = remainder.firstIndex(of: ":") {
+                    let speaker = String(remainder[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let line = String(remainder[remainder.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                    flush()
+                    currentCharacter = cueName(speaker)
+                    currentText = line
+                } else if currentCharacter != nil {
+                    currentText += (currentText.isEmpty ? "" : " ") + remainder
+                }
+                continue
+            } else if let match = periodCueRegex?.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+                      let nameR = Range(match.range(at: 1), in: trimmed),
+                      let textR = Range(match.range(at: 2), in: trimmed) {
+                let name = String(trimmed[nameR])
+                let nonCuePeriodWords: Set<String> = ["INT", "EXT", "MR", "DR", "MRS", "MS", "SC", "ACT", "NO", "P", "PG", "VS", "ETC", "ST"]
+                if isLikelyCue(name) && !nonCuePeriodWords.contains(name.uppercased()) {
+                    flush()
+                    currentCharacter = cueName(name)
+                    currentText = String(trimmed[textR]).trimmingCharacters(in: .whitespaces)
                 }
             } else if let colon = trimmed.firstIndex(of: ":"),
                       isLikelyCue(String(trimmed[..<colon])) || speakerKey(String(trimmed[..<colon])).map({ speakers.contains($0) }) == true {
@@ -235,10 +292,12 @@ enum ScriptParser {
 
         let upper = trimmed.uppercased()
 
-        // Setting / Director / Slate note lines
+        // Setting / Director / Slate note lines and commercial metadata
         let notePrefixes = [
             "SETTING:", "SETTINGS:", "DIRECTOR NOTE:", "DIRECTOR NOTES:", "SLATE INSTRUCTION",
-            "HOW TO USE THESE SIDES", "THE CHARACTERS IN THIS DOCUMENT", "THE CHARACTERS:"
+            "HOW TO USE THESE SIDES", "THE CHARACTERS IN THIS DOCUMENT", "THE CHARACTERS:",
+            "WHAT I'M LOOKING FOR:", "WHAT I NEED TO SEE:", "NOTE: H&B", "SLATE INSTRUCTION:",
+            "PLEASE READ ALL INSTRUCTIONS", "VIDEO:", "VISUAL:", "SFX:", "SUPER:", "GRAPHIC:", "DISCLAIMER:"
         ]
         if notePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
@@ -349,7 +408,9 @@ enum ScriptParser {
             "send across your", "need not apply", "how to use these sides", "casting sides",
             "the characters in this document", "slate first", "video format", "submit your tape",
             "submit a separate video", "screen time", "instructions on your character",
-            "production quality required", "dialogue sides"
+            "production quality required", "dialogue sides", "director will read between",
+            "skip or pause over", "skip other character", "before beginning, look directly into camera",
+            "what i'm looking for:", "what i need to see:", "maximum total video", "please read all instructions"
         ]
         return indicators.contains(where: { lower.contains($0) })
     }
@@ -357,18 +418,24 @@ enum ScriptParser {
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
     /// one real letter (filters out page numbers, "---", scene-heading punctuation runs, etc).
     private static func isLikelyCue(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        var trimmed = raw.trimmingCharacters(in: .whitespaces)
+        // Allow cues with a trailing period, e.g. "HAMLET." or "NORA."
+        if trimmed.hasSuffix(".") && !trimmed.contains(" ") {
+            trimmed = String(trimmed.dropLast())
+        }
         guard trimmed.count > 1, trimmed.count < 28 else { return false }
         guard trimmed.rangeOfCharacter(from: .lowercaseLetters) == nil else { return false }
         guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
         // Cues never contain digits (filters out "1W", "8A", page markers)
         guard trimmed.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
-        // Cues never end with sentence-ending punctuation or colons
-        if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(":") { return false }
+        // Cues never end with exclamation, question mark, or colons
+        if trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(":") { return false }
         let upper = trimmed.uppercased()
         if upper.hasPrefix("ACT ") || upper.hasPrefix("SCENE ") || upper.hasPrefix("SC.") || upper.hasPrefix("SC ") { return false }
         // Reject screenplay sluglines (INT./EXT.) which are also all-caps and short.
         if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") || upper.hasPrefix("INT/EXT") { return false }
+        let nonCueAbbreviations: Set<String> = ["INT", "EXT", "MR", "DR", "MRS", "MS", "SC", "ACT", "NO", "P", "PG", "VS", "ETC", "ST"]
+        if nonCueAbbreviations.contains(upper) { return false }
         if isTransition(trimmed) || cueName(trimmed).isEmpty { return false }
         if isBlacklistedNoticeWord(trimmed) { return false }
         return true
@@ -415,7 +482,11 @@ enum ScriptParser {
         while let open = name.firstIndex(of: "("), let close = name[open...].firstIndex(of: ")") {
             name.removeSubrange(open...close)
         }
-        return name.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        var cleaned = name.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        if cleaned.hasSuffix(".") {
+            cleaned = String(cleaned.dropLast()).trimmingCharacters(in: .whitespaces)
+        }
+        return cleaned
     }
 
     private static func normalizedName(_ raw: String) -> [String] {

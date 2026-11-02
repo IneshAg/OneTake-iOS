@@ -75,6 +75,57 @@ enum OnDeviceIntelligence {
         return await respond(to: prompt)
     }
 
+    struct ExtractedNoticeMetadata {
+        var project: String?
+        var roles: [String]
+        var asks: [String]
+        var deadline: String?
+    }
+
+    /// Chained Micro-Prompt 1: Fast metadata & character extraction for the notice/cover page.
+    static func extractNoticeMetadata(from text: String) async -> ExtractedNoticeMetadata? {
+        let snippet = String(text.prefix(2500))
+        let prompt = """
+        You are a casting director assistant. Analyze this casting document or audition breakdown snippet.
+        Extract the following items in plain lines:
+        PROJECT: [Name of project/production, or None]
+        ROLES: [Comma-separated character names auditioning, e.g. Noor, Maryam, Nadia]
+        DEADLINE: [Submission deadline, date or time, or None]
+        REQUIREMENTS: [Any specific video rules like Slate first, Horizontal, Off-book, or None]
+
+        Document:
+        \(snippet)
+        """
+        guard let answer = await respond(to: prompt) else { return nil }
+        var project: String?
+        var roles: [String] = []
+        var asks: [String] = []
+        var deadline: String?
+
+        let lines = answer.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.uppercased().hasPrefix("PROJECT:") {
+                let val = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" { project = val }
+            } else if trimmed.uppercased().hasPrefix("ROLES:") {
+                let val = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" {
+                    roles = val.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                }
+            } else if trimmed.uppercased().hasPrefix("DEADLINE:") {
+                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" { deadline = val }
+            } else if trimmed.uppercased().hasPrefix("REQUIREMENTS:") {
+                let val = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" {
+                    asks = val.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                }
+            }
+        }
+        return ExtractedNoticeMetadata(project: project, roles: roles, asks: asks, deadline: deadline)
+    }
+
     /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
     /// If unavailable or offline, returns nil, allowing the high-precision algorithmic beat divider
     /// in ScriptParser to seamlessly handle segmentation on all iPhones.
