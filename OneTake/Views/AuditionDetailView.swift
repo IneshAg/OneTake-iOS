@@ -777,8 +777,9 @@ struct RevisedSidesSheet: View {
                 let extracted = await NoticeOCR.extractText(fromFileAt: url)
                 await MainActor.run {
                     if let extracted {
-                        text = extracted
-                        editableScenes = ScriptParser.parseScenes(from: extracted, myRole: role)
+                        let cleaned = ScriptParser.cleanPastedText(extracted)
+                        text = cleaned
+                        editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
                     }
                     reading = false
                 }
@@ -791,7 +792,12 @@ struct RevisedSidesSheet: View {
                 reading = true
                 Task {
                     let recognized = await NoticeOCR.recognizeText(in: pages)
-                    await MainActor.run { text = recognized; reading = false }
+                    await MainActor.run {
+                        let cleaned = ScriptParser.cleanPastedText(recognized)
+                        text = cleaned
+                        editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                        reading = false
+                    }
                 }
             }
             .ignoresSafeArea()
@@ -812,7 +818,13 @@ struct RevisedSidesSheet: View {
                     return
                 }
                 let recognized = await NoticeOCR.recognizeText(in: images)
-                await MainActor.run { text = recognized; reading = false; photoItems = [] }
+                await MainActor.run {
+                    let cleaned = ScriptParser.cleanPastedText(recognized)
+                    text = cleaned
+                    editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                    reading = false
+                    photoItems = []
+                }
             }
         }
     }

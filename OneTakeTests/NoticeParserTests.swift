@@ -160,4 +160,128 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(allChars.contains("Pilgrimage"))
         XCTAssertEqual(Set(allChars), Set(["Noor", "Maryam"]))
     }
+
+    func testNoSluglineInProjectColumn() {
+        let text = """
+        INT. COFFEE SHOP - DAY
+        MAYA
+        Hey, did you get my email?
+
+        ARJUN
+        Yeah, I saw it.
+        """
+        let draft = NoticeParser.parse(text)
+        // A scene slugline must NEVER be mapped into the project column
+        XCTAssertTrue(draft.project.isEmpty, "Project should remain empty when only a slugline is present, found: \(draft.project)")
+        XCTAssertTrue(draft.missingRequiredDetails.contains("project"))
+    }
+
+    func testNoShootDateInAuditionDeadline() {
+        let text = """
+        CASTING CALL
+        Project: The Silent Valley
+        Role: Detective Roy
+        Notice Published: October 1, 2026
+        Shoot Dates: December 10-20, 2026
+        Rehearsals: November 25, 2026
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "The Silent Valley")
+        XCTAssertEqual(draft.role, "Detective Roy")
+        // Shoot and rehearsal dates must NEVER be set as the audition due date
+        XCTAssertNil(draft.due, "Shoot or rehearsal date should not be parsed as audition deadline")
+        XCTAssertTrue(draft.missingRequiredDetails.contains("due date"))
+    }
+
+    func testDeadlineKeywordExtractedAccurately() {
+        let text = """
+        Project: The Silent Valley
+        Role: Detective Roy
+        Shoot Dates: December 10-20, 2026
+        Self-tape due by November 5, 2026
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "The Silent Valley")
+        XCTAssertEqual(draft.role, "Detective Roy")
+        XCTAssertNotNil(draft.due)
+        if let due = draft.due {
+            let cal = Calendar(identifier: .gregorian)
+            XCTAssertEqual(cal.component(.month, from: due), 11)
+            XCTAssertEqual(cal.component(.day, from: due), 5)
+        }
+    }
+
+    func testNoDialogueWordsInAsksRequirements() {
+        let text = """
+        Project: Cabin Fever
+        Role: John
+        INT. CABIN - DAY
+        JOHN
+        Look at that beautiful landscape out there. She's introverted, you know.
+        I have a picture of her from years ago.
+        """
+        let draft = NoticeParser.parse(text)
+        // Screenplay action lines or dialogue mentioning landscape, picture, introverted
+        // must NEVER trigger audition asks requirements
+        XCTAssertFalse(draft.asks.contains("Landscape"))
+        XCTAssertFalse(draft.asks.contains("Intro video"))
+        XCTAssertFalse(draft.asks.contains("Headshots"))
+    }
+
+    func testNoActingDescriptionsInCandidateRoles() {
+        let text = """
+        We are looking for passionate, grounded actors for an upcoming feature film.
+        Seeking authentic performers.
+        Character: Arjun
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.role, "Arjun")
+        XCTAssertFalse(draft.candidateRoles.contains(where: { $0.lowercased().contains("passionate") }))
+        XCTAssertFalse(draft.candidateRoles.contains(where: { $0.lowercased().contains("authentic") }))
+    }
+
+    func testCleansRoleWithTrailingDescription() {
+        let text = """
+        Project: Horizon
+        Role: Maya, 20s, an ambitious young painter who struggles with self-doubt
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Horizon")
+        XCTAssertEqual(draft.role, "Maya")
+    }
+
+    func testProjectTitleWithTrailingRole() {
+        let text = """
+        Project: The Last Summer - Role of Maya
+        Role: Maya
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "The Last Summer")
+        XCTAssertEqual(draft.role, "Maya")
+    }
+
+    func testCastingOfficeNotPollutedByNoticeHeadlines() {
+        let text = """
+        URGENT CASTING
+        Commercial Casting Bengaluru
+        Casting by: Nina Patel
+        Project: Fresh Mornings
+        Role: Mother
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.castingOffice, "Nina Patel")
+        XCTAssertFalse(draft.castingOffice.lowercased().contains("urgent"))
+        XCTAssertFalse(draft.castingOffice.lowercased().contains("commercial"))
+    }
+
+    func testSubmissionUrlDetection() {
+        let text = """
+        Project: Pilgrimage
+        Role: Noor
+        Submit your tape via the link at: kalnaga.com/pilgrimage/casting.html
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.destination, .emailOrLink)
+        XCTAssertEqual(draft.destinationDetail, "kalnaga.com/pilgrimage/casting.html")
+    }
 }

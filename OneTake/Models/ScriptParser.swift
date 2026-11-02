@@ -429,16 +429,27 @@ enum ScriptParser {
             text = hyphenRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
         }
 
-        // Clean up line-by-line whitespace
+        // Clean up line-by-line whitespace while preserving dots/colons in email addresses and URLs
         let lines = text.components(separatedBy: "\n").map { line -> String in
             var l = line.trimmingCharacters(in: .whitespaces)
-            // Fix spaces before punctuation: "hello , world" -> "hello, world"
-            if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
-                l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
-            }
-            // Fix missing space after punctuation when followed directly by letter
-            if let missingSpace = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
-                l = missingSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
+            let hasEmailOrURL = l.contains("@") || l.contains("http://") || l.contains("https://") || l.contains("www.")
+            if !hasEmailOrURL {
+                // Fix spaces before punctuation: "hello , world" -> "hello, world"
+                if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
+                    l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
+                }
+                // Fix missing space after punctuation when followed directly by letter
+                if let missingSpace = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
+                    l = missingSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
+                }
+            } else {
+                // On email or URL lines, only normalize commas/semicolons so domains and email addresses are never split
+                if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,;?!])"#) {
+                    l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
+                }
+                if let commaSpace = try? NSRegularExpression(pattern: #"([,;])([A-Za-z])"#) {
+                    l = commaSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
+                }
             }
             return l
         }
