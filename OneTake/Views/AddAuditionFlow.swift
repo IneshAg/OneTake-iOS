@@ -15,6 +15,8 @@ struct AddAuditionFlow: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var unreadableNoticeError = false
+    /// Parsed draft pending the actor's review — shown in OCRReviewSheet before being committed.
+    @State private var pendingReviewDraft: NoticeParser.Draft? = nil
 
     var body: some View {
         capture
@@ -30,13 +32,22 @@ struct AddAuditionFlow: View {
                             if !NoticeOCR.looksReadable(text) {
                                 unreadableNoticeError = true
                             } else {
-                                let draft = NoticeParser.parse(text)
-                                store.startAuditionDraft(draft)
+                                pendingReviewDraft = NoticeParser.parse(text)
                             }
                         }
                     }
                 }
                 .ignoresSafeArea()
+            }
+            // OCR Review sheet — shown after every scan/photo/file import so the actor can
+            // verify parsed fields before they are committed to the audition draft.
+            .sheet(item: $pendingReviewDraft) { draft in
+                OCRReviewSheet(draft: draft) { confirmedDraft in
+                    pendingReviewDraft = nil
+                    store.startAuditionDraft(confirmedDraft)
+                } onDiscard: {
+                    pendingReviewDraft = nil
+                }
             }
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
                 switch result {
@@ -47,8 +58,7 @@ struct AddAuditionFlow: View {
                         let text = await NoticeOCR.extractText(fromFileAt: url)
                         await MainActor.run {
                             if let text, NoticeOCR.looksReadable(text) {
-                                let draft = NoticeParser.parse(text)
-                                store.startAuditionDraft(draft)
+                                pendingReviewDraft = NoticeParser.parse(text)
                             } else {
                                 unreadableNoticeError = true
                             }
@@ -82,8 +92,7 @@ struct AddAuditionFlow: View {
                         if !NoticeOCR.looksReadable(text) {
                             unreadableNoticeError = true
                         } else {
-                            let draft = NoticeParser.parse(text)
-                            store.startAuditionDraft(draft)
+                            pendingReviewDraft = NoticeParser.parse(text)
                         }
                     }
                 }
@@ -112,8 +121,9 @@ struct AddAuditionFlow: View {
             if !NoticeOCR.looksReadable(text) {
                 unreadableNoticeError = true
             } else {
-                let draft = NoticeParser.parse(text)
-                store.startAuditionDraft(draft)
+                // Route through OCR Review sheet so the actor can verify what was read
+                // from the shared notice before it is committed to the audition draft.
+                pendingReviewDraft = NoticeParser.parse(text)
             }
         }
     }
@@ -181,10 +191,189 @@ struct AddAuditionFlow: View {
     }
 }
 
+// MARK: - OCR Review Sheet
+
+/// Shown after every scan, photo import, file import, and share-sheet import so the actor
+/// can verify what OneTake read before it is committed to an audition draft.
+/// The actor can correct individual fields inline; tapping "Use this" proceeds.
+private struct OCRReviewSheet: View {
+    /// The draft that the parser produced — presented as editable fields.
+    @State var draft: NoticeParser.Draft
+    let onConfirm: (NoticeParser.Draft) -> Void
+    let onDiscard: () -> Void
+
+    @State private var projectText: String
+    @State private var roleText: String
+    @State private var castingOfficeText: String
+    @State private var dueDate: Date
+    @State private var hasDueDate: Bool
+
+    init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft) -> Void, onDiscard: @escaping () -> Void) {
+        self._draft = State(initialValue: draft)
+        self.onConfirm = onConfirm
+        self.onDiscard = onDiscard
+        self._projectText = State(initialValue: draft.project)
+        self._roleText = State(initialValue: draft.role)
+        self._castingOfficeText = State(initialValue: draft.castingOffice)
+        self._hasDueDate = State(initialValue: draft.due != nil)
+        self._dueDate = State(initialValue: draft.due ?? .now.addingTimeInterval(3 * 86400))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Review what we read", systemImage: "doc.text.magnifyingglass")
+                            .font(.otTitle)
+                        Text("Check each field — fix anything that looks wrong before continuing.")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelSecondary)
+                    }
+
+                    reviewField(
+                        icon: "film",
+                        label: "Project",
+                        placeholder: "e.g. The White Lotus",
+                        text: $projectText,
+                        isRequired: true
+                    )
+
+                    reviewField(
+                        icon: "person",
+                        label: "Role",
+                        placeholder: "e.g. Detective Roy",
+                        text: $roleText,
+                        isRequired: true
+                    )
+
+                    reviewField(
+                        icon: "building.2",
+                        label: "Casting office",
+                        placeholder: "Optional",
+                        text: $castingOfficeText,
+                        isRequired: false
+                    )
+
+                    // Due date
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Due date", systemImage: "calendar")
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelSecondary)
+
+                        Toggle("Tape deadline found", isOn: $hasDueDate)
+                            .font(.otFootnote)
+                            .tint(OT.accent)
+
+                        if hasDueDate {
+                            DatePicker("", selection: $dueDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                        } else {
+                            Text("No deadline found — you can set one later.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                    }
+                    .padding(14)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    // Detected asks chips
+                    if !draft.asks.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Requirements detected", systemImage: "checklist")
+                                .font(.otCaption.weight(.medium))
+                                .foregroundStyle(OT.labelSecondary)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(draft.asks, id: \.self) { ask in
+                                        Text(ask)
+                                            .font(.otFootnote.weight(.medium))
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(OT.accentSoft, in: Capsule())
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+                .padding(OT.gutter)
+            }
+            .otCanvas()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Discard") { onDiscard() }
+                        .foregroundStyle(OT.labelSecondary)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use this") {
+                        Haptics.success()
+                        var confirmed = draft
+                        confirmed.project = projectText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.role = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.castingOffice = castingOfficeText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.due = hasDueDate ? dueDate : nil
+                        onConfirm(confirmed)
+                    }
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.accent)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func reviewField(
+        icon: String,
+        label: String,
+        placeholder: String,
+        text: Binding<String>,
+        isRequired: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .foregroundStyle(OT.accent)
+                    .frame(width: 18)
+                Text(label)
+                    .font(.otCaption.weight(.medium))
+                    .foregroundStyle(OT.labelSecondary)
+                if isRequired && text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Spacer()
+                    Label("Not found", systemImage: "exclamationmark.triangle.fill")
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+            TextField(placeholder, text: text)
+                .textInputAutocapitalization(.words)
+                .padding(12)
+                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(
+                            isRequired && text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? Color.orange.opacity(0.7) : Color.clear,
+                            lineWidth: 1.5
+                        )
+                )
+        }
+    }
+}
+
 // MARK: - Notice parsing (on-device, rule-based — runs on whatever real text OCR/the file importer found)
 
 enum NoticeParser {
-    struct Draft: Hashable {
+    struct Draft: Hashable, Identifiable {
+        /// Stable identity so `.sheet(item:)` can distinguish different parsed drafts.
+        var id: String { "\(project)|\(role)|\(castingOffice)|\(due?.timeIntervalSince1970 ?? 0)" }
         var project = ""
         var role = ""
         var candidateRoles: [String] = []
