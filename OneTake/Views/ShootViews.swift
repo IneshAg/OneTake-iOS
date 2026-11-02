@@ -541,7 +541,13 @@ struct ShootFlow: View {
             // Real values only: the session preset, whether exposure is actually locked, free space.
             chip(nil, "1080p · 30")
             chip(follower.isListening ? "mic.fill" : "mic.slash", follower.isListening ? "Listening" : "Voice off")
-            if camera.isExposureLocked { chip("lock.fill", "Exposure locked") }
+            Button {
+                camera.toggleExposureLock()
+                Haptics.tick()
+            } label: {
+                chip(camera.isExposureLocked ? "lock.fill" : "lock.open", camera.isExposureLocked ? "Exposure locked" : "Lock exposure")
+            }
+            .buttonStyle(.plain)
             if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
             if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
                 chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")

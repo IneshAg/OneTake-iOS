@@ -797,6 +797,22 @@ struct PracticeTakeView: View {
                             .frame(height: 36)
                             .background(OT.cameraGlass, in: Capsule())
                         }
+
+                        Button {
+                            camera.toggleExposureLock()
+                            Haptics.tick()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: camera.isExposureLocked ? "lock.fill" : "lock.open")
+                                    .font(.caption2)
+                                Text(camera.isExposureLocked ? "Locked" : "AE")
+                                    .font(.otCaption.weight(.bold))
+                            }
+                            .foregroundStyle(camera.isExposureLocked ? OT.prompterGold : .white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 36)
+                            .background(OT.cameraGlass, in: Capsule())
+                        }
                     }
                     .padding(.bottom, 4)
                 }

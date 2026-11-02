@@ -217,13 +217,84 @@ final class CameraController: NSObject {
         queue.async { [weak self] in
             guard let self,
                   let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
-                  device.isExposureModeSupported(.locked),
                   (try? device.lockForConfiguration()) != nil
             else { return }
-            device.exposureMode = .locked
+            if device.isExposureModeSupported(.locked) {
+                device.exposureMode = .locked
+            }
+            if device.isFocusModeSupported(.locked) {
+                device.focusMode = .locked
+            }
+            if device.isWhiteBalanceModeSupported(.locked) {
+                device.whiteBalanceMode = .locked
+            }
             device.unlockForConfiguration()
-            // Only claim "Exposure locked" in the HUD once it really is.
             Task { @MainActor in self.isExposureLocked = true }
+        }
+    }
+
+    func unlockExposure() {
+        queue.async { [weak self] in
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            device.unlockForConfiguration()
+            Task { @MainActor in self.isExposureLocked = false }
+        }
+    }
+
+    func toggleExposureLock() {
+        if isExposureLocked {
+            unlockExposure()
+        } else {
+            lockExposure()
+        }
+    }
+
+    @MainActor
+    func focusAndLockExposure(at viewPoint: CGPoint) {
+        let devicePoint: CGPoint
+        if let layer = previewLayer {
+            devicePoint = layer.captureDevicePointConverted(fromLayerPoint: viewPoint)
+        } else {
+            devicePoint = CGPoint(x: 0.5, y: 0.5)
+        }
+
+        queue.async { [weak self] in
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = devicePoint
+                if device.isFocusModeSupported(.autoFocus) {
+                    device.focusMode = .autoFocus
+                }
+            }
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = devicePoint
+                if device.isExposureModeSupported(.autoExpose) {
+                    device.exposureMode = .autoExpose
+                }
+            }
+            device.unlockForConfiguration()
+
+            // After 350ms for exposure and focus to adjust to the subject, lock them firmly
+            Task {
+                try? await Task.sleep(for: .milliseconds(350))
+                self.lockExposure()
+            }
         }
     }
 
@@ -287,6 +358,7 @@ final class CameraController: NSObject {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("take-\(UUID().uuidString).mov")
         prepareOutput(movieOutput.connection(with: .video))
+        lockExposure()
         movieOutput.startRecording(to: url, recordingDelegate: self)
         state = .recording
         elapsed = 0
@@ -446,19 +518,52 @@ struct CameraPreview: UIViewRepresentable {
 /// Camera background that falls back to a still in the Simulator (no camera there).
 struct CameraBackground: View {
     let controller: CameraController
+    @State private var focusPoint: CGPoint?
+    @State private var focusRingScale: CGFloat = 1.3
+    @State private var focusRingOpacity: Double = 0
+
     var body: some View {
-        ZStack {
-            OT.cameraBg
-            #if targetEnvironment(simulator)
-            GeometryReader { geo in
+        GeometryReader { geo in
+            ZStack {
+                OT.cameraBg
+                #if targetEnvironment(simulator)
                 HeadshotImage()
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
                     .opacity(0.85)
+                #else
+                CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
+                #endif
+
+                if let pt = focusPoint {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(OT.prompterGold, lineWidth: 2)
+                            .frame(width: 72, height: 72)
+
+                        Circle()
+                            .fill(OT.prompterGold)
+                            .frame(width: 4, height: 4)
+                    }
+                    .position(pt)
+                    .scaleEffect(focusRingScale)
+                    .opacity(focusRingOpacity)
+                }
             }
-            #else
-            CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
-            #endif
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                focusPoint = location
+                focusRingScale = 1.3
+                focusRingOpacity = 1.0
+                Haptics.tick()
+                controller.focusAndLockExposure(at: location)
+                withAnimation(.easeOut(duration: 0.25)) {
+                    focusRingScale = 1.0
+                }
+                withAnimation(.easeOut(duration: 0.4).delay(0.9)) {
+                    focusRingOpacity = 0
+                }
+            }
         }
         .ignoresSafeArea()
     }
