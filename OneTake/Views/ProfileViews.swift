@@ -967,6 +967,7 @@ struct HeadshotsView: View {
     var auditionID: Audition.ID? = nil
     @Environment(AppStore.self) private var store
     @State private var framingRatio: FramingRatio?
+    @State private var adjustItem: HeadshotAdjustItem?
     @State private var isFraming = false
 
     /// Counted from the real files on disk — the old stored counter defaulted to 1, so the front
@@ -1112,6 +1113,9 @@ struct HeadshotsView: View {
             .padding(OT.gutter)
         }
         .onAppear { store.syncHeadshotPieces() }
+        .sheet(item: $adjustItem) { item in
+            HeadshotAdjustSheet(item: item)
+        }
         .sheet(item: $framingRatio) { ratio in
             FramingRatioSheet(ratio: ratio) { selectedRatio in
                 framingRatio = nil
@@ -1122,7 +1126,13 @@ struct HeadshotsView: View {
                 let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key).map { (key, $0) } }
                 Task.detached(priority: .userInitiated) {
                     let framed = originals.compactMap { key, image in
-                        ImageFramer.crop(image, ratio: selectedRatio).map { (key, $0) }
+                        let isProfile = (key == "left" || key == "right")
+                        // Profile slots have an aspect ratio of ~1.18 - 1.21.
+                        // Front slot uses the selectedRatio (e.g. 4:5 or custom).
+                        // Applying a vertical ratio to profile cards chops 35% of head/chin;
+                        // use 1.18 for profiles so head, hair, and chin fit comfortably.
+                        let ratio = isProfile ? 1.18 : selectedRatio
+                        return ImageFramer.crop(image, ratio: ratio, isProfile: isProfile).map { (key, $0) }
                     }
                     await MainActor.run {
                         for (key, image) in framed { HeadshotStore.replace(image, key: key) }
@@ -1173,27 +1183,16 @@ struct HeadshotsView: View {
         }
     }
 
+    @ViewBuilder
     private func slot(_ title: String, done: Bool, big: Bool) -> some View {
         let key = title == "Front" ? "front" : title == "Left profile" ? "left" : "right"
-        return PhotosPicker(selection: Binding(
-            get: { nil },
-            set: { (item: PhotosPickerItem?) in
-                guard let item else { return }
-                Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        await MainActor.run {
-                            HeadshotStore.save(image, key: key)
-                            store.headshotVersion += 1
-                            store.syncHeadshotPieces()
-                            Haptics.success()
-                        }
-                    }
-                }
-            }
-        ), matching: .images) {
-            ZStack(alignment: .bottomLeading) {
-                if done {
+        let isProfile = (key == "left" || key == "right")
+
+        if done {
+            Button {
+                adjustItem = HeadshotAdjustItem(key: key, title: title, isProfile: isProfile)
+            } label: {
+                ZStack(alignment: .bottomLeading) {
                     HeadshotImage(realKey: key)
                     LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
                     HStack {
@@ -1201,12 +1200,43 @@ struct HeadshotsView: View {
                             .font(.otFootnote.weight(.semibold))
                             .foregroundStyle(.white)
                         Spacer()
-                        Image(systemName: "photo.badge.plus")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.85))
+                        HStack(spacing: 4) {
+                            Image(systemName: "crop")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Adjust")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3.5)
+                        .background(.black.opacity(0.45), in: Capsule())
                     }
-                    .padding(12)
-                } else {
+                    .padding(10)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        } else {
+            PhotosPicker(selection: Binding(
+                get: { nil },
+                set: { (item: PhotosPickerItem?) in
+                    guard let item else { return }
+                    Task {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            await MainActor.run {
+                                HeadshotStore.save(image, key: key)
+                                store.headshotVersion += 1
+                                store.syncHeadshotPieces()
+                                Haptics.success()
+                            }
+                        }
+                    }
+                }
+            ), matching: .images) {
+                ZStack(alignment: .bottomLeading) {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5]))
                         .foregroundStyle(OT.labelTertiary)
@@ -1223,12 +1253,12 @@ struct HeadshotsView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private func tip(_ s: String, _ t: String, _ d: String) -> some View {
@@ -1812,5 +1842,356 @@ struct HeadshotReferenceGuideSheet: View {
                 .foregroundStyle(OT.labelTertiary)
         }
         .frame(height: 180)
+    }
+}
+
+// MARK: - 10 Interactive Headshot Resizing & Framing Sheet
+
+struct HeadshotAdjustItem: Identifiable {
+    let key: String
+    let title: String
+    let isProfile: Bool
+    var id: String { key }
+}
+
+struct HeadshotAdjustSheet: View {
+    let item: HeadshotAdjustItem
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
+
+    @State private var originalImage: UIImage?
+    @State private var zoom: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var dragOffset: CGSize = .zero
+    @State private var pinchScale: CGFloat = 1.0
+    @State private var photoItem: PhotosPickerItem?
+    @State private var isAutoFraming = false
+
+    /// Display frame dimensions inside the sheet matching slot proportions.
+    /// Front slot is 175.5 x 300 (ratio 0.585).
+    /// Profile slots are 175.5 x 145 (ratio 1.21).
+    private var frameSize: CGSize {
+        if item.isProfile {
+            return CGSize(width: 312, height: 260)
+        } else {
+            return CGSize(width: 216, height: 370)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Viewport area
+                ZStack {
+                    Color.black.ignoresSafeArea()
+
+                    if let img = originalImage {
+                        let baseScale = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+                        let currentZoom = max(1.0, min(zoom * pinchScale, 4.0))
+                        let effectiveOffset = clampOffset(
+                            CGSize(width: offset.width + dragOffset.width, height: offset.height + dragOffset.height),
+                            zoomFactor: currentZoom
+                        )
+
+                        // Clamped crop frame
+                        ZStack {
+                            Image(uiImage: img)
+                                .resizable()
+                                .frame(width: img.size.width * baseScale * currentZoom,
+                                       height: img.size.height * baseScale * currentZoom)
+                                .offset(effectiveOffset)
+
+                            // Rule of thirds subtle grid guides
+                            gridLines
+
+                            // Corner crop brackets
+                            cornerBrackets
+                        }
+                        .frame(width: frameSize.width, height: frameSize.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+                        )
+                        .gesture(
+                            SimultaneousGesture(
+                                DragGesture()
+                                    .onChanged { val in dragOffset = val.translation }
+                                    .onEnded { val in
+                                        offset = clampOffset(
+                                            CGSize(width: offset.width + val.translation.width, height: offset.height + val.translation.height),
+                                            zoomFactor: zoom
+                                        )
+                                        dragOffset = .zero
+                                    },
+                                MagnificationGesture()
+                                    .onChanged { val in pinchScale = val }
+                                    .onEnded { val in
+                                        zoom = max(1.0, min(zoom * val, 4.0))
+                                        pinchScale = 1.0
+                                        offset = clampOffset(offset, zoomFactor: zoom)
+                                    }
+                            )
+                        )
+                    } else {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
+                .frame(maxHeight: .infinity)
+
+                // Bottom control panel
+                VStack(spacing: 16) {
+                    // Zoom slider
+                    HStack(spacing: 12) {
+                        Image(systemName: "minus.magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundStyle(OT.labelTertiary)
+                        Slider(value: $zoom, in: 1.0...3.5)
+                            .tint(OT.accent)
+                            .onChange(of: zoom) { _, newZoom in
+                                offset = clampOffset(offset, zoomFactor: newZoom)
+                            }
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        Button {
+                            autoFrame()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                Text("Auto-frame")
+                            }
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                zoom = 1.0
+                                offset = .zero
+                                dragOffset = .zero
+                                pinchScale = 1.0
+                            }
+                            Haptics.tick()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("Reset")
+                            }
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        Menu {
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                            }
+                            Button {
+                                dismiss()
+                                store.camera = .headshot
+                            } label: {
+                                Label("Take with Camera", systemImage: "camera")
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("Replace")
+                            }
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(OT.labelSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                    .padding(.horizontal, OT.gutter)
+
+                    Text(item.isProfile
+                         ? "Drag to pan, pinch or slide to resize. Auto-frame keeps hair, jawline, and chin within profile bounds."
+                         : "Drag to pan, pinch or slide to resize. Auto-frame centers head and shoulders with generous headroom.")
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelTertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+                .padding(.top, 14)
+                .background(OT.surfaceRaised)
+            }
+            .navigationTitle("Adjust \(item.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(OT.labelSecondary)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { saveCrop() }
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.accent)
+                }
+            }
+        }
+        .onAppear { loadPhoto() }
+        .onChange(of: photoItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                if let data = try? await newItem.loadTransferable(type: Data.self),
+                   let img = UIImage(data: data),
+                   let upright = ImageFramer.normalized(img) {
+                    await MainActor.run {
+                        HeadshotStore.save(upright, key: item.key)
+                        originalImage = upright
+                        zoom = 1.0
+                        offset = .zero
+                        dragOffset = .zero
+                        pinchScale = 1.0
+                        store.headshotVersion += 1
+                        store.syncHeadshotPieces()
+                        autoFrame()
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadPhoto() {
+        if let raw = HeadshotStore.loadOriginal(key: item.key) ?? HeadshotStore.load(key: item.key),
+           let upright = ImageFramer.normalized(raw) {
+            originalImage = upright
+        }
+    }
+
+    private func clampOffset(_ raw: CGSize, zoomFactor: CGFloat) -> CGSize {
+        guard let img = originalImage else { return .zero }
+        let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+        let z = max(1.0, min(zoomFactor, 4.0))
+        let maxOffX = max(0, (img.size.width * base * z - frameSize.width) / 2)
+        let maxOffY = max(0, (img.size.height * base * z - frameSize.height) / 2)
+        return CGSize(
+            width: min(max(raw.width, -maxOffX), maxOffX),
+            height: min(max(raw.height, -maxOffY), maxOffY)
+        )
+    }
+
+    private func autoFrame() {
+        guard let img = originalImage, let cg = img.cgImage else { return }
+        let imgSize = CGSize(width: cg.width, height: cg.height)
+        let face = ImageFramer.detectSubject(in: cg, size: imgSize, isProfile: item.isProfile)
+        let ratio = frameSize.width / frameSize.height
+        let rect = ImageFramer.cropRect(imageSize: imgSize, subject: face, ratio: ratio, isProfile: item.isProfile)
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+        let pointsToPixels = CGFloat(cg.width) / img.size.width
+        let targetCropWInPoints = rect.width / pointsToPixels
+        let targetZoom = max(1.0, min(frameSize.width / (targetCropWInPoints * base), 4.0))
+
+        let cropCenterInPoints = CGPoint(x: rect.midX / pointsToPixels, y: rect.midY / pointsToPixels)
+        let imageCenterInPoints = CGPoint(x: img.size.width / 2, y: img.size.height / 2)
+
+        let requiredOffsetX = (imageCenterInPoints.x - cropCenterInPoints.x) * base * targetZoom
+        let requiredOffsetY = (imageCenterInPoints.y - cropCenterInPoints.y) * base * targetZoom
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            zoom = targetZoom
+            offset = clampOffset(CGSize(width: requiredOffsetX, height: requiredOffsetY), zoomFactor: targetZoom)
+            dragOffset = .zero
+            pinchScale = 1.0
+        }
+        Haptics.tick()
+    }
+
+    private func saveCrop() {
+        guard let img = originalImage, let cg = img.cgImage else { dismiss(); return }
+        let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+        let z = max(1.0, min(zoom, 4.0))
+        let effectiveOffset = clampOffset(offset, zoomFactor: z)
+
+        let displayedW = img.size.width * base * z
+        let displayedH = img.size.height * base * z
+
+        let imageOriginX = (frameSize.width - displayedW) / 2 + effectiveOffset.width
+        let imageOriginY = (frameSize.height - displayedH) / 2 + effectiveOffset.height
+
+        let cropInPointsX = (0 - imageOriginX) / (base * z)
+        let cropInPointsY = (0 - imageOriginY) / (base * z)
+        let cropInPointsW = frameSize.width / (base * z)
+        let cropInPointsH = frameSize.height / (base * z)
+
+        let scaleFactor = CGFloat(cg.width) / img.size.width
+        let pixelRect = CGRect(
+            x: cropInPointsX * scaleFactor,
+            y: cropInPointsY * scaleFactor,
+            width: cropInPointsW * scaleFactor,
+            height: cropInPointsH * scaleFactor
+        ).integral.intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+
+        guard pixelRect.width > 0, pixelRect.height > 0, let croppedCG = cg.cropping(to: pixelRect) else {
+            dismiss()
+            return
+        }
+
+        let croppedImage = UIImage(cgImage: croppedCG, scale: 1, orientation: .up)
+        HeadshotStore.replace(croppedImage, key: item.key)
+        store.headshotVersion += 1
+        store.syncHeadshotPieces()
+        Haptics.success()
+        dismiss()
+    }
+
+    private var gridLines: some View {
+        GeometryReader { geo in
+            Path { path in
+                let w = geo.size.width, h = geo.size.height
+                path.move(to: CGPoint(x: w / 3, y: 0))
+                path.addLine(to: CGPoint(x: w / 3, y: h))
+                path.move(to: CGPoint(x: 2 * w / 3, y: 0))
+                path.addLine(to: CGPoint(x: 2 * w / 3, y: h))
+                path.move(to: CGPoint(x: 0, y: h / 3))
+                path.addLine(to: CGPoint(x: w, y: h / 3))
+                path.move(to: CGPoint(x: 0, y: 2 * h / 3))
+                path.addLine(to: CGPoint(x: w, y: 2 * h / 3))
+            }
+            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        }
+    }
+
+    private var cornerBrackets: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            let arm: CGFloat = 16
+            Path { path in
+                // Top-left
+                path.move(to: CGPoint(x: 0, y: arm))
+                path.addLine(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: arm, y: 0))
+
+                // Top-right
+                path.move(to: CGPoint(x: w - arm, y: 0))
+                path.addLine(to: CGPoint(x: w, y: 0))
+                path.addLine(to: CGPoint(x: w, y: arm))
+
+                // Bottom-left
+                path.move(to: CGPoint(x: 0, y: h - arm))
+                path.addLine(to: CGPoint(x: 0, y: h))
+                path.addLine(to: CGPoint(x: arm, y: h))
+
+                // Bottom-right
+                path.move(to: CGPoint(x: w - arm, y: h))
+                path.addLine(to: CGPoint(x: w, y: h))
+                path.addLine(to: CGPoint(x: w, y: h - arm))
+            }
+            .stroke(Color.white.opacity(0.8), lineWidth: 2.5)
+        }
     }
 }

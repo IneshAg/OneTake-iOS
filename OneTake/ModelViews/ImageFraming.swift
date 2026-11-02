@@ -30,28 +30,34 @@ enum FramingRatio: String, CaseIterable, Identifiable {
 ///   and repeated runs cropped the already-cropped photo again.
 enum ImageFramer {
     /// Fraction of the crop height the detected face box should take (Vision's box is ~brows→chin).
-    static let faceHeightFraction: CGFloat = 0.33
+    /// For front headshots, 0.24 gives a relaxed theatrical head-and-shoulders framing with headroom
+    /// and full shoulders, preventing the face from zooming in excessively.
+    static let faceHeightFraction: CGFloat = 0.24
     /// Where the face centre sits, measured from the top of the crop — eyes land near the upper third.
-    static let faceCenterFromTop: CGFloat = 0.43
+    static let faceCenterFromTop: CGFloat = 0.39
     /// Keep the shoulders: the crop is at least this many face-widths wide.
-    static let minFaceWidths: CGFloat = 2.6
+    static let minFaceWidths: CGFloat = 3.0
     /// Don't produce tiny crops from a small, far-away face if the photo has more pixels to give.
     static let minShortSide: CGFloat = 800
 
-    static func crop(_ image: UIImage, ratio: CGFloat) -> UIImage? {
+    static func crop(_ image: UIImage, ratio: CGFloat, isProfile: Bool = false) -> UIImage? {
         guard ratio > 0, let upright = normalized(image), let cgImage = upright.cgImage else { return nil }
         let size = CGSize(width: cgImage.width, height: cgImage.height)
-        let face = detectSubject(in: cgImage, size: size)
-        let rect = cropRect(imageSize: size, subject: face, ratio: ratio)
+        let face = detectSubject(in: cgImage, size: size, isProfile: isProfile)
+        let rect = cropRect(imageSize: size, subject: face, ratio: ratio, isProfile: isProfile)
         guard let cropped = cgImage.cropping(to: rect) else { return nil }
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
     /// The crop, in pixel space of the upright image (top-left origin). Pure, so it can be tested.
     /// - Parameter subject: the face box, or `nil` to fall back to an upper-biased centre crop.
-    static func cropRect(imageSize: CGSize, subject: CGRect?, ratio: CGFloat) -> CGRect {
+    static func cropRect(imageSize: CGSize, subject: CGRect?, ratio: CGFloat, isProfile: Bool = false) -> CGRect {
         let imageW = imageSize.width, imageH = imageSize.height
         guard imageW > 0, imageH > 0, ratio > 0 else { return .zero }
+
+        let targetFaceHeightFraction = isProfile ? 0.32 : faceHeightFraction
+        let targetAnchorFromTop = isProfile ? 0.44 : faceCenterFromTop
+        let targetMinFaceWidths = isProfile ? 2.2 : minFaceWidths
 
         var w: CGFloat
         var h: CGFloat
@@ -60,10 +66,10 @@ enum ImageFramer {
         let anchorFromTop: CGFloat
 
         if let face = subject, face.width > 0, face.height > 0 {
-            h = face.height / faceHeightFraction
+            h = face.height / targetFaceHeightFraction
             w = h * ratio
-            if w < face.width * minFaceWidths {
-                w = face.width * minFaceWidths
+            if w < face.width * targetMinFaceWidths {
+                w = face.width * targetMinFaceWidths
                 h = w / ratio
             }
             // Don't hand back a postage stamp when the original has the resolution for more.
@@ -75,12 +81,18 @@ enum ImageFramer {
             }
             centerX = face.midX
             anchorY = face.midY
-            anchorFromTop = faceCenterFromTop
+            anchorFromTop = targetAnchorFromTop
         } else {
-            w = imageW; h = imageW / ratio
+            if ratio >= 1.0 {
+                h = min(imageH, imageW / ratio)
+                w = h * ratio
+            } else {
+                w = min(imageW, imageH * ratio)
+                h = w / ratio
+            }
             centerX = imageW / 2
-            anchorY = imageH * 0.45
-            anchorFromTop = 0.45
+            anchorY = imageH * (isProfile ? 0.45 : 0.42)
+            anchorFromTop = isProfile ? 0.45 : 0.42
         }
 
         // Fit inside the photo, keeping the ratio (never upscale past the original pixels).
@@ -106,7 +118,7 @@ enum ImageFramer {
 
     /// The largest face, in top-left pixel space; falls back to an upper body for profile shots
     /// where face detection can miss.
-    private static func detectSubject(in cgImage: CGImage, size: CGSize) -> CGRect? {
+    static func detectSubject(in cgImage: CGImage, size: CGSize, isProfile: Bool = false) -> CGRect? {
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
         let faces = VNDetectFaceRectanglesRequest()
         #if compiler(>=6.0)

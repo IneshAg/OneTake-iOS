@@ -205,6 +205,25 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
+    func testProfileHeadshotFramingAdaptsToWideRatioAndPreservesHeadAndChin() {
+        // 3024 x 4032 photo, profile head 550 x 650
+        let size = CGSize(width: 3024, height: 4032)
+        let face = CGRect(x: 1200, y: 1200, width: 550, height: 650)
+        let profileRatio: CGFloat = 1.18
+        let rect = ImageFramer.cropRect(imageSize: size, subject: face, ratio: profileRatio, isProfile: true)
+
+        XCTAssertEqual(rect.width / rect.height, profileRatio, accuracy: 0.02, "Profile crop adheres to wide slot ratio")
+        XCTAssertTrue(rect.contains(face), "Profile crop contains entire head")
+        XCTAssertLessThan(rect.minY, face.minY, "Headroom is preserved above hair")
+        XCTAssertGreaterThan(rect.maxY, face.maxY, "Chin and neck are preserved below")
+    }
+
+    func testFrontHeadshotFramingHasRelaxedTheatricalProportions() {
+        XCTAssertEqual(ImageFramer.faceHeightFraction, 0.24, accuracy: 0.001, "Front headshot uses relaxed 0.24 face fraction")
+        XCTAssertEqual(ImageFramer.faceCenterFromTop, 0.39, accuracy: 0.001, "Face center is positioned at 0.39 for generous headroom")
+        XCTAssertEqual(ImageFramer.minFaceWidths, 3.0, accuracy: 0.001, "Includes full shoulders with min 3.0 face widths")
+    }
+
     func testRotatedCameraPhotoIsNormalizedBeforeCropping() {
         // A camera photo: raw buffer is landscape 400x300 but displays as portrait 300x400 (.right).
         let raw = createTestImage(width: 400, height: 300)
