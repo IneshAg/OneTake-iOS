@@ -114,10 +114,7 @@ enum ScriptParser {
                 return
             }
             let mine = isSameCharacter(normalizedName(character), roleName)
-            let beats = divideIntoThoughtUnits(cleaned)
-            for beat in beats {
-                lines.append(ScriptLine(character: character.capitalized, text: beat, isMine: mine))
-            }
+            lines.append(ScriptLine(character: character.capitalized, text: cleaned, isMine: mine))
             currentText = ""
         }
 

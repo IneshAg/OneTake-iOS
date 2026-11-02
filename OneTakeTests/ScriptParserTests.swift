@@ -133,25 +133,60 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(scenes[0].lines[1].text, "Please listen to me.")
     }
 
-    func testLongMonologueIsDividedIntoDeliverableThoughtUnits() {
+    func testDialogueDividedByCharacterTurns() {
+        let script = """
+        JAKE
+        I think we should wait for Sarah before opening this.
+
+        AUSTIN
+        Sarah is twenty minutes late. We open it now.
+
+        SARAH
+        Don't touch that without me.
+
+        JAKE
+        See? I told you she was coming.
+
+        SARAH
+        Give me the keys, Austin.
+        """
+        let scenes = ScriptParser.parseScenes(from: script, myRole: "Sarah")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 5)
+        XCTAssertEqual(scenes[0].lines.map(\.character), ["Jake", "Austin", "Sarah", "Jake", "Sarah"])
+        XCTAssertEqual(scenes[0].lines.map(\.isMine), [false, false, true, false, true])
+        XCTAssertEqual(scenes[0].lines[0].text, "I think we should wait for Sarah before opening this.")
+        XCTAssertEqual(scenes[0].lines[1].text, "Sarah is twenty minutes late. We open it now.")
+        XCTAssertEqual(scenes[0].lines[2].text, "Don't touch that without me.")
+        XCTAssertEqual(scenes[0].lines[3].text, "See? I told you she was coming.")
+        XCTAssertEqual(scenes[0].lines[4].text, "Give me the keys, Austin.")
+    }
+
+    func testMonologueUnderCharacterRemainsUnderCharacter() {
         let monologue = """
         NOOR
         You know I've called you my miracle child, Maryam. I had such trouble conceiving.
         I thought it was my fault, that I was the cause. But I wasn't.
         Right after the Russians invaded Afghanistan, they were rounding up anyone who
-        was not a communist sympathizer. They took your father—my husband—in for
-        interrogation. People didn't return home to their families after these types of
-        arrests. After two weeks of no information, no answers, I thought the worst.
+        was not a communist sympathizer.
         """
         let scenes = ScriptParser.parseScenes(from: monologue, myRole: "Noor")
         XCTAssertEqual(scenes.count, 1)
-        // Instead of 1 gigantic unreadable 78-word wall of text, it should be divided into digestible beats
-        XCTAssertGreaterThan(scenes[0].lines.count, 2)
-        for line in scenes[0].lines {
-            XCTAssertEqual(line.character, "Noor")
-            XCTAssertTrue(line.isMine)
-            let wordCount = line.text.split(separator: " ").count
-            XCTAssertLessThanOrEqual(wordCount, 25, "Line should be a digestible teleprompter beat: \(line.text)")
+        // All lines under Noor belong strictly to Noor without arbitrary fragmentation
+        XCTAssertEqual(scenes[0].lines.count, 1)
+        XCTAssertEqual(scenes[0].lines[0].character, "Noor")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertTrue(scenes[0].lines[0].text.contains("miracle child"))
+        XCTAssertTrue(scenes[0].lines[0].text.contains("communist sympathizer"))
+    }
+
+    func testDivideIntoThoughtUnitsUtility() {
+        let text = "You know I've called you my miracle child, Maryam. I had such trouble conceiving. I thought it was my fault, that I was the cause. But I wasn't."
+        let units = ScriptParser.divideIntoThoughtUnits(text)
+        XCTAssertGreaterThan(units.count, 1)
+        for unit in units {
+            let count = unit.split(separator: " ").count
+            XCTAssertLessThanOrEqual(count, 25)
         }
     }
 
