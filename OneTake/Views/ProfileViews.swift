@@ -309,11 +309,6 @@ struct EditSlateView: View {
                            contentType: .name, capitalization: .words, next: .height)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Height").font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
-                    Picker("Height unit", selection: Binding(get: { heightUnit }, set: changeHeightUnit)) {
-                        Text("ft / in").tag(HeightUnit.feetInches)
-                        Text("cm").tag(HeightUnit.centimetres)
-                    }
-                    .pickerStyle(.segmented)
 
                     if heightUnit == .feetInches {
                         HStack(spacing: 10) {
@@ -352,6 +347,12 @@ struct EditSlateView: View {
                             Text("cm").foregroundStyle(OT.labelTertiary)
                         }
                     }
+
+                    Picker("Height unit", selection: Binding(get: { heightUnit }, set: changeHeightUnit)) {
+                        Text("ft / in").tag(HeightUnit.feetInches)
+                        Text("cm").tag(HeightUnit.centimetres)
+                    }
+                    .pickerStyle(.segmented)
                 }
                 .padding(.vertical, 4)
                 slateField("Based in", placeholder: "e.g. London", text: $draft.basedIn, field: .basedIn,

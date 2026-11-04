@@ -207,6 +207,11 @@ final class AppStore {
             isOnboarded = true
             auditionsPath = [.auditionDetail(firstAudition.id)]
         }
+        if ProcessInfo.processInfo.arguments.contains("-editSlate") {
+            isOnboarded = true
+            showProfile = true
+            profilePath = [.editSlate]
+        }
         isLoading = false
         syncPieces()
         if removedLegacyDemoData { persist() }
