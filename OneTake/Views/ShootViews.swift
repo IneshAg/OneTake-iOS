@@ -665,6 +665,7 @@ struct ShootFlow: View {
                 chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
         .opacity(stage == .saved || stage == .slateDone ? 0 : 1)
     }
 
@@ -704,49 +705,88 @@ struct ShootFlow: View {
     }
 
     private var bottomControls: some View {
-        HStack {
-            HStack(spacing: 8) {
-                cameraChoice("\(zoomLabel)") { camera.cycleZoom() }
+        ZStack(alignment: .center) {
+            // Left & Right secondary controls layer
+            HStack(alignment: .center) {
+                HStack(spacing: 6) {
+                    Button {
+                        camera.cycleZoom()
+                    } label: {
+                        Text(zoomLabel)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(OT.cameraGlass, in: Circle())
+                    }
                     .disabled(camera.state != .ready || countdown != nil)
-                Menu {
-                    Button { timerSeconds = 0; Haptics.tick() } label: {
-                        HStack {
-                            Text("Timer off")
-                            if timerSeconds == 0 { Image(systemName: "checkmark") }
+                    .accessibilityLabel("Zoom \(zoomLabel)")
+
+                    Menu {
+                        Button { timerSeconds = 0; Haptics.tick() } label: {
+                            HStack {
+                                Text("Timer off")
+                                if timerSeconds == 0 { Image(systemName: "checkmark") }
+                            }
                         }
-                    }
-                    Button { timerSeconds = 3; Haptics.tick() } label: {
-                        HStack {
-                            Text("3 seconds")
-                            if timerSeconds == 3 { Image(systemName: "checkmark") }
+                        Button { timerSeconds = 3; Haptics.tick() } label: {
+                            HStack {
+                                Text("3 seconds")
+                                if timerSeconds == 3 { Image(systemName: "checkmark") }
+                            }
                         }
-                    }
-                    Button { timerSeconds = 5; Haptics.tick() } label: {
-                        HStack {
-                            Text("5 seconds (walk to mark)")
-                            if timerSeconds == 5 { Image(systemName: "checkmark") }
+                        Button { timerSeconds = 5; Haptics.tick() } label: {
+                            HStack {
+                                Text("5 seconds (walk to mark)")
+                                if timerSeconds == 5 { Image(systemName: "checkmark") }
+                            }
                         }
-                    }
-                    Button { timerSeconds = 10; Haptics.tick() } label: {
-                        HStack {
-                            Text("10 seconds (room setup)")
-                            if timerSeconds == 10 { Image(systemName: "checkmark") }
+                        Button { timerSeconds = 10; Haptics.tick() } label: {
+                            HStack {
+                                Text("10 seconds (room setup)")
+                                if timerSeconds == 10 { Image(systemName: "checkmark") }
+                            }
                         }
-                    }
-                } label: {
-                    Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s")
-                        .font(.otFootnote.weight(.semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(.ultraThinMaterial, in: Capsule())
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "timer")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s")
+                                .font(.otFootnote.weight(.semibold))
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 40)
+                        .background(OT.cameraGlass, in: Capsule())
                         .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
+                    }
+                    .disabled(camera.state == .recording || countdown != nil)
                 }
-                .disabled(camera.state == .recording || countdown != nil)
+
+                Spacer()
+
+                Button {
+                    camera.switchCamera()
+                    // Exposure was locked on the old camera; lock the new one too once you're past the check.
+                    if stage != .check { camera.lockExposure() }
+                    Haptics.tick()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(OT.cameraGlass, in: Circle())
+                }
+                .disabled(camera.state != .ready || countdown != nil)
+                .opacity(camera.state == .recording ? 0 : 1)
+                .accessibilityLabel("Switch camera")
             }
-            Spacer()
+
+            // Primary action: RecordButton or Go to your mark — guaranteed horizontally centered!
             switch stage {
             case .check:
                 VStack(spacing: 10) {
-                    Button("Go to your mark") { start(at: firstStage) }.buttonStyle(.otPrimary).frame(width: 200)
+                    Button("Go to your mark") { start(at: firstStage) }
+                        .buttonStyle(.otPrimary)
+                        .frame(width: 200)
                     // Once the slate is in, the default skips to the scene — these keep the slate and
                     // the optional full length reachable without making them part of every reopen.
                     if firstStage == .scene {
@@ -780,19 +820,8 @@ struct ShootFlow: View {
                     }
                 }
             }
-            Spacer()
-            Button {
-                camera.switchCamera()
-                // Exposure was locked on the old camera; lock the new one too once you're past the check.
-                if stage != .check { camera.lockExposure() }
-                Haptics.tick()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath.camera").foregroundStyle(.white).frame(width: 44, height: 44).background(OT.cameraGlass, in: Circle())
-            }
-            .disabled(camera.state != .ready || countdown != nil)
-            .opacity(camera.state == .recording ? 0 : 1)
-            .accessibilityLabel("Switch camera")
         }
+        .frame(maxWidth: .infinity)
         .padding(.bottom, 8)
     }
 

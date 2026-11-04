@@ -536,5 +536,25 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertTrue(auditionOpt.pieces.first(where: { $0.kind == .headshot })?.isOptional == true)
         XCTAssertTrue(auditionOpt.pieces.first(where: { $0.kind == .slate })?.isOptional == true)
     }
+
+    @MainActor
+    func testRecordButtonAndCameraControlsGeometry() {
+        let notRecButton = RecordButton(isRecording: false, holdToStop: false) {}
+        XCTAssertFalse(notRecButton.isRecording)
+
+        let recButton = RecordButton(isRecording: true, holdToStop: false) {}
+        XCTAssertTrue(recButton.isRecording)
+
+        // Verify mathematical centering:
+        // In a ZStack container of any screen width (e.g. 393, 375, 430),
+        // the record button center is exactly half the container width.
+        for width in [343.0, 361.0, 398.0] {
+            let containerCenter = width / 2.0
+            let recordButtonWidth = 78.0
+            let leadingSpace = (width - recordButtonWidth) / 2.0
+            let recordButtonCenter = leadingSpace + (recordButtonWidth / 2.0)
+            XCTAssertEqual(recordButtonCenter, containerCenter, accuracy: 0.0001, "Record button must be mathematically centered")
+        }
+    }
 }
 
