@@ -558,28 +558,39 @@ struct StandalonePracticeView: View {
                     .padding(.horizontal, OT.gutter).padding(.bottom, 120)
                 }
                 .safeAreaInset(edge: .bottom) {
-                    Button("Record a take") {
-                        let targetID: PracticePiece.ID
-                        if isSample {
-                            if let savedSampleID {
-                                store.promotePracticePiece(savedSampleID)
-                                targetID = savedSampleID
-                            } else {
-                                let saved = store.addStandalonePracticePiece(title: piece.title, character: piece.character,
-                                                                            scene: scene, detail: "Sample scene")
-                                savedSampleID = saved.id
-                                store.promotePracticePiece(saved.id)
-                                targetID = saved.id
+                    HStack(spacing: 12) {
+                        Button {
+                            launchPractice(mode: .voiceOnly)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "mic.fill")
+                                Text("Run voice")
                             }
-                        } else if let pieceID {
-                            store.promotePracticePiece(pieceID)
-                            targetID = pieceID
-                        } else {
-                            targetID = piece.id
+                            .font(.otHeadline)
+                            .frame(maxWidth: .infinity, minHeight: 46)
                         }
-                        store.camera = .practiceTake(pieceID: targetID)
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.roundedRectangle(radius: 14))
+                        .tint(.white)
+
+                        Button {
+                            launchPractice(mode: .camera)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "video.fill")
+                                Text("Record take")
+                            }
+                            .font(.otHeadline)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.roundedRectangle(radius: 14))
+                        .tint(OT.accent)
                     }
-                    .buttonStyle(.otPrimary).padding(OT.gutter)
+                    .padding(.horizontal, OT.gutter)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+                    .background(.ultraThinMaterial)
                 }
             } else {
                 ContentUnavailableView("Scene unavailable", systemImage: "theatermasks")
@@ -591,17 +602,39 @@ struct StandalonePracticeView: View {
         .navigationBarBackButtonHidden(true)
     }
 
+    private func launchPractice(mode: PracticeRecordMode) {
+        guard let piece, let scene else { return }
+        let targetID: PracticePiece.ID
+        if isSample {
+            if let savedSampleID {
+                store.promotePracticePiece(savedSampleID)
+                targetID = savedSampleID
+            } else {
+                let saved = store.addStandalonePracticePiece(title: piece.title, character: piece.character,
+                                                            scene: scene, detail: "Sample scene")
+                savedSampleID = saved.id
+                store.promotePracticePiece(saved.id)
+                targetID = saved.id
+            }
+        } else if let pieceID {
+            store.promotePracticePiece(pieceID)
+            targetID = pieceID
+        } else {
+            targetID = piece.id
+        }
+        store.camera = .practiceTake(pieceID: targetID, initialDisplayMode: displayMode, initialRecordMode: mode)
+    }
+
     private func displayText(for line: ScriptLine) -> String {
         guard line.isMine else { return line.text }
         switch displayMode {
         case .full: return line.text
         case .firstLetters: return otLineDisplay(line, mode: .firstLetters, peeked: false)
-        case .hideMine: return revealed.contains(line.id) ? line.text : otLineDisplay(line, mode: .hide, peeked: false)
+        case .hideMine:
+            return revealed.contains(line.id) ? line.text : String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8))
         }
     }
 }
-
-private enum StandaloneDisplay: Hashable { case full, firstLetters, hideMine }
 
 private enum PracticeSample {
     static func make() -> PracticePiece {
@@ -622,6 +655,9 @@ private enum PracticeSample {
 
 struct PracticeTakeView: View {
     var pieceID: PracticePiece.ID? = nil
+    var initialDisplayMode: StandaloneDisplay = .full
+    var initialRecordMode: PracticeRecordMode = .camera
+
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = CameraController()
@@ -631,8 +667,20 @@ struct PracticeTakeView: View {
     @State private var activePieceID: PracticePiece.ID?
     @State private var lineIndex = 0
     @State private var follower = SpeechFollower()
+    @State private var displayMode: StandaloneDisplay = .full
+    @State private var recordMode: PracticeRecordMode = .camera
+    @State private var revealedLines: Set<ScriptLine.ID> = []
+    @State private var onYourOwnLines: Set<ScriptLine.ID> = []
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
+
+    init(pieceID: PracticePiece.ID? = nil, initialDisplayMode: StandaloneDisplay = .full, initialRecordMode: PracticeRecordMode = .camera) {
+        self.pieceID = pieceID
+        self.initialDisplayMode = initialDisplayMode
+        self.initialRecordMode = initialRecordMode
+        _displayMode = State(initialValue: initialDisplayMode)
+        _recordMode = State(initialValue: initialRecordMode)
+    }
 
     private var piece: PracticePiece? {
         if let id = activePieceID ?? pieceID {
@@ -665,6 +713,8 @@ struct PracticeTakeView: View {
         guard let p = piece else { return }
         recordedTakeURL = nil
         lineIndex = 0
+        onYourOwnLines.removeAll()
+        revealedLines.removeAll()
         if let audID = p.auditionID, let sIdx = p.sceneIndex, let audition = store.audition(audID) {
             if sIdx + 1 < audition.scenes.count {
                 let nextPiece = store.practicePiece(for: audID, sceneIndex: sIdx + 1)
@@ -691,18 +741,42 @@ struct PracticeTakeView: View {
 
     var body: some View {
         ZStack {
-            CameraBackground(controller: camera)
+            if recordMode == .camera {
+                CameraBackground(controller: camera)
+            } else {
+                // Studio Voice Rehearsal Stage (Figma 11.4)
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(red: 0.08, green: 0.06, blue: 0.12), Color(red: 0.04, green: 0.03, blue: 0.06)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+
+                    Circle()
+                        .stroke(OT.reader.opacity(camera.state == .recording ? 0.25 : 0.08), lineWidth: 1)
+                        .frame(width: 320, height: 320)
+                    Circle()
+                        .stroke(OT.accent.opacity(camera.state == .recording ? 0.18 : 0.05), lineWidth: 1)
+                        .frame(width: 480, height: 480)
+                }
+            }
 
             VStack {
                 // Top header bar:
                 // When recording: HIDE close button and title pill completely; show subtle red recording indicator.
-                // When idle: Show close button and scene title + take pill.
+                // When idle: Show close button, Camera vs Voice pill, Display mode menu, and text size menu.
                 if camera.state == .recording {
                     HStack(spacing: 6) {
                         Circle().fill(Color.red).frame(width: 8, height: 8)
                         Text(formatElapsed(camera.elapsed))
                             .font(.otFootnote.monospacedDigit().weight(.semibold))
                             .foregroundStyle(.white)
+                        if recordMode == .voiceOnly {
+                            Text("· VOICE ONLY")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(OT.prompterGold)
+                        }
                     }
                     .padding(.horizontal, 14)
                     .frame(height: 32)
@@ -722,15 +796,66 @@ struct PracticeTakeView: View {
 
                         Spacer()
 
-                        Text("\(sceneTitle) · TK \(takeNumber)")
-                            .font(.otFootnote.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 34)
-                            .background(.ultraThinMaterial, in: Capsule())
+                        // Record Mode Switcher: Camera vs Voice only
+                        HStack(spacing: 2) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { recordMode = .camera }
+                                Haptics.tick()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "video.fill").font(.system(size: 11))
+                                    Text("Camera").font(.otCaption.weight(.semibold))
+                                }
+                                .foregroundStyle(recordMode == .camera ? .white : .white.opacity(0.6))
+                                .padding(.horizontal, 10)
+                                .frame(height: 32)
+                                .background(recordMode == .camera ? Color.white.opacity(0.25) : Color.clear, in: Capsule())
+                            }
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { recordMode = .voiceOnly }
+                                Haptics.tick()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "mic.fill").font(.system(size: 11))
+                                    Text("Voice").font(.otCaption.weight(.semibold))
+                                }
+                                .foregroundStyle(recordMode == .voiceOnly ? .white : .white.opacity(0.6))
+                                .padding(.horizontal, 10)
+                                .frame(height: 32)
+                                .background(recordMode == .voiceOnly ? OT.reader : Color.clear, in: Capsule())
+                            }
+                        }
+                        .padding(3)
+                        .background(.ultraThinMaterial, in: Capsule())
 
                         Spacer()
 
+                        // Practice Display Mode Menu (Full / First letters / Hide my lines)
+                        Menu {
+                            Button { displayMode = .full; Haptics.tick() } label: {
+                                Label("Full lines", systemImage: displayMode == .full ? "checkmark" : "")
+                            }
+                            Button { displayMode = .firstLetters; Haptics.tick() } label: {
+                                Label("First letters", systemImage: displayMode == .firstLetters ? "checkmark" : "")
+                            }
+                            Button { displayMode = .hideMine; Haptics.tick() } label: {
+                                Label("Hide my lines", systemImage: displayMode == .hideMine ? "checkmark" : "")
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: displayMode == .firstLetters ? "character.textbox" : (displayMode == .hideMine ? "eye.slash" : "text.alignleft"))
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text(displayMode.title)
+                                    .font(.otCaption.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 36)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
+
+                        // Text Size Menu
                         Menu {
                             Button { prompterSize = 0; Haptics.tick() } label: {
                                 Label("Regular text (22pt)", systemImage: prompterSize == 0 ? "checkmark" : "")
@@ -752,7 +877,7 @@ struct PracticeTakeView: View {
                     .padding(.top, 4)
                 }
 
-                if camera.state == .recording {
+                if camera.state == .recording && recordMode == .camera {
                     HStack(spacing: 5) {
                         Capsule().fill(OT.prompterGold).frame(width: 3, height: 14)
                         Text("LOOK AT LENS")
@@ -762,6 +887,26 @@ struct PracticeTakeView: View {
                     .padding(.horizontal, 9)
                     .frame(height: 22)
                     .background(Color.black.opacity(0.65), in: Capsule())
+                }
+
+                if recordMode == .voiceOnly {
+                    VStack(spacing: 6) {
+                        VoiceWaveformBars(isRecording: camera.state == .recording, level: camera.audioLevel)
+                            .frame(height: 28)
+
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(camera.state == .recording ? Color.red : OT.reader)
+                                .frame(width: 7, height: 7)
+                            Text(camera.state == .recording ? "RECORDING VOICE · LISTENING" : "VOICE REHEARSAL · NO CAMERA")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(camera.state == .recording ? OT.prompterGold : Color.white.opacity(0.75))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.45), in: Capsule())
+                    }
+                    .padding(.top, 4)
                 }
 
                 if let lines = piece?.scene?.lines, !lines.isEmpty {
@@ -774,12 +919,22 @@ struct PracticeTakeView: View {
                             mirror: mirrorPrompter,
                             readerIsPlaying: false,
                             readerAudioMissing: false,
+                            displayMode: displayMode,
+                            revealedLines: revealedLines,
                             onAdvance: {
                                 if lineIndex + 1 < lines.count { lineIndex += 1; follower.reset(); Haptics.tick() }
                             },
                             onPrevious: {
                                 lineIndex = max(0, lineIndex - 1)
                                 follower.reset()
+                                Haptics.tick()
+                            },
+                            onToggleReveal: { id in
+                                if revealedLines.contains(id) {
+                                    revealedLines.remove(id)
+                                } else {
+                                    revealedLines.insert(id)
+                                }
                                 Haptics.tick()
                             }
                         )
@@ -807,12 +962,12 @@ struct PracticeTakeView: View {
                 if camera.state != .recording, let _ = recordedTakeURL {
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle.fill")
+                            Image(systemName: recordMode == .voiceOnly ? "waveform.circle.fill" : "checkmark.circle.fill")
                                 .font(.title3)
-                                .foregroundStyle(OT.success)
+                                .foregroundStyle(recordMode == .voiceOnly ? OT.reader : OT.success)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Take \(takeNumber - 1) saved")
+                                Text("\(recordMode == .voiceOnly ? "Voice take" : "Take") \(takeNumber - 1) saved")
                                     .font(.otHeadline)
                                     .foregroundStyle(.white)
                                 Text("\(formatElapsed(Double(recordedTakeDuration))) · \(sceneTitle)")
@@ -826,9 +981,9 @@ struct PracticeTakeView: View {
                                 showPlayer = true
                             } label: {
                                 HStack(spacing: 5) {
-                                    Image(systemName: "play.fill")
+                                    Image(systemName: recordMode == .voiceOnly ? "waveform" : "play.fill")
                                         .font(.caption)
-                                    Text("Watch take")
+                                    Text(recordMode == .voiceOnly ? "Play voice" : "Watch take")
                                 }
                                 .font(.otFootnote.weight(.semibold))
                             }
@@ -838,8 +993,39 @@ struct PracticeTakeView: View {
                             .foregroundStyle(.black)
                         }
 
-                        // Explicit lines learned toggle
+                        // Memory & lines learned evaluation
                         let myLines = piece?.scene?.lines.filter(\.isMine).count ?? piece?.linesTotal ?? 0
+                        let rememberedCount = max(onYourOwnLines.count, displayMode == .full ? myLines : 0)
+                        HStack(spacing: 8) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.subheadline)
+                                .foregroundStyle(OT.prompterGold)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(displayMode == .full ? "Full prompt used (\(myLines) lines)" : "\(rememberedCount) of \(myLines) lines from memory")
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                Text(displayMode == .full ? "Try 'First letters' or 'Hide mine' to test recall" : (rememberedCount == myLines ? "Perfect memory on this run!" : "Good practice! Re-run to lock lines in"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
+
+                            Spacer()
+
+                            if displayMode != .full && myLines > 0 {
+                                let pct = Int((Double(rememberedCount) / Double(myLines)) * 100)
+                                Text("\(pct)%")
+                                    .font(.otFootnote.monospacedDigit().weight(.bold))
+                                    .foregroundStyle(pct >= 80 ? OT.accent : OT.prompterGold)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.white.opacity(0.12), in: Capsule())
+                            }
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+
+                        // Explicit lines learned toggle
                         let isAllLearned = (piece?.linesLearned ?? 0) >= myLines && myLines > 0
                         HStack {
                             Button {
@@ -942,36 +1128,85 @@ struct PracticeTakeView: View {
                             .background(OT.cameraGlass, in: Capsule())
                         }
 
-                        Button {
-                            camera.toggleExposureLock()
-                            Haptics.tick()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: camera.isExposureLocked ? "lock.fill" : "lock.open")
-                                    .font(.caption2)
-                                Text(camera.isExposureLocked ? "Locked" : "AE")
-                                    .font(.otCaption.weight(.bold))
+                        if recordMode == .camera {
+                            Button {
+                                camera.toggleExposureLock()
+                                Haptics.tick()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: camera.isExposureLocked ? "lock.fill" : "lock.open")
+                                        .font(.caption2)
+                                    Text(camera.isExposureLocked ? "Locked" : "AE")
+                                        .font(.otCaption.weight(.bold))
+                                }
+                                .foregroundStyle(camera.isExposureLocked ? OT.prompterGold : .white)
+                                .padding(.horizontal, 10)
+                                .frame(height: 36)
+                                .background(OT.cameraGlass, in: Capsule())
                             }
-                            .foregroundStyle(camera.isExposureLocked ? OT.prompterGold : .white)
-                            .padding(.horizontal, 10)
-                            .frame(height: 36)
-                            .background(OT.cameraGlass, in: Capsule())
                         }
                     }
                     .padding(.bottom, 4)
                 }
 
-                RecordButton(isRecording: camera.state == .recording) {
-                    if camera.state == .recording {
-                        Haptics.impact(.medium)
-                        camera.stopRecording()
-                    } else {
-                        Haptics.impact(.heavy)
-                        recordedTakeURL = nil
-                        camera.startRecording()
+                if recordMode == .voiceOnly {
+                    HStack {
+                        Spacer()
+                        Button {
+                            if camera.state == .recording {
+                                Haptics.impact(.medium)
+                                camera.stopRecording()
+                            } else {
+                                Haptics.impact(.heavy)
+                                recordedTakeURL = nil
+                                onYourOwnLines.removeAll()
+                                camera.startRecording()
+                            }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(camera.state == .recording ? Color.red.opacity(0.25) : Color.white.opacity(0.12))
+                                    .frame(width: 78, height: 78)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
+
+                                if camera.state == .recording {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.red)
+                                        .frame(width: 28, height: 28)
+                                } else {
+                                    Image(systemName: "mic.fill")
+                                        .font(.system(size: 28, weight: .semibold))
+                                        .foregroundStyle(Color.red)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
                     }
+                    .padding(.bottom, 6)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "mic.fill")
+                            .font(.caption2)
+                        Text("Voice rehearsal · records voice only, no camera")
+                            .font(.otCaption.weight(.medium))
+                    }
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .padding(.bottom, 8)
+                } else {
+                    RecordButton(isRecording: camera.state == .recording) {
+                        if camera.state == .recording {
+                            Haptics.impact(.medium)
+                            camera.stopRecording()
+                        } else {
+                            Haptics.impact(.heavy)
+                            recordedTakeURL = nil
+                            onYourOwnLines.removeAll()
+                            camera.startRecording()
+                        }
+                    }
+                    .padding(.bottom, 12)
                 }
-                .padding(.bottom, 12)
             }
             .padding(.horizontal, OT.gutter)
         }
@@ -989,6 +1224,10 @@ struct PracticeTakeView: View {
             guard camera.state == .recording, let lines = piece?.scene?.lines,
                   lines.indices.contains(lineIndex), lines[lineIndex].isMine,
                   SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
+            let curID = lines[lineIndex].id
+            if !revealedLines.contains(curID) {
+                onYourOwnLines.insert(curID)
+            }
             if lineIndex + 1 < lines.count {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                     lineIndex += 1
@@ -1001,6 +1240,7 @@ struct PracticeTakeView: View {
             if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready {
                 Haptics.impact(.heavy)
                 recordedTakeURL = nil
+                onYourOwnLines.removeAll()
                 camera.startRecording()
             }
             if cmd?.word == "cut", camera.state == .recording {
@@ -1016,6 +1256,7 @@ struct PracticeTakeView: View {
             } else {
                 Haptics.impact(.heavy)
                 recordedTakeURL = nil
+                onYourOwnLines.removeAll()
                 camera.startRecording()
             }
         }
@@ -1026,8 +1267,9 @@ struct PracticeTakeView: View {
             if let saved = MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(p.id.uuidString)") {
                 store.incrementPracticeTakes(for: p.id)
                 let linesCount = p.scene?.lines.filter(\.isMine).count ?? p.linesTotal
-                if lineIndex + 1 >= (p.scene?.lines.count ?? 0) && linesCount > 0 {
-                    store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: linesCount)
+                let learned = max(onYourOwnLines.count, (lineIndex + 1 >= (p.scene?.lines.count ?? 0) && displayMode == .full) ? linesCount : 0)
+                if learned > 0 {
+                    store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: learned)
                 }
                 recordedTakeURL = saved
                 Haptics.success()
@@ -1035,7 +1277,7 @@ struct PracticeTakeView: View {
         }
         .fullScreenCover(isPresented: $showPlayer) {
             if let url = recordedTakeURL {
-                PracticeVideoPlayerSheet(url: url)
+                PracticeVideoPlayerSheet(url: url, isVoiceTake: recordMode == .voiceOnly, sceneTitle: sceneTitle)
             }
         }
         .onDisappear {
@@ -1045,21 +1287,87 @@ struct PracticeTakeView: View {
     }
 }
 
+struct VoiceWaveformBars: View {
+    let isRecording: Bool
+    let level: Float
+
+    // 10 bar heights from Figma node 1109:10274: 6, 14, 22, 10, 26, 18, 8, 20, 12, 4
+    private let baseHeights: [CGFloat] = [6, 14, 22, 10, 26, 18, 8, 20, 12, 4]
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<baseHeights.count, id: \.self) { i in
+                let factor: CGFloat = isRecording ? max(0.4, CGFloat(sin(Double(i) * 0.9 + Double(level) * 8) + 1.2)) : 0.85
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(isRecording ? OT.reader : Color.white.opacity(0.45))
+                    .frame(width: 3, height: max(4, min(32, baseHeights[i] * factor)))
+                    .animation(.easeInOut(duration: 0.12), value: level)
+            }
+        }
+    }
+}
+
 private struct PracticeVideoPlayerSheet: View {
     let url: URL
+    var isVoiceTake: Bool = false
+    var sceneTitle: String = "Take"
     @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
 
     var body: some View {
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Preview take", backLabel: "Close", onDark: true, onBack: { dismiss() })
+            InContentNavHeader(title: isVoiceTake ? "Voice rehearsal take" : "Preview take", backLabel: "Close", onDark: true, onBack: { dismiss() })
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 16)
                 .padding(.bottom, 8)
                 .background(Color.black)
 
-            VideoPlayer(player: AVPlayer(url: url))
-                .ignoresSafeArea(edges: .bottom)
+            if isVoiceTake {
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(red: 0.08, green: 0.06, blue: 0.12), Color(red: 0.04, green: 0.03, blue: 0.06)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+
+                    VStack(spacing: 24) {
+                        Spacer()
+
+                        Image(systemName: "waveform.circle.fill")
+                            .font(.system(size: 96))
+                            .foregroundStyle(OT.reader)
+
+                        VStack(spacing: 6) {
+                            Text(sceneTitle)
+                                .font(.otTitle)
+                                .foregroundStyle(.white)
+                            Text("Voice rehearsal take")
+                                .font(.otFootnote)
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+
+                        VideoPlayer(player: player ?? AVPlayer(url: url))
+                            .frame(height: 60)
+                            .padding(.horizontal, OT.gutter)
+
+                        Spacer()
+                    }
+                }
+            } else {
+                VideoPlayer(player: player ?? AVPlayer(url: url))
+                    .ignoresSafeArea(edges: .bottom)
+            }
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            let p = AVPlayer(url: url)
+            player = p
+            p.play()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
     }
 }

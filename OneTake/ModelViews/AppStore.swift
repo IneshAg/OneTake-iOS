@@ -43,7 +43,7 @@ enum CameraFlow: Identifiable, Hashable {
     case shoot(Audition.ID, scene: Int? = nil, start: ShootStart = .check)  // camera check → slate → full length → scene → take saved
     case headshot(auditionID: Audition.ID? = nil)                           // front → left → right → crop
     case scanSides
-    case practiceTake(pieceID: PracticePiece.ID? = nil)
+    case practiceTake(pieceID: PracticePiece.ID? = nil, initialDisplayMode: StandaloneDisplay = .full, initialRecordMode: PracticeRecordMode = .camera)
 
     static var headshot: CameraFlow { .headshot(auditionID: nil) }
     static var practiceTake: CameraFlow { .practiceTake(pieceID: nil) }
@@ -53,7 +53,7 @@ enum CameraFlow: Identifiable, Hashable {
         case .shoot(let id, _, let start):  "shoot-\(id)-\(start.rawValue)"
         case .headshot(let auditionID):     "headshot-\(auditionID?.uuidString ?? "profile")"
         case .scanSides:                    "scan"
-        case .practiceTake(let pieceID):    "practice-\(pieceID?.uuidString ?? "default")"
+        case .practiceTake(let pieceID, let mode, let rec): "practice-\(pieceID?.uuidString ?? "default")-\(mode.rawValue)-\(rec.rawValue)"
         }
     }
 }

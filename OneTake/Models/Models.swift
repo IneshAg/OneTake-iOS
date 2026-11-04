@@ -348,7 +348,38 @@ enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
 /// Shared by Prepare's own toggle (`PrepareView.Mode`) and Practice's First-Letter / Mask & Reveal drills,
 /// so the memorization mechanic is implemented exactly once. `masked(level:)` hides a growing share
 /// of your words — 1 of every 4 at level 1, every word at level 4.
-enum LineDisplayMode { case full, firstLetters, hide, masked(level: Int) }
+enum LineDisplayMode: Hashable { case full, firstLetters, hide, masked(level: Int) }
+
+enum StandaloneDisplay: String, CaseIterable, Hashable, Identifiable {
+    case full = "Full lines"
+    case firstLetters = "First letters"
+    case hideMine = "Hide my lines"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .full: return "Full"
+        case .firstLetters: return "First letters"
+        case .hideMine: return "Hide mine"
+        }
+    }
+
+    var lineDisplayMode: LineDisplayMode {
+        switch self {
+        case .full: return .full
+        case .firstLetters: return .firstLetters
+        case .hideMine: return .hide
+        }
+    }
+}
+
+enum PracticeRecordMode: String, CaseIterable, Hashable, Identifiable {
+    case camera = "Camera"
+    case voiceOnly = "Voice only"
+
+    var id: String { rawValue }
+}
 
 func otLineDisplay(_ line: ScriptLine, mode: LineDisplayMode, peeked: Bool) -> String {
     guard line.isMine, !peeked else { return line.text }

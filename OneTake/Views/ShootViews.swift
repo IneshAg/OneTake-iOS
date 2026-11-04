@@ -1193,8 +1193,11 @@ struct SidesPrompterView: View {
     var mirror: Bool = false
     var readerIsPlaying: Bool = false
     var readerAudioMissing: Bool = false
+    var displayMode: StandaloneDisplay = .full
+    var revealedLines: Set<ScriptLine.ID> = []
     var onAdvance: () -> Void = {}
     var onPrevious: () -> Void = {}
+    var onToggleReveal: ((ScriptLine.ID) -> Void)? = nil
 
     private var currentLine: ScriptLine? {
         lines.indices.contains(currentIndex) ? lines[currentIndex] : nil
@@ -1272,10 +1275,29 @@ struct SidesPrompterView: View {
                                     if isCurrent {
                                         if line.isMine {
                                             let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
-                                            attributedPromptText(line.text, matchedIndices: matchedIndices)
+                                            let isRev = revealedLines.contains(line.id)
+                                            attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
                                                 .font(.system(size: fontSize, weight: .bold, design: .monospaced))
                                                 .scaleEffect(x: mirror ? -1 : 1, y: 1)
                                                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            if displayMode == .hideMine {
+                                                Button {
+                                                    onToggleReveal?(line.id)
+                                                } label: {
+                                                    HStack(spacing: 4) {
+                                                        Image(systemName: isRev ? "eye.slash" : "eye")
+                                                        Text(isRev ? "Hide line" : "Peek line")
+                                                    }
+                                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                    .foregroundStyle(OT.prompterGold)
+                                                    .padding(.horizontal, 9)
+                                                    .padding(.vertical, 4)
+                                                    .background(Color.white.opacity(0.14), in: Capsule())
+                                                }
+                                                .buttonStyle(.plain)
+                                                .padding(.top, 2)
+                                            }
                                         } else {
                                             Text(line.text)
                                                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
@@ -1291,10 +1313,22 @@ struct SidesPrompterView: View {
                                             .lineLimit(2)
                                     } else {
                                         // Upcoming lines left below the active line
-                                        Text(line.text)
-                                            .font(.system(size: 14, weight: .medium, design: .monospaced))
-                                            .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
-                                            .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                        if line.isMine && displayMode == .firstLetters {
+                                            Text(promptFirstLettersString(line.text))
+                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
+                                                .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                        } else if line.isMine && displayMode == .hideMine && !revealedLines.contains(line.id) {
+                                            Text(String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8)))
+                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.45 : 0.25))
+                                                .lineLimit(1)
+                                        } else {
+                                            Text(line.text)
+                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
+                                                .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                        }
                                     }
                                 }
                                 .id("prompter_line_\(index)")
@@ -1349,16 +1383,46 @@ struct SidesPrompterView: View {
         )
     }
 
-    private func attributedPromptText(_ text: String, matchedIndices: Set<Int>) -> Text {
-        let words = text.split(separator: " ")
+    private func promptFirstLettersString(_ text: String) -> String {
+        text.split(separator: " ").map { w in
+            guard let f = w.first else { return "" }
+            let punct = w.filter { $0.isPunctuation }
+            return String(f) + "—" + (punct.isEmpty ? "" : String(punct))
+        }.joined(separator: " ")
+    }
+
+    private func attributedPromptText(_ text: String, matchedIndices: Set<Int>, displayMode: StandaloneDisplay = .full, isRevealed: Bool = false) -> Text {
+        let words = text.split(separator: " ").map(String.init)
         var result = Text("")
         for (idx, word) in words.enumerated() {
             let isMatched = matchedIndices.contains(idx)
-            let wordText = Text(String(word) + (idx < words.count - 1 ? " " : ""))
+            let displayText: String
+            switch displayMode {
+            case .full:
+                displayText = word
+            case .firstLetters:
+                if isRevealed {
+                    displayText = word
+                } else {
+                    let first = word.first.map(String.init) ?? ""
+                    let punct = word.filter { $0.isPunctuation }
+                    displayText = first + "—" + (punct.isEmpty ? "" : String(punct))
+                }
+            case .hideMine:
+                if isRevealed || isMatched {
+                    displayText = word
+                } else {
+                    let punct = word.filter { $0.isPunctuation }
+                    let dots = String(repeating: "•", count: max(2, min(word.count, 5)))
+                    displayText = dots + (punct.isEmpty ? "" : String(punct))
+                }
+            }
+            let space = (idx < words.count - 1 ? " " : "")
+            let wordText = Text(displayText + space)
             if isMatched {
                 result = result + wordText.foregroundColor(OT.prompterGold).fontWeight(.heavy)
             } else {
-                result = result + wordText.foregroundColor(.white)
+                result = result + wordText.foregroundColor(.white.opacity(displayMode == .hideMine && !isRevealed ? 0.55 : 1.0))
             }
         }
         return result
