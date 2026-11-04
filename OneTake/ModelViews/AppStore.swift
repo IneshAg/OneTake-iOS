@@ -95,6 +95,16 @@ final class AppStore {
     var profilePath: [Route] = []
     var searchPath: [Route] = []
     var searchQuery: String = ""
+
+    var currentPath: [Route] {
+        if showProfile { return profilePath }
+        switch tab {
+        case .auditions: return auditionsPath
+        case .search:    return searchPath
+        case .practice:  return practicePath
+        case .profile:   return profilePath
+        }
+    }
     var camera: CameraFlow?
     var showAddAudition = false
     var showProfile = false
@@ -198,6 +208,7 @@ final class AppStore {
             auditionsPath = [.auditionDetail(firstAudition.id)]
         }
         isLoading = false
+        syncPieces()
         if removedLegacyDemoData { persist() }
     }
 
@@ -287,16 +298,44 @@ final class AppStore {
 
     func add(_ audition: Audition) {
         auditions.insert(audition, at: 0)
-        syncHeadshotPieces()
+        syncPieces()
     }
 
     /// Audition headshots are independent from the profile default headshot. Each audition's headshot
     /// piece is marked done only if that specific audition has a headshot attached.
     func syncHeadshotPieces() {
+        syncPieces()
+    }
+
+    /// Synchronizes checklist piece status (scenes, slate, full length, headshots) with real disk recordings and takes.
+    func syncPieces() {
         for i in auditions.indices where auditions[i].status != .sent {
-            let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: auditions[i].id)
+            let id = auditions[i].id
+            // Headshots
+            let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: id)
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
                 auditions[i].pieces[j].isDone = hasAuditionHeadshot
+            }
+            // Slate
+            let hasSlate = auditions[i].slateVideoURL != nil
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .slate {
+                auditions[i].pieces[j].isDone = hasSlate
+            }
+            // Full length
+            let hasFullLength = auditions[i].fullLengthVideoURL != nil
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .fullLength {
+                auditions[i].pieces[j].isDone = hasFullLength
+            }
+            // Scenes: if an audition has recorded takes for a scene, that scene is done!
+            let auditionTakes = takes.filter { $0.auditionID == id }
+            let sceneTitles = !auditions[i].scenes.isEmpty
+                ? auditions[i].scenes.map(\.title)
+                : auditions[i].pieces.filter { $0.kind == .scene }.map(\.title)
+            for (sceneIndex, title) in sceneTitles.enumerated() {
+                let hasTake = auditionTakes.contains { $0.sceneIndex == sceneIndex }
+                for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .scene && auditions[i].pieces[j].title == title {
+                    auditions[i].pieces[j].isDone = hasTake
+                }
             }
             if auditions[i].isPackageReady, auditions[i].status == .due { auditions[i].status = .ready }
         }
@@ -388,10 +427,10 @@ final class AppStore {
     /// The one "Next" action used everywhere an audition offers to continue: opens whatever its next
     /// unfinished piece needs in the audition flow (slate, scenes, headshots).
     func continueAudition(_ id: Audition.ID) {
-        syncHeadshotPieces()
+        syncPieces()
         guard let a = audition(id) else { return }
         guard let next = a.nextPiece else {
-            push(.package(id))
+            push(.preview(id))
             return
         }
         switch next.kind {
@@ -676,11 +715,13 @@ final class AppStore {
         for i in takes.indices where takes[i].auditionID == take.auditionID && takes[i].sceneIndex == take.sceneIndex {
             takes[i].isCircled = takes[i].id == take.id
         }
+        syncPieces()
     }
 
     func setSlateVideo(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].slateVideoURL = url
+        syncPieces()
     }
 
     func keepOriginalSlate(_ url: URL, for id: Audition.ID) {
@@ -712,6 +753,7 @@ final class AppStore {
     func setFullLengthVideo(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].fullLengthVideoURL = url
+        syncPieces()
     }
 
     func replaceSlateVideo(for id: Audition.ID, with edited: URL) {
@@ -779,6 +821,7 @@ final class AppStore {
             take.isCircled = true
         }
         takes.append(take)
+        syncPieces()
     }
 
     /// Swaps a take's file for its trimmed version. The new file gets a new name, so thumbnails and
@@ -893,10 +936,22 @@ final class AppStore {
         func trim(_ path: inout [Route]) -> Bool {
             let exact = path.lastIndex(of: route)
             let match = exact ?? path.lastIndex { existing in
-                if case let (.takes(existingID, _), .takes(targetID, _)) = (existing, route) {
+                switch (existing, route) {
+                case let (.takes(existingID, _), .takes(targetID, _)):
                     return existingID == targetID
+                case let (.preview(existingID), .preview(targetID)):
+                    return existingID == targetID
+                case let (.tapeCheck(existingID), .tapeCheck(targetID)):
+                    return existingID == targetID
+                case let (.package(existingID), .package(targetID)):
+                    return existingID == targetID
+                case let (.auditionDetail(existingID), .auditionDetail(targetID)):
+                    return existingID == targetID
+                case let (.headshots(existingID), .headshots(targetID)):
+                    return existingID == targetID
+                default:
+                    return false
                 }
-                return false
             }
             guard let i = match else { return false }
             path.removeSubrange(path.index(after: i)...)

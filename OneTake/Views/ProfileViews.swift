@@ -1123,7 +1123,7 @@ struct HeadshotsView: View {
             VStack(spacing: 10) {
                 if let auditionID {
                     Button(taken > 0 ? "Continue" : "Skip & continue") {
-                        store.continueAudition(auditionID)
+                        handleContinue(auditionID)
                     }
                     .buttonStyle(.otPrimary)
 
@@ -1251,6 +1251,46 @@ struct HeadshotsView: View {
                 if framed.isEmpty { Haptics.warning() } else { Haptics.success() }
             }
         }
+    }
+
+    private func handleContinue(_ id: Audition.ID) {
+        store.syncPieces()
+
+        // If we came from Preview, pop back to Preview
+        if store.currentPath.contains(where: {
+            if case .preview(let targetID) = $0, targetID == id { return true }
+            return false
+        }) {
+            store.popTo(.preview(id))
+            return
+        }
+
+        // If we came from Tape Check, pop back to Tape Check
+        if store.currentPath.contains(where: {
+            if case .tapeCheck(let targetID) = $0, targetID == id { return true }
+            return false
+        }) {
+            store.popTo(.tapeCheck(id))
+            return
+        }
+
+        // If we came from Package, pop back to Package
+        if store.currentPath.contains(where: {
+            if case .package(let targetID) = $0, targetID == id { return true }
+            return false
+        }) {
+            store.popTo(.package(id))
+            return
+        }
+
+        // If all pieces are completed, advance to Preview
+        guard let a = store.audition(id) else { return }
+        if a.isPackageReady && a.nextPiece == nil {
+            store.push(.preview(id))
+            return
+        }
+
+        store.continueAudition(id)
     }
 
     @ViewBuilder

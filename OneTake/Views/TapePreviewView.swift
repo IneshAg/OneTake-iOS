@@ -66,8 +66,8 @@ struct TapePreviewView: View {
             }
             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         }
-        // Rebuilt whenever what's on the tape changes (a different circled take, a retake, a trim).
-        .task(id: currentClipURLs) { await load() }
+        // Rebuilt whenever what's on the tape changes (a different circled take, a retake, a trim, or headshots updated).
+        .task(id: "\(currentClipURLs)-\(store.headshotVersion)") { await load() }
         .onDisappear { stop() }
     }
 
