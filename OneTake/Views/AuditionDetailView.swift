@@ -425,6 +425,7 @@ struct EditAuditionSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var showValidationErrors = false
+    @State private var sceneCount: Int = 1
 
     var body: some View {
         VStack(spacing: 0) {
@@ -441,6 +442,7 @@ struct EditAuditionSheet: View {
                             return
                         }
                     }
+                    store.updateSceneCount(for: auditionID, count: sceneCount)
                     store.reclassifyRole(for: auditionID)
                     dismiss()
                 }
@@ -525,6 +527,60 @@ struct EditAuditionSheet: View {
                         }
                         TextField("Size (lead, supporting…)", text: audition.roleSize)
                     }
+                    Section("Scenes") {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Scenes to tape")
+                                    .font(.otHeadline)
+                                Text("\(sceneCount) \(sceneCount == 1 ? "scene" : "scenes") in package")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Stepper("", value: $sceneCount, in: 1...12)
+                                .labelsHidden()
+                        }
+
+                        ForEach(1...sceneCount, id: \.self) { num in
+                            HStack {
+                                Image(systemName: "film")
+                                    .foregroundStyle(OT.accent)
+                                    .font(.system(size: 14))
+                                Text("Scene \(num)")
+                                    .font(.otSubhead)
+                                Spacer()
+                                if num <= audition.wrappedValue.scenes.count {
+                                    let s = audition.wrappedValue.scenes[num - 1]
+                                    if s.lines.isEmpty {
+                                        Text("No sides yet")
+                                            .font(.otCaption)
+                                            .foregroundStyle(OT.labelTertiary)
+                                    } else {
+                                        let mine = s.lines.filter(\.isMine).count
+                                        Text("\(mine) line\(mine == 1 ? "" : "s")")
+                                            .font(.otCaption)
+                                            .foregroundStyle(OT.labelSecondary)
+                                    }
+                                } else {
+                                    Text("New scene")
+                                        .font(.otCaption.weight(.medium))
+                                        .foregroundStyle(OT.accent)
+                                }
+                            }
+                        }
+
+                        Button {
+                            if sceneCount < 12 {
+                                sceneCount += 1
+                                Haptics.tick()
+                            }
+                        } label: {
+                            Label("Add another scene", systemImage: "plus.circle.fill")
+                                .font(.otSubhead.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                        }
+                        .disabled(sceneCount >= 12)
+                    }
                     Section("Due") {
                         DatePicker("Due", selection: audition.due)
                         HStack(spacing: 8) {
@@ -607,6 +663,12 @@ struct EditAuditionSheet: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            if let a = store.audition(auditionID) {
+                let count = max(a.scenes.count, a.pieces.filter { $0.kind == .scene }.count)
+                sceneCount = max(1, count)
+            }
+        }
     }
 
     private func scriptCharacters(for audition: Audition) -> [String] {

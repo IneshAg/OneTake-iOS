@@ -468,6 +468,62 @@ final class AppStore {
         }
     }
 
+    /// Adjusts the total number of scenes for an audition directly (e.g. from Edit Details).
+    /// Adding scenes inserts new checklist pieces and empty scene containers ready for shooting or sides.
+    func updateSceneCount(for id: Audition.ID, count: Int) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        let target = max(1, count)
+        let currentScenes = auditions[i].scenes
+        let currentScenePieces = auditions[i].pieces.filter { $0.kind == .scene }
+        let currentCount = max(currentScenes.count, currentScenePieces.count)
+
+        guard target != currentCount else { return }
+
+        if target > currentCount {
+            if auditions[i].scenes.isEmpty && currentCount > 0 {
+                for n in 1...currentCount {
+                    auditions[i].scenes.append(ScriptScene(number: n, title: "Scene \(n)", heading: "SCENE \(n)", lines: [], estimatedSeconds: 60))
+                }
+            }
+            for n in (currentCount + 1)...target {
+                let newScene = ScriptScene(
+                    number: n,
+                    title: "Scene \(n)",
+                    heading: "SCENE \(n)",
+                    lines: [],
+                    estimatedSeconds: 60
+                )
+                auditions[i].scenes.append(newScene)
+
+                let newPiece = Piece(
+                    kind: .scene,
+                    title: "Scene \(n)",
+                    detail: "",
+                    isDone: false
+                )
+                if let lastSceneIdx = auditions[i].pieces.lastIndex(where: { $0.kind == .scene }) {
+                    auditions[i].pieces.insert(newPiece, at: lastSceneIdx + 1)
+                } else if let slateIdx = auditions[i].pieces.firstIndex(where: { $0.kind == .slate }) {
+                    auditions[i].pieces.insert(newPiece, at: slateIdx + 1)
+                } else {
+                    auditions[i].pieces.append(newPiece)
+                }
+            }
+        } else {
+            let diff = currentCount - target
+            for _ in 0..<diff {
+                if auditions[i].scenes.count > target {
+                    auditions[i].scenes.removeLast()
+                }
+                if let lastSceneIdx = auditions[i].pieces.lastIndex(where: { $0.kind == .scene }) {
+                    auditions[i].pieces.remove(at: lastSceneIdx)
+                }
+            }
+        }
+
+        if auditions[i].status == .ready { auditions[i].status = .due }
+    }
+
     func updateRole(for id: Audition.ID, to newRole: String) {
         guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[index].role = newRole
