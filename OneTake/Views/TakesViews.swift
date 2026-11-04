@@ -175,7 +175,7 @@ struct TakesView: View {
                     }
                     .buttonStyle(.otPrimary)
                 } else {
-                    Button(scenes.count > 1 ? "Check the tape" : circled.map { "Send take \($0.number)" } ?? "Check the tape") {
+                    Button("Check the tape") {
                         store.push(.tapeCheck(auditionID))
                     }
                     .buttonStyle(.otPrimary)

@@ -579,81 +579,12 @@ struct ShootFlow: View {
             scenePicker(a)
         case .slate:
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
-            if camera.state != .recording {
-                let hasSlate = store.audition(auditionID)?.slateVideoURL != nil
-                Button(hasSlate ? "Keep current slate & continue" : "Skip slate & continue") {
-                    stage = a.asks.contains("Full length") ? .fullLength : .scene
-                }
-                .font(.otHeadline).foregroundStyle(.white)
-                .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
-            }
         case .slateDone:
-            if isAnalyzingSlate {
-                VStack(spacing: 10) {
-                    ProgressView().tint(.white)
-                    Text("Checking for long silent edges…").font(.otCallout).foregroundStyle(.white)
-                }.padding(18).background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 20))
-            } else {
-                resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
-                           primary: (a.asks.contains("Full length") ? "Next: full length" : "Next: Scene 1", {
-                               stage = a.asks.contains("Full length") ? .fullLength : .scene
-                           }),
-                           secondary: ("Redo", { stage = .slate }))
-            }
+            slateDoneOverlay(for: a)
         case .fullLength:
             promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
-            if camera.state != .recording {
-                let hasFull = store.audition(auditionID)?.fullLengthVideoURL != nil
-                Button(hasFull ? "Keep current full length & continue" : "Skip full length & continue") { stage = .scene }
-                    .font(.otHeadline).foregroundStyle(.white)
-                    .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
-            }
         case .scene:
-            if camera.state != .recording {
-                scenePicker(a)
-                let sceneTakes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == sceneIndex }
-                let hasPreview = store.currentPath.contains(where: {
-                    if case .preview(let id) = $0, id == auditionID { return true }
-                    return false
-                })
-                let hasTapeCheck = store.currentPath.contains(where: {
-                    if case .tapeCheck(let id) = $0, id == auditionID { return true }
-                    return false
-                })
-
-                if !sceneTakes.isEmpty || hasPreview || hasTapeCheck {
-                    HStack(spacing: 8) {
-                        if !sceneTakes.isEmpty {
-                            Button("Review takes (\(sceneTakes.count))") {
-                                finish(goTo: .takes(auditionID, sceneIndex: sceneIndex))
-                            }
-                            .font(.otHeadline).foregroundStyle(.white)
-                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
-                        }
-                        if let next = nextUnshotScene(in: a) {
-                            let nextPiece = a.pieces.first { $0.kind == .scene && $0.title == a.scenes[next].title }
-                            let isOpt = nextPiece?.isOptional ?? false
-                            Button(isOpt ? "Next: \(a.scenes[next].title) (Optional)" : "Next: \(a.scenes[next].title)") {
-                                moveToScene(next)
-                            }
-                            .font(.otHeadline).foregroundStyle(.white)
-                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
-                        } else if hasPreview {
-                            Button("Back to preview") {
-                                finish(goTo: .preview(auditionID))
-                            }
-                            .font(.otHeadline).foregroundStyle(.white)
-                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
-                        } else if hasTapeCheck {
-                            Button("Back to tape check") {
-                                finish(goTo: .tapeCheck(auditionID))
-                            }
-                            .font(.otHeadline).foregroundStyle(.white)
-                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
-                        }
-                    }
-                }
-            }
+            if camera.state != .recording { scenePicker(a) }
             let lines = sceneLines ?? []
             if !lines.isEmpty {
                 SidesPrompterView(
@@ -673,17 +604,114 @@ struct ShootFlow: View {
                 )
             }
         case .saved:
-            if let next = nextUnshotScene(in: a) {
-                resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · \(a.scenes[next].title) is still to shoot",
-                           primary: ("Next: \(a.scenes[next].title)", { moveToScene(next) }),
-                           secondary: ("Go again", { lineIndex = 0; stage = .scene }),
-                           more: [("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }), ("Done for now", { finish(goTo: nil) })])
-            } else {
-                resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · saved on this iPhone",
-                           primary: ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id)) }),
-                           secondary: ("Go again", { lineIndex = 0; stage = .scene }),
-                           more: [("Done for now", { finish(goTo: nil) })])
+            savedOverlay(for: a)
+        }
+    }
+
+    @ViewBuilder
+    private func slateDoneOverlay(for a: Audition) -> some View {
+        if isAnalyzingSlate {
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Checking for long silent edges…").font(.otCallout).foregroundStyle(.white)
+            }.padding(18).background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 20))
+        } else {
+            let hasPreview = store.currentPath.contains {
+                if case .preview(let id) = $0, id == auditionID { return true }
+                return false
             }
+            resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
+                       primary: slateDonePrimaryAction(for: a),
+                       secondary: ("Redo slate", { stage = .slate }),
+                       more: hasPreview ? [("Check the tape", { finish(goTo: .tapeCheck(a.id)) })] : [])
+        }
+    }
+
+    private func slateDonePrimaryAction(for a: Audition) -> (String, () -> Void) {
+        let hasPreview = store.currentPath.contains {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        if hasPreview {
+            return ("Back to preview", { finish(goTo: .preview(a.id)) })
+        }
+        let hasTapeCheck = store.currentPath.contains {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        if hasTapeCheck {
+            return ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) })
+        }
+        if a.asks.contains("Full length") && store.audition(auditionID)?.fullLengthVideoURL == nil {
+            return ("Next: full length", { stage = .fullLength })
+        }
+        if let unshot = nextUnshotScene(in: a) {
+            return ("Next: \(a.scenes[unshot].title)", { moveToScene(unshot) })
+        }
+        return ("Check the tape", { finish(goTo: .tapeCheck(a.id)) })
+    }
+
+    private func isSceneOptional(title: String, in a: Audition) -> Bool {
+        for piece in a.pieces {
+            if piece.kind == .scene && piece.title == title {
+                return piece.isOptional
+            }
+        }
+        return false
+    }
+
+    private func savedPrimaryAction(for a: Audition) -> (String, () -> Void) {
+        let hasPreview = store.currentPath.contains {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        if hasPreview {
+            return ("Back to preview", { finish(goTo: .preview(a.id)) })
+        }
+        let hasTapeCheck = store.currentPath.contains {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        if hasTapeCheck {
+            return ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) })
+        }
+        return ("Review takes", { finish(goTo: .takes(a.id, sceneIndex: sceneIndex)) })
+    }
+
+    @ViewBuilder
+    private func savedOverlay(for a: Audition) -> some View {
+        let hasPreview = store.currentPath.contains {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        let hasTapeCheck = store.currentPath.contains {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        }
+
+        if let next = nextUnshotScene(in: a) {
+            let nextTitle = a.scenes[next].title
+            let isOpt = isSceneOptional(title: nextTitle, in: a)
+            let primaryTitle = isOpt ? "Next: \(nextTitle) (Optional)" : "Next: \(nextTitle)"
+            let moreActions: [(String, () -> Void)] = [
+                ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id, sceneIndex: sceneIndex)) }),
+                hasPreview ? ("Back to preview", { finish(goTo: .preview(a.id)) }) : nil,
+                hasTapeCheck ? ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) }) : nil,
+                ("Done for now", { finish(goTo: nil) })
+            ].compactMap { $0 }
+
+            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · \(nextTitle) is still to shoot",
+                       primary: (primaryTitle, { moveToScene(next) }),
+                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
+                       more: moreActions)
+        } else {
+            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · saved on this iPhone",
+                       primary: savedPrimaryAction(for: a),
+                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
+                       more: [
+                        ("Check the tape", { finish(goTo: .tapeCheck(a.id)) }),
+                        ("Done for now", { finish(goTo: nil) })
+                       ])
         }
     }
 
@@ -789,6 +817,42 @@ struct ShootFlow: View {
                 chip(camera.isExposureLocked ? "lock.fill" : "lock.open", camera.isExposureLocked ? "Exposure locked" : "Lock exposure")
             }
             .buttonStyle(.plain)
+
+            Menu {
+                Button { timerSeconds = 0; Haptics.tick() } label: {
+                    HStack {
+                        Text("Timer off")
+                        if timerSeconds == 0 { Image(systemName: "checkmark") }
+                    }
+                }
+                Button { timerSeconds = 3; Haptics.tick() } label: {
+                    HStack {
+                        Text("3 seconds")
+                        if timerSeconds == 3 { Image(systemName: "checkmark") }
+                    }
+                }
+                Button { timerSeconds = 5; Haptics.tick() } label: {
+                    HStack {
+                        Text("5 seconds (walk to mark)")
+                        if timerSeconds == 5 { Image(systemName: "checkmark") }
+                    }
+                }
+                Button { timerSeconds = 10; Haptics.tick() } label: {
+                    HStack {
+                        Text("10 seconds (room setup)")
+                        if timerSeconds == 10 { Image(systemName: "checkmark") }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "timer").font(.caption2)
+                    Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s").font(.otCaption.weight(.semibold))
+                }
+                .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
+                .padding(.horizontal, 9).frame(height: 26).background(.black.opacity(0.55), in: Capsule())
+            }
+            .disabled(camera.state == .recording || countdown != nil)
+
             if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
             if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
                 chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
@@ -835,60 +899,19 @@ struct ShootFlow: View {
 
     private var bottomControls: some View {
         ZStack(alignment: .center) {
-            // Left & Right secondary controls layer
+            // Symmetrical secondary controls layer: 44x44 circular buttons on each side
             HStack(alignment: .center) {
-                HStack(spacing: 6) {
-                    Button {
-                        camera.cycleZoom()
-                    } label: {
-                        Text(zoomLabel)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 40, height: 40)
-                            .background(OT.cameraGlass, in: Circle())
-                    }
-                    .disabled(camera.state != .ready || countdown != nil)
-                    .accessibilityLabel("Zoom \(zoomLabel)")
-
-                    Menu {
-                        Button { timerSeconds = 0; Haptics.tick() } label: {
-                            HStack {
-                                Text("Timer off")
-                                if timerSeconds == 0 { Image(systemName: "checkmark") }
-                            }
-                        }
-                        Button { timerSeconds = 3; Haptics.tick() } label: {
-                            HStack {
-                                Text("3 seconds")
-                                if timerSeconds == 3 { Image(systemName: "checkmark") }
-                            }
-                        }
-                        Button { timerSeconds = 5; Haptics.tick() } label: {
-                            HStack {
-                                Text("5 seconds (walk to mark)")
-                                if timerSeconds == 5 { Image(systemName: "checkmark") }
-                            }
-                        }
-                        Button { timerSeconds = 10; Haptics.tick() } label: {
-                            HStack {
-                                Text("10 seconds (room setup)")
-                                if timerSeconds == 10 { Image(systemName: "checkmark") }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "timer")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s")
-                                .font(.otFootnote.weight(.semibold))
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(height: 40)
-                        .background(OT.cameraGlass, in: Capsule())
-                        .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
-                    }
-                    .disabled(camera.state == .recording || countdown != nil)
+                Button {
+                    camera.cycleZoom()
+                } label: {
+                    Text(zoomLabel)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(OT.cameraGlass, in: Circle())
                 }
+                .disabled(camera.state != .ready || countdown != nil)
+                .accessibilityLabel("Zoom \(zoomLabel)")
 
                 Spacer()
 
@@ -899,9 +922,9 @@ struct ShootFlow: View {
                     Haptics.tick()
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath.camera")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .background(OT.cameraGlass, in: Circle())
                 }
                 .disabled(camera.state != .ready || countdown != nil)
@@ -1246,26 +1269,28 @@ struct ShootFlow: View {
     @ViewBuilder
     private func promptCard(eyebrow: String, text: String, mine: Bool = true) -> some View {
         let spokenWords = mine ? SpokenLineMatcher.matchedWordIndices(in: text, transcript: follower.transcript) : []
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(eyebrow.uppercased())
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .tracking(0.6)
                 .foregroundStyle(mine ? OT.prompterGold : OT.reader)
             highlightedPrompterText(text, matchedWords: spokenWords, mine: mine)
-                .font(.system(size: [22, 27, 34][min(max(prompterSize, 0), 2)], weight: .bold, design: .monospaced))
+                .font(.system(size: [16, 19, 23][min(max(prompterSize, 0), 2)], weight: .semibold))
                 .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
         }
-        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.black.opacity(0.55))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.45))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+        .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
     }
 
     /// Spoken words turn to prompter gold (#FFCC00) as speech recognition hears them (matching Figma).

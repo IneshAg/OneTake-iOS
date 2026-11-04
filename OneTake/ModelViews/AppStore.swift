@@ -314,7 +314,11 @@ final class AppStore {
             // Headshots
             let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: id)
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
-                auditions[i].pieces[j].isDone = hasAuditionHeadshot
+                if hasAuditionHeadshot {
+                    auditions[i].pieces[j].isDone = true
+                } else if !auditions[i].pieces[j].isOptional {
+                    auditions[i].pieces[j].isDone = false
+                }
             }
             // Slate
             let hasSlate = auditions[i].slateVideoURL != nil
@@ -444,8 +448,13 @@ final class AppStore {
             return
         }
         switch next.kind {
-        case .slate, .fullLength, .scene:
-            camera = .shoot(id)
+        case .slate:
+            camera = .shoot(id, start: .slate)
+        case .fullLength:
+            camera = .shoot(id, start: .fullLength)
+        case .scene:
+            let idx = sceneIndex(for: next, in: id)
+            camera = .shoot(id, scene: idx)
         case .headshot:
             push(.headshots(for: id))
         }
