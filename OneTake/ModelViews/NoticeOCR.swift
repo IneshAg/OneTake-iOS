@@ -157,6 +157,30 @@ enum NoticeOCR {
         return Double(letterOrSpaceCount) / Double(totalChars) > 0.30
     }
 
+    // MARK: - Security-scoped file resolution
+
+    /// Safely resolves a security-scoped URL (e.g. from `.fileImporter`), copying it into the
+    /// app's sandboxed temporary directory so that asynchronous tasks (PDFKit, Vision OCR)
+    /// can read it reliably without permission revocation or race conditions.
+    /// Always call the returned `cleanup()` closure (e.g. in a `defer` block) when finished.
+    static func resolveSecurityScopedFile(at url: URL) -> (url: URL, cleanup: () -> Void) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        let ext = url.pathExtension.isEmpty ? "pdf" : url.pathExtension
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(ext)
+        if (try? FileManager.default.copyItem(at: url, to: tempURL)) != nil {
+            if accessed { url.stopAccessingSecurityScopedResource() }
+            return (tempURL, {
+                try? FileManager.default.removeItem(at: tempURL)
+            })
+        } else {
+            return (url, {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            })
+        }
+    }
+
     /// Extracts text from a file the user picked with the file importer: PDF via PDFKit, RTF via
     /// NSAttributedString, anything else as plain text. If a PDF is an image-only scan (photocopy)
     /// without selectable text, automatically rasterizes its pages and runs Apple Vision OCR.
@@ -164,7 +188,8 @@ enum NoticeOCR {
     static func extractText(fromFileAt url: URL) async -> String? {
         switch url.pathExtension.lowercased() {
         case "pdf":
-            guard let doc = PDFDocument(url: url) else { return nil }
+            let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
+            guard let doc else { return nil }
             var text = ""
             for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,6 +214,12 @@ enum NoticeOCR {
             else { return nil }
             return attributed.string
         default:
+            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
+                var text = ""
+                for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if looksReadable(trimmed) { return trimmed }
+            }
             return try? String(contentsOf: url, encoding: .utf8)
         }
     }
@@ -197,7 +228,8 @@ enum NoticeOCR {
     static func extractText(fromFileAt url: URL) -> String? {
         switch url.pathExtension.lowercased() {
         case "pdf":
-            guard let doc = PDFDocument(url: url) else { return nil }
+            let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
+            guard let doc else { return nil }
             var text = ""
             for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,6 +240,12 @@ enum NoticeOCR {
             else { return nil }
             return attributed.string
         default:
+            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
+                var text = ""
+                for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
             return try? String(contentsOf: url, encoding: .utf8)
         }
     }

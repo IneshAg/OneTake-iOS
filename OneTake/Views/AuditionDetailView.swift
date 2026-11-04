@@ -819,11 +819,11 @@ struct RevisedSidesSheet: View {
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
             reading = true
             Task {
-                let extracted = await NoticeOCR.extractText(fromFileAt: url)
+                defer { resolved.cleanup() }
+                let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
                 await MainActor.run {
                     if let extracted {
                         let cleaned = ScriptParser.cleanPastedText(extracted)

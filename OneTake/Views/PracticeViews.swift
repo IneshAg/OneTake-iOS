@@ -360,10 +360,10 @@ struct PracticeSetupView: View {
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             switch result {
             case .success(let url):
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
                 Task {
-                    let text = await NoticeOCR.extractText(fromFileAt: url) ?? ""
+                    defer { resolved.cleanup() }
+                    let text = await NoticeOCR.extractText(fromFileAt: resolved.url) ?? ""
                     await MainActor.run {
                         importText(text)
                     }

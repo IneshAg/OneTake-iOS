@@ -447,4 +447,26 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(draft.project.contains("History"))
         XCTAssertFalse(draft.castingOffice.contains("History"))
     }
+
+    func testNoticeOCRResolvesSecurityScopedFileAndExtractsText() async {
+        let pdfData = NSMutableData()
+        UIGraphicsBeginPDFContextToData(pdfData, CGRect(x: 0, y: 0, width: 300, height: 400), nil)
+        UIGraphicsBeginPDFPage()
+        let text = "Audition Notice\nRole: Detective Roy\nProject: City Lights\nCasting: Paramount"
+        let font = UIFont.systemFont(ofSize: 14)
+        (text as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: [.font: font])
+        UIGraphicsEndPDFContext()
+
+        let tempInputURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_import_\(UUID().uuidString).pdf")
+        try? (pdfData as Data).write(to: tempInputURL)
+        defer { try? FileManager.default.removeItem(at: tempInputURL) }
+
+        let resolved = NoticeOCR.resolveSecurityScopedFile(at: tempInputURL)
+        defer { resolved.cleanup() }
+
+        let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+        XCTAssertNotNil(extracted)
+        XCTAssertTrue(extracted?.contains("Detective Roy") == true)
+        XCTAssertTrue(NoticeOCR.looksReadable(extracted ?? ""))
+    }
 }

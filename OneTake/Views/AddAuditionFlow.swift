@@ -52,10 +52,10 @@ struct AddAuditionFlow: View {
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
                 switch result {
                 case .success(let url):
-                    let accessed = url.startAccessingSecurityScopedResource()
-                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
                     Task {
-                        let text = await NoticeOCR.extractText(fromFileAt: url)
+                        defer { resolved.cleanup() }
+                        let text = await NoticeOCR.extractText(fromFileAt: resolved.url)
                         if let text, NoticeOCR.looksReadable(text) {
                             let draft = await NoticeParser.parseAsync(text)
                             await MainActor.run { pendingReviewDraft = draft }
@@ -1771,11 +1771,11 @@ struct AddDraftSidesSheet: View {
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
             guard case .success(let url) = result else { return }
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
             reading = true
             Task {
-                let extracted = await NoticeOCR.extractText(fromFileAt: url)
+                defer { resolved.cleanup() }
+                let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
                 await MainActor.run {
                     if let extracted {
                         let cleaned = ScriptParser.cleanPastedText(extracted)
