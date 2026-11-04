@@ -285,6 +285,7 @@ struct HeadshotImage: View {
     var realKey: String? = nil
     var auditionID: UUID? = nil
     var iconSize: CGFloat? = nil
+    var onDark: Bool = false
 
     var body: some View {
         if let realKey, let real = HeadshotStore.load(key: realKey, auditionID: auditionID) {
@@ -296,9 +297,16 @@ struct HeadshotImage: View {
                 }
                 .clipped()
                 .contentShape(Rectangle())
-        } else {
+        } else if onDark {
             LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
                 .overlay(Image(systemName: "person.fill").font(.system(size: iconSize ?? 40)).foregroundStyle(.white.opacity(0.35)))
+        } else {
+            ZStack {
+                OT.accentSoft
+                Image(systemName: "person.fill")
+                    .font(.system(size: iconSize ?? 22, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+            }
         }
     }
 }
@@ -316,16 +324,28 @@ struct ProfileButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                HeadshotImage(realKey: "front", iconSize: 20)
-                    .id(store.headshotVersion)
-                    .frame(width: 44, height: 44)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
+                if let front = HeadshotStore.load(key: "front") {
+                    Image(uiImage: front)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
+                } else {
+                    Circle()
+                        .fill(OT.accentSoft)
+                        .frame(width: 44, height: 44)
+                        .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(OT.accent)
+                }
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .id(store.headshotVersion)
         .accessibilityLabel("Profile")
     }
 }

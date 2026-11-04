@@ -527,7 +527,7 @@ struct CameraBackground: View {
             ZStack {
                 OT.cameraBg
                 #if targetEnvironment(simulator)
-                HeadshotImage()
+                HeadshotImage(onDark: true)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
                     .opacity(0.85)

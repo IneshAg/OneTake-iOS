@@ -181,7 +181,7 @@ struct PlayerCard: View {
         ZStack {
             if url != nil, let player { VideoPlayer(player: player) }
             else {
-                HeadshotImage()
+                HeadshotImage(onDark: true)
                 Image(systemName: "play.fill").font(.title).foregroundStyle(.white)
                     .frame(width: 60, height: 60).background(.ultraThinMaterial, in: Circle())
             }
@@ -203,7 +203,7 @@ struct TakeThumbnail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Group {
-                if let url = take.fileURL { VideoThumbnail(url: url) } else { HeadshotImage() }
+                if let url = take.fileURL { VideoThumbnail(url: url) } else { HeadshotImage(onDark: true) }
             }
                 .frame(width: 104, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
