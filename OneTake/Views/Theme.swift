@@ -26,7 +26,7 @@ extension UIColor {
 /// Design tokens. Names mirror the Figma variables (`bg/canvas` → `OT.bgCanvas`).
 enum OT {
     // Backgrounds & surfaces
-    static let bgCanvas      = Color(UIColor(light: 0xF6F4F7, dark: 0x121014))
+    static let bgCanvas      = Color(UIColor(light: 0xF8F6FA, dark: 0x121014))
     static let surfaceCard   = Color(UIColor(light: 0xFFFFFF, dark: 0x1B181E))
     static let surfaceSunken = Color(UIColor(light: 0xEFEBF1, dark: 0x252128))
     static let surfaceRaised = Color(UIColor(light: 0xFFFFFF, dark: 0x252128))
