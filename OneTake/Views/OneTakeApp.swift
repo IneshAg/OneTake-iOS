@@ -197,6 +197,7 @@ private struct RouteDestinations: ViewModifier {
         case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
         case .missingDetails:                    MissingDetailsView()
         case .noticeReview:                      NoticeReviewView()
+        case .testSides:                         AddDraftSidesSheet(draft: .constant(NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))))
         }
     }
 }

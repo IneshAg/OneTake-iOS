@@ -32,6 +32,7 @@ enum Route: Hashable {
     case audioWalk(Audition.ID, sceneIndex: Int)
     case missingDetails
     case noticeReview
+    case testSides
 }
 
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
@@ -108,6 +109,7 @@ final class AppStore {
     var camera: CameraFlow?
     var showAddAudition = false
     var showProfile = false
+    var showTestSidesSheet = false
     /// Set when an audition is saved; once the Add sheet has gone, the app continues straight into
     /// that audition's first step instead of stopping on its overview.
     var continueAfterAdd: Audition.ID?
@@ -215,6 +217,11 @@ final class AppStore {
         if ProcessInfo.processInfo.arguments.contains("-search") {
             isOnboarded = true
             tab = .search
+        }
+        if ProcessInfo.processInfo.arguments.contains("-testAddSides") {
+            isOnboarded = true
+            auditionDraft = NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))
+            auditionsPath = [.testSides]
         }
         isLoading = false
         syncPieces()

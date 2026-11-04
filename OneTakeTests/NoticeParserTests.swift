@@ -510,4 +510,69 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertTrue(audition.castingNotes?.contains("Director note: Let the pauses breathe.") == true)
         XCTAssertEqual(audition.actorNotes, "Focus on the subtext of guilt, avoid rushing lines.")
     }
+
+    func testExtractSidesFromScriptPDFAndParseScenes() async {
+        let pdfData = NSMutableData()
+        UIGraphicsBeginPDFContextToData(pdfData, CGRect(x: 0, y: 0, width: 612, height: 792), nil)
+        UIGraphicsBeginPDFPage()
+        let scriptText = """
+        SCENE 1 - INT. COFFEE SHOP - DAY
+
+        MAYA
+        Did you find the envelope?
+
+        DETECTIVE ROY
+        Not yet. But we know where he hid the key.
+
+        MAYA
+        Then we're running out of time.
+        """
+        let font = UIFont.systemFont(ofSize: 14)
+        (scriptText as NSString).draw(at: CGPoint(x: 36, y: 50), withAttributes: [.font: font])
+        UIGraphicsEndPDFContext()
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("sides_\(UUID().uuidString).pdf")
+        try? (pdfData as Data).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let resolved = NoticeOCR.resolveSecurityScopedFile(at: tempURL)
+        defer { resolved.cleanup() }
+
+        let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+        XCTAssertNotNil(extracted)
+        XCTAssertTrue(extracted?.contains("MAYA") == true)
+        XCTAssertTrue(extracted?.contains("DETECTIVE ROY") == true)
+
+        let parsed = ScriptParser.parseScenes(from: extracted ?? "", myRole: "Maya")
+        XCTAssertFalse(parsed.isEmpty)
+        let lines = parsed.flatMap(\.lines)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines.filter(\.isMine).count, 2)
+    }
+
+    func testExtractSidesFromPlainTextFile() async {
+        let scriptText = """
+        SCENE 2 - EXT. ROOFTOP - NIGHT
+
+        ALEX
+        Look down there.
+
+        SAM
+        It's completely clear. Let's move.
+        """
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("sides_\(UUID().uuidString).txt")
+        try? scriptText.write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let resolved = NoticeOCR.resolveSecurityScopedFile(at: tempURL)
+        defer { resolved.cleanup() }
+
+        let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+        XCTAssertNotNil(extracted)
+        XCTAssertTrue(extracted?.contains("ALEX") == true)
+
+        let parsed = ScriptParser.parseScenes(from: extracted ?? "", myRole: "Alex")
+        XCTAssertFalse(parsed.isEmpty)
+        XCTAssertEqual(parsed.flatMap(\.lines).count, 2)
+    }
 }

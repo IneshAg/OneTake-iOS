@@ -812,6 +812,8 @@ struct CallbackExtraSidesSheet: View {
     @State private var scannerUnavailable = false
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var importError = false
+    @State private var emptyClipboardAlert = false
 
     private var parsedScenes: [ScriptScene] {
         ScriptParser.parseScenes(from: text, myRole: role)
@@ -835,83 +837,143 @@ struct CallbackExtraSidesSheet: View {
             .padding(.horizontal, OT.gutter)
             .padding(.top, 16)
 
-            Form {
-                Section {
-                    HStack {
-                        Text("Paste from clipboard")
-                            .font(.otHeadline)
-                        Spacer()
+            ScrollView {
+                VStack(spacing: 16) {
+                    // 4 Action Buttons Grid (replaces long text rows)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         Button {
-                            let pasted = UIPasteboard.general.string ?? ""
-                            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let cleaned = ScriptParser.cleanPastedText(trimmed)
-                            if !cleaned.isEmpty {
-                                text = cleaned
-                                Haptics.success()
+                            showImporter = true
+                        } label: {
+                            SidesInputTile(
+                                icon: "doc.badge.plus",
+                                title: "Import PDF",
+                                subtitle: "PDF or script file",
+                                color: OT.accent
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            pasteFromClipboard()
+                        } label: {
+                            SidesInputTile(
+                                icon: "arrow.right.doc.on.clipboard",
+                                title: "Paste Text",
+                                subtitle: "From clipboard",
+                                color: Color(uiColor: .systemIndigo)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            if VNDocumentCameraViewController.isSupported {
+                                showScanner = true
                             } else {
-                                Haptics.tick()
+                                scannerUnavailable = true
                             }
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.right.doc.on.clipboard")
-                                    .font(.system(size: 11, weight: .bold))
-                                Text("Paste")
-                                    .font(.otCaption.weight(.bold))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .foregroundStyle(.white)
+                            SidesInputTile(
+                                icon: "doc.viewfinder",
+                                title: "Scan Pages",
+                                subtitle: "Camera scanner",
+                                color: Color(uiColor: .systemPurple)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        PhotosPicker(selection: $photoItems, matching: .images) {
+                            SidesInputTile(
+                                icon: "photo.on.rectangle",
+                                title: "Photos",
+                                subtitle: "Camera roll",
+                                color: Color(uiColor: .systemTeal)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
 
-                    TextField("Paste or type callback sides here...", text: $text, axis: .vertical)
-                        .lineLimit(6...14)
-
-                    Button { showImporter = true } label: {
-                        Label("Import a PDF or text file", systemImage: "doc")
-                    }
-
-                    PhotosPicker(selection: $photoItems, matching: .images) {
-                        Label("Pick from Photos", systemImage: "photo.on.rectangle")
-                    }
-
-                    Button {
-                        if VNDocumentCameraViewController.isSupported {
-                            showScanner = true
-                        } else {
-                            scannerUnavailable = true
+                    if reading {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading pages and parsing sides…")
+                                .font(.otSubhead)
+                                .foregroundStyle(OT.labelSecondary)
                         }
-                    } label: {
-                        Label("Scan the pages", systemImage: "doc.viewfinder")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
                     }
-                } footer: {
-                    Text("These extra sides will be appended to your Round 1 script and scenes.")
-                }
 
-                if reading {
-                    Section {
-                        HStack { ProgressView(); Text("Reading pages…") }
+                    // Script Text Area Card
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("CALLBACK SIDES TEXT")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            if !text.isEmpty {
+                                Button("Clear") {
+                                    withAnimation { text = "" }
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.danger)
+                            }
+                        }
+
+                        ZStack(alignment: .topLeading) {
+                            if text.isEmpty {
+                                Text("Paste or type callback sides here...\nThese extra sides will be appended to your Round 1 script.")
+                                    .font(.otCallout)
+                                    .foregroundStyle(OT.labelTertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
+                            }
+
+                            TextEditor(text: $text)
+                                .font(.system(size: 15, design: .monospaced))
+                                .frame(minHeight: 140, maxHeight: 220)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .scrollContentBackground(.hidden)
+                        }
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
                     }
-                }
 
-                if !text.isEmpty {
-                    Section("Detected in extra sides") {
-                        if !parsedScenes.isEmpty {
-                            LabeledContent("Scenes found", value: "\(parsedScenes.count)")
-                            let mine = parsedScenes.flatMap(\.lines).filter(\.isMine).count
-                            LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(mine)")
-                            LabeledContent("Total character lines", value: "\(parsedScenes.flatMap(\.lines).count)")
-                        } else {
-                            Text("No structured scenes detected yet. We'll still attach this text as a new scene for your teleprompter.")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelTertiary)
+                    if !text.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("DETECTED IN EXTRA SIDES")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.labelSecondary)
+
+                            if !parsedScenes.isEmpty {
+                                HStack(spacing: 8) {
+                                    SidesChip(title: "Scenes", value: "\(parsedScenes.count)", isAccent: false)
+                                    SidesChip(title: role.isEmpty ? "Your role" : role, value: "\(parsedScenes.flatMap(\.lines).filter(\.isMine).count)", isAccent: true)
+                                    SidesChip(title: "Total lines", value: "\(parsedScenes.flatMap(\.lines).count)", isAccent: false)
+                                }
+                            } else {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle")
+                                        .foregroundStyle(OT.labelTertiary)
+                                    Text("No structured scenes detected yet. We'll still attach this text as a new scene for your teleprompter.")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelTertiary)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 12)
+                .padding(.bottom, 90)
             }
-            .scrollContentBackground(.hidden)
         }
         .safeAreaInset(edge: .bottom) {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -928,24 +990,45 @@ struct CallbackExtraSidesSheet: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .alert("Camera scanning not available", isPresented: $scannerUnavailable) {
+        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Document scanning requires a device with camera support. You can paste the sides text or import a PDF/text file.")
+            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
-            guard case .success(let url) = result else { return }
-            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
-            reading = true
-            Task {
-                defer { resolved.cleanup() }
-                let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
-                await MainActor.run {
-                    if let extracted {
-                        text = ScriptParser.cleanPastedText(extracted)
+        .alert("Couldn't read this file", isPresented: $importError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("We couldn't extract readable text from this file. If it's a scanned document or photocopy, try taking a photo or pasting the script directly.")
+        }
+        .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No text was found on your clipboard. Copy sides from an email, script, or PDF viewer, then tap Paste.")
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+            switch result {
+            case .success(let url):
+                reading = true
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+                Task {
+                    defer {
+                        resolved.cleanup()
+                        Task { @MainActor in reading = false }
                     }
-                    reading = false
+                    let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+                    await MainActor.run {
+                        if let extracted, !extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            text = ScriptParser.cleanPastedText(extracted)
+                            Haptics.success()
+                        } else {
+                            importError = true
+                            Haptics.warning()
+                        }
+                    }
                 }
+            case .failure:
+                importError = true
+                Haptics.warning()
             }
         }
         .fullScreenCover(isPresented: $showScanner) {
@@ -958,9 +1041,11 @@ struct CallbackExtraSidesSheet: View {
                     await MainActor.run {
                         text = ScriptParser.cleanPastedText(recognized)
                         reading = false
+                        Haptics.success()
                     }
                 }
             }
+            .ignoresSafeArea()
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -973,13 +1058,31 @@ struct CallbackExtraSidesSheet: View {
                         images.append(img)
                     }
                 }
+                guard !images.isEmpty else {
+                    await MainActor.run { reading = false }
+                    return
+                }
                 let recognized = await NoticeOCR.recognizeText(in: images)
                 await MainActor.run {
                     text = ScriptParser.cleanPastedText(recognized)
                     photoItems = []
                     reading = false
+                    Haptics.success()
                 }
             }
+        }
+    }
+
+    private func pasteFromClipboard() {
+        let pasted = UIPasteboard.general.string ?? ""
+        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = ScriptParser.cleanPastedText(trimmed)
+        if !cleaned.isEmpty {
+            text = cleaned
+            Haptics.success()
+        } else {
+            emptyClipboardAlert = true
+            Haptics.warning()
         }
     }
 }
@@ -1544,6 +1647,8 @@ struct RevisedSidesSheet: View {
     @State private var scannerUnavailable = false
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var importError = false
+    @State private var emptyClipboardAlert = false
 
     private var audition: Audition? {
         store.audition(auditionID)
@@ -1581,89 +1686,157 @@ struct RevisedSidesSheet: View {
             .padding(.horizontal, OT.gutter)
             .padding(.top, 16)
 
-            Form {
-                Section {
-                    HStack {
-                        Text("Paste from clipboard")
-                            .font(.otHeadline)
-                        Spacer()
+            ScrollView {
+                VStack(spacing: 16) {
+                    // 4 Action Buttons Grid (replaces long text rows)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         Button {
-                            let pasted = UIPasteboard.general.string ?? ""
-                            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let cleaned = ScriptParser.cleanPastedText(trimmed)
-                            if !cleaned.isEmpty {
-                                text = cleaned
-                                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
-                                Haptics.success()
+                            showImporter = true
+                        } label: {
+                            SidesInputTile(
+                                icon: "doc.badge.plus",
+                                title: "Import PDF",
+                                subtitle: "PDF or script file",
+                                color: OT.accent
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            pasteFromClipboard(role: role)
+                        } label: {
+                            SidesInputTile(
+                                icon: "arrow.right.doc.on.clipboard",
+                                title: "Paste Text",
+                                subtitle: "From clipboard",
+                                color: Color(uiColor: .systemIndigo)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            if VNDocumentCameraViewController.isSupported {
+                                showScanner = true
                             } else {
-                                Haptics.tick()
+                                scannerUnavailable = true
                             }
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.right.doc.on.clipboard")
-                                    .font(.system(size: 11, weight: .bold))
-                                Text("Paste")
-                                    .font(.otCaption.weight(.bold))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .foregroundStyle(.white)
+                            SidesInputTile(
+                                icon: "doc.viewfinder",
+                                title: "Scan Pages",
+                                subtitle: "Camera scanner",
+                                color: Color(uiColor: .systemPurple)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        PhotosPicker(selection: $photoItems, matching: .images) {
+                            SidesInputTile(
+                                icon: "photo.on.rectangle",
+                                title: "Photos",
+                                subtitle: "Camera roll",
+                                color: Color(uiColor: .systemTeal)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
 
-                    TextField(isNewSides ? "Or paste or type sides here..." : "Paste the new sides", text: $text, axis: .vertical)
-                        .lineLimit(6...14)
-                        .onChange(of: text) { _, newText in
-                            editableScenes = ScriptParser.parseScenes(from: newText, myRole: role)
+                    if reading {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading pages and parsing sides…")
+                                .font(.otSubhead)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+                    }
+
+                    // Script Text Area Card
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(isNewSides ? "SCRIPT TEXT" : "REVISED SIDES TEXT")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            if !text.isEmpty {
+                                Button("Clear") {
+                                    withAnimation {
+                                        text = ""
+                                        editableScenes = []
+                                    }
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.danger)
+                            }
                         }
 
-                    Button { showImporter = true } label: {
-                        Label("Import a PDF or text file", systemImage: "doc")
-                    }
+                        ZStack(alignment: .topLeading) {
+                            if text.isEmpty {
+                                Text(isNewSides ? "Or paste or type sides here...\nCues in CAPS (e.g. MAYA) or “Maya: dialogue”." : "Paste the new sides here...")
+                                    .font(.otCallout)
+                                    .foregroundStyle(OT.labelTertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
+                            }
 
-                    PhotosPicker(selection: $photoItems, matching: .images) {
-                        Label("Pick from Photos", systemImage: "photo.on.rectangle")
-                    }
-
-                    Button {
-                        if VNDocumentCameraViewController.isSupported {
-                            showScanner = true
-                        } else {
-                            scannerUnavailable = true
+                            TextEditor(text: $text)
+                                .font(.system(size: 15, design: .monospaced))
+                                .frame(minHeight: 140, maxHeight: 220)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .scrollContentBackground(.hidden)
+                                .onChange(of: text) { _, newText in
+                                    editableScenes = ScriptParser.parseScenes(from: newText, myRole: role)
+                                }
                         }
-                    } label: {
-                        Label("Scan the pages", systemImage: "doc.viewfinder")
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
                     }
-                } footer: {
-                    Text(isNewSides
-                         ? "Sides are parsed on your iPhone into character dialogue lines and scenes. Nothing is uploaded."
-                         : "Read on this iPhone — nothing is uploaded. Existing takes stay to watch; record and circle takes for these revised scenes before packaging.")
-                }
 
-                if reading {
-                    Section {
-                        HStack { ProgressView(); Text("Reading pages…") }
-                    }
-                }
+                    if !text.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("DETECTED SIDES")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(OT.labelSecondary)
+                                Spacer()
+                                Text("Tap speaker or text to edit")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
 
-                if !text.isEmpty {
-                    Section("Detected from sides (Tap speaker or text to edit)") {
-                        if !activeScenes.isEmpty {
-                            LabeledContent("Scenes", value: "\(activeScenes.count)")
-                            LabeledContent("Your lines (\(role.isEmpty ? "Your role" : role))", value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)")
-                            LabeledContent("Total character lines", value: "\(activeScenes.flatMap(\.lines).count)")
+                            if !activeScenes.isEmpty {
+                                HStack(spacing: 8) {
+                                    SidesChip(title: "Scenes", value: "\(activeScenes.count)", isAccent: false)
+                                    SidesChip(title: role.isEmpty ? "Your role" : role, value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)", isAccent: true)
+                                    SidesChip(title: "Total lines", value: "\(activeScenes.flatMap(\.lines).count)", isAccent: false)
+                                }
 
-                            ScriptReviewAndEditView(scenes: $editableScenes)
-                        } else {
-                            Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
-                                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                ScriptReviewAndEditView(scenes: $editableScenes)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle")
+                                        .foregroundStyle(OT.labelTertiary)
+                                    Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelTertiary)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 12)
+                .padding(.bottom, 90)
             }
-            .scrollContentBackground(.hidden)
         }
         .safeAreaInset(edge: .bottom) {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1687,26 +1860,47 @@ struct RevisedSidesSheet: View {
                 editableScenes = audition?.scenes ?? ScriptParser.parseScenes(from: existing, myRole: role)
             }
         }
-        .alert("Camera scanning not available", isPresented: $scannerUnavailable) {
+        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Document scanning requires a device with camera support. You can paste the sides text or import a PDF/text file.")
+            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
-            guard case .success(let url) = result else { return }
-            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
-            reading = true
-            Task {
-                defer { resolved.cleanup() }
-                let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
-                await MainActor.run {
-                    if let extracted {
-                        let cleaned = ScriptParser.cleanPastedText(extracted)
-                        text = cleaned
-                        editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+        .alert("Couldn't read this file", isPresented: $importError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("We couldn't extract readable text from this file. If it's a scanned document or photocopy, try taking a photo or pasting the script directly.")
+        }
+        .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No text was found on your clipboard. Copy sides from an email, script, or PDF viewer, then tap Paste.")
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+            switch result {
+            case .success(let url):
+                reading = true
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+                Task {
+                    defer {
+                        resolved.cleanup()
+                        Task { @MainActor in reading = false }
                     }
-                    reading = false
+                    let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+                    await MainActor.run {
+                        if let extracted, !extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            let cleaned = ScriptParser.cleanPastedText(extracted)
+                            text = cleaned
+                            editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                            Haptics.success()
+                        } else {
+                            importError = true
+                            Haptics.warning()
+                        }
+                    }
                 }
+            case .failure:
+                importError = true
+                Haptics.warning()
             }
         }
         .fullScreenCover(isPresented: $showScanner) {
@@ -1721,6 +1915,7 @@ struct RevisedSidesSheet: View {
                         text = cleaned
                         editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
                         reading = false
+                        Haptics.success()
                     }
                 }
             }
@@ -1748,8 +1943,23 @@ struct RevisedSidesSheet: View {
                     editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
                     reading = false
                     photoItems = []
+                    Haptics.success()
                 }
             }
+        }
+    }
+
+    private func pasteFromClipboard(role: String) {
+        let pasted = UIPasteboard.general.string ?? ""
+        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = ScriptParser.cleanPastedText(trimmed)
+        if !cleaned.isEmpty {
+            text = cleaned
+            editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+            Haptics.success()
+        } else {
+            emptyClipboardAlert = true
+            Haptics.warning()
         }
     }
 }

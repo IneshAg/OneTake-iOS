@@ -1797,6 +1797,8 @@ struct AddDraftSidesSheet: View {
     @State private var scannerUnavailable = false
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var importError = false
+    @State private var emptyClipboardAlert = false
 
     private var parsed: [ScriptScene] {
         ScriptParser.parseScenes(from: text, myRole: draft.role)
@@ -1814,12 +1816,7 @@ struct AddDraftSidesSheet: View {
                 onBack: { dismiss() }
             ) {
                 Button(draft.hasSides ? "Replace" : "Add") {
-                    draft.sourceText = text
-                    draft.customScenes = activeScenes
-                    if !activeScenes.isEmpty {
-                        draft.scenes = max(activeScenes.count, draft.scenes)
-                    }
-                    dismiss()
+                    commitSides()
                 }
                 .font(.otHeadline)
                 .foregroundStyle(OT.accent)
@@ -1828,120 +1825,163 @@ struct AddDraftSidesSheet: View {
             .padding(.horizontal, OT.gutter)
             .padding(.top, 16)
 
-            Form {
-                if let sidesLink = draft.sidesLink, !sidesLink.isEmpty {
-                    Section {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: sidesLink.contains("drive.google") ? "externaldrive.fill.badge.icloud" : "link")
-                                    .foregroundStyle(OT.accent)
-                                Text(sidesLink.contains("drive.google") ? "Google Drive sides attached" : "Sides link attached")
-                                    .font(.otHeadline)
-                            }
-                            Text("Open the link to download the PDF or copy script text, then import or paste it below.")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
-                            if let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
-                                Link(destination: url) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "safari")
-                                        Text("Open sides in browser")
-                                        Image(systemName: "arrow.up.right")
-                                    }
-                                    .font(.otFootnote.weight(.semibold))
-                                    .foregroundStyle(OT.accent)
-                                }
-                                .padding(.top, 2)
-                            }
-                        }
-                        .padding(.vertical, 4)
+            ScrollView {
+                VStack(spacing: 16) {
+                    if let sidesLink = draft.sidesLink, !sidesLink.isEmpty {
+                        sidesLinkCard(sidesLink)
                     }
-                }
 
-                Section {
-                    HStack {
-                        Text("Paste from clipboard")
-                            .font(.otHeadline)
-                        Spacer()
+                    // 4 Action Buttons Grid (replaces long text rows)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         Button {
-                            let pasted = UIPasteboard.general.string ?? ""
-                            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let cleaned = ScriptParser.cleanPastedText(trimmed)
-                            if !cleaned.isEmpty {
-                                text = cleaned
-                                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
-                                Haptics.success()
-                            } else {
-                                Haptics.tick()
-                            }
+                            showImporter = true
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.right.doc.on.clipboard")
-                                    .font(.system(size: 11, weight: .bold))
-                                Text("Paste")
-                                    .font(.otCaption.weight(.bold))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .foregroundStyle(.white)
+                            SidesInputTile(
+                                icon: "doc.badge.plus",
+                                title: "Import PDF",
+                                subtitle: "PDF or script file",
+                                color: OT.accent
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            pasteFromClipboard()
+                        } label: {
+                            SidesInputTile(
+                                icon: "arrow.right.doc.on.clipboard",
+                                title: "Paste Text",
+                                subtitle: "From clipboard",
+                                color: Color(uiColor: .systemIndigo)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            openScanner()
+                        } label: {
+                            SidesInputTile(
+                                icon: "doc.viewfinder",
+                                title: "Scan Pages",
+                                subtitle: "Camera scanner",
+                                color: Color(uiColor: .systemPurple)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        PhotosPicker(selection: $photoItems, matching: .images) {
+                            SidesInputTile(
+                                icon: "photo.on.rectangle",
+                                title: "Photos",
+                                subtitle: "Camera roll",
+                                color: Color(uiColor: .systemTeal)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
 
-                    TextField("Or paste or type sides here...", text: $text, axis: .vertical)
-                        .lineLimit(6...14)
-                        .onChange(of: text) { _, newText in
-                            editableScenes = ScriptParser.parseScenes(from: newText, myRole: draft.role)
+                    if reading {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading pages and parsing sides…")
+                                .font(.otSubhead)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+                    }
+
+                    // Script Text Area Card (Clean, centered, beautifully bordered)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("SCRIPT TEXT")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            if !text.isEmpty {
+                                Button("Clear") {
+                                    withAnimation {
+                                        text = ""
+                                        editableScenes = []
+                                    }
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(OT.danger)
+                            }
                         }
 
-                    Button { showImporter = true } label: {
-                        Label("Import a PDF or text file", systemImage: "doc")
+                        ZStack(alignment: .topLeading) {
+                            if text.isEmpty {
+                                Text("Or type/paste sides directly here...\nCues should be in CAPS (e.g. MAYA) or “Maya: dialogue”.")
+                                    .font(.otCallout)
+                                    .foregroundStyle(OT.labelTertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
+                            }
+
+                            TextEditor(text: $text)
+                                .font(.system(size: 15, design: .monospaced))
+                                .frame(minHeight: 140, maxHeight: 220)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .scrollContentBackground(.hidden)
+                                .onChange(of: text) { _, newText in
+                                    editableScenes = ScriptParser.parseScenes(from: newText, myRole: draft.role)
+                                }
+                        }
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
                     }
 
-                    PhotosPicker(selection: $photoItems, matching: .images) {
-                        Label("Pick from Photos", systemImage: "photo.on.rectangle")
-                    }
+                    // Detected from sides section
+                    if !text.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("DETECTED SIDES")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(OT.labelSecondary)
+                                Spacer()
+                                Text("Tap speaker or text to edit")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
 
-                    Button { openScanner() } label: {
-                        Label("Scan the pages", systemImage: "doc.viewfinder")
-                    }
-                } footer: {
-                    Text("Sides are parsed on your iPhone into character dialogue lines and scenes.")
-                }
+                            if !activeScenes.isEmpty {
+                                HStack(spacing: 8) {
+                                    SidesChip(title: "Scenes", value: "\(activeScenes.count)", isAccent: false)
+                                    SidesChip(title: draft.role.isEmpty ? "Your role" : draft.role, value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)", isAccent: true)
+                                    SidesChip(title: "Total lines", value: "\(activeScenes.flatMap(\.lines).count)", isAccent: false)
+                                }
 
-                if reading {
-                    Section {
-                        HStack { ProgressView(); Text("Reading pages…") }
-                    }
-                }
-
-                if !text.isEmpty {
-                    Section("Detected from sides (Tap speaker or text to edit)") {
-                        if !activeScenes.isEmpty {
-                            LabeledContent("Scenes", value: "\(activeScenes.count)")
-                            LabeledContent("Your lines (\(draft.role.isEmpty ? "Your role" : draft.role))", value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)")
-                            LabeledContent("Total character lines", value: "\(activeScenes.flatMap(\.lines).count)")
-
-                            ScriptReviewAndEditView(scenes: $editableScenes)
-                        } else {
-                            Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
-                                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                ScriptReviewAndEditView(scenes: $editableScenes)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle")
+                                        .foregroundStyle(OT.labelTertiary)
+                                    Text("No character lines recognised yet. Cues should be in CAPS (e.g. “MAYA”) or “Maya: dialogue”.")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelTertiary)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 12)
+                .padding(.bottom, 90)
             }
-            .scrollContentBackground(.hidden)
         }
         .safeAreaInset(edge: .bottom) {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(draft.hasSides ? "Replace sides" : "Add sides") {
-                    draft.sourceText = text
-                    draft.customScenes = activeScenes
-                    if !activeScenes.isEmpty {
-                        draft.scenes = max(activeScenes.count, draft.scenes)
-                    }
-                    dismiss()
+                    commitSides()
                 }
                 .buttonStyle(.otPrimary)
                 .padding(.horizontal, OT.gutter)
@@ -1965,21 +2005,32 @@ struct AddDraftSidesSheet: View {
                 editableScenes = []
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
-            guard case .success(let url) = result else { return }
-            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
-            reading = true
-            Task {
-                defer { resolved.cleanup() }
-                let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
-                await MainActor.run {
-                    if let extracted {
-                        let cleaned = ScriptParser.cleanPastedText(extracted)
-                        text = cleaned
-                        editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+            switch result {
+            case .success(let url):
+                reading = true
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+                Task {
+                    defer {
+                        resolved.cleanup()
+                        Task { @MainActor in reading = false }
                     }
-                    reading = false
+                    let extracted = await NoticeOCR.extractText(fromFileAt: resolved.url)
+                    await MainActor.run {
+                        if let extracted, !extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            let cleaned = ScriptParser.cleanPastedText(extracted)
+                            text = cleaned
+                            editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
+                            Haptics.success()
+                        } else {
+                            importError = true
+                            Haptics.warning()
+                        }
+                    }
                 }
+            case .failure:
+                importError = true
+                Haptics.warning()
             }
         }
         .fullScreenCover(isPresented: $showScanner) {
@@ -1994,6 +2045,7 @@ struct AddDraftSidesSheet: View {
                         text = cleaned
                         editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
                         reading = false
+                        Haptics.success()
                     }
                 }
             }
@@ -2003,6 +2055,16 @@ struct AddDraftSidesSheet: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
+        }
+        .alert("Couldn't read this file", isPresented: $importError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("We couldn't extract readable text from this file. If it's a scanned document or photocopy, try taking a photo or pasting the script directly.")
+        }
+        .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No text was found on your clipboard. Copy sides from an email, script, or PDF viewer, then tap Paste.")
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -2026,13 +2088,68 @@ struct AddDraftSidesSheet: View {
                     editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
                     reading = false
                     photoItems = []
+                    Haptics.success()
                 }
             }
         }
     }
 
+    private func pasteFromClipboard() {
+        let pasted = UIPasteboard.general.string ?? ""
+        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = ScriptParser.cleanPastedText(trimmed)
+        if !cleaned.isEmpty {
+            text = cleaned
+            editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
+            Haptics.success()
+        } else {
+            emptyClipboardAlert = true
+            Haptics.warning()
+        }
+    }
+
+    private func commitSides() {
+        draft.sourceText = text
+        draft.customScenes = activeScenes
+        if !activeScenes.isEmpty {
+            draft.scenes = max(activeScenes.count, draft.scenes)
+        }
+        dismiss()
+    }
+
     private func openScanner() {
         if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
+    }
+
+    @ViewBuilder
+    private func sidesLinkCard(_ sidesLink: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: sidesLink.contains("drive.google") ? "externaldrive.fill.badge.icloud" : "link")
+                    .foregroundStyle(OT.accent)
+                Text(sidesLink.contains("drive.google") ? "Google Drive sides attached" : "Sides link attached")
+                    .font(.otHeadline)
+            }
+            Text("Open the link to download the PDF or copy script text, then import or paste it below.")
+                .font(.otFootnote)
+                .foregroundStyle(OT.labelSecondary)
+            if let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                Link(destination: url) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "safari")
+                        Text("Open sides in browser")
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
     }
 }
 
@@ -2434,6 +2551,14 @@ struct MissingDetailsView: View {
         }
         .sheet(isPresented: $showSidesSheet) {
             AddDraftSidesSheet(draft: $store.auditionDraft)
+        }
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-openSidesSheet") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showSidesSheet = true
+                }
+            }
         }
         .onAppear {
             if let due = store.auditionDraft.due {
@@ -2964,6 +3089,14 @@ struct NoticeReviewView: View {
         }
         .sheet(isPresented: $showSidesSheet) {
             AddDraftSidesSheet(draft: $store.auditionDraft)
+        }
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-openSidesSheet") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showSidesSheet = true
+                }
+            }
         }
         .onChange(of: store.auditionDraft.project) { _, _ in
             if canSave { withAnimation { showValidationErrors = false } }

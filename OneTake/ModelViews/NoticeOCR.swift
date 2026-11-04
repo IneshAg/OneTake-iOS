@@ -162,6 +162,7 @@ enum NoticeOCR {
     /// Safely resolves a security-scoped URL (e.g. from `.fileImporter`), copying it into the
     /// app's sandboxed temporary directory so that asynchronous tasks (PDFKit, Vision OCR)
     /// can read it reliably without permission revocation or race conditions.
+    /// Uses NSFileCoordinator to coordinate reading across iCloud Drive and external document providers.
     /// Always call the returned `cleanup()` closure (e.g. in a `defer` block) when finished.
     static func resolveSecurityScopedFile(at url: URL) -> (url: URL, cleanup: () -> Void) {
         let accessed = url.startAccessingSecurityScopedResource()
@@ -169,7 +170,34 @@ enum NoticeOCR {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(ext)
-        if (try? FileManager.default.copyItem(at: url, to: tempURL)) != nil {
+
+        var didCopy = false
+
+        // Strategy 1: Coordinated read (handles iCloud Drive, external providers, sandbox boundaries)
+        let coordinator = NSFileCoordinator()
+        var coordError: NSError?
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { coordinatedURL in
+            if let data = try? Data(contentsOf: coordinatedURL) {
+                if (try? data.write(to: tempURL, options: .atomic)) != nil {
+                    didCopy = true
+                }
+            } else if (try? FileManager.default.copyItem(at: coordinatedURL, to: tempURL)) != nil {
+                didCopy = true
+            }
+        }
+
+        // Strategy 2: Direct read/copy if coordinator did not copy
+        if !didCopy {
+            if let data = try? Data(contentsOf: url) {
+                if (try? data.write(to: tempURL, options: .atomic)) != nil {
+                    didCopy = true
+                }
+            } else if (try? FileManager.default.copyItem(at: url, to: tempURL)) != nil {
+                didCopy = true
+            }
+        }
+
+        if didCopy {
             if accessed { url.stopAccessingSecurityScopedResource() }
             return (tempURL, {
                 try? FileManager.default.removeItem(at: tempURL)
@@ -191,7 +219,11 @@ enum NoticeOCR {
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
             guard let doc else { return nil }
             var text = ""
-            for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+            for i in 0..<doc.pageCount {
+                if let pageStr = doc.page(at: i)?.string {
+                    text += pageStr + "\n"
+                }
+            }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if looksReadable(trimmed) { return trimmed }
 
@@ -205,9 +237,12 @@ enum NoticeOCR {
             }
             if !images.isEmpty {
                 let ocrText = await recognizeText(in: images)
-                return looksReadable(ocrText) ? ocrText : nil
+                let ocrTrimmed = ocrText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if looksReadable(ocrTrimmed) { return ocrTrimmed }
+                if !ocrTrimmed.isEmpty { return ocrTrimmed }
             }
-            return nil
+            // If OCR produced nothing but digital PDF text was extracted, return it
+            return trimmed.isEmpty ? nil : trimmed
         case "rtf":
             guard let data = try? Data(contentsOf: url),
                   let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
@@ -216,11 +251,21 @@ enum NoticeOCR {
         default:
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
                 var text = ""
-                for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+                for i in 0..<doc.pageCount {
+                    if let pageStr = doc.page(at: i)?.string {
+                        text += pageStr + "\n"
+                    }
+                }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if looksReadable(trimmed) { return trimmed }
+                if !trimmed.isEmpty { return trimmed }
             }
-            return try? String(contentsOf: url, encoding: .utf8)
+            if let str = try? String(contentsOf: url, encoding: .utf8) { return str }
+            if let str = try? String(contentsOf: url, encoding: .ascii) { return str }
+            if let str = try? String(contentsOf: url, encoding: .isoLatin1) { return str }
+            if let data = try? Data(contentsOf: url), let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) {
+                return str
+            }
+            return nil
         }
     }
 
@@ -231,7 +276,11 @@ enum NoticeOCR {
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
             guard let doc else { return nil }
             var text = ""
-            for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+            for i in 0..<doc.pageCount {
+                if let pageStr = doc.page(at: i)?.string {
+                    text += pageStr + "\n"
+                }
+            }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         case "rtf":
@@ -242,11 +291,18 @@ enum NoticeOCR {
         default:
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
                 var text = ""
-                for i in 0..<doc.pageCount { text += (doc.page(at: i)?.string ?? "") + "\n" }
+                for i in 0..<doc.pageCount {
+                    if let pageStr = doc.page(at: i)?.string {
+                        text += pageStr + "\n"
+                    }
+                }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { return trimmed }
             }
-            return try? String(contentsOf: url, encoding: .utf8)
+            if let str = try? String(contentsOf: url, encoding: .utf8) { return str }
+            if let str = try? String(contentsOf: url, encoding: .ascii) { return str }
+            if let str = try? String(contentsOf: url, encoding: .isoLatin1) { return str }
+            return nil
         }
     }
 
