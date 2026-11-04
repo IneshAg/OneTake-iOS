@@ -1,22 +1,54 @@
-# OneTake Machine Learning & Parsing Architecture
+# OneTake Machine Learning & Parsing Master Guide
 
-This document specifies the standalone Machine Learning and AI parsing pipelines for **OneTake iOS**. All models, datasets, training scripts, and evaluation harnesses are strictly isolated in `scripts/` and `dataset/` to enable rigorous offline training, fine-tuning, and benchmarking before any integration into the iOS app.
+This master specification allows **any developer, automated CI/CD pipeline, or AI coding assistant** to replicate, train, evaluate, and benchmark the complete OneTake ML and document-parsing pipeline on any fresh computer from zero.
+
+All ML models, datasets, training scripts, and evaluation harnesses are strictly isolated in `scripts/` and `dataset/` to enable offline training, fine-tuning, and benchmarking before any integration into the iOS app (`OneTake/`).
 
 ---
 
-## 1. System Overview
+## 1. Quickstart for AI Agents & New Machines (5-Minute Turnkey Setup)
+
+If you are an AI assistant or an engineer opening this repository on a fresh computer, run these steps in order from the repository root:
+
+```bash
+# Step 1: Clone repository (if not already inside)
+# git clone https://github.com/IneshAg/OneTake-iOS.git && cd OneTake-iOS
+
+# Step 2: Set up Python virtual environment and dependencies automatically
+chmod +x scripts/setup_env.sh
+./scripts/setup_env.sh
+
+# Step 3: Harvest public audition sides and portrait training headshots
+./scripts/.venv/bin/python scripts/scrape_audition_data.py
+
+# Step 4: Train the 3-pose headshot angle & yaw regression neural network (Apple Silicon MPS / CUDA / CPU)
+./scripts/.venv/bin/python scripts/train_headshot_pose_model.py
+
+# Step 5: Verify model accuracy (Expect >= 90% accuracy, <= 11° yaw MAE)
+./scripts/.venv/bin/python scripts/evaluate_dataset.py
+
+# Step 6: Synthesize 20-page noisy OCR instruction-tuning dataset
+./scripts/.venv/bin/python scripts/synthesize_parsing_dataset.py
+
+# Step 7: Test the dual parsing route (Gemini Cloud Free Tier & Privacy-First Local Model)
+./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --all
+```
+
+---
+
+## 2. System Architecture & Dual Route Strategy
 
 OneTake addresses two distinct intelligence challenges in the self-tape audition workflow:
 
 ```mermaid
 flowchart TD
     subgraph OnDevice["1. Vision & Pose (On-Device CoreML)"]
-        Camera["Live Camera Feed"] --> PoseNet["HeadshotPoseNet (MobileNetV3)"]
-        PoseNet --> PoseOut["• 3-Pose Angle (Front / Left / Right)<br>• Continuous Yaw Radians (±1.45 rad)<br>• 100% Offline / Real-time (60fps)"]
+        Camera["Live Camera Feed (60 fps)"] --> PoseNet["HeadshotPoseNet (MobileNetV3)"]
+        PoseNet --> PoseOut["• 3-Pose Angle (Front / Left Profile / Right Profile)<br>• Continuous Yaw Radians (±1.45 rad)<br>• 100% Offline / Real-time on Apple Neural Engine"]
     end
 
     subgraph DualParsing["2. Document & Sides Parsing (Dual Route)"]
-        DocInput["20+ Page Sides PDF / Scanned Notice"] --> Router{"Route Selection"}
+        DocInput["20+ Page Sides PDF / Scanned Notice"] --> Router{"Classify Sensitivity"}
         Router -->|"Public / Fast (1M Context)"| Gemini["Google Gemini 1.5/2.0 Flash<br>(Cloud Free Tier: 1,500 req/day)"]
         Router -->|"Confidential / NDA Sides"| Ollama["Privacy-First Model<br>(Local Ollama: Qwen2.5-7B on Mac)"]
         Gemini --> Schema["Structured OneTake JSON<br>(NoticeParser.Draft & ScriptScene)"]
@@ -24,12 +56,44 @@ flowchart TD
     end
 ```
 
+### Feature Comparison
+
+| Component | Architecture / Model | Context Window | Native PDF Vision? | Privacy | Cost |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Headshot Pose Classifier** | `MobileNetV3-Small` CoreML | 1 Frame ($224 \times 224$) | Direct Image | 100% On-Device | **$0.00** |
+| **Gemini Flash (Cloud Free)** | Gemini 1.5/2.0 Flash | **1,000,000 tokens** | **Yes** (Layout vision) | Sent to Google AI Studio | **$0.00** (1.5k req/day) |
+| **Privacy-First Model** | `Qwen2.5:7b` / `Llama3.1:8b` | **32,768 tokens** | Text/OCR | **100% On-Device (Zero data leaves)** | **$0.00** (Unlimited) |
+
 ---
 
-## 2. Headshot 3-Pose Angle & Yaw Regression Model
+## 3. System Prerequisites & Environment Matrix
+
+### Supported Operating Systems
+- **macOS 14+ (Sonoma, Sequoia)**: Apple Silicon (M1/M2/M3/M4) recommended. Uses Apple Metal Performance Shaders (`mps`) and Apple Neural Engine (`ANE`).
+- **Linux (Ubuntu 22.04 / 24.04 LTS)**: Supported with CUDA or CPU fallback for training.
+- **Python**: **Python 3.10, 3.11, 3.12, 3.13, or 3.14** (isolated inside `scripts/.venv/`).
+
+### Required System Packages
+On macOS:
+```bash
+# 1. Install Xcode Command Line Tools (required for coremlc)
+xcode-select --install || true
+
+# 2. (Optional) Install Ollama for local privacy-first parsing
+brew install ollama
+```
+
+On Linux:
+```bash
+sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip git build-essential
+```
+
+---
+
+## 4. Headshot 3-Pose Angle & Yaw Regression Pipeline
 
 ### Problem Statement
-In `ProfileViews.swift`, the actor is guided through a 3-pose headshot verification sequence:
+In `ProfileViews.swift`, the actor is guided through a 3-pose headshot sequence:
 1. **Front**: Eye line centered, looking straight into lens ($|yaw| \le 0.25$ rad $\approx \pm 14.3^\circ$).
 2. **Left Profile**: Head turned $90^\circ$ to actor's left ($yaw \ge 0.25$ rad and $\le 1.15$ rad, target $\approx +1.45$ rad).
 3. **Right Profile**: Head turned $90^\circ$ to actor's right ($yaw \le -0.25$ rad and $\ge -1.15$ rad, target $\approx -1.45$ rad).
@@ -45,14 +109,14 @@ Apple Vision's built-in `VNDetectFaceRectanglesRequest` frequently drops trackin
 - **Loss Function**: Combined Cross-Entropy and Mean Squared Error:
   $$\mathcal{L} = \mathcal{L}_{\text{CE}}(\hat{y}_{\text{class}}, y_{\text{class}}) + 2.5 \cdot \mathcal{L}_{\text{MSE}}(\hat{\theta}_{\text{yaw}}, \theta_{\text{yaw}})$$
 
-### Training & Augmentation Pipeline
+### Training & Augmentation Pipeline (`scripts/train_headshot_pose_model.py`)
 - **Dataset**: Photographic actor portraits harvested from Wikimedia Commons portrait categories + synthetic silhouette anchors.
 - **Dynamic Augmentations**:
   - **Horizontal Flip with Inversion**: Flipping a `left_profile` sample transforms it into a `right_profile` sample with inverted yaw ($\theta \leftarrow -\theta$).
   - **Color Jitter**: Brightness, contrast, and saturation variations simulate bedroom vs studio lighting.
   - **Affine Transform**: $\pm 8^\circ$ rotation and scale jitter simulate phone handheld tilt and camera distance.
 - **CoreML Export**:
-  - Exported to `OneTake/Models/HeadshotPoseClassifier.mlmodel` using `coremltools`.
+  - Exported to `OneTake/Models/HeadshotPoseClassifier.mlmodel` using `coremltools` (`convert_to="neuralnetwork"`).
   - Compiled natively using `xcrun coremlc compile` to produce `HeadshotPoseClassifier.mlmodelc`.
 
 ### Benchmark Results (`scripts/evaluate_dataset.py`)
@@ -66,7 +130,7 @@ Apple Vision's built-in `VNDetectFaceRectanglesRequest` frequently drops trackin
 
 ---
 
-## 3. Audition Sides & Notice Parsing Engine (20-Page Problem)
+## 5. Audition Sides & Notice Parsing Engine (20-Page Problem)
 
 ### Why On-Device LLMs Failed
 1. **Context Window Starvation**: Mobile SLMs (e.g., Gemini Nano on Android AICore) are capped at 2,048–4,096 tokens. A 20-page screenplay side contains 4,000–7,000 words (~10,000–15,000 tokens), causing immediate truncation or memory faults.
@@ -122,7 +186,7 @@ Apple Vision's built-in `VNDetectFaceRectanglesRequest` frequently drops trackin
 
 ---
 
-## 4. Synthetic Training Pipeline (`scripts/synthesize_parsing_dataset.py`)
+## 6. Synthetic Training Pipeline (`scripts/synthesize_parsing_dataset.py`)
 
 To fine-tune models to repair real-world mobile OCR scan errors, `synthesize_parsing_dataset.py` injects realistic degradation into clean screenplay texts:
 
@@ -142,80 +206,96 @@ Compatible with **Unsloth**, **Axolotl**, **LLaMA-Factory**, **Apple MLX**, and 
 
 ---
 
-## 5. Dual Parsing Route (100% Free)
+## 7. Complete Execution Runbook (Step-by-Step)
 
-```mermaid
-graph LR
-    Sides["20-Page Script Sides"] --> Route{"Classify Sensitivity"}
-    Route -->|"Standard Sides"| Gemini["Google Gemini Flash<br>• 1M Token Context<br>• Direct PDF Vision<br>• 1,500 req/day FREE"]
-    Route -->|"Confidential / NDA"| Ollama["Privacy-First Model<br>• Local Mac / Server<br>• Zero Data Leaves Device<br>• 100% FREE & Unlimited"]
-```
-
-### Route 1: Google Gemini 1.5/2.0 Flash (Cloud Free Tier)
-- **Cost**: **$0.00** via [Google AI Studio](https://aistudio.google.com).
-- **Free Quota**: 15 RPM, 1,000,000 TPM, 1,500 requests/day.
-- **Context**: **1,000,000 tokens** (ingests 700+ pages of script effortlessly).
-- **Superpower**: **Multimodal PDF Vision**—reads the multi-page PDF image directly, bypassing text OCR degradation and visually observing Courier column indentations.
-- **Schema Guarantee**: Built-in `responseMimeType: "application/json"` with schema validation.
-
-### Route 2: Privacy-First Local Model (Ollama on Mac / Server)
-- **Cost**: **$0.00** (Open Source, runs locally on Apple Silicon).
-- **Models**: `qwen2.5:7b` or `llama3.1:8b` via Ollama.
-- **Context**: 32,768 tokens (sufficient for up to ~25 pages of screenplay).
-- **Data Privacy**: **Zero bytes leave the device**. Essential for major studio audition sides under strict NDAs (Disney, Netflix, Warner Bros).
-
----
-
-## 6. Scripts Inventory & CLI Usage
-
-All ML operations are run using the isolated virtual environment:
-
-### 1. Data Harvesting
+### Step 1: Initialize Virtual Environment
 ```bash
-# Scrape public domain sides and Wikimedia portraits
+./scripts/setup_env.sh
+```
+*Expected Output*: Verified PyTorch device (`mps` or `cuda`), Pillow, and initialized `dataset/` directories.
+
+### Step 2: Harvest Datasets
+```bash
 ./scripts/.venv/bin/python scripts/scrape_audition_data.py
-
-# Generate synthetic flyer mocks and photographed sides
-./scripts/.venv/bin/python scripts/collect_audition_dataset.py --all
 ```
+*Expected Output*: Downloads and normalizes real photographic actor headshots into `dataset/headshots/front`, `dataset/headshots/left_profile`, `dataset/headshots/right_profile`, and generates PDF screenplay sides in `dataset/sides/`.
 
-### 2. Train Headshot Pose Model
+### Step 3: Train Headshot Pose Classifier & Export CoreML
 ```bash
-# Trains MobileNetV3 multi-task net on MPS and compiles CoreML .mlmodel
 ./scripts/.venv/bin/python scripts/train_headshot_pose_model.py
+```
+*Expected Output*: Trains 12 epochs on MPS/CUDA, exports `OneTake/Models/HeadshotPoseClassifier.mlmodel` and compiles with `xcrun coremlc` to `HeadshotPoseClassifier.mlmodelc`.
 
-# Benchmark accuracy on test headshots
+### Step 4: Evaluate Headshot Model
+```bash
 ./scripts/.venv/bin/python scripts/evaluate_dataset.py
 ```
+*Expected Output*: Benchmark summary showing $\ge 90\%$ test accuracy and mean yaw error $\le 11^\circ$.
 
-### 3. Generate Parsing Fine-Tuning Datasets
+### Step 5: Synthesize Screenplay Parsing Instruction Dataset
 ```bash
-# Synthesize ChatML JSONL dataset with realistic OCR noise injection
 ./scripts/.venv/bin/python scripts/synthesize_parsing_dataset.py
 ```
+*Expected Output*: Creates `dataset/parsing_dataset_train.jsonl` and `dataset/parsing_dataset_eval.jsonl` with degraded OCR input $\rightarrow$ structured OneTake JSON target.
 
-### 4. Test Dual Parsers (Gemini vs Privacy-First)
+### Step 6: Test Dual Cloud Parsers
 ```bash
-# Test Gemini Flash Free Tier (requires free Google AI Studio key)
-./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --gemini --key YOUR_KEY
+# 1. Test Gemini Flash (1M context free tier)
+./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --gemini --key YOUR_GEMINI_KEY
 
-# Test Privacy-First Local Model (requires Ollama running on Mac)
+# 2. Test Privacy-First Local Ollama (run 'ollama run qwen2.5:7b' in another tab first)
 ./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --privacy --model qwen2.5:7b
 
-# Run side-by-side benchmark on a specific script file
-./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --all --key YOUR_KEY --file dataset/sides/Pygmalion_Sides.pdf
+# 3. Test on a specific script file
+./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --all --key YOUR_GEMINI_KEY --file dataset/sides/The_Importance_of_Being_Earnest_Sides.pdf
 ```
 
-### 5. Reference Parsing Backend Service
+### Step 7: Reference Backend Parsing Service
 ```bash
-# Starts local FastAPI/HTTP server with /api/v1/parse endpoints and deterministic fallback
 ./scripts/.venv/bin/python scripts/backend_parser_service.py
 ```
+*Expected Output*: HTTP server listening on port 8080 (`/api/v1/parse/notice`, `/api/v1/parse/sides`, `/api/v1/parse/document`) with automatic deterministic fallback.
 
 ---
 
-## 7. Isolation & Git Policy
+## 8. Troubleshooting & Known Gotchas
 
-1. **iOS Code Decoupling**: No ML backend or network dependencies are added to `OneTake/`. All iOS code remains on verified, deterministic Swift implementations.
-2. **Git Cleanliness**: All model weights (`*.pth`), virtual environments (`scripts/.venv/`), and dataset caches (`dataset/`, `data/`) are strictly excluded in `.gitignore`.
-3. **Authorization Rule**: No git commits or git pushes are performed without explicit user authorization.
+### 1. `error: externally-managed-environment`
+* **Cause**: PEP 668 on Homebrew Python 3.12+.
+* **Fix**: Always run via the virtual environment: `scripts/.venv/bin/python` or `./scripts/setup_env.sh`. Never run system `pip install`.
+
+### 2. `BlobWriter not loaded` during CoreML export
+* **Cause**: `coremltools` MIL storage C++ extensions are not prebuilt for Python 3.14.
+* **Fix**: In `train_headshot_pose_model.py`, `convert_to="neuralnetwork"` is explicitly set. This generates a standard `.mlmodel` protobuf file that compiles natively via `xcrun coremlc compile`.
+
+### 3. `xcrun: error: unable to find utility "coremlc"`
+* **Cause**: Xcode developer tools path is unlinked or unset.
+* **Fix**: Run:
+  ```bash
+  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+  # Or export for current session:
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  ```
+
+### 4. Ollama connection refused (`Failed to connect to localhost:11434`)
+* **Cause**: Ollama background service is not running.
+* **Fix**: Start the Ollama daemon:
+  ```bash
+  ollama serve &
+  ollama pull qwen2.5:7b
+  ```
+
+### 5. Gemini API 400/403 Invalid API Key
+* **Cause**: Unset or invalid API key.
+* **Fix**: Generate a free key at [aistudio.google.com](https://aistudio.google.com) and export:
+  ```bash
+  export GEMINI_API_KEY="AIzaSy..."
+  ```
+
+---
+
+## 9. Isolation & Safety Guarantees
+
+1. **iOS Code Integrity**: No ML backend or network dependencies are injected into `OneTake/`. All iOS code remains on verified, deterministic Swift implementations.
+2. **Git Cleanliness**: All model weights (`*.pth`), bytecode (`*.pyc`), virtual environments (`scripts/.venv/`), and dataset caches (`dataset/`, `data/`) are strictly excluded in `.gitignore`.
+3. **Turnkey Independence**: Another computer or AI assistant can clone the repository, run `./scripts/setup_env.sh`, and reproduce the entire pipeline without human intervention.
