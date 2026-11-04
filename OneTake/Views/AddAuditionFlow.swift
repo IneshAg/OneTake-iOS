@@ -28,12 +28,11 @@ struct AddAuditionFlow: View {
                     guard !pages.isEmpty else { return }
                     Task {
                         let text = await NoticeOCR.recognizeText(in: pages)
-                        await MainActor.run {
-                            if !NoticeOCR.looksReadable(text) {
-                                unreadableNoticeError = true
-                            } else {
-                                pendingReviewDraft = NoticeParser.parse(text)
-                            }
+                        if !NoticeOCR.looksReadable(text) {
+                            await MainActor.run { unreadableNoticeError = true }
+                        } else {
+                            let draft = await NoticeParser.parseAsync(text)
+                            await MainActor.run { pendingReviewDraft = draft }
                         }
                     }
                 }
@@ -56,12 +55,11 @@ struct AddAuditionFlow: View {
                     defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                     Task {
                         let text = await NoticeOCR.extractText(fromFileAt: url)
-                        await MainActor.run {
-                            if let text, NoticeOCR.looksReadable(text) {
-                                pendingReviewDraft = NoticeParser.parse(text)
-                            } else {
-                                unreadableNoticeError = true
-                            }
+                        if let text, NoticeOCR.looksReadable(text) {
+                            let draft = await NoticeParser.parseAsync(text)
+                            await MainActor.run { pendingReviewDraft = draft }
+                        } else {
+                            await MainActor.run { unreadableNoticeError = true }
                         }
                     }
                 case .failure:
@@ -88,12 +86,11 @@ struct AddAuditionFlow: View {
                         return
                     }
                     let text = await NoticeOCR.recognizeText(in: [image])
-                    await MainActor.run {
-                        if !NoticeOCR.looksReadable(text) {
-                            unreadableNoticeError = true
-                        } else {
-                            pendingReviewDraft = NoticeParser.parse(text)
-                        }
+                    if !NoticeOCR.looksReadable(text) {
+                        await MainActor.run { unreadableNoticeError = true }
+                    } else {
+                        let draft = await NoticeParser.parseAsync(text)
+                        await MainActor.run { pendingReviewDraft = draft }
                     }
                 }
             }
@@ -117,14 +114,13 @@ struct AddAuditionFlow: View {
         if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        await MainActor.run {
-            if !NoticeOCR.looksReadable(text) {
-                unreadableNoticeError = true
-            } else {
-                // Route through OCR Review sheet so the actor can verify what was read
-                // from the shared notice before it is committed to the audition draft.
-                pendingReviewDraft = NoticeParser.parse(text)
-            }
+        if !NoticeOCR.looksReadable(text) {
+            await MainActor.run { unreadableNoticeError = true }
+        } else {
+            // Route through OCR Review sheet so the actor can verify what was read
+            // from the shared notice before it is committed to the audition draft.
+            let draft = await NoticeParser.parseAsync(text)
+            await MainActor.run { pendingReviewDraft = draft }
         }
     }
 
@@ -483,6 +479,13 @@ enum NoticeParser {
             audition.sidesLink = sidesLink
             return audition
         }
+    }
+
+    /// Asynchronous parsing pipeline: runs deterministic regex/anchor extraction first,
+    /// then enriches with the on-device Foundation Model when supported on this iPhone.
+    static func parseAsync(_ rawText: String) async -> Draft {
+        let base = parse(rawText)
+        return await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
     }
 
     static func parse(_ rawText: String) -> Draft {

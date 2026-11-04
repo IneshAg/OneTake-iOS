@@ -126,6 +126,100 @@ enum OnDeviceIntelligence {
         return ExtractedNoticeMetadata(project: project, roles: roles, asks: asks, deadline: deadline)
     }
 
+    /// Uses the on-device Foundation Model (when supported and available) to refine and enrich a parsed draft
+    /// from raw casting notice text, resolving natural-language descriptions, director's notes, and ambiguous fields
+    /// without overwriting validated deterministic regex fields.
+    static func refineDraftWithFoundationModel(_ draft: NoticeParser.Draft, sourceText: String) async -> NoticeParser.Draft {
+        let snippet = String(sourceText.prefix(3000))
+        guard !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return draft }
+
+        let prompt = """
+        You are an expert casting director assistant. Analyze this casting call notice and extract the key audition fields.
+        Return each field on its own line using EXACTLY these keys (or 'None' if not mentioned):
+        PROJECT: [Name of film, show, commercial, or play]
+        ROLE: [Main character name being cast]
+        ROLE_SIZE: [Lead / Supporting / Co-Star / Day Player / Series Regular / None]
+        CASTING_OFFICE: [Name of casting director or casting agency]
+        DEADLINE: [Self-tape submission due date/time, e.g. 'November 5, 2026' or 'Friday 5pm']
+        REQUIREMENTS: [Any specific video rules: Slate first, Landscape, Full length, Headshots, etc.]
+        SIDES_LINK: [Cloud link for script sides if mentioned]
+        SUBMISSION_LINK: [Tape upload link, form, or submission email]
+        GUIDANCE: [Brief director's note, tone, or character background]
+
+        Casting Notice:
+        \(snippet)
+
+        Current known details (do not contradict if accurate):
+        Project: \(draft.project.isEmpty ? "Unknown" : draft.project)
+        Role: \(draft.role.isEmpty ? "Unknown" : draft.role)
+        """
+
+        guard let answer = await respond(to: prompt) else { return draft }
+        var refined = draft
+
+        let lines = answer.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.uppercased().hasPrefix("PROJECT:") {
+                let val = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                if refined.project.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 50 {
+                    refined.project = val
+                }
+            } else if trimmed.uppercased().hasPrefix("ROLE:") {
+                let val = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                if refined.role.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 35 {
+                    refined.role = val
+                    if !refined.candidateRoles.contains(val) { refined.candidateRoles.append(val) }
+                }
+            } else if trimmed.uppercased().hasPrefix("ROLE_SIZE:") {
+                let val = String(trimmed.dropFirst(10)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" {
+                    refined.roleSize = val
+                }
+            } else if trimmed.uppercased().hasPrefix("CASTING_OFFICE:") {
+                let val = String(trimmed.dropFirst(15)).trimmingCharacters(in: .whitespaces)
+                if refined.castingOffice.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 50 {
+                    refined.castingOffice = val
+                }
+            } else if trimmed.uppercased().hasPrefix("DEADLINE:") {
+                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if refined.due == nil && !val.isEmpty && val.lowercased() != "none" {
+                    if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
+                       let match = detector.firstMatch(in: val, range: NSRange(val.startIndex..., in: val)),
+                       let date = match.date {
+                        refined.due = date
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("REQUIREMENTS:") {
+                let val = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty && val.lowercased() != "none" {
+                    let items = val.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    for item in items where !item.isEmpty && !refined.asks.contains(item) {
+                        refined.asks.append(item)
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("SIDES_LINK:") {
+                let val = String(trimmed.dropFirst(11)).trimmingCharacters(in: .whitespaces)
+                if refined.sidesLink == nil && !val.isEmpty && val.lowercased() != "none" && sourceText.contains(val) {
+                    refined.sidesLink = val
+                }
+            } else if trimmed.uppercased().hasPrefix("SUBMISSION_LINK:") {
+                let val = String(trimmed.dropFirst(16)).trimmingCharacters(in: .whitespaces)
+                if refined.destinationDetail == nil && !val.isEmpty && val.lowercased() != "none" && sourceText.contains(val) {
+                    refined.destinationDetail = val
+                    refined.destination = .emailOrLink
+                }
+            } else if trimmed.uppercased().hasPrefix("GUIDANCE:") {
+                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if refined.aiGuidance.isEmpty && !val.isEmpty && val.lowercased() != "none" {
+                    refined.aiGuidance = val
+                }
+            }
+        }
+
+        return refined
+    }
+
     /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
     /// If unavailable or offline, returns nil, allowing the high-precision algorithmic beat divider
     /// in ScriptParser to seamlessly handle segmentation on all iPhones.
