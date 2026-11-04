@@ -189,7 +189,7 @@ struct AudioWalkView: View {
                     Text("\(recorded) of \(readerLines) reader lines recorded. Record the rest before starting the Audio Walk.")
                         .font(.otFootnote).foregroundStyle(OT.warning)
                     Button { store.push(.recordReader(auditionID, sceneIndex: sceneIndex)) } label: { Label("Record the reader", systemImage: "mic") }
-                        .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                        .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
                 }
                 if readerLines == 0 {
                     Text("This scene has no reader lines to play.")

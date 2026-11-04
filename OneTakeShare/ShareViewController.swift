@@ -121,7 +121,7 @@ struct ShareView: View {
                 Text("Done").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonBorderShape(.roundedRectangle(radius: 14))
             .disabled(model.state == .saving)
         }
         .padding(24)

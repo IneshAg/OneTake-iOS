@@ -188,7 +188,7 @@ struct AddAuditionFlow: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(OT.accent, in: Capsule())
+                        .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .foregroundStyle(.white)
                     }
                     .padding(14)
@@ -323,7 +323,7 @@ private struct OCRReviewSheet: View {
                                         }
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
-                                        .background(roleText == roleOption ? OT.accent : OT.fillField, in: Capsule())
+                                        .background(roleText == roleOption ? OT.accent : OT.fillField, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                         .foregroundStyle(roleText == roleOption ? .white : OT.labelPrimary)
                                     }
                                     .buttonStyle(.plain)
@@ -434,7 +434,7 @@ private struct OCRReviewSheet: View {
                                 .font(.otCaption.weight(.bold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                                .background(isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .foregroundStyle(isSlateOptional ? OT.labelSecondary : OT.accent)
                             }
                             Spacer()
@@ -450,7 +450,7 @@ private struct OCRReviewSheet: View {
                                 .font(.otCaption.weight(.bold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                                .background(isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .foregroundStyle(isHeadshotOptional ? OT.labelSecondary : OT.accent)
                             }
                         }
@@ -471,7 +471,7 @@ private struct OCRReviewSheet: View {
                                             .font(.otFootnote.weight(.medium))
                                             .padding(.horizontal, 10)
                                             .padding(.vertical, 5)
-                                            .background(OT.accentSoft, in: Capsule())
+                                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
                                 }
                             }
@@ -1883,7 +1883,7 @@ struct AddDraftSidesSheet: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(OT.accent, in: Capsule())
+                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
@@ -2299,7 +2299,7 @@ struct MissingDetailsView: View {
                                     .foregroundStyle(OT.accent)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 7)
-                                    .background(OT.accentSoft, in: Capsule())
+                                    .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .fixedSize()
                                 }
 
@@ -2343,7 +2343,7 @@ struct MissingDetailsView: View {
                                 .foregroundStyle(OT.accent)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
-                                .background(OT.accentSoft, in: Capsule())
+                                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .fixedSize()
                             }
                             .padding(14)
@@ -2372,7 +2372,7 @@ struct MissingDetailsView: View {
                             .foregroundStyle(OT.accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(OT.accentSoft, in: Capsule())
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .fixedSize()
                         }
                         .padding(14)
@@ -2464,7 +2464,7 @@ struct MissingDetailsView: View {
                 .font(.otCaption.weight(.medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .foregroundStyle(OT.accent)
         }
         .buttonStyle(.plain)
@@ -2596,7 +2596,7 @@ struct NoticeReviewView: View {
                             .foregroundStyle(OT.accent)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
-                            .background(OT.accentSoft, in: Capsule())
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .fixedSize()
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2623,7 +2623,7 @@ struct NoticeReviewView: View {
                             .foregroundStyle(OT.accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(OT.accentSoft, in: Capsule())
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .fixedSize()
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2867,7 +2867,7 @@ struct NoticeReviewView: View {
                             .font(.otFootnote.weight(.bold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(store.auditionDraft.isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                            .background(store.auditionDraft.isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .foregroundStyle(store.auditionDraft.isSlateOptional ? OT.labelSecondary : OT.accent)
                         }
 
@@ -2893,7 +2893,7 @@ struct NoticeReviewView: View {
                             .font(.otFootnote.weight(.bold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(store.auditionDraft.isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                            .background(store.auditionDraft.isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .foregroundStyle(store.auditionDraft.isHeadshotOptional ? OT.labelSecondary : OT.accent)
                         }
                     }

@@ -163,9 +163,9 @@ struct SignInView: View {
                         Text("Continue with Google").font(.system(size: 17, weight: .semibold)).tracking(-0.4)
                     }
                     .foregroundStyle(OT.labelPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(OT.surfaceCard, in: Capsule())
-                    .overlay(Capsule().strokeBorder(OT.separator, lineWidth: 1))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(OT.separator, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .disabled(working || !AccountAuth.isGoogleConfigured)
@@ -216,9 +216,9 @@ struct SignInView: View {
                 .background(OT.separator.opacity(0.5), in: Capsule())
         }
         .foregroundStyle(OT.labelSecondary)
-        .frame(maxWidth: .infinity, minHeight: 54)
-        .background(OT.surfaceCard, in: Capsule())
-        .overlay(Capsule().strokeBorder(OT.separator, lineWidth: 1))
+        .frame(maxWidth: .infinity, minHeight: 50)
+        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(OT.separator, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). Unavailable in this build.")
     }

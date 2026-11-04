@@ -25,11 +25,9 @@ struct ProfileView: View {
                     Button("Done") {
                         store.showProfile = false
                     }
-                    .font(.otSubhead.weight(.semibold))
-                    .foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, 16)
-                    .frame(height: 36)
-                    .background(OT.fillField, in: Capsule())
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(minHeight: 44)
                 }
                 .padding(.top, 16)
 
@@ -1030,7 +1028,7 @@ struct HeadshotsView: View {
                                 .foregroundStyle(OT.danger)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(OT.fillField, in: Capsule())
+                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                         }
                         .padding(14)

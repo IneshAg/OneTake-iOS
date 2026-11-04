@@ -484,14 +484,14 @@ struct ShootFlow: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .frame(height: 36)
-                .background(OT.cameraGlass, in: Capsule())
+                .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         } else if hasTapeCheck {
             Button("Tape check") { finish(goTo: .tapeCheck(auditionID)) }
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .frame(height: 36)
-                .background(OT.cameraGlass, in: Capsule())
+                .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         } else {
             switch stage {
             case .slate:
@@ -503,14 +503,14 @@ struct ShootFlow: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .frame(height: 36)
-                .background(OT.cameraGlass, in: Capsule())
+                .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             case .fullLength:
                 Button("Skip") { stage = .scene }
                     .font(.otFootnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .frame(height: 36)
-                    .background(OT.cameraGlass, in: Capsule())
+                    .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             case .scene:
                 let sceneTakes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == sceneIndex }
                 if !sceneTakes.isEmpty {
@@ -521,14 +521,14 @@ struct ShootFlow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .frame(height: 36)
-                    .background(OT.cameraGlass, in: Capsule())
+                    .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else if let a = store.audition(auditionID), let next = nextUnshotScene(in: a) {
                     Button("Skip") { moveToScene(next) }
                         .font(.otFootnote.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .frame(height: 36)
-                        .background(OT.cameraGlass, in: Capsule())
+                        .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else {
                     Color.clear.frame(width: 44, height: 44)
                 }
@@ -565,7 +565,7 @@ struct ShootFlow: View {
                         Text(poseGuideEnabled ? "On" : "Off")
                             .font(.otCaption.weight(.bold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).frame(height: 30)
-                            .background(poseGuideEnabled ? OT.accent.opacity(0.85) : OT.cameraGlass, in: Capsule())
+                            .background(poseGuideEnabled ? AnyShapeStyle(OT.accent.opacity(0.85)) : AnyShapeStyle(OT.cameraGlass), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .accessibilityLabel("Pose guide \(poseGuideEnabled ? "on" : "off")")
                 }
@@ -877,7 +877,7 @@ struct ShootFlow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 36)
-                    .background(OT.cameraGlass, in: Capsule())
+                    .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
 
                 Button {
@@ -891,7 +891,7 @@ struct ShootFlow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .frame(height: 36)
-                    .background(OT.cameraGlass, in: Capsule())
+                    .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
@@ -1011,7 +1011,7 @@ struct ShootFlow: View {
                             }
                             .foregroundStyle(i == sceneIndex ? OT.labelOnAccent : .white)
                             .padding(.horizontal, 10).frame(height: 30)
-                            .background(i == sceneIndex ? AnyShapeStyle(OT.accent) : AnyShapeStyle(Color.black.opacity(0.55)), in: Capsule())
+                            .background(i == sceneIndex ? AnyShapeStyle(OT.accent) : AnyShapeStyle(Color.black.opacity(0.55)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .accessibilityLabel("\(a.scenes[i].title)\(shot ? ", has a take" : "")")
                         .accessibilityAddTraits(i == sceneIndex ? .isSelected : [])
@@ -1254,7 +1254,7 @@ struct ShootFlow: View {
     private func cameraChoice(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
             .font(.otFootnote.weight(.semibold)).foregroundStyle(.white)
-            .padding(.horizontal, 12).frame(height: 36).background(OT.cameraGlass, in: Capsule())
+            .padding(.horizontal, 12).frame(height: 36).background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func chip(_ symbol: String?, _ text: String) -> some View {

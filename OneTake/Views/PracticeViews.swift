@@ -280,7 +280,7 @@ struct PracticeSetupView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(OT.accent, in: Capsule())
+                        .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
@@ -988,7 +988,7 @@ struct PracticeTakeView: View {
                                 .font(.otFootnote.weight(.semibold))
                             }
                             .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.capsule)
+                            .buttonBorderShape(.roundedRectangle(radius: 10))
                             .tint(.white)
                             .foregroundStyle(.black)
                         }
@@ -1044,7 +1044,7 @@ struct PracticeTakeView: View {
                                 .foregroundStyle(isAllLearned ? OT.accent : .white)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(isAllLearned ? OT.accentSoft : Color.white.opacity(0.12), in: Capsule())
+                                .background(isAllLearned ? AnyShapeStyle(OT.accentSoft) : AnyShapeStyle(Color.white.opacity(0.12)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                             .buttonStyle(.plain)
 
@@ -1111,7 +1111,7 @@ struct PracticeTakeView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .frame(height: 36)
-                            .background(OT.cameraGlass, in: Capsule())
+                            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
                         Button {
@@ -1125,7 +1125,7 @@ struct PracticeTakeView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .frame(height: 36)
-                            .background(OT.cameraGlass, in: Capsule())
+                            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
                         if recordMode == .camera {
@@ -1142,7 +1142,7 @@ struct PracticeTakeView: View {
                                 .foregroundStyle(camera.isExposureLocked ? OT.prompterGold : .white)
                                 .padding(.horizontal, 10)
                                 .frame(height: 36)
-                                .background(OT.cameraGlass, in: Capsule())
+                                .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
                         }
                     }

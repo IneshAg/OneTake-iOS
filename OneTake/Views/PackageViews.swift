@@ -222,7 +222,7 @@ struct PackageView: View {
                         .foregroundStyle(OT.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(OT.accentSoft, in: Capsule())
+                        .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -258,7 +258,7 @@ struct PackageView: View {
             .foregroundStyle(isSelected ? OT.labelOnAccent : OT.labelSecondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(isSelected ? OT.accent : OT.fillField, in: Capsule())
+            .background(isSelected ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
     }

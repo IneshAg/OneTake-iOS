@@ -199,21 +199,19 @@ struct PrepareView: View {
     }
 
     private func bottomBar(_ a: Audition) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Button { store.push(.runLines(a.id, sceneIndex: sceneIndex)) } label: {
                 Label("Run lines", systemImage: "play.fill").labelStyle(TrailingIconLabelStyle())
-                    .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, 14).frame(height: 44).background(OT.fillField, in: Capsule())
             }
+            .buttonStyle(.otSecondary)
             Button { store.push(.shootSetup(a.id, scene: sceneIndex)) } label: {
                 Label("Record", systemImage: "record.circle").labelStyle(TrailingIconLabelStyle())
-                    .font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelOnAccent)
-                    .padding(.horizontal, 16).frame(height: 44).background(OT.accent, in: Capsule())
             }
+            .buttonStyle(.otPrimary)
         }
-        .padding(8)
-        .background(.regularMaterial, in: Capsule())
-        .padding(.bottom, 6)
+        .padding(.horizontal, OT.gutter)
+        .padding(.vertical, 8)
+        .background(OT.bgCanvas)
     }
 }
 
@@ -547,7 +545,7 @@ struct ReaderView: View {
                                         .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(isCurrent ? OT.reader : OT.fillField, in: Capsule())
+                                        .background(isCurrent ? AnyShapeStyle(OT.reader) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -655,7 +653,7 @@ struct ReaderView: View {
                                         .foregroundStyle(recorded ? OT.accent : OT.reader)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
-                                        .background(OT.accentSoft, in: Capsule())
+                                        .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -835,7 +833,7 @@ struct RecordReaderView: View {
                                     .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
-                                    .background(isCurrent ? OT.reader : OT.fillField, in: Capsule())
+                                    .background(isCurrent ? AnyShapeStyle(OT.reader) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
@@ -936,7 +934,7 @@ struct RecordReaderView: View {
                         .foregroundStyle(!showFullScript ? OT.bgCanvas : OT.labelSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(!showFullScript ? OT.accent : OT.fillField, in: Capsule())
+                        .background(!showFullScript ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
 
@@ -951,7 +949,7 @@ struct RecordReaderView: View {
                         .foregroundStyle(showFullScript ? OT.bgCanvas : OT.labelSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(showFullScript ? OT.accent : OT.fillField, in: Capsule())
+                        .background(showFullScript ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
 
@@ -1272,7 +1270,7 @@ struct RecordReaderView: View {
                                                 .foregroundStyle(isRec ? OT.accent : OT.reader)
                                                 .padding(.horizontal, 10)
                                                 .padding(.vertical, 6)
-                                                .background(OT.accentSoft, in: Capsule())
+                                                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                             }
                                             .buttonStyle(.plain)
                                         }
@@ -1794,7 +1792,7 @@ struct SceneAudioFlowView: View {
                                     .foregroundStyle(OT.labelOnAccent)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(OT.accent, in: Capsule())
+                                    .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
 
@@ -1810,7 +1808,7 @@ struct SceneAudioFlowView: View {
                                         .foregroundStyle(OT.labelSecondary)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(OT.fillField, in: Capsule())
+                                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1836,14 +1834,14 @@ struct SceneAudioFlowView: View {
                                             .foregroundStyle(OT.accent)
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 3)
-                                            .background(OT.accentSoft, in: Capsule())
+                                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     } else {
                                         Text(line.character.uppercased())
                                             .font(.otCaption.weight(.bold))
                                             .foregroundStyle(OT.reader)
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 3)
-                                            .background(OT.reader.opacity(0.14), in: Capsule())
+                                            .background(OT.reader.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                                         if isRec {
                                             HStack(spacing: 4) {
@@ -1896,7 +1894,7 @@ struct SceneAudioFlowView: View {
                                                     .foregroundStyle(OT.labelOnAccent)
                                                     .padding(.horizontal, 10)
                                                     .padding(.vertical, 5)
-                                                    .background(OT.accent, in: Capsule())
+                                                    .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                                 }
                                                 .buttonStyle(.plain)
                                             }

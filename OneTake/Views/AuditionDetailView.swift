@@ -322,11 +322,7 @@ struct AuditionDetailView: View {
             Button(hasHeadshots ? "Manage" : "Add") {
                 store.push(.headshots(for: a.id))
             }
-            .font(.otFootnote.weight(.semibold))
-            .foregroundStyle(OT.accent)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(OT.accentSoft, in: Capsule())
+            .buttonStyle(.otCompact)
         }
         .padding(16)
         .otCard()
@@ -403,13 +399,8 @@ struct PackageSheet: View {
                                 Haptics.tick()
                             } label: {
                                 Text(piece.isOptional ? "Make required" : "Make optional")
-                                    .font(.otCaption.weight(.semibold))
-                                    .foregroundStyle(OT.accent)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(OT.accentSoft, in: Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.otCompact)
                         }
 
                         if piece.id == a.nextPiece?.id { Text("Next").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent) }
@@ -787,10 +778,10 @@ struct CallbackSheet: View {
             Haptics.tick()
         }) {
             Text(title)
-                .font(.otCaption.weight(.medium))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .font(.otCaption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .foregroundStyle(OT.accent)
         }
         .buttonStyle(.plain)
@@ -869,7 +860,7 @@ struct CallbackExtraSidesSheet: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(OT.accent, in: Capsule())
+                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
@@ -1082,7 +1073,7 @@ struct EditAuditionSheet: View {
                                         .foregroundStyle(isCurrent ? OT.bgCanvas : OT.accent)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(isCurrent ? OT.accent : OT.accentSoft, in: Capsule())
+                                        .background(isCurrent ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.accentSoft), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1516,10 +1507,10 @@ struct EditAuditionSheet: View {
             Haptics.tick()
         }) {
             Text(title)
-                .font(.otCaption.weight(.medium))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .font(.otCaption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .foregroundStyle(OT.accent)
         }
         .buttonStyle(.plain)
@@ -1616,7 +1607,7 @@ struct RevisedSidesSheet: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(OT.accent, in: Capsule())
+                            .background(OT.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)

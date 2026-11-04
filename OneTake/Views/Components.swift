@@ -258,11 +258,21 @@ struct SheetHeader: View {
 
     var body: some View {
         HStack {
-            if let leading { Button(leading, action: onLeading).buttonStyle(.bordered).buttonBorderShape(.capsule) }
+            if let leading {
+                Button(leading, action: onLeading)
+                    .font(.system(size: 17))
+                    .foregroundStyle(OT.accent)
+                    .frame(minHeight: 44)
+            }
             Spacer()
             Text(title).font(.otHeadline)
             Spacer()
-            if let trailing { Button(trailing, action: onTrailing).buttonStyle(.borderedProminent).buttonBorderShape(.capsule) }
+            if let trailing {
+                Button(trailing, action: onTrailing)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(minHeight: 44)
+            }
             else if leading != nil { Color.clear.frame(width: 72, height: 1) }
         }
         .padding(.horizontal, OT.gutter)
@@ -417,32 +427,21 @@ struct GlassBackButton: View {
                                 .stroke(onDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), lineWidth: 0.5)
                         )
                 } else {
-                    // Named destination glass capsule (e.g. "< Auditions", "Cancel", "Done")
+                    // Native iOS borderless navigation item (e.g. "< Auditions", "Cancel", "Done")
                     HStack(spacing: 5) {
                         if !isDismissStyle {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 17, weight: .semibold))
                         }
                         Text(label)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 17, weight: isDismissStyle && label == "Done" ? .semibold : .regular))
                     }
-                    .foregroundStyle(onDark ? .white : OT.labelPrimary)
-                    .padding(.horizontal, isDismissStyle ? 16 : 14)
+                    .foregroundStyle(onDark ? .white : OT.accent)
                     .frame(height: 44)
-                    .background(
-                        onDark
-                        ? AnyShapeStyle(OT.cameraGlass)
-                        : AnyShapeStyle(.ultraThinMaterial),
-                        in: Capsule()
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(onDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), lineWidth: 0.5)
-                    )
+                    .contentShape(Rectangle())
                 }
             }
-            .shadow(color: .black.opacity(onDark ? 0.3 : 0.06), radius: 8, y: 2)
-            .contentShape(isSymbolOnly ? AnyShape(Circle()) : AnyShape(Capsule()))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label.isEmpty ? "Back" : label)
