@@ -159,6 +159,8 @@ struct Audition: Identifiable, Hashable, Codable {
     /// state saved before these existed still decodes.
     var round: Int?
     var castingNotes: String?
+    /// Private rehearsal notes, subtext, objective, or character choices written by the actor.
+    var actorNotes: String?
 
     /// "22 days" style remaining lifetime of the sent link, or nil if there's no (live) link.
     var shareLinkTimeLeft: String? {

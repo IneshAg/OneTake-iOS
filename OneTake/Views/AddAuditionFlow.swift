@@ -247,6 +247,8 @@ private struct OCRReviewSheet: View {
     @State private var destinationDetailText: String
     @State private var dueDate: Date
     @State private var hasDueDate: Bool
+    @State private var castingNotesText: String
+    @State private var actorNotesText: String
 
     init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft) -> Void, onDiscard: @escaping () -> Void) {
         self._draft = State(initialValue: draft)
@@ -259,6 +261,9 @@ private struct OCRReviewSheet: View {
         self._destinationDetailText = State(initialValue: draft.destinationDetail ?? "")
         self._hasDueDate = State(initialValue: draft.due != nil)
         self._dueDate = State(initialValue: draft.due ?? .now.addingTimeInterval(3 * 86400))
+        let initialCastingNotes = draft.castingNotes ?? NoticeParser.extractCharacterDescription(for: draft.role, in: draft.sourceText) ?? ""
+        self._castingNotesText = State(initialValue: initialCastingNotes)
+        self._actorNotesText = State(initialValue: draft.actorNotes ?? "")
     }
 
     var body: some View {
@@ -297,6 +302,9 @@ private struct OCRReviewSheet: View {
                                 ForEach(draft.candidateRoles, id: \.self) { roleOption in
                                     Button {
                                         roleText = roleOption
+                                        if let auto = NoticeParser.extractCharacterDescription(for: roleOption, in: draft.sourceText) {
+                                            castingNotesText = auto
+                                        }
                                         Haptics.tick()
                                     } label: {
                                         HStack(spacing: 5) {
@@ -382,6 +390,24 @@ private struct OCRReviewSheet: View {
                     .padding(14)
                     .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
+                    // Notes from casting
+                    reviewField(
+                        icon: "person.text.rectangle",
+                        label: "Notes from casting (Breakdown & Director notes)",
+                        placeholder: "Character breakdown, notes, adjustments",
+                        text: $castingNotesText,
+                        isRequired: false
+                    )
+
+                    // My notes & understanding
+                    reviewField(
+                        icon: "sparkles",
+                        label: "My notes & understanding",
+                        placeholder: "My choices, subtext, questions",
+                        text: $actorNotesText,
+                        isRequired: false
+                    )
+
                     // Detected asks chips
                     if !draft.asks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -422,6 +448,10 @@ private struct OCRReviewSheet: View {
                         confirmed.sidesLink = sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.destinationDetail = destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.due = hasDueDate ? dueDate : nil
+                        let trimmedCastingNotes = castingNotesText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.castingNotes = trimmedCastingNotes.isEmpty ? nil : trimmedCastingNotes
+                        let trimmedActorNotes = actorNotesText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        confirmed.actorNotes = trimmedActorNotes.isEmpty ? nil : trimmedActorNotes
                         onConfirm(confirmed)
                     }
                     .font(.otHeadline)
@@ -500,6 +530,8 @@ enum NoticeParser {
         /// sides out of it instead of substituting a canned scene.
         var sourceText = ""
         var customScenes: [ScriptScene]? = nil
+        var castingNotes: String? = nil
+        var actorNotes: String? = nil
 
         static let blank = Draft()
 
@@ -537,6 +569,8 @@ enum NoticeParser {
                     pieces.append(.init(kind: .scene, title: scene.title, detail: "", isDone: false))
                 }
             }
+            let autoNotes = NoticeParser.extractCharacterDescription(for: role, in: sourceText)
+            let resolvedCastingNotes = castingNotes ?? autoNotes ?? (aiGuidance.isEmpty ? nil : aiGuidance)
             var audition = Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
                             role: role.isEmpty ? "Role" : role, roleSize: roleSize, castingOffice: castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
@@ -545,6 +579,8 @@ enum NoticeParser {
                             destination: destination, status: .due)
             audition.destinationDetail = destinationDetail
             audition.sidesLink = sidesLink
+            audition.castingNotes = resolvedCastingNotes
+            audition.actorNotes = actorNotes
             return audition
         }
     }
@@ -573,6 +609,7 @@ enum NoticeParser {
         d.candidateRoles = candidates
         if candidates.count == 1 {
             d.role = candidates[0]
+            d.castingNotes = extractCharacterDescription(for: d.role, in: cleaned)
         } else {
             // When multiple roles are present, do not arbitrarily choose one:
             // leave it empty so the app explicitly asks the actor which role they are auditioning for.
@@ -851,6 +888,83 @@ enum NoticeParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMMM d yyyy"
         return formatter.date(from: normalized)
+    }
+
+    /// Extracts character breakdown demographics and director notes for a specific role from sides or notice text.
+    /// E.g.: "NOOR · She/her · Early 60s · Afghan American" + "Director note: What I'm looking for..."
+    static func extractCharacterDescription(for role: String, in text: String) -> String? {
+        let trimmedRole = role.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRole.isEmpty, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        let escapedRole = NSRegularExpression.escapedPattern(for: trimmedRole)
+        let lines = text.components(separatedBy: .newlines)
+
+        var headerLine: String?
+        var headerIndex: Int?
+
+        // 1. Look for a role header line with breakdown/demographics:
+        for (idx, line) in lines.enumerated() {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            guard let regex = try? NSRegularExpression(pattern: #"^\s*"# + escapedRole + #"\b\s*[·—\-:]\s*(.+)$"#, options: .caseInsensitive),
+                  let match = regex.firstMatch(in: trimmedLine, range: NSRange(trimmedLine.startIndex..., in: trimmedLine)),
+                  match.numberOfRanges > 1,
+                  let r = Range(match.range(at: 1), in: trimmedLine) else { continue }
+
+            let rest = String(trimmedLine[r]).trimmingCharacters(in: .whitespaces)
+            if (try? NSRegularExpression(pattern: #"^(?:page|p\.)\s*\d+$"#, options: .caseInsensitive))?.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)) != nil {
+                continue
+            }
+            headerLine = trimmedLine
+            headerIndex = idx
+            break
+        }
+
+        // Fallback: check if role name appears on its own line followed immediately by demographics
+        if headerLine == nil {
+            for (idx, line) in lines.enumerated() {
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                if trimmedLine.caseInsensitiveCompare(trimmedRole) == .orderedSame, idx + 1 < lines.count {
+                    let nextLine = lines[idx + 1].trimmingCharacters(in: .whitespaces)
+                    if (try? NSRegularExpression(pattern: #"^(?:she/her|he/him|they/them|\d{1,2}s?|age|female|male|non-binary)\b"#, options: .caseInsensitive))?.firstMatch(in: nextLine, range: NSRange(nextLine.startIndex..., in: nextLine)) != nil {
+                        headerLine = "\(trimmedLine) · \(nextLine)"
+                        headerIndex = idx + 1
+                        break
+                    }
+                }
+            }
+        }
+
+        // 2. Look for director's note or character description following the header line
+        var directorNote: String?
+        if let hIdx = headerIndex {
+            let maxIdx = min(lines.count, hIdx + 30)
+            let subsequent = lines[(hIdx + 1)..<maxIdx].joined(separator: "\n")
+            let notePattern = #"(?i)\b(?:director(?:['’]s)?\s*note|character\s*note|note)\s*[:\-]\s*([^\n]+(?:\n(?!\s*(?:SLATE|THE\s+SIDE|SIDE\s+[A-Z]|SCENE|INT\.|EXT\.|[A-Z]{3,}\s*[·—\-:]))[^\n]+)*)"#
+            if let regex = try? NSRegularExpression(pattern: notePattern, options: []),
+               let match = regex.firstMatch(in: subsequent, range: NSRange(subsequent.startIndex..., in: subsequent)),
+               let r = Range(match.range, in: subsequent) {
+                directorNote = String(subsequent[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        // 3. Fallback for general casting notice format:
+        if headerLine == nil && directorNote == nil {
+            let generalPattern = #"(?im)^\s*"# + escapedRole + #"\s*[:\-]\s*([^\n]+(?:\n(?!\s*(?:[A-Z]{3,}\b|SCENE|DEADLINE|AUDITION))[^\n]+){0,4})"#
+            if let regex = try? NSRegularExpression(pattern: generalPattern, options: []),
+               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+               let r = Range(match.range, in: text) {
+                let candidate = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.lowercased().contains("page ") {
+                    return candidate
+                }
+            }
+        }
+
+        var parts: [String] = []
+        if let h = headerLine, !h.isEmpty { parts.append(h) }
+        if let note = directorNote, !note.isEmpty { parts.append(note) }
+
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     /// Detects all candidate roles mentioned in a casting notice, prioritizing explicit roles, industry tiers, and demographic breakdowns.
@@ -1953,6 +2067,9 @@ struct MissingDetailsView: View {
                                                 if !parsed.isEmpty {
                                                     store.auditionDraft.scenes = parsed.count
                                                 }
+                                                if let notes = NoticeParser.extractCharacterDescription(for: char, in: store.auditionDraft.sourceText) {
+                                                    store.auditionDraft.castingNotes = notes
+                                                }
                                                 Haptics.tick()
                                             } label: {
                                                 HStack(spacing: 6) {
@@ -2491,6 +2608,9 @@ struct NoticeReviewView: View {
                                                 if !parsed.isEmpty {
                                                     store.auditionDraft.scenes = parsed.count
                                                 }
+                                                if let notes = NoticeParser.extractCharacterDescription(for: char, in: store.auditionDraft.sourceText) {
+                                                    store.auditionDraft.castingNotes = notes
+                                                }
                                                 Haptics.tick()
                                             } label: {
                                                 HStack(spacing: 6) {
@@ -2618,6 +2738,31 @@ struct NoticeReviewView: View {
                     .padding(16)
                     .otCard(radius: 20)
 
+                    SectionLabel(text: "Notes & Understanding")
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Notes from casting").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                            TextField("Character breakdown, director notes", text: Binding(
+                                get: { store.auditionDraft.castingNotes ?? "" },
+                                set: { store.auditionDraft.castingNotes = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                            ), axis: .vertical)
+                            .padding(12)
+                            .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("My notes & understanding").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                            TextField("Scene objective, choices, subtext", text: Binding(
+                                get: { store.auditionDraft.actorNotes ?? "" },
+                                set: { store.auditionDraft.actorNotes = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                            ), axis: .vertical)
+                            .padding(12)
+                            .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                    .otCard(radius: 20)
+
                     if hasReaderLines {
                         SectionLabel(text: "Reader audio")
                         VStack(alignment: .leading, spacing: 12) {
@@ -2730,6 +2875,12 @@ struct NoticeReviewView: View {
             updated.due = store.auditionDraft.due ?? updated.due
             updated.destination = store.auditionDraft.destination
             updated.destinationDetail = store.auditionDraft.destinationDetail
+            if let notes = store.auditionDraft.castingNotes ?? NoticeParser.extractCharacterDescription(for: store.auditionDraft.role, in: store.auditionDraft.sourceText) {
+                updated.castingNotes = notes
+            }
+            if let actorNotes = store.auditionDraft.actorNotes {
+                updated.actorNotes = actorNotes
+            }
             let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
             if !parsedScenes.isEmpty { updated.scenes = parsedScenes }
             store.auditions[idx] = updated

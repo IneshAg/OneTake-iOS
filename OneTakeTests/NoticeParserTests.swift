@@ -469,4 +469,45 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertTrue(extracted?.contains("Detective Roy") == true)
         XCTAssertTrue(NoticeOCR.looksReadable(extracted ?? ""))
     }
+
+    func testExtractCharacterDescriptionWithDemographicsAndDirectorNotes() {
+        let text = """
+        PILGRIMAGE
+        CASTING SIDES
+        Director: Khaled Abol Naga (Kal)
+
+        THE CHARACTERS IN THIS DOCUMENT
+        NOOR — Page 2
+        MARYAM — Page 3
+
+        NOOR  ·  She/her  ·  Early 60s  ·  Afghan American
+        Director note: What I'm looking for: the weight of a woman who has carried this secret for decades.
+        SLATE INSTRUCTION  Before beginning, look directly into camera...
+        """
+
+        let noorNotes = NoticeParser.extractCharacterDescription(for: "Noor", in: text)
+        XCTAssertNotNil(noorNotes)
+        XCTAssertTrue(noorNotes?.contains("NOOR  ·  She/her  ·  Early 60s  ·  Afghan American") == true)
+        XCTAssertTrue(noorNotes?.contains("Director note: What I'm looking for: the weight of a woman") == true)
+        XCTAssertFalse(noorNotes?.contains("SLATE INSTRUCTION") == true)
+        XCTAssertFalse(noorNotes?.contains("Page 2") == true)
+    }
+
+    func testDraftMakeAuditionPopulatesCastingAndActorNotes() {
+        var draft = NoticeParser.Draft()
+        draft.project = "Pilgrimage"
+        draft.role = "Noor"
+        draft.sourceText = """
+        NOOR  ·  She/her  ·  Early 60s  ·  Afghan American
+        Director note: Let the pauses breathe. Don't rush the confession.
+        """
+        draft.actorNotes = "Focus on the subtext of guilt, avoid rushing lines."
+
+        let audition = draft.makeAudition()
+        XCTAssertEqual(audition.project, "Pilgrimage")
+        XCTAssertEqual(audition.role, "Noor")
+        XCTAssertTrue(audition.castingNotes?.contains("NOOR  ·  She/her  ·  Early 60s  ·  Afghan American") == true)
+        XCTAssertTrue(audition.castingNotes?.contains("Director note: Let the pauses breathe.") == true)
+        XCTAssertEqual(audition.actorNotes, "Focus on the subtext of guilt, avoid rushing lines.")
+    }
 }

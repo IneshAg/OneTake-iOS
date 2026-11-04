@@ -95,12 +95,46 @@ struct PrepareView: View {
                             }
                         }
                     }
-                    if let notes = a.castingNotes {
-                        // Casting's adjustment for this round, seen before every pass at the scene.
-                        Label { Text(notes).font(.otCallout) } icon: { Image(systemName: "quote.opening") }
-                            .foregroundStyle(OT.labelPrimary)
-                            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(OT.scriptHighlight, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if let notes = a.castingNotes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.text.rectangle")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(OT.accent)
+                                Text("Casting & Character Notes")
+                                    .font(.otCaption.weight(.bold))
+                                    .foregroundStyle(OT.labelSecondary)
+                                    .textCase(.uppercase)
+                            }
+                            Text(notes)
+                                .font(.otCallout)
+                                .foregroundStyle(OT.labelPrimary)
+                        }
+                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.scriptHighlight, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if let myNotes = a.actorNotes, !myNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(OT.warning)
+                                Text("My Intent & Choices")
+                                    .font(.otCaption.weight(.bold))
+                                    .foregroundStyle(OT.labelSecondary)
+                                    .textCase(.uppercase)
+                            }
+                            Text(myNotes)
+                                .font(.otCallout)
+                                .foregroundStyle(OT.labelPrimary)
+                        }
+                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(OT.warning.opacity(0.35), lineWidth: 1)
+                        )
                     }
                     ForEach(scene.lines) { line in lineView(line) }
                 }

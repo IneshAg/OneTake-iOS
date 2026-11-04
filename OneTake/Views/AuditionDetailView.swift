@@ -737,11 +737,26 @@ struct EditAuditionSheet: View {
                         .padding(.top, 4)
                     }
                     Section {
-                        TextField("Notes from casting", text: Binding(
+                        TextField("Character breakdown, director notes, adjustments", text: Binding(
                             get: { audition.wrappedValue.castingNotes ?? "" },
                             set: { audition.wrappedValue.castingNotes = $0.isEmpty ? nil : $0 }
                         ), axis: .vertical)
-                    } footer: { Text("Shown on Prepare before every take.") }
+                    } header: {
+                        Text("Notes from casting")
+                    } footer: {
+                        Text("Character breakdown and casting adjustments. Shown on Prepare before every take.")
+                    }
+
+                    Section {
+                        TextField("My subtext, scene objective, choices, questions", text: Binding(
+                            get: { audition.wrappedValue.actorNotes ?? "" },
+                            set: { audition.wrappedValue.actorNotes = $0.isEmpty ? nil : $0 }
+                        ), axis: .vertical)
+                    } header: {
+                        Text("My notes & understanding")
+                    } footer: {
+                        Text("Private rehearsal notes, intentions, and character choices. Kept handy while preparing.")
+                    }
                 }
                 .scrollContentBackground(.hidden)
             }

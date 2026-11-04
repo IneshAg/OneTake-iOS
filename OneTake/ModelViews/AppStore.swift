@@ -452,6 +452,9 @@ final class AppStore {
         let hadScenes = !auditions[i].scenes.isEmpty
         auditions[i].scenes = scenes
         auditions[i].scriptText = sourceText
+        if auditions[i].castingNotes == nil, let sourceText {
+            auditions[i].castingNotes = NoticeParser.extractCharacterDescription(for: auditions[i].role, in: sourceText)
+        }
         auditions[i].pieces.removeAll { $0.kind == .scene }
         auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: hadScenes ? "Revised sides" : "", isDone: false) }
         if auditions[i].status == .ready { auditions[i].status = .due }
@@ -535,6 +538,9 @@ final class AppStore {
         guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
         if let scriptText = auditions[index].scriptText, !scriptText.isEmpty {
             auditions[index].scenes = ScriptParser.parseScenes(from: scriptText, myRole: auditions[index].role)
+            if let notes = NoticeParser.extractCharacterDescription(for: auditions[index].role, in: scriptText) {
+                auditions[index].castingNotes = notes
+            }
         } else {
             auditions[index].scenes = ScriptParser.reclassify(auditions[index].scenes, myRole: auditions[index].role)
         }
@@ -561,7 +567,8 @@ final class AppStore {
         callback.destinationDetail = original.destinationDetail
         callback.round = (original.round ?? 1) + 1
         let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        callback.castingNotes = trimmed.isEmpty ? nil : trimmed
+        callback.castingNotes = trimmed.isEmpty ? original.castingNotes : trimmed
+        callback.actorNotes = original.actorNotes
         if bringReader {
             let from = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true)
             let to = MediaStore.directory(ReaderTrackPlayer.folder).appendingPathComponent(callback.id.uuidString, isDirectory: true)
