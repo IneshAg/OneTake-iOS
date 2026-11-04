@@ -213,11 +213,11 @@ struct ShootSetupView: View {
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
                     if c.eyebrow == "Reader", !c.ok {
                         Button { store.push(.recordReader(auditionID, sceneIndex: shootScene)) } label: { Label("Record the reader", systemImage: "mic") }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                            .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
                     }
                     if c.eyebrow == "Interruptions", !silenced {
                         Button { silenced = true; Haptics.success() } label: { Label("I've turned on Do Not Disturb", systemImage: "moon.fill") }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                            .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
                     }
                 }
             }

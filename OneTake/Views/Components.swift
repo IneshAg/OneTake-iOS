@@ -117,51 +117,71 @@ struct PackageStepsBar: View {
 
 // MARK: - Buttons
 
-/// A gentle press-scale for whole-card buttons (audition cards, first-run card).
+/// A native iOS highlight style for whole-card buttons (audition cards, first-run card).
 struct PressableCardStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var tint: Color = OT.accent
+    var cornerRadius: CGFloat = 14
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.otHeadline)
             .foregroundStyle(OT.labelOnAccent)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(isEnabled ? tint : tint.opacity(0.35), in: Capsule())
-            .opacity(configuration.isPressed ? 0.85 : (isEnabled ? 1 : 0.6))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(isEnabled ? tint : tint.opacity(0.35))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .opacity(configuration.isPressed ? 0.78 : (isEnabled ? 1 : 0.55))
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
     var onDark = false
+    var cornerRadius: CGFloat = 14
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.otHeadline)
             .foregroundStyle(onDark ? .white : OT.labelPrimary)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(onDark ? Color.white.opacity(0.14) : OT.fillField, in: Capsule())
-            .opacity(configuration.isPressed ? 0.8 : 1)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(onDark ? Color.white.opacity(0.14) : OT.fillField)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .opacity(configuration.isPressed ? 0.70 : 1)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 struct CompactSecondaryButtonStyle: ButtonStyle {
     var onDark = false
+    var cornerRadius: CGFloat = 10
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.otFootnote.weight(.semibold))
             .foregroundStyle(onDark ? .white : OT.labelPrimary)
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(onDark ? Color.white.opacity(0.14) : OT.fillField, in: Capsule())
-            .opacity(configuration.isPressed ? 0.75 : 1)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(onDark ? Color.white.opacity(0.14) : OT.fillField)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .opacity(configuration.isPressed ? 0.70 : 1)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
