@@ -426,6 +426,10 @@ struct EditAuditionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showValidationErrors = false
     @State private var sceneCount: Int = 1
+    @State private var showPDFPicker = false
+    @State private var showRevisedSides = false
+    @State private var isProcessingPDF = false
+    @State private var showPDFError = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -629,26 +633,108 @@ struct EditAuditionSheet: View {
                         .autocorrectionDisabled()
                         .keyboardType(audition.wrappedValue.destination == .emailOrLink ? .emailAddress : .default)
                     }
-                    Section("Sides / Script Link") {
-                        TextField("Google Drive, Dropbox, or cloud link", text: Binding(
-                            get: { audition.wrappedValue.sidesLink ?? "" },
-                            set: { audition.wrappedValue.sidesLink = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        ))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-
-                        if let sidesLink = audition.wrappedValue.sidesLink,
-                           let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
-                            Link(destination: url) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.up.right.square")
-                                    Text("Open in browser")
+                    Section("Sides & Script") {
+                        let hasSides = !audition.wrappedValue.scenes.isEmpty
+                        if hasSides {
+                            let totalLines = audition.wrappedValue.scenes.flatMap(\.lines).filter(\.isMine).count
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(audition.wrappedValue.scenes.count) \(audition.wrappedValue.scenes.count == 1 ? "scene" : "scenes") attached")
+                                        .font(.otHeadline)
+                                    Text("\(totalLines) actor \(totalLines == 1 ? "line" : "lines") detected")
+                                        .font(.otCaption)
+                                        .foregroundStyle(OT.labelSecondary)
                                 }
-                                .font(.otFootnote.weight(.semibold))
+                                Spacer()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(OT.accent)
+                                    .font(.system(size: 20))
+                            }
+
+                            Button {
+                                showPDFPicker = true
+                            } label: {
+                                HStack {
+                                    Label("Replace with PDF / Document…", systemImage: "doc.badge.arrow.up")
+                                        .font(.otSubhead.weight(.medium))
+                                    Spacer()
+                                    if isProcessingPDF {
+                                        ProgressView().scaleEffect(0.8)
+                                    }
+                                }
                                 .foregroundStyle(OT.accent)
                             }
+                            .disabled(isProcessingPDF)
+
+                            Button {
+                                showRevisedSides = true
+                            } label: {
+                                Label("Edit Text / Scan with Camera…", systemImage: "pencil.and.list.clipboard")
+                                    .font(.otSubhead.weight(.medium))
+                                    .foregroundStyle(OT.accent)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("No script sides attached")
+                                    .font(.otHeadline)
+                                Text("Import a PDF, scan pages, or paste text to enable the teleprompter & line runner.")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            .padding(.vertical, 2)
+
+                            Button {
+                                showPDFPicker = true
+                            } label: {
+                                HStack {
+                                    Label("Import Sides PDF / Document", systemImage: "doc.badge.plus")
+                                        .font(.otSubhead.weight(.semibold))
+                                    Spacer()
+                                    if isProcessingPDF {
+                                        ProgressView().scaleEffect(0.8)
+                                    }
+                                }
+                                .foregroundStyle(OT.accent)
+                            }
+                            .disabled(isProcessingPDF)
+
+                            Button {
+                                showRevisedSides = true
+                            } label: {
+                                Label("Scan with Camera or Paste Text…", systemImage: "doc.viewfinder")
+                                    .font(.otSubhead.weight(.medium))
+                                    .foregroundStyle(OT.accent)
+                            }
                         }
+
+                        // Cloud Link (Drive, Dropbox, iCloud)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Cloud link (optional)")
+                                .font(.otCaption.weight(.medium))
+                                .foregroundStyle(OT.labelSecondary)
+
+                            TextField("Google Drive, Dropbox, or cloud link", text: Binding(
+                                get: { audition.wrappedValue.sidesLink ?? "" },
+                                set: { audition.wrappedValue.sidesLink = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            ))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+
+                            if let sidesLink = audition.wrappedValue.sidesLink,
+                               let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                                Link(destination: url) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.up.right.square")
+                                        Text("Open link in browser")
+                                    }
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                }
+                                .padding(.top, 2)
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                     Section {
                         TextField("Notes from casting", text: Binding(
@@ -668,6 +754,43 @@ struct EditAuditionSheet: View {
                 let count = max(a.scenes.count, a.pieces.filter { $0.kind == .scene }.count)
                 sceneCount = max(1, count)
             }
+        }
+        .fileImporter(isPresented: $showPDFPicker, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+            switch result {
+            case .success(let url):
+                isProcessingPDF = true
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+                Task {
+                    defer {
+                        resolved.cleanup()
+                        Task { @MainActor in isProcessingPDF = false }
+                    }
+                    if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
+                        let role = store.audition(auditionID)?.role ?? ""
+                        let parsedScenes = ScriptParser.parseScenes(from: text, myRole: role)
+                        await MainActor.run {
+                            store.replaceSides(of: auditionID, with: parsedScenes, sourceText: text)
+                            sceneCount = max(sceneCount, parsedScenes.count)
+                            Haptics.success()
+                        }
+                    } else {
+                        await MainActor.run {
+                            showPDFError = true
+                            Haptics.warning()
+                        }
+                    }
+                }
+            case .failure:
+                showPDFError = true
+            }
+        }
+        .sheet(isPresented: $showRevisedSides) {
+            RevisedSidesSheet(auditionID: auditionID)
+        }
+        .alert("We couldn't read this file", isPresented: $showPDFError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No readable text was found in the document. You can scan the pages or paste text directly.")
         }
     }
 
