@@ -126,11 +126,74 @@ enum OnDeviceIntelligence {
         return ExtractedNoticeMetadata(project: project, roles: roles, asks: asks, deadline: deadline)
     }
 
+    /// Assembles a token-budget-aware context snippet (~2,500-3,000 chars) that includes the document
+    /// header/cover (project title, deadlines, general rules) plus the target character's specific
+    /// sides section (director's notes, role details), so characters on later pages of multi-role PDFs
+    /// are never starved of context.
+    static func focusedContextSnippet(sourceText: String, targetRole: String?, candidateRoles: [String]) -> String {
+        let trimmed = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= 3000 {
+            return trimmed
+        }
+
+        // Project cover / front matter (first 1,200 chars typically contains title, deadlines, casting office)
+        let frontMatter = String(trimmed.prefix(1200))
+
+        let roleToFind = targetRole?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidates: [String] = []
+        if let roleToFind, !roleToFind.isEmpty {
+            candidates.append(roleToFind)
+        }
+        for r in candidateRoles where !candidates.contains(where: { $0.caseInsensitiveCompare(r) == .orderedSame }) {
+            candidates.append(r)
+        }
+
+        var roleSnippet = ""
+        for role in candidates {
+            // Find role heading in the source text (e.g. "MARYAM ·", "MARYAM -", "ROLE: MARYAM", or "\nMARYAM\n")
+            let escaped = NSRegularExpression.escapedPattern(for: role)
+            let patterns = [
+                "\\b\(escaped)\\b\\s*[·—\\-:]",
+                "\\n\\s*\(escaped)\\s*\\n",
+                "\\b(ROLE|CHARACTER):?\\s*\(escaped)\\b"
+            ]
+            var matchedRange: Range<String.Index>?
+            for pat in patterns {
+                if let regex = try? NSRegularExpression(pattern: pat, options: .caseInsensitive),
+                   let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+                   let r = Range(match.range, in: trimmed) {
+                    matchedRange = r
+                    break
+                }
+            }
+            if matchedRange == nil {
+                matchedRange = trimmed.range(of: role, options: .caseInsensitive)
+            }
+
+            if let match = matchedRange {
+                let matchOffset = trimmed.distance(from: trimmed.startIndex, to: match.lowerBound)
+                // If the match starts well past the front matter, extract this character's block
+                if matchOffset > 1000 {
+                    let endIdx = trimmed.index(match.lowerBound, offsetBy: min(1600, trimmed.distance(from: match.lowerBound, to: trimmed.endIndex)))
+                    let section = String(trimmed[match.lowerBound..<endIdx])
+                    roleSnippet = "\n\n--- [ROLE DETAILS & SIDES FOR \(role.uppercased())] ---\n\(section)"
+                    break
+                }
+            }
+        }
+
+        if roleSnippet.isEmpty {
+            return String(trimmed.prefix(3000))
+        }
+
+        return frontMatter + roleSnippet
+    }
+
     /// Uses the on-device Foundation Model (when supported and available) to refine and enrich a parsed draft
     /// from raw casting notice text, resolving natural-language descriptions, director's notes, and ambiguous fields
     /// without overwriting validated deterministic regex fields.
     static func refineDraftWithFoundationModel(_ draft: NoticeParser.Draft, sourceText: String) async -> NoticeParser.Draft {
-        let snippet = String(sourceText.prefix(3000))
+        let snippet = focusedContextSnippet(sourceText: sourceText, targetRole: draft.role, candidateRoles: draft.candidateRoles)
         guard !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return draft }
 
         let prompt = """
