@@ -72,6 +72,13 @@ final class CameraController: NSObject {
     @ObservationIgnored private var rotationObservation: NSKeyValueObservation?
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
+    @ObservationIgnored private var subjectAreaChangeObserver: Any?
+
+    deinit {
+        if let obs = subjectAreaChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
 
     // MARK: Permissions
 
@@ -143,13 +150,37 @@ final class CameraController: NSObject {
                 }
             }
 
-            // Lock exposure once framed so the light doesn't pump mid-take ("Exposure locked" pill in the HUD).
+            // Keep autofocus and autoexposure continuous and smooth so the actor is always sharp.
             try? camera.lockForConfiguration()
-            if camera.isExposureModeSupported(.continuousAutoExposure) { camera.exposureMode = .continuousAutoExposure }
+            if camera.isFocusModeSupported(.continuousAutoFocus) {
+                camera.focusMode = .continuousAutoFocus
+            }
+            if camera.isSmoothAutoFocusSupported {
+                camera.isSmoothAutoFocusEnabled = true
+            }
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
+            }
+            if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                camera.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            if camera.isSubjectAreaChangeMonitoringEnabled == false {
+                camera.isSubjectAreaChangeMonitoringEnabled = true
+            }
             camera.unlockForConfiguration()
 
             session.commitConfiguration()
             session.startRunning()
+
+            if self.subjectAreaChangeObserver == nil {
+                self.subjectAreaChangeObserver = NotificationCenter.default.addObserver(
+                    forName: AVCaptureDevice.subjectAreaDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    self?.resetFocusToContinuous()
+                }
+            }
             Task { @MainActor in
                 self.videoDevice = camera
                 self.updateRotationCoordinator()
@@ -222,8 +253,9 @@ final class CameraController: NSObject {
             if device.isExposureModeSupported(.locked) {
                 device.exposureMode = .locked
             }
-            if device.isFocusModeSupported(.locked) {
-                device.focusMode = .locked
+            // Retain continuous autofocus so the actor stays sharp when delivering lines or shifting weight:
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
             }
             if device.isWhiteBalanceModeSupported(.locked) {
                 device.whiteBalanceMode = .locked
@@ -261,6 +293,28 @@ final class CameraController: NSObject {
         }
     }
 
+    func resetFocusToContinuous() {
+        queue.async { [weak self] in
+            guard let self,
+                  let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+            device.unlockForConfiguration()
+        }
+    }
+
     @MainActor
     func focusAndLockExposure(at viewPoint: CGPoint) {
         let devicePoint: CGPoint
@@ -278,23 +332,21 @@ final class CameraController: NSObject {
 
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = devicePoint
-                if device.isFocusModeSupported(.autoFocus) {
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                } else if device.isFocusModeSupported(.autoFocus) {
                     device.focusMode = .autoFocus
                 }
             }
             if device.isExposurePointOfInterestSupported {
                 device.exposurePointOfInterest = devicePoint
-                if device.isExposureModeSupported(.autoExpose) {
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                } else if device.isExposureModeSupported(.autoExpose) {
                     device.exposureMode = .autoExpose
                 }
             }
             device.unlockForConfiguration()
-
-            // After 350ms for exposure and focus to adjust to the subject, lock them firmly
-            Task {
-                try? await Task.sleep(for: .milliseconds(350))
-                self.lockExposure()
-            }
         }
     }
 
