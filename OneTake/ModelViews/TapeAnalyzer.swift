@@ -411,9 +411,21 @@ enum TapeAnalyzer {
         }
 
         let shot = Set(clips.compactMap { clip -> Int? in if case .scene(let i) = clip.kind { return i } else { return nil } })
-        let missing = a.scenes.indices.filter { !shot.contains($0) }
-        if missing.isEmpty { if !a.scenes.isEmpty { passed.append("Every scene shot") } }
-        else { add("\(missing.map { a.scenes[$0].title }.joined(separator: ", ")) not shot yet", "Every scene they sent goes on the tape. Record a take for it before sending.") }
+        let requiredSceneIndices = a.scenes.indices.filter { idx in
+            let title = a.scenes[idx].title
+            let piece = a.pieces.first { $0.kind == .scene && $0.title == title }
+            return !(piece?.isOptional ?? false)
+        }
+        let missingRequired = requiredSceneIndices.filter { !shot.contains($0) }
+        let allMissing = a.scenes.indices.filter { !shot.contains($0) }
+
+        if missingRequired.isEmpty {
+            if !a.scenes.isEmpty {
+                passed.append(allMissing.isEmpty ? "Every scene shot" : "Required scenes shot")
+            }
+        } else {
+            add("\(missingRequired.map { a.scenes[$0].title }.joined(separator: ", ")) not shot yet", "Every required scene goes on the tape. Record a take for it before sending.")
+        }
 
         if measurementsComplete, a.asks.contains("Under 3 min") {
             if totalSeconds <= 180 { passed.append("Under 3 minutes") }

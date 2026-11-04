@@ -631,7 +631,9 @@ struct ShootFlow: View {
                             .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
                         }
                         if let next = nextUnshotScene(in: a) {
-                            Button("Next: \(a.scenes[next].title)") {
+                            let nextPiece = a.pieces.first { $0.kind == .scene && $0.title == a.scenes[next].title }
+                            let isOpt = nextPiece?.isOptional ?? false
+                            Button(isOpt ? "Next: \(a.scenes[next].title) (Optional)" : "Next: \(a.scenes[next].title)") {
                                 moveToScene(next)
                             }
                             .font(.otHeadline).foregroundStyle(.white)

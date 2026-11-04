@@ -622,7 +622,8 @@ enum NoticeParser {
                 }
             } else {
                 for scene in parsedScenes {
-                    pieces.append(.init(kind: .scene, title: scene.title, detail: "", isDone: false))
+                    let isOpt = NoticeParser.isSceneOptional(scene: scene, in: sourceText)
+                    pieces.append(.init(kind: .scene, title: scene.title, detail: isOpt ? "Optional scene" : "", isDone: false, isOptional: isOpt))
                 }
             }
             if includeHeadshots {
@@ -947,6 +948,28 @@ enum NoticeParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMMM d yyyy"
         return formatter.date(from: normalized)
+    }
+
+    /// Detects if a scene is marked optional or secondary in casting instructions or script headers.
+    /// E.g. "Scene 2 (optional)", "Scene 2: prepare if time permits", "Callback scene (optional)"
+    static func isSceneOptional(scene: ScriptScene, in text: String) -> Bool {
+        let t = scene.title.lowercased()
+        let h = scene.heading.lowercased()
+        if t.contains("optional") || h.contains("optional") { return true }
+        if t.contains("if time permits") || h.contains("if time permits") { return true }
+
+        let escapedTitle = NSRegularExpression.escapedPattern(for: scene.title)
+        let patterns = [
+            #"(?i)\b(?:scene\s*"# + "\(scene.number)" + #"\b|"# + escapedTitle + #")[^.\n\r]*\b(optional|if time permits|callback only|not required)\b"#,
+            #"(?i)\b(optional|if time permits|callback only|not required)\b[^.\n\r]*\b(?:scene\s*"# + "\(scene.number)" + #"\b|"# + escapedTitle + #")"#
+        ]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     /// Extracts character breakdown demographics and director notes for a specific role from sides or notice text.

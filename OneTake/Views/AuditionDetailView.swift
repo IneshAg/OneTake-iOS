@@ -198,7 +198,17 @@ struct AuditionDetailView: View {
                 }
             } else if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
                 let scene = a.scenes[sceneIndex]
-                HStack { SectionLabel(text: "Up next · scene \(scene.number) of \(a.scenes.count)"); Spacer(); Text("≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60)) · \(scene.lines.filter(\.isMine).count) lines").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+                let isOpt = next.isOptional
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · scene \(scene.number) of \(a.scenes.count) (Optional)" : "Up next · scene \(scene.number) of \(a.scenes.count)")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        store.togglePieceOptional(for: a.id, pieceID: next.id)
+                        Haptics.tick()
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
                 Text(scene.title).font(.otTitle)
                 Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
@@ -210,6 +220,13 @@ struct AuditionDetailView: View {
                         store.push(.runLines(a.id, sceneIndex: sceneIndex))
                     }
                     .buttonStyle(.otSecondary)
+                    if isOpt {
+                        Button("Skip for now") {
+                            store.markPieceDone(a.id, pieceID: next.id)
+                            Haptics.tick()
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
                 }
             } else if next?.kind == .scene {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
@@ -380,7 +397,7 @@ struct PackageSheet: View {
 
                         Spacer()
 
-                        if piece.kind == .slate || piece.kind == .headshot {
+                        if piece.kind == .slate || piece.kind == .headshot || piece.kind == .scene {
                             Button {
                                 store.togglePieceOptional(for: a.id, pieceID: piece.id)
                                 Haptics.tick()
@@ -1217,10 +1234,40 @@ struct EditAuditionSheet: View {
                             }
                             .pickerStyle(.segmented)
                         }
+
+                        // Scenes requirement
+                        let sceneIndices = audition.wrappedValue.pieces.indices.filter { audition.wrappedValue.pieces[$0].kind == .scene }
+                        if !sceneIndices.isEmpty {
+                            Divider().padding(.vertical, 4)
+                            Text("Scenes").font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelSecondary)
+                            ForEach(sceneIndices, id: \.self) { scenePieceIndex in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Label(audition.wrappedValue.pieces[scenePieceIndex].title, systemImage: "theatermasks.fill")
+                                            .font(.otSubhead.weight(.medium))
+                                        Spacer()
+                                        Text(audition.wrappedValue.pieces[scenePieceIndex].isOptional ? "Optional" : "Required")
+                                            .font(.otCaption.weight(.semibold))
+                                            .foregroundStyle(audition.wrappedValue.pieces[scenePieceIndex].isOptional ? OT.labelSecondary : OT.accent)
+                                    }
+                                    Picker("Scene requirement", selection: Binding(
+                                        get: { audition.wrappedValue.pieces[scenePieceIndex].isOptional ? "Optional" : "Required" },
+                                        set: { opt in
+                                            audition.wrappedValue.pieces[scenePieceIndex].isOptional = (opt == "Optional")
+                                        }
+                                    )) {
+                                        Text("Required in flow").tag("Required")
+                                        Text("Optional").tag("Optional")
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
                     } header: {
-                        Text("Slate & Headshots Flow")
+                        Text("Audition Flow & Requirements")
                     } footer: {
-                        Text("Headshots and Slate are in your audition flow. You can change either one to optional or exclude it.")
+                        Text("Scenes, Slate, and Headshots can each be set to Required or Optional depending on casting instructions.")
                     }
                     Section("Due") {
                         DatePicker("Due", selection: audition.due)

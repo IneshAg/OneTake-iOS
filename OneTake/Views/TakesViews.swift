@@ -165,9 +165,13 @@ struct TakesView: View {
                     }
                     .buttonStyle(.otPrimary)
                     .disabled(!store.takes.contains { $0.auditionID == auditionID })
-                } else if let nextUnshot = scenes.indices.first(where: { idx in idx != shownScene && !store.takes.contains { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == idx } }) {
-                    Button("Next: \(scenes[nextUnshot].title)") {
-                        store.camera = .shoot(auditionID, scene: nextUnshot)
+                } else if let nextRequiredUnshot = scenes.indices.first(where: { idx in
+                    idx != shownScene
+                    && !store.takes.contains { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == idx }
+                    && !(store.audition(auditionID)?.pieces.first(where: { $0.kind == .scene && $0.title == scenes[idx].title })?.isOptional ?? false)
+                }) {
+                    Button("Next: \(scenes[nextRequiredUnshot].title)") {
+                        store.camera = .shoot(auditionID, scene: nextRequiredUnshot)
                     }
                     .buttonStyle(.otPrimary)
                 } else {

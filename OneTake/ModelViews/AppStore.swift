@@ -502,7 +502,10 @@ final class AppStore {
             auditions[i].castingNotes = NoticeParser.extractCharacterDescription(for: auditions[i].role, in: sourceText)
         }
         auditions[i].pieces.removeAll { $0.kind == .scene }
-        auditions[i].pieces += scenes.map { Piece(kind: .scene, title: $0.title, detail: hadScenes ? "Revised sides" : "", isDone: false) }
+        auditions[i].pieces += scenes.map {
+            let isOpt = NoticeParser.isSceneOptional(scene: $0, in: sourceText ?? "")
+            return Piece(kind: .scene, title: $0.title, detail: hadScenes ? "Revised sides" : "", isDone: false, isOptional: isOpt)
+        }
         if auditions[i].status == .ready { auditions[i].status = .due }
         // Existing recordings remain available to watch, but can no longer be selected for the
         // revised script until the actor explicitly circles a take from this round.
@@ -626,7 +629,9 @@ final class AppStore {
         for (idx, scene) in finalScenes.enumerated() {
             let isNew = idx >= original.scenes.count
             let detail = isNew ? "Callback scene" : ""
-            newPieces.append(Piece(kind: .scene, title: scene.title.isEmpty ? "Scene \(scene.number)" : scene.title, detail: detail, isDone: false, isOptional: false))
+            let origScene = original.pieces.first { $0.kind == .scene && $0.title == scene.title }
+            let isOpt = origScene?.isOptional ?? NoticeParser.isSceneOptional(scene: scene, in: original.scriptText ?? "")
+            newPieces.append(Piece(kind: .scene, title: scene.title.isEmpty ? "Scene \(scene.number)" : scene.title, detail: detail, isDone: false, isOptional: isOpt))
         }
 
         // 3. Headshot / Full Length (if original had them)
