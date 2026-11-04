@@ -554,18 +554,74 @@ final class AppStore {
     /// A callback: a new audition for the next round of the same role, with casting's notes, its own
     /// due date and a fresh checklist. Reader recordings can come along so they needn't be re-recorded.
     @discardableResult
-    func startCallback(from id: Audition.ID, due: Date, notes: String, bringReader: Bool) -> Audition.ID? {
+    func startCallback(
+        from id: Audition.ID,
+        due: Date,
+        notes: String,
+        actorNotes: String? = nil,
+        scenes: [ScriptScene]? = nil,
+        extraScriptText: String? = nil,
+        bringReader: Bool
+    ) -> Audition.ID? {
         guard let original = audition(id) else { return nil }
-        var callback = Audition(project: original.project, projectType: original.projectType, role: original.role,
-                                roleSize: original.roleSize, castingOffice: original.castingOffice, due: due,
-                                asks: original.asks,
-                                pieces: original.pieces.map { Piece(kind: $0.kind, title: $0.title, detail: $0.detail, isDone: false) },
-                                scenes: original.scenes, destination: original.destination, status: .due)
+        let finalScenes = (scenes != nil && !scenes!.isEmpty) ? scenes! : original.scenes
+
+        // Build fresh pieces:
+        // 1. Slate (if original had slate)
+        var newPieces: [Piece] = []
+        if let origSlate = original.pieces.first(where: { $0.kind == .slate }) {
+            newPieces.append(Piece(kind: .slate, title: origSlate.title, detail: origSlate.detail, isDone: false, isOptional: origSlate.isOptional))
+        }
+
+        // 2. Scenes
+        for (idx, scene) in finalScenes.enumerated() {
+            let isNew = idx >= original.scenes.count
+            let detail = isNew ? "Callback scene" : ""
+            newPieces.append(Piece(kind: .scene, title: scene.title.isEmpty ? "Scene \(scene.number)" : scene.title, detail: detail, isDone: false, isOptional: false))
+        }
+
+        // 3. Headshot / Full Length (if original had them)
+        if let origHeadshot = original.pieces.first(where: { $0.kind == .headshot }) {
+            newPieces.append(Piece(kind: .headshot, title: origHeadshot.title, detail: origHeadshot.detail, isDone: false, isOptional: origHeadshot.isOptional))
+        }
+        if let origFullLength = original.pieces.first(where: { $0.kind == .fullLength }) {
+            newPieces.append(Piece(kind: .fullLength, title: origFullLength.title, detail: origFullLength.detail, isDone: false, isOptional: origFullLength.isOptional))
+        }
+
+        var callback = Audition(
+            project: original.project,
+            projectType: original.projectType,
+            role: original.role,
+            roleSize: original.roleSize,
+            castingOffice: original.castingOffice,
+            due: due,
+            asks: original.asks,
+            pieces: newPieces,
+            scenes: finalScenes,
+            destination: original.destination,
+            status: .due
+        )
         callback.destinationDetail = original.destinationDetail
         callback.round = (original.round ?? 1) + 1
-        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        callback.castingNotes = trimmed.isEmpty ? original.castingNotes : trimmed
-        callback.actorNotes = original.actorNotes
+
+        let trimmedCasting = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        callback.castingNotes = trimmedCasting.isEmpty ? original.castingNotes : trimmedCasting
+
+        let trimmedActor = (actorNotes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        callback.actorNotes = trimmedActor.isEmpty ? original.actorNotes : trimmedActor
+
+        // Combine script text
+        let extra = (extraScriptText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !extra.isEmpty {
+            if let orig = original.scriptText, !orig.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                callback.scriptText = orig + "\n\n--- Callback Sides ---\n\n" + extra
+            } else {
+                callback.scriptText = extra
+            }
+        } else {
+            callback.scriptText = original.scriptText
+        }
+
         if bringReader {
             let from = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true)
             let to = MediaStore.directory(ReaderTrackPlayer.folder).appendingPathComponent(callback.id.uuidString, isDirectory: true)

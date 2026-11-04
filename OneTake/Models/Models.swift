@@ -60,7 +60,16 @@ struct ScriptScene: Identifiable, Hashable, Codable {
     var title: String
     var heading: String
     var lines: [ScriptLine]
-    var estimatedSeconds: Int
+    var estimatedSeconds: Int = 60
+
+    init(id: UUID = UUID(), number: Int, title: String, heading: String, lines: [ScriptLine], estimatedSeconds: Int = 60) {
+        self.id = id
+        self.number = number
+        self.title = title
+        self.heading = heading
+        self.lines = lines
+        self.estimatedSeconds = estimatedSeconds
+    }
 }
 
 enum AuditionStatus: String, Codable, Hashable {

@@ -311,5 +311,100 @@ final class ModelTests: XCTestCase {
         let readerLinesIfOscar = scenesIfOscar[0].lines.filter { !$0.isMine }
         XCTAssertEqual(readerLinesIfOscar.first?.character.capitalized, "Kat") // Next screen shows "Who reads Kat?"
     }
+
+    @MainActor
+    func testStartCallbackMergesExtraScenesAndCombinesScriptTextAndPreservesNotes() {
+        let store = AppStore()
+        let origScene = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. LIVING ROOM - DAY",
+            lines: [
+                ScriptLine(character: "Maya", text: "I can't believe you're leaving.", isMine: true),
+                ScriptLine(character: "Sam", text: "I have to.", isMine: false)
+            ]
+        )
+        let origPieces = [
+            Piece(kind: .slate, title: "Slate", detail: "Name and height", isDone: true, isOptional: false),
+            Piece(kind: .scene, title: "Scene 1", detail: "", isDone: true, isOptional: false),
+            Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: true, isOptional: true)
+        ]
+        var original = Audition(
+            project: "Summer Breeze",
+            projectType: "Feature film",
+            role: "Maya",
+            roleSize: "Lead",
+            castingOffice: "Sarah Finn Casting",
+            due: Date.now.addingTimeInterval(86400),
+            asks: ["Email: casting@example.com"],
+            pieces: origPieces,
+            scenes: [origScene],
+            destination: .emailOrLink,
+            status: .ready
+        )
+        original.scriptText = "MAYA\nI can't believe you're leaving.\nSAM\nI have to."
+        original.castingNotes = "Warm and vulnerable"
+        original.actorNotes = "She knows he won't change his mind"
+        original.round = 1
+        store.add(original)
+
+        let callbackScene2 = ScriptScene(
+            number: 2,
+            title: "Scene 2",
+            heading: "EXT. TRAIN STATION - NIGHT",
+            lines: [
+                ScriptLine(character: "Maya", text: "Take care of yourself.", isMine: true),
+                ScriptLine(character: "Sam", text: "Always.", isMine: false)
+            ]
+        )
+        let extraText = "MAYA\nTake care of yourself.\nSAM\nAlways."
+        let newDueDate = Date.now.addingTimeInterval(5 * 86400)
+
+        let callbackID = store.startCallback(
+            from: original.id,
+            due: newDueDate,
+            notes: "More grounded and restrained",
+            actorNotes: "Don't let him see her tear up",
+            scenes: [origScene, callbackScene2],
+            extraScriptText: extraText,
+            bringReader: false
+        )
+
+        guard let callbackID, let callback = store.audition(callbackID) else {
+            XCTFail("Callback was not created")
+            return
+        }
+
+        XCTAssertEqual(callback.round, 2)
+        XCTAssertEqual(callback.project, "Summer Breeze")
+        XCTAssertEqual(callback.role, "Maya")
+        XCTAssertEqual(callback.castingOffice, "Sarah Finn Casting")
+        XCTAssertEqual(callback.castingNotes, "More grounded and restrained")
+        XCTAssertEqual(callback.actorNotes, "Don't let him see her tear up")
+        XCTAssertEqual(callback.scenes.count, 2)
+        XCTAssertEqual(callback.scenes[0].title, "Scene 1")
+        XCTAssertEqual(callback.scenes[1].title, "Scene 2")
+
+        // Combined script text contains both parts
+        XCTAssertTrue(callback.scriptText?.contains("I can't believe you're leaving.") == true)
+        XCTAssertTrue(callback.scriptText?.contains("--- Callback Sides ---") == true)
+        XCTAssertTrue(callback.scriptText?.contains("Take care of yourself.") == true)
+
+        // Check pieces
+        let pieces = callback.pieces
+        XCTAssertEqual(pieces.count, 4) // Slate, Scene 1, Scene 2, Headshot
+        XCTAssertEqual(pieces[0].kind, .slate)
+        XCTAssertFalse(pieces[0].isDone)
+        XCTAssertEqual(pieces[1].kind, .scene)
+        XCTAssertEqual(pieces[1].title, "Scene 1")
+        XCTAssertFalse(pieces[1].isDone)
+        XCTAssertEqual(pieces[2].kind, .scene)
+        XCTAssertEqual(pieces[2].title, "Scene 2")
+        XCTAssertEqual(pieces[2].detail, "Callback scene")
+        XCTAssertFalse(pieces[2].isDone)
+        XCTAssertEqual(pieces[3].kind, .headshot)
+        XCTAssertTrue(pieces[3].isOptional)
+        XCTAssertFalse(pieces[3].isDone)
+    }
 }
 
