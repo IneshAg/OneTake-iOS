@@ -803,13 +803,10 @@ struct ShootFlow: View {
             default:
                 VStack(spacing: 8) {
                     if camera.state == .recording || camera.state == .paused {
-                        HStack(spacing: 6) {
-                            cameraChoice(camera.state == .paused ? "Resume" : "Pause") {
-                                camera.state == .paused ? camera.resumeRecording() : camera.pauseRecording()
-                            }
-                            .disabled(countdown != nil)
-                            cameraChoice("Finish") { cut() }
+                        cameraChoice(camera.state == .paused ? "Resume" : "Pause") {
+                            camera.state == .paused ? camera.resumeRecording() : camera.pauseRecording()
                         }
+                        .disabled(countdown != nil)
                     }
                     RecordButton(isRecording: camera.state == .recording, holdToStop: false) {
                         switch camera.state {
