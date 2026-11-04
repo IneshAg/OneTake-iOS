@@ -918,7 +918,7 @@ struct ShootFlow: View {
                     // the optional full length reachable without making them part of every reopen.
                     if firstStage == .scene {
                         HStack(spacing: 8) {
-                            cameraChoice("Redo slate") { start(at: .slate) }
+                            cameraChoice(store.audition(auditionID)?.slateVideoURL != nil ? "Redo slate" : "Record slate") { start(at: .slate) }
                             cameraChoice(store.audition(auditionID)?.fullLengthVideoURL != nil ? "Redo full length" : "Add full length") {
                                 start(at: .fullLength)
                             }
@@ -953,11 +953,16 @@ struct ShootFlow: View {
         camera.zoomFactor == 1 ? "1×" : String(format: "%.1f×", camera.zoomFactor)
     }
 
-    /// Picks up where this audition left off: once the slate is in, "Next" goes straight to the scene
-    /// rather than making the actor re-shoot the slate.
+    /// Picks up where this audition left off: once the slate is in, or if slate is optional,
+    /// "Go to your mark" goes straight to the scene rather than forcing the actor into the slate camera.
     private var firstStage: Stage {
-        let slateDone = store.audition(auditionID)?.pieces.first(where: { $0.kind == .slate })?.isDone ?? false
-        return slateDone ? .scene : .slate
+        let slatePiece = store.audition(auditionID)?.pieces.first(where: { $0.kind == .slate })
+        let slateDone = slatePiece?.isDone ?? false
+        let slateRequired = !(slatePiece?.isOptional ?? true)
+        if slateRequired && !slateDone {
+            return .slate
+        }
+        return .scene
     }
 
     // MARK: Actions

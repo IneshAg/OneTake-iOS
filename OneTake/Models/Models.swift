@@ -264,15 +264,24 @@ struct Audition: Identifiable, Hashable, Codable {
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }
     var requiredPieces: [Piece] { pieces.filter { !$0.isOptional } }
-    /// True when all required pieces are completed (optional pieces do not block the package).
+    /// True when all required pieces are completed (optional pieces do not block the package),
+    /// and at least one piece is completed.
     var isPackageReady: Bool {
+        guard !pieces.isEmpty, pieces.contains(where: \.isDone) else { return false }
         let req = requiredPieces
         if req.isEmpty {
             return pieces.contains { $0.isDone }
         }
         return req.allSatisfy { $0.isDone }
     }
-    var nextPiece: Piece? { pieces.first { !$0.isDone } }
+
+    /// The next piece to work on. Returns the first uncompleted required piece; if all required pieces
+    /// are completed (package is ready), this returns nil so the actor can preview and package the tape
+    /// without being forced into optional pieces.
+    var nextPiece: Piece? {
+        if isPackageReady { return nil }
+        return requiredPieces.first { !$0.isDone } ?? pieces.first { !$0.isDone }
+    }
 
     /// The single "Next:" line used on Home and on audition cards.
     var nextAction: String {

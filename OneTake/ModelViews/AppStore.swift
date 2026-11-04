@@ -345,7 +345,9 @@ final class AppStore {
                     auditions[i].pieces[j].isDone = hasTake
                 }
             }
-            if auditions[i].isPackageReady, auditions[i].status == .due { auditions[i].status = .ready }
+            if auditions[i].status != .sent {
+                auditions[i].status = auditions[i].isPackageReady ? .ready : .due
+            }
         }
     }
 
@@ -423,7 +425,7 @@ final class AppStore {
         guard let a = audition(id), !a.scenes.isEmpty else { return 0 }
         let undone = Set(a.pieces.filter { $0.kind == .scene && !$0.isDone }.map(\.title))
         if let i = a.scenes.indices.first(where: { undone.contains(a.scenes[$0].title) }) { return i }
-        if let i = a.scenes.indices.first(where: { i in !takes.contains { $0.auditionID == id && $0.sceneIndex == i } }) { return i }
+        if let i = a.scenes.indices.first(where: { i in !takes.contains { $0.auditionID == id && ($0.sceneIndex ?? 0) == i } }) { return i }
         return 0
     }
 
@@ -697,8 +699,8 @@ final class AppStore {
         } else if auditions[index].pieces[pieceIndex].kind == .slate {
             auditions[index].pieces[pieceIndex].title = isOpt ? "Slate (Optional)" : "Slate"
         }
-        if auditions[index].isPackageReady, auditions[index].status == .due {
-            auditions[index].status = .ready
+        if auditions[index].status != .sent {
+            auditions[index].status = auditions[index].isPackageReady ? .ready : .due
         }
     }
 
@@ -706,8 +708,8 @@ final class AppStore {
         guard let index = auditions.firstIndex(where: { $0.id == id }),
               let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.id == pieceID }) else { return }
         auditions[index].pieces[pieceIndex].isDone = isDone
-        if auditions[index].isPackageReady, auditions[index].status == .due {
-            auditions[index].status = .ready
+        if auditions[index].status != .sent {
+            auditions[index].status = auditions[index].isPackageReady ? .ready : .due
         }
     }
 
