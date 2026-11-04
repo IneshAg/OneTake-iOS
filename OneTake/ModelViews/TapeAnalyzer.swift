@@ -159,8 +159,14 @@ enum TapeAnalyzer {
         }
 
         var findings: [TapeFinding] = []
-        func add(_ category: String, _ title: String, at time: Double, _ advice: String) {
-            findings.append(TapeFinding(category: category, title: title, where_: "\(clip.label) · \(timestamp(time))",
+        func add(_ category: String, _ title: String, at time: Double?, _ advice: String) {
+            let whereText: String
+            if let time, time >= 1.0 {
+                whereText = "\(clip.label) · \(timestamp(time))"
+            } else {
+                whereText = clip.label
+            }
+            findings.append(TapeFinding(category: category, title: title, where_: whereText,
                                         advice: advice, clipURL: clip.url, seconds: time))
         }
         /// The first sample matching `condition`, when it holds for at least `share` of the clip.
@@ -170,44 +176,45 @@ enum TapeAnalyzer {
         }
 
         let isFullLength = clip.kind == .fullLength
-        if let s = persistent(0.3, { $0.face == nil }) {
-            add("Framing", "Your face isn't in frame", at: s.time,
+        if persistent(0.3, { $0.face == nil }) != nil {
+            add("Framing", "Your face isn't in frame", at: nil,
                 "For long stretches the camera couldn't find your face. Check you're in the middle of the shot and facing the lens.")
         } else if !isFullLength {
             // Self-tape framing is a medium close-up: face roughly a fifth to a third of the frame
             // height, head near the top with a little room, roughly centred.
-            if let s = persistent(0.5, { ($0.face?.height ?? 1) < 0.12 }) {
-                add("Framing", "You're quite far from the camera", at: s.time,
+            if persistent(0.5, { ($0.face?.height ?? 1) < 0.12 }) != nil {
+                add("Framing", "You're quite far from the camera", at: nil,
                     "Casting wants a medium close-up — chest up. Move closer, or bring the phone closer.")
             }
-            if let s = persistent(0.4, { ($0.face?.maxY ?? 0) > 0.97 }) {
-                add("Framing", "The top of your head is cut off", at: s.time,
+            if persistent(0.4, { ($0.face?.maxY ?? 0) > 0.97 }) != nil {
+                add("Framing", "The top of your head is cut off", at: nil,
                     "Tilt the phone down or lower it a little so there's a sliver of space above your head.")
-            } else if let s = persistent(0.5, { ($0.face?.maxY ?? 1) < 0.68 }) {
-                add("Framing", "Lots of empty space above your head", at: s.time,
+            } else if persistent(0.5, { ($0.face?.maxY ?? 1) < 0.68 }) != nil {
+                add("Framing", "Lots of empty space above your head", at: nil,
                     "Raise the phone or tilt it up so your eyes sit about a third of the way down the frame.")
             }
-            if let s = persistent(0.5, { face in face.face.map { $0.midX < 0.3 || $0.midX > 0.7 } ?? false }) {
-                add("Framing", "You're off to one side", at: s.time,
+            if persistent(0.5, { face in face.face.map { $0.midX < 0.3 || $0.midX > 0.7 } ?? false }) != nil {
+                add("Framing", "You're off to one side", at: nil,
                     "Centre yourself in the shot — slide the phone, or step to your mark.")
             }
             // A big head turn reads as profile, not "just beside the lens" eyeline.
-            if let s = persistent(0.25, { abs($0.yaw ?? 0) > 0.6 }) {
-                add("Eyeline", "You're turned away from the camera", at: s.time,
+            if persistent(0.25, { abs($0.yaw ?? 0) > 0.6 }) != nil {
+                let firstTurn = samples.first { abs($0.yaw ?? 0) > 0.6 }
+                let turnTime = (firstTurn?.time ?? 0) >= 1.0 ? firstTurn?.time : nil
+                add("Eyeline", "You're turned away from the camera", at: turnTime,
                     "Keep your eyeline just beside the lens, on your reader — not off to the side.")
             }
         }
 
         let meanLuma = samples.map(\.frameLuma).reduce(0, +) / Double(samples.count)
-        let darkest = samples.min { $0.frameLuma < $1.frameLuma }
-        if meanLuma < 0.22, let s = darkest {
-            add("Light", "It's too dark", at: s.time,
+        if meanLuma < 0.22 {
+            add("Light", "It's too dark", at: nil,
                 "Face a window or add a lamp in front of you. Casting needs to see your eyes.")
-        } else if meanLuma > 0.85, let s = samples.max(by: { $0.frameLuma < $1.frameLuma }) {
-            add("Light", "The picture is overexposed", at: s.time,
+        } else if meanLuma > 0.85 {
+            add("Light", "The picture is overexposed", at: nil,
                 "Move away from direct sun or turn a light down — bright areas are washing out.")
-        } else if let s = persistent(0.5, { s in s.faceLuma.map { $0 < s.frameLuma * 0.6 } ?? false }) {
-            add("Light", "You're backlit", at: s.time,
+        } else if persistent(0.5, { s in s.faceLuma.map { $0 < s.frameLuma * 0.6 } ?? false }) != nil {
+            add("Light", "You're backlit", at: nil,
                 "The background is much brighter than your face. Put the light in front of you, not behind.")
         }
         return findings
@@ -257,28 +264,35 @@ enum TapeAnalyzer {
         }
 
         var findings: [TapeFinding] = []
-        func add(_ title: String, at time: Double, _ advice: String, category: String = "Sound", isSoftPrompt: Bool = false) {
-            findings.append(TapeFinding(category: category, title: title, where_: "\(clip.label) · \(timestamp(time))",
+        func add(_ title: String, at time: Double?, _ advice: String, category: String = "Sound", isSoftPrompt: Bool = false) {
+            let whereText: String
+            if let time, time >= 1.0 {
+                whereText = "\(clip.label) · \(timestamp(time))"
+            } else {
+                whereText = clip.label
+            }
+            findings.append(TapeFinding(category: category, title: title, where_: whereText,
                                         advice: advice, clipURL: clip.url, seconds: time, isSoftPrompt: isSoftPrompt))
         }
         // Speaking level = the loud end of the clip (90th percentile), so pauses don't drag it down.
         let sorted = windows.map(\.db).sorted()
         let speaking = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.9))]
         if speaking < -55 {
-            add("There's no sound", at: 0, "Nothing was picked up. Check the microphone isn't covered and AirPods are connected if you're using them.")
-        } else if speaking < -32, let quietest = windows.first(where: { $0.db < -32 }) {
-            add("Your voice is quiet", at: quietest.time, "Move the phone closer, speak up a little, or use a wired or AirPods mic.")
+            add("There's no sound", at: nil, "Nothing was picked up. Check the microphone isn't covered and AirPods are connected if you're using them.")
+        } else if speaking < -32 {
+            add("Your voice is quiet", at: nil, "Move the phone closer, speak up a little, or use a wired or AirPods mic.")
         }
         if let clipped = windows.first(where: { $0.clipped }) {
-            add("The sound distorts", at: clipped.time, "Your voice is clipping. Step back from the phone a little or bring your level down on the loud moments.")
+            let clipTime = clipped.time >= 1.0 ? clipped.time : nil
+            add("The sound distorts", at: clipTime, "Your voice is clipping. Step back from the phone a little or bring your level down on the loud moments.")
         }
 
         // A short, confident start is fine. Flag only when speech appears in the very first
         // 200 ms, so the actor can check whether recording started after the first word began.
         if windows.count > 1, windows[0].db > -38, windows[1].db > -38 {
-            add("Check the first word", at: 0,
-                "Sound starts right at the beginning. Listen for a clipped first word; if it starts mid-word, record another take with a little pre-roll.",
-                category: "Timing", isSoftPrompt: true)
+            findings.append(TapeFinding(category: "Timing", title: "Check the first word", where_: "\(clip.label) · Start of take",
+                                        advice: "Sound starts right at the beginning. Listen for a clipped first word; if it starts mid-word, record another take with a little pre-roll.",
+                                        clipURL: clip.url, seconds: 0, isSoftPrompt: true))
         }
 
         // Long internal quiet gaps can be intentional, so this is a review prompt, not an error.
@@ -300,7 +314,8 @@ enum TapeAnalyzer {
             }
         }
         if let pause = longestPause {
-            add("Long pause", at: Double(pause.lowerBound) * 0.1,
+            let pauseTime = Double(pause.lowerBound) * 0.1
+            add("Long pause", at: pauseTime >= 1.0 ? pauseTime : nil,
                 "There’s a quiet gap of about \(String(format: "%.1f", Double(pause.count) * 0.1)) seconds here. Watch it; it may be intentional. Record another take only if you lost a line.",
                 category: "Timing", isSoftPrompt: true)
         }

@@ -415,13 +415,16 @@ private struct FindingSheet: View {
             Text(finding.title).font(.otTitle)
             if let player {
                 VideoPlayer(player: player)
-                    .frame(height: 210)
+                    .frame(height: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             Text(finding.advice).font(.otCallout).foregroundStyle(OT.labelSecondary)
             HStack {
-                if let seconds = finding.seconds, player != nil {
+                if let seconds = finding.seconds, seconds >= 1.0, player != nil {
                     Button("Watch \(Int(seconds) / 60):\(String(format: "%02d", Int(seconds) % 60))") { play(from: seconds) }
+                        .buttonStyle(.otSecondary)
+                } else if player != nil {
+                    Button("Watch take") { play(from: 0) }
                         .buttonStyle(.otSecondary)
                 }
                 Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
