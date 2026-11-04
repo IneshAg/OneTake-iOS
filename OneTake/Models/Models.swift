@@ -21,6 +21,30 @@ struct Piece: Identifiable, Hashable, Codable {
     var title: String
     var detail: String
     var isDone: Bool
+    var isOptional: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, detail, isDone, isOptional
+    }
+
+    init(id: UUID = UUID(), kind: PieceKind, title: String, detail: String, isDone: Bool, isOptional: Bool = false) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.isDone = isDone
+        self.isOptional = isOptional
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.kind = try container.decode(PieceKind.self, forKey: .kind)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.detail = try container.decode(String.self, forKey: .detail)
+        self.isDone = try container.decode(Bool.self, forKey: .isDone)
+        self.isOptional = try container.decodeIfPresent(Bool.self, forKey: .isOptional) ?? false
+    }
 }
 
 struct ScriptLine: Identifiable, Hashable, Codable {
@@ -171,6 +195,15 @@ struct Audition: Identifiable, Hashable, Codable {
 
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }
+    var requiredPieces: [Piece] { pieces.filter { !$0.isOptional } }
+    /// True when all required pieces are completed (optional pieces do not block the package).
+    var isPackageReady: Bool {
+        let req = requiredPieces
+        if req.isEmpty {
+            return pieces.contains { $0.isDone }
+        }
+        return req.allSatisfy { $0.isDone }
+    }
     var nextPiece: Piece? { pieces.first { !$0.isDone } }
 
     /// The single "Next:" line used on Home and on audition cards.

@@ -374,15 +374,21 @@ enum TapeAnalyzer {
             findings.append(TapeFinding(category: "Package", title: title, where_: a.project, advice: advice))
         }
 
-        // Headshots are optional: only flag if casting specifically asked for them in the notice.
+        let headshotPiece = a.pieces.first { $0.kind == .headshot }
+        let isHeadshotRequired = headshotPiece != nil && !(headshotPiece?.isOptional ?? false)
         if HeadshotStore.exists(key: "front", auditionID: a.id) {
             passed.append("Headshots")
-        } else if a.asks.contains("Headshots") {
-            add("They asked for headshots", "This notice asked for photos. You can attach your default profile photo or take one in audition details.")
+        } else if isHeadshotRequired || a.asks.contains("Headshots") {
+            add("Headshots not attached", "Attach your headshots before sending. You can attach your default profile photo or take new ones.")
         }
 
-        if clips.contains(where: { $0.kind == .slate }) { passed.append("Slate") }
-        else { add("There's no slate yet", "Most casting offices want a slate first. Record one from the camera — it only takes 5 seconds.") }
+        let slatePiece = a.pieces.first { $0.kind == .slate }
+        let isSlateRequired = slatePiece == nil || !(slatePiece?.isOptional ?? false)
+        if clips.contains(where: { $0.kind == .slate }) {
+            passed.append("Slate")
+        } else if isSlateRequired {
+            add("There's no slate yet", "Most casting offices want a slate first. Record one from the camera — it only takes 5 seconds.")
+        }
 
         if a.asks.contains("Full length") {
             if clips.contains(where: { $0.kind == .fullLength }) { passed.append("Full length") }

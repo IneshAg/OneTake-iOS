@@ -521,12 +521,20 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertFalse(HeadshotStore.exists(key: profileKey, auditionID: auditionID))
         XCTAssertTrue(HeadshotStore.exists(key: profileKey, auditionID: nil), "Removing audition headshots must not remove profile headshot")
 
-        // 5. Auditions without "Headshots" in asks do NOT get a mandatory .headshot piece
+        // 5. Headshots and Slate are in the flow by default and can be changed to optional
         var draft = NoticeParser.Draft()
         draft.project = "Escape Plan"
         draft.role = "Lead Actor"
         let audition = draft.makeAudition()
-        XCTAssertFalse(audition.pieces.contains(where: { $0.kind == .headshot }), "Headshot piece must not be added when notice did not ask for it")
+        XCTAssertTrue(audition.pieces.contains(where: { $0.kind == .headshot }), "Headshot piece should be in the flow by default")
+        XCTAssertTrue(audition.pieces.contains(where: { $0.kind == .slate }), "Slate piece should be in the flow by default")
+        XCTAssertFalse(audition.pieces.first(where: { $0.kind == .headshot })?.isOptional == true, "Headshot is not forced optional by default")
+
+        draft.isHeadshotOptional = true
+        draft.isSlateOptional = true
+        let auditionOpt = draft.makeAudition()
+        XCTAssertTrue(auditionOpt.pieces.first(where: { $0.kind == .headshot })?.isOptional == true)
+        XCTAssertTrue(auditionOpt.pieces.first(where: { $0.kind == .slate })?.isOptional == true)
     }
 }
 

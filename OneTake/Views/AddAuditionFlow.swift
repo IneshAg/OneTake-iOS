@@ -249,6 +249,10 @@ private struct OCRReviewSheet: View {
     @State private var hasDueDate: Bool
     @State private var castingNotesText: String
     @State private var actorNotesText: String
+    @State private var isSlateOptional: Bool
+    @State private var isHeadshotOptional: Bool
+    @State private var includeSlate: Bool
+    @State private var includeHeadshots: Bool
 
     init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft) -> Void, onDiscard: @escaping () -> Void) {
         self._draft = State(initialValue: draft)
@@ -264,6 +268,10 @@ private struct OCRReviewSheet: View {
         let initialCastingNotes = draft.castingNotes ?? NoticeParser.extractCharacterDescription(for: draft.role, in: draft.sourceText) ?? ""
         self._castingNotesText = State(initialValue: initialCastingNotes)
         self._actorNotesText = State(initialValue: draft.actorNotes ?? "")
+        self._isSlateOptional = State(initialValue: draft.isSlateOptional)
+        self._isHeadshotOptional = State(initialValue: draft.isHeadshotOptional)
+        self._includeSlate = State(initialValue: draft.includeSlate)
+        self._includeHeadshots = State(initialValue: draft.includeHeadshots)
     }
 
     var body: some View {
@@ -408,6 +416,48 @@ private struct OCRReviewSheet: View {
                         isRequired: false
                     )
 
+                    // Deliverables in flow (Slate & Headshots)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Deliverables in flow", systemImage: "checklist")
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelSecondary)
+                        HStack(spacing: 12) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.text.rectangle")
+                                    .foregroundStyle(OT.accent)
+                                Text("Slate:")
+                                    .font(.otFootnote.weight(.semibold))
+                                Button(isSlateOptional ? "Optional" : "Required") {
+                                    isSlateOptional.toggle()
+                                    Haptics.tick()
+                                }
+                                .font(.otCaption.weight(.bold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                                .foregroundStyle(isSlateOptional ? OT.labelSecondary : OT.accent)
+                            }
+                            Spacer()
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.crop.square")
+                                    .foregroundStyle(OT.accent)
+                                Text("Headshots:")
+                                    .font(.otFootnote.weight(.semibold))
+                                Button(isHeadshotOptional ? "Optional" : "Required") {
+                                    isHeadshotOptional.toggle()
+                                    Haptics.tick()
+                                }
+                                .font(.otCaption.weight(.bold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                                .foregroundStyle(isHeadshotOptional ? OT.labelSecondary : OT.accent)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                     // Detected asks chips
                     if !draft.asks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -452,6 +502,10 @@ private struct OCRReviewSheet: View {
                         confirmed.castingNotes = trimmedCastingNotes.isEmpty ? nil : trimmedCastingNotes
                         let trimmedActorNotes = actorNotesText.trimmingCharacters(in: .whitespacesAndNewlines)
                         confirmed.actorNotes = trimmedActorNotes.isEmpty ? nil : trimmedActorNotes
+                        confirmed.isSlateOptional = isSlateOptional
+                        confirmed.isHeadshotOptional = isHeadshotOptional
+                        confirmed.includeSlate = includeSlate
+                        confirmed.includeHeadshots = includeHeadshots
                         onConfirm(confirmed)
                     }
                     .font(.otHeadline)
@@ -532,6 +586,10 @@ enum NoticeParser {
         var customScenes: [ScriptScene]? = nil
         var castingNotes: String? = nil
         var actorNotes: String? = nil
+        var isSlateOptional: Bool = false
+        var isHeadshotOptional: Bool = false
+        var includeSlate: Bool = true
+        var includeHeadshots: Bool = true
 
         static let blank = Draft()
 
@@ -551,11 +609,9 @@ enum NoticeParser {
 
         func makeAudition() -> Audition {
             let parsedScenes = (customScenes?.isEmpty == false ? customScenes : nil) ?? ScriptParser.parseScenes(from: sourceText, myRole: role)
-            var pieces: [Piece] = [
-                .init(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: false)
-            ]
-            if asks.contains("Headshots") {
-                pieces.append(.init(kind: .headshot, title: "Headshot (Optional)", detail: "Photos", isDone: false))
+            var pieces: [Piece] = []
+            if includeSlate {
+                pieces.append(.init(kind: .slate, title: isSlateOptional ? "Slate (Optional)" : "Slate", detail: "Name, height, city", isDone: false, isOptional: isSlateOptional))
             }
             if parsedScenes.isEmpty {
                 // No sides could be read from what was captured — be honest about that rather than
@@ -568,6 +624,9 @@ enum NoticeParser {
                 for scene in parsedScenes {
                     pieces.append(.init(kind: .scene, title: scene.title, detail: "", isDone: false))
                 }
+            }
+            if includeHeadshots {
+                pieces.append(.init(kind: .headshot, title: isHeadshotOptional ? "Headshot (Optional)" : "Headshot", detail: "Photos", isDone: false, isOptional: isHeadshotOptional))
             }
             let autoNotes = NoticeParser.extractCharacterDescription(for: role, in: sourceText)
             let resolvedCastingNotes = castingNotes ?? autoNotes ?? (aiGuidance.isEmpty ? nil : aiGuidance)
@@ -2758,6 +2817,61 @@ struct NoticeReviewView: View {
                             ), axis: .vertical)
                             .padding(12)
                             .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                    .otCard(radius: 20)
+
+                    SectionLabel(text: "Deliverables in flow")
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.text.rectangle")
+                                        .foregroundStyle(OT.accent)
+                                    Text("Slate")
+                                        .font(.otHeadline)
+                                }
+                                Text("Intro video with name, height, location")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Button(store.auditionDraft.isSlateOptional ? "Optional" : "Required") {
+                                store.auditionDraft.isSlateOptional.toggle()
+                                Haptics.tick()
+                            }
+                            .font(.otFootnote.weight(.bold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(store.auditionDraft.isSlateOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                            .foregroundStyle(store.auditionDraft.isSlateOptional ? OT.labelSecondary : OT.accent)
+                        }
+
+                        Divider()
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.crop.square")
+                                        .foregroundStyle(OT.accent)
+                                    Text("Headshots")
+                                        .font(.otHeadline)
+                                }
+                                Text("Photos sent alongside tape (front, profiles)")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Button(store.auditionDraft.isHeadshotOptional ? "Optional" : "Required") {
+                                store.auditionDraft.isHeadshotOptional.toggle()
+                                Haptics.tick()
+                            }
+                            .font(.otFootnote.weight(.bold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(store.auditionDraft.isHeadshotOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                            .foregroundStyle(store.auditionDraft.isHeadshotOptional ? OT.labelSecondary : OT.accent)
                         }
                     }
                     .padding(16)

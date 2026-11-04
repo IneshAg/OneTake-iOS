@@ -298,7 +298,7 @@ final class AppStore {
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
                 auditions[i].pieces[j].isDone = hasAuditionHeadshot
             }
-            if auditions[i].nextPiece == nil, auditions[i].status == .due { auditions[i].status = .ready }
+            if auditions[i].isPackageReady, auditions[i].status == .due { auditions[i].status = .ready }
         }
     }
 
@@ -386,23 +386,20 @@ final class AppStore {
     }
 
     /// The one "Next" action used everywhere an audition offers to continue: opens whatever its next
-    /// unfinished piece needs, prioritizing shooting (slate, scenes) while keeping headshots optional.
+    /// unfinished piece needs in the audition flow (slate, scenes, headshots).
     func continueAudition(_ id: Audition.ID) {
         syncHeadshotPieces()
         guard let a = audition(id) else { return }
-        // Headshots are completely optional: prioritize recording slate and scenes first.
-        if let rec = a.pieces.first(where: { !$0.isDone && $0.kind != .headshot }) {
-            switch rec.kind {
-            case .slate, .fullLength, .scene: camera = .shoot(id)
-            default: break
-            }
+        guard let next = a.nextPiece else {
+            push(.package(id))
             return
         }
-        if let headshot = a.pieces.first(where: { !$0.isDone && $0.kind == .headshot }) {
+        switch next.kind {
+        case .slate, .fullLength, .scene:
+            camera = .shoot(id)
+        case .headshot:
             push(.headshots(for: id))
-            return
         }
-        push(.package(id))
     }
 
     /// Removes an audition and everything recorded for it on this iPhone: takes, slate and full
@@ -584,7 +581,31 @@ final class AppStore {
         if let j = auditions[i].pieces.firstIndex(where: { $0.kind == kind && !$0.isDone && (title == nil || $0.title == title) }) {
             auditions[i].pieces[j].isDone = true
         }
-        if auditions[i].nextPiece == nil { auditions[i].status = .ready }
+        if auditions[i].isPackageReady { auditions[i].status = .ready }
+    }
+
+    func togglePieceOptional(for id: Audition.ID, pieceID: UUID) {
+        guard let index = auditions.firstIndex(where: { $0.id == id }),
+              let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.id == pieceID }) else { return }
+        auditions[index].pieces[pieceIndex].isOptional.toggle()
+        let isOpt = auditions[index].pieces[pieceIndex].isOptional
+        if auditions[index].pieces[pieceIndex].kind == .headshot {
+            auditions[index].pieces[pieceIndex].title = isOpt ? "Headshot (Optional)" : "Headshot"
+        } else if auditions[index].pieces[pieceIndex].kind == .slate {
+            auditions[index].pieces[pieceIndex].title = isOpt ? "Slate (Optional)" : "Slate"
+        }
+        if auditions[index].isPackageReady, auditions[index].status == .due {
+            auditions[index].status = .ready
+        }
+    }
+
+    func markPieceDone(_ id: Audition.ID, pieceID: UUID, isDone: Bool = true) {
+        guard let index = auditions.firstIndex(where: { $0.id == id }),
+              let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.id == pieceID }) else { return }
+        auditions[index].pieces[pieceIndex].isDone = isDone
+        if auditions[index].isPackageReady, auditions[index].status == .due {
+            auditions[index].status = .ready
+        }
     }
 
     func markSent(_ id: Audition.ID) {

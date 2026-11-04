@@ -1035,16 +1035,17 @@ struct HeadshotsView: View {
                         .padding(14)
                         .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     } else {
+                        let isOpt = store.audition(auditionID)?.pieces.first(where: { $0.kind == .headshot })?.isOptional ?? false
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 12) {
                                 Image(systemName: "info.circle.fill")
                                     .font(.title3)
                                     .foregroundStyle(OT.accent)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Headshots are optional")
+                                    Text(isOpt ? "Headshots are optional" : "Audition headshots")
                                         .font(.otHeadline)
                                         .foregroundStyle(OT.labelPrimary)
-                                    Text("You can skip headshots, attach your default profile photo, or take a new one.")
+                                    Text(isOpt ? "You can skip headshots, attach your default profile photo, or take a new one." : "Required for this package. Attach your default profile photo or take new ones.")
                                         .font(.otFootnote)
                                         .foregroundStyle(OT.labelSecondary)
                                 }

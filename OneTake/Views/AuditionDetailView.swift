@@ -120,23 +120,64 @@ struct AuditionDetailView: View {
     // MARK: Up next panel
 
     @ViewBuilder private func upNext(_ a: Audition) -> some View {
-        // Prioritize recording slate and scenes first. Headshots are optional and should never block the actor.
-        let recordingPiece = a.pieces.first { !$0.isDone && $0.kind != .headshot }
-        let next = recordingPiece ?? a.nextPiece
+        let next = a.nextPiece
         VStack(alignment: .leading, spacing: 12) {
             if next?.kind == .headshot {
-                HStack { SectionLabel(text: "Headshots (Optional)"); Spacer(); Text("≈ 2 min").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+                let isOpt = next?.isOptional ?? false
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · Headshots (Optional)" : "Up next · Headshots")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        if let pieceID = next?.id {
+                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
+                            Haptics.tick()
+                        }
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
                 Text("Audition headshots").font(.otTitle)
-                quoteLine("Optional · sent alongside your video tape as photos.")
+                quoteLine(isOpt ? "Optional · sent alongside your video tape as photos." : "Required in package · 3 photos (front, left, right profile).")
                 HStack(spacing: 10) {
                     Button("Manage headshots") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
-                    Button("Ready to send") { store.push(.package(a.id)) }.buttonStyle(.otSecondary)
+                    if isOpt {
+                        Button("Skip for now") {
+                            if let pieceID = next?.id {
+                                store.markPieceDone(a.id, pieceID: pieceID)
+                                Haptics.tick()
+                            }
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
                 }
             } else if next?.kind == .slate || next?.kind == .fullLength {
-                SectionLabel(text: "Up next · \(next?.title ?? "")")
+                let isOpt = next?.isOptional ?? false
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · \(next?.title ?? "Slate")" : "Up next · \(next?.title ?? "Slate")")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        if let pieceID = next?.id {
+                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
+                            Haptics.tick()
+                        }
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
                 Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
                 quoteLine(store.slate.spoken)
-                Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
+                HStack(spacing: 10) {
+                    Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
+                    if isOpt {
+                        Button("Skip slate") {
+                            if let pieceID = next?.id {
+                                store.markPieceDone(a.id, pieceID: pieceID)
+                                Haptics.tick()
+                            }
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
+                }
             } else if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
                 let scene = a.scenes[sceneIndex]
                 HStack { SectionLabel(text: "Up next · scene \(scene.number) of \(a.scenes.count)"); Spacer(); Text("≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60)) · \(scene.lines.filter(\.isMine).count) lines").font(.otFootnote).foregroundStyle(OT.labelTertiary) }
@@ -228,6 +269,8 @@ struct AuditionDetailView: View {
     @ViewBuilder private func headshotsCard(_ a: Audition) -> some View {
         let hasHeadshots = HeadshotStore.exists(key: "front", auditionID: a.id)
         let count = HeadshotStore.taken(auditionID: a.id).count
+        let headshotPiece = a.pieces.first { $0.kind == .headshot }
+        let isOpt = headshotPiece?.isOptional ?? false
         HStack(spacing: 12) {
             Image(systemName: hasHeadshots ? "photo.fill" : "photo.badge.plus")
                 .font(.system(size: 16, weight: .semibold))
@@ -235,8 +278,8 @@ struct AuditionDetailView: View {
                 .frame(width: 34, height: 34)
                 .background(OT.accentSoft, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
-                SectionLabel(text: "Headshots (Optional)")
-                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : "None attached · optional")
+                SectionLabel(text: isOpt ? "Headshots (Optional)" : "Headshots")
+                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : (isOpt ? "None attached · optional" : "Required in flow · tap Add"))
                     .font(.otHeadline)
                     .foregroundStyle(OT.labelPrimary)
             }
@@ -292,23 +335,52 @@ struct PackageSheet: View {
                     Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.buttonStyle(.plain)
                 }
                 ForEach(Array(a.pieces.enumerated()), id: \.element.id) { i, piece in
-                    Button { dismiss(); open(piece, a) } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: piece.isDone ? "checkmark" : piece.kind.symbol)
-                                .foregroundStyle(piece.isDone ? OT.labelOnAccent : OT.accent)
-                                .frame(width: 44, height: 44)
-                                .background(piece.isDone ? OT.accent : OT.accentSoft, in: Circle())
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(i + 1)  \(piece.title)").font(.otHeadline)
-                                Text(piece.detail.isEmpty ? "not shot yet" : piece.detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                    HStack(spacing: 12) {
+                        Button { dismiss(); open(piece, a) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: piece.isDone ? "checkmark" : piece.kind.symbol)
+                                    .foregroundStyle(piece.isDone ? OT.labelOnAccent : OT.accent)
+                                    .frame(width: 44, height: 44)
+                                    .background(piece.isDone ? OT.accent : OT.accentSoft, in: Circle())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text("\(i + 1)  \(piece.title)").font(.otHeadline)
+                                        if piece.isOptional {
+                                            Text("Optional")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(OT.surfaceSunken, in: Capsule())
+                                                .foregroundStyle(OT.labelSecondary)
+                                        }
+                                    }
+                                    Text(piece.detail.isEmpty ? "not shot yet" : piece.detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                }
                             }
-                            Spacer()
-                            if piece.id == a.nextPiece?.id { Text("Next").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent) }
-                            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
                         }
-                        .frame(minHeight: 56)
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        if piece.kind == .slate || piece.kind == .headshot {
+                            Button {
+                                store.togglePieceOptional(for: a.id, pieceID: piece.id)
+                                Haptics.tick()
+                            } label: {
+                                Text(piece.isOptional ? "Make required" : "Make optional")
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(OT.accentSoft, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        if piece.id == a.nextPiece?.id { Text("Next").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent) }
+                        Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
                     }
-                    .buttonStyle(.plain)
+                    .frame(minHeight: 56)
                 }
                 Spacer()
             }
@@ -584,6 +656,85 @@ struct EditAuditionSheet: View {
                                 .foregroundStyle(OT.accent)
                         }
                         .disabled(sceneCount >= 12)
+                    }
+                    Section {
+                        // Slate
+                        HStack {
+                            Label("Slate", systemImage: "person.text.rectangle")
+                                .font(.otSubhead.weight(.medium))
+                            Spacer()
+                            Toggle("Include slate", isOn: Binding(
+                                get: { audition.wrappedValue.pieces.contains { $0.kind == .slate } },
+                                set: { included in
+                                    if included {
+                                        if !audition.wrappedValue.pieces.contains(where: { $0.kind == .slate }) {
+                                            let isDone = audition.wrappedValue.slateVideoURL != nil
+                                            let p = Piece(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: isDone, isOptional: false)
+                                            audition.wrappedValue.pieces.insert(p, at: 0)
+                                        }
+                                    } else {
+                                        audition.wrappedValue.pieces.removeAll { $0.kind == .slate }
+                                    }
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+
+                        if let slateIndex = audition.wrappedValue.pieces.firstIndex(where: { $0.kind == .slate }) {
+                            Picker("Slate requirement", selection: Binding(
+                                get: { audition.wrappedValue.pieces[slateIndex].isOptional ? "Optional" : "Required" },
+                                set: {
+                                    let opt = ($0 == "Optional")
+                                    audition.wrappedValue.pieces[slateIndex].isOptional = opt
+                                    audition.wrappedValue.pieces[slateIndex].title = opt ? "Slate (Optional)" : "Slate"
+                                }
+                            )) {
+                                Text("Required in flow").tag("Required")
+                                Text("Optional").tag("Optional")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        // Headshots
+                        HStack {
+                            Label("Headshots", systemImage: "person.crop.square")
+                                .font(.otSubhead.weight(.medium))
+                            Spacer()
+                            Toggle("Include headshots", isOn: Binding(
+                                get: { audition.wrappedValue.pieces.contains { $0.kind == .headshot } },
+                                set: { included in
+                                    if included {
+                                        if !audition.wrappedValue.pieces.contains(where: { $0.kind == .headshot }) {
+                                            let isDone = HeadshotStore.exists(key: "front", auditionID: auditionID)
+                                            let p = Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: isDone, isOptional: false)
+                                            audition.wrappedValue.pieces.append(p)
+                                        }
+                                    } else {
+                                        audition.wrappedValue.pieces.removeAll { $0.kind == .headshot }
+                                    }
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+
+                        if let headshotIndex = audition.wrappedValue.pieces.firstIndex(where: { $0.kind == .headshot }) {
+                            Picker("Headshot requirement", selection: Binding(
+                                get: { audition.wrappedValue.pieces[headshotIndex].isOptional ? "Optional" : "Required" },
+                                set: {
+                                    let opt = ($0 == "Optional")
+                                    audition.wrappedValue.pieces[headshotIndex].isOptional = opt
+                                    audition.wrappedValue.pieces[headshotIndex].title = opt ? "Headshot (Optional)" : "Headshot"
+                                }
+                            )) {
+                                Text("Required in flow").tag("Required")
+                                Text("Optional").tag("Optional")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    } header: {
+                        Text("Slate & Headshots Flow")
+                    } footer: {
+                        Text("Headshots and Slate are in your audition flow. You can change either one to optional or exclude it.")
                     }
                     Section("Due") {
                         DatePicker("Due", selection: audition.due)
