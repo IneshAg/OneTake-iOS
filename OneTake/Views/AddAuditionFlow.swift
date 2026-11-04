@@ -2092,6 +2092,7 @@ struct AddDraftSidesSheet: View {
                 }
             }
         }
+        .interactiveDismissDisabled(!text.isEmpty)
     }
 
     private func pasteFromClipboard() {

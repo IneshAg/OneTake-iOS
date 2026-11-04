@@ -4,7 +4,15 @@
 xcuserdata/
 DerivedData/
 build/
+build_sim/
 *.xcuserstate
 .DS_Store
 .swiftpm/
 .agents/
+scripts/.venv/
+dataset/
+data/
+*.pth
+*.mlmodelc/
+__pycache__/
+*.pyc

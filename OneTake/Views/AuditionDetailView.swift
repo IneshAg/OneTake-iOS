@@ -36,9 +36,15 @@ struct AuditionDetailView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OT.labelPrimary)
                             .frame(width: 38, height: 38)
-                            .background(OT.fillField, in: Circle())
+                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+                            )
+                            .frame(width: 44, height: 44)
                             .contentShape(Circle())
                     }
+                    .buttonStyle(CircularIconPressStyle())
                 }
                 .padding(.top, 4)
 
@@ -1071,6 +1077,7 @@ struct CallbackExtraSidesSheet: View {
                 }
             }
         }
+        .interactiveDismissDisabled(!text.isEmpty)
     }
 
     private func pasteFromClipboard() {
@@ -1947,6 +1954,7 @@ struct RevisedSidesSheet: View {
                 }
             }
         }
+        .interactiveDismissDisabled(!text.isEmpty)
     }
 
     private func pasteFromClipboard(role: String) {

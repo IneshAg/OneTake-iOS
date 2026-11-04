@@ -389,18 +389,34 @@ extension Date {
 
 // MARK: - Native iOS Glass Back Button
 
+struct NativeNavPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.65 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+struct CircularIconPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.55 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 struct GlassBackButton: View {
     var label: String = "Back"
     var onDark: Bool = false
     var action: () -> Void
 
-    private var isSymbolOnly: Bool {
-        label.isEmpty || label.caseInsensitiveCompare("Back") == .orderedSame
-    }
-
     private var isDismissStyle: Bool {
         label.caseInsensitiveCompare("Cancel") == .orderedSame ||
-        label.caseInsensitiveCompare("Done") == .orderedSame ||
+        label.caseInsensitiveCompare("Done") == .orderedSame
+    }
+
+    private var isCloseStyle: Bool {
         label.caseInsensitiveCompare("Close") == .orderedSame
     }
 
@@ -410,40 +426,63 @@ struct GlassBackButton: View {
             action()
         }) {
             Group {
-                if isSymbolOnly {
-                    // Standard iOS circular glass back button (44×44 pt native tap target)
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
+                if isDismissStyle {
+                    // Standard iOS navigation sheet dismiss text
+                    Text(label)
+                        .font(.system(size: 17, weight: label == "Done" ? .semibold : .regular))
+                        .foregroundStyle(onDark ? .white : OT.accent)
+                        .frame(height: 44)
+                        .contentShape(Rectangle())
+                } else if isCloseStyle {
+                    // Circular close button (xmark) for camera/media viewports
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(onDark ? .white : OT.labelPrimary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 38, height: 38)
                         .background(
                             onDark
-                            ? AnyShapeStyle(OT.cameraGlass)
-                            : AnyShapeStyle(.ultraThinMaterial),
+                            ? AnyShapeStyle(Color.white.opacity(0.16))
+                            : AnyShapeStyle(Color(uiColor: .secondarySystemFill)),
                             in: Circle()
                         )
                         .overlay(
                             Circle()
-                                .stroke(onDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), lineWidth: 0.5)
+                                .stroke(onDark ? Color.white.opacity(0.22) : Color.white.opacity(0.35), lineWidth: 0.5)
                         )
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                } else if onDark {
+                    // Circular glass back button on live camera viewports
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .background(
+                            Color.white.opacity(0.16),
+                            in: Circle()
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
+                        )
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 } else {
-                    // Native iOS borderless navigation item (e.g. "< Auditions", "Cancel", "Done")
+                    // Standard Apple iOS UINavigationBar back button (chevron + destination label)
                     HStack(spacing: 5) {
-                        if !isDismissStyle {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 17, weight: .semibold))
-                        }
-                        Text(label)
-                            .font(.system(size: 17, weight: isDismissStyle && label == "Done" ? .semibold : .regular))
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text(label.isEmpty ? "Back" : label)
+                            .font(.system(size: 17, weight: .regular))
                     }
-                    .foregroundStyle(onDark ? .white : OT.accent)
+                    .foregroundStyle(OT.accent)
                     .frame(height: 44)
                     .contentShape(Rectangle())
                 }
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativeNavPressStyle())
         .accessibilityLabel(label.isEmpty ? "Back" : label)
     }
 }

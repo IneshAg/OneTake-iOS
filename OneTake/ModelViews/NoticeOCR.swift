@@ -145,16 +145,18 @@ enum NoticeOCR {
     /// check is preserved as the outer guard because `looksReadable` is also called on pre-extracted
     /// PDF text where no confidence scores are available.
     static func looksReadable(_ text: String) -> Bool {
-        // Must contain at least 3 words that are themselves mostly letters (not just digits / symbols).
-        let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        // Must contain at least 2 words that are themselves mostly letters (to support short sides/dialogue).
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .filter { $0.filter(\.isLetter).count >= 2 }
-        guard words.count >= 3 else { return false }
-        // Reject output that looks like pure noise: if >70% of all characters are non-letter/space,
-        // it is likely a watermark grid, QR-code artefact, or scanner calibration page.
-        let totalChars = text.count
+        guard words.count >= 2 else { return false }
+        // Reject output that looks like pure noise: if >60% of all characters are non-printable/control,
+        // it is likely binary junk or scanner calibration artifact.
+        let totalChars = trimmed.count
         guard totalChars > 0 else { return false }
-        let letterOrSpaceCount = text.filter { $0.isLetter || $0.isWhitespace || $0.isNewline }.count
-        return Double(letterOrSpaceCount) / Double(totalChars) > 0.30
+        let printableCount = trimmed.filter { $0.isLetter || $0.isWhitespace || $0.isNewline || $0.isPunctuation || $0.isNumber }.count
+        return Double(printableCount) / Double(totalChars) >= 0.40
     }
 
     // MARK: - Security-scoped file resolution
@@ -230,6 +232,11 @@ enum NoticeOCR {
             // Scanned PDF fallback: render pages to high-res images and run on-device Apple Vision OCR
             var images: [UIImage] = []
             let pageLimit = min(doc.pageCount, 30)
+            if doc.pageCount > 30 {
+                #if DEBUG
+                print("[NoticeOCR] Note: Scanned PDF has \(doc.pageCount) pages; processing first \(pageLimit) pages to protect memory.")
+                #endif
+            }
             for i in 0..<pageLimit {
                 if let page = doc.page(at: i), let img = renderPDFPage(page) {
                     images.append(img)
@@ -239,15 +246,15 @@ enum NoticeOCR {
                 let ocrText = await recognizeText(in: images)
                 let ocrTrimmed = ocrText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if looksReadable(ocrTrimmed) { return ocrTrimmed }
-                if !ocrTrimmed.isEmpty { return ocrTrimmed }
             }
-            // If OCR produced nothing but digital PDF text was extracted, return it
-            return trimmed.isEmpty ? nil : trimmed
+            // If OCR produced nothing but digital PDF text was extracted and readable, return it
+            return looksReadable(trimmed) ? trimmed : nil
         case "rtf":
             guard let data = try? Data(contentsOf: url),
                   let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
             else { return nil }
-            return attributed.string
+            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return looksReadable(text) ? text : nil
         default:
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
                 var text = ""
@@ -257,12 +264,12 @@ enum NoticeOCR {
                     }
                 }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
+                if looksReadable(trimmed) { return trimmed }
             }
-            if let str = try? String(contentsOf: url, encoding: .utf8) { return str }
-            if let str = try? String(contentsOf: url, encoding: .ascii) { return str }
-            if let str = try? String(contentsOf: url, encoding: .isoLatin1) { return str }
-            if let data = try? Data(contentsOf: url), let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) {
+            if let str = try? String(contentsOf: url, encoding: .utf8), looksReadable(str) { return str }
+            if let str = try? String(contentsOf: url, encoding: .ascii), looksReadable(str) { return str }
+            if let str = try? String(contentsOf: url, encoding: .isoLatin1), looksReadable(str) { return str }
+            if let data = try? Data(contentsOf: url), let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii), looksReadable(str) {
                 return str
             }
             return nil
@@ -282,12 +289,13 @@ enum NoticeOCR {
                 }
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            return looksReadable(trimmed) ? trimmed : nil
         case "rtf":
             guard let data = try? Data(contentsOf: url),
                   let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
             else { return nil }
-            return attributed.string
+            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return looksReadable(text) ? text : nil
         default:
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
                 var text = ""
@@ -297,10 +305,10 @@ enum NoticeOCR {
                     }
                 }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
+                if looksReadable(trimmed) { return trimmed }
             }
-            if let str = try? String(contentsOf: url, encoding: .utf8) { return str }
-            if let str = try? String(contentsOf: url, encoding: .ascii) { return str }
+            if let str = try? String(contentsOf: url, encoding: .utf8), looksReadable(str) { return str }
+            if let str = try? String(contentsOf: url, encoding: .ascii), looksReadable(str) { return str }
             if let str = try? String(contentsOf: url, encoding: .isoLatin1) { return str }
             return nil
         }

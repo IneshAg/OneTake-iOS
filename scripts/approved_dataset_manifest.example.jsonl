@@ -1,0 +1,5 @@
+# Only add URLs you have verified are public and licensed for research/training.
+# Do not add private social-media URLs, login-gated pages, or copyrighted files
+# without written permission.
+{"url":"https://example.org/open-screenplay.pdf","category":"sides","license":"CC BY 4.0","filename":"open-screenplay.pdf"}
+{"url":"https://example.org/pose-images.zip","category":"pose","license":"CC BY 4.0","filename":"pose-images.zip"}

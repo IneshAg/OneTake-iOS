@@ -31,6 +31,9 @@ struct OneTakeApp: App {
                 if ProcessInfo.processInfo.arguments.contains("-openProfile") {
                     store.showProfile = true
                 }
+                if ProcessInfo.processInfo.arguments.contains("-openFirstAudition"), let first = store.auditions.first {
+                    store.auditionsPath = [.auditionDetail(first.id)]
+                }
                 await store.validateAccount()
             }
             // Widgets and the Live Activity open "onetake://audition/<id>".

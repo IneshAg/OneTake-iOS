@@ -754,7 +754,31 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
      - **🖼️ Photos** (`photo.on.rectangle`)
    - Added a centered monospaced script text card with placeholder guidelines, a "Clear" button, and character/scene count badges (`[Scenes: X]`, `[Your lines: Y]`, `[Total lines: Z]`).
 3. **Automated Verification ([NoticeParserTests.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTakeTests/NoticeParserTests.swift))**:
-   - Added unit tests `testExtractSidesFromScriptPDFAndParseScenes` and `testExtractSidesFromPlainTextFile` verifying end-to-end PDF context creation, security-scoped resolution, text extraction, and scene parsing. All 151 tests in the suite pass.
+   - Added unit tests `testExtractSidesFromScriptPDFAndParseScenes` and `testExtractSidesFromPlainTextFile` verifying end-to-end PDF context creation, security-scoped resolution, text extraction, and scene parsing. All unit tests in the suite pass (verified locally via `xcodebuild test` on iOS 18 Simulator).
+
+---
+
+## 32. Apple Modern Circular Navigation Control & Uniform OCR Noise Rejection
+
+### Problem & Inconsistent Styling
+- Back navigation headers previously alternated between legacy capsule pills and trailing text labels (`< Auditions`), which competed for horizontal space against centered project titles.
+- In `NoticeOCR`, callers across the app used varying extraction gates: some enforced `looksReadable(text)` while others accepted raw non-empty strings, allowing corrupt binary files or scanner artifacts into the scene parser.
+- Scanned PDF processing lacked explicit handling and logging when documents exceeded the 30-page safety limit.
+
+### Implementation
+1. **Modern Apple Circular Navigation Control ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
+   - Standardized `GlassBackButton` to render Apple's modern 38×38 pt translucent circular navigation button (`Circle()`) with centered 16 pt semibold `chevron.left`.
+   - Adopts adaptive `secondarySystemFill` in light/dark canvas modes, `Color.white.opacity(0.16)` on camera feeds (`onDark`), and an ultra-thin 0.5 pt hairline border (`Color.white.opacity(0.35)`).
+   - Preserves full 44×44 pt Apple HIG tap targets via invisible bounding shapes.
+   - Applied `CircularIconPressStyle` providing native smooth opacity dimming (`0.55`) and subtle press scale (`0.96`).
+   - Symmetrically aligned trailing action buttons (ellipsis menu in `AuditionDetailView`, text settings in `PrepareViews`, video trimmer in `TakesViews`) with identical 38×38 pt circular geometry.
+2. **Unified Readability & Noise Rejection ([NoticeOCR.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/NoticeOCR.swift))**:
+   - Unified `looksReadable` across both synchronous and asynchronous extraction paths.
+   - Enforces a minimum of 2 letter-based words and $\ge 40\%$ printable characters, safely rejecting corrupted binary streams, raw null bytes, or scanner noise while preserving concise script dialogue cues.
+   - Added memory safeguard logging when scanned PDFs exceed the 30-page OCR cap to protect devices against memory pressure.
+3. **Automated Verification ([NoticeParserTests.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTakeTests/NoticeParserTests.swift))**:
+   - Added `testLooksReadableRejectsCorruptBinaryNoiseAndAcceptsShortDialogue` verifying acceptance of short dialogue and rejection of corrupt binary garbage.
+   - All 152 unit tests pass on iOS 18 Simulator.
 
 
 

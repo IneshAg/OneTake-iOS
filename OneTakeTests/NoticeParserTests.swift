@@ -575,4 +575,18 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(parsed.isEmpty)
         XCTAssertEqual(parsed.flatMap(\.lines).count, 2)
     }
+
+    func testLooksReadableRejectsCorruptBinaryNoiseAndAcceptsShortDialogue() {
+        // Valid short dialogue side
+        let validDialogue = "NOOR\nI was waiting for you."
+        XCTAssertTrue(NoticeOCR.looksReadable(validDialogue))
+
+        // Corrupt binary / random garbage noise
+        let corruptBytes = "\u{0000}\u{0001}\u{0002}%%PDF-1.4\u{001F}\u{007F}###@@@$$$%%%^^^&&&***\u{0000}\u{0003}\u{0004}"
+        XCTAssertFalse(NoticeOCR.looksReadable(corruptBytes))
+
+        // Empty / whitespace
+        XCTAssertFalse(NoticeOCR.looksReadable("   \n\t   "))
+        XCTAssertFalse(NoticeOCR.looksReadable("A"))
+    }
 }

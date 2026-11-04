@@ -26,12 +26,18 @@ struct PrepareView: View {
                     InContentNavHeader(title: "Scene \(scene.number) of \(a.scenes.count)", backLabel: "Back", onBack: { store.pop() }) {
                         Button { showPrompterSettings = true } label: {
                             Image(systemName: "textformat.size")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(OT.labelPrimary)
+                                .frame(width: 38, height: 38)
+                                .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+                                )
                                 .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                                .contentShape(Circle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(CircularIconPressStyle())
                         .accessibilityLabel("Text size")
                     }
                     .padding(.top, 4)

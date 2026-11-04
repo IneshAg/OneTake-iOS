@@ -83,12 +83,18 @@ struct TakesView: View {
                 InContentNavHeader(title: "Your takes", backLabel: "Back", onBack: { store.pop() }) {
                     Button { trimming = current } label: {
                         Image(systemName: "scissors")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 38, height: 38)
+                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+                            )
                             .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(CircularIconPressStyle())
                     .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
                     .opacity((current?.fileURL.map(VideoTrimmer.canTrim) ?? false) ? 1.0 : 0.4)
                     .accessibilityLabel("Trim")
