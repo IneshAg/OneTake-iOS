@@ -1122,7 +1122,7 @@ struct HeadshotsView: View {
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 if let auditionID {
-                    Button(taken > 0 ? "Continue" : "Skip & continue") {
+                    Button(continueButtonTitle) {
                         handleContinue(auditionID)
                     }
                     .buttonStyle(.otPrimary)
@@ -1253,6 +1253,32 @@ struct HeadshotsView: View {
         }
     }
 
+    private var continueButtonTitle: String {
+        guard let auditionID else { return "Continue" }
+        let hasPreview = store.currentPath.contains {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        let hasTapeCheck = store.currentPath.contains {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        }
+        let hasPackage = store.currentPath.contains {
+            if case .package(let id) = $0, id == auditionID { return true }
+            return false
+        }
+
+        if hasPreview {
+            return taken > 0 ? "Back to preview" : "Skip & back to preview"
+        } else if hasTapeCheck {
+            return taken > 0 ? "Back to tape check" : "Skip & back to tape check"
+        } else if hasPackage {
+            return taken > 0 ? "Back to package" : "Skip & back to package"
+        } else {
+            return taken > 0 ? "Continue" : "Skip & continue"
+        }
+    }
+
     private func handleContinue(_ id: Audition.ID) {
         store.syncPieces()
 
@@ -1283,9 +1309,9 @@ struct HeadshotsView: View {
             return
         }
 
-        // If all pieces are completed, advance to Preview
+        // If all required pieces are completed, advance to Preview
         guard let a = store.audition(id) else { return }
-        if a.isPackageReady && a.nextPiece == nil {
+        if a.isPackageReady {
             store.push(.preview(id))
             return
         }

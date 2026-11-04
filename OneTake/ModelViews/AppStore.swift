@@ -319,12 +319,20 @@ final class AppStore {
             // Slate
             let hasSlate = auditions[i].slateVideoURL != nil
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .slate {
-                auditions[i].pieces[j].isDone = hasSlate
+                if hasSlate {
+                    auditions[i].pieces[j].isDone = true
+                } else if !auditions[i].pieces[j].isOptional {
+                    auditions[i].pieces[j].isDone = false
+                }
             }
             // Full length
             let hasFullLength = auditions[i].fullLengthVideoURL != nil
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .fullLength {
-                auditions[i].pieces[j].isDone = hasFullLength
+                if hasFullLength {
+                    auditions[i].pieces[j].isDone = true
+                } else if !auditions[i].pieces[j].isOptional {
+                    auditions[i].pieces[j].isDone = false
+                }
             }
             // Scenes: if an audition has recorded takes for a scene, that scene is done!
             let auditionTakes = takes.filter { $0.auditionID == id }
@@ -332,7 +340,7 @@ final class AppStore {
                 ? auditions[i].scenes.map(\.title)
                 : auditions[i].pieces.filter { $0.kind == .scene }.map(\.title)
             for (sceneIndex, title) in sceneTitles.enumerated() {
-                let hasTake = auditionTakes.contains { $0.sceneIndex == sceneIndex }
+                let hasTake = auditionTakes.contains { ($0.sceneIndex ?? 0) == sceneIndex }
                 for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .scene && auditions[i].pieces[j].title == title {
                     auditions[i].pieces[j].isDone = hasTake
                 }

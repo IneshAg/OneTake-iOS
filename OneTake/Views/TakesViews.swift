@@ -60,6 +60,20 @@ struct TakesView: View {
         scene ?? initialScene ?? store.takes.last(where: { $0.auditionID == auditionID })?.sceneIndex ?? 0
     }
 
+    private var hasPreview: Bool {
+        store.currentPath.contains {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        }
+    }
+
+    private var hasTapeCheck: Bool {
+        store.currentPath.contains {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        }
+    }
+
     var body: some View {
         let takes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == shownScene }
         let current = takes.first { $0.id == (selected ?? takes.first(where: \.isCircled)?.id) } ?? takes.last
@@ -139,9 +153,30 @@ struct TakesView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Go again") { showOneMore = true }.buttonStyle(.otSecondary).frame(width: 130)
-                Button(scenes.count > 1 ? "Check the tape" : circled.map { "Send take \($0.number)" } ?? "Check the tape") { store.push(.tapeCheck(auditionID)) }
+                if hasPreview {
+                    Button("Back to preview") {
+                        store.popTo(.preview(auditionID))
+                    }
                     .buttonStyle(.otPrimary)
                     .disabled(!store.takes.contains { $0.auditionID == auditionID })
+                } else if hasTapeCheck {
+                    Button("Back to tape check") {
+                        store.popTo(.tapeCheck(auditionID))
+                    }
+                    .buttonStyle(.otPrimary)
+                    .disabled(!store.takes.contains { $0.auditionID == auditionID })
+                } else if let nextUnshot = scenes.indices.first(where: { idx in idx != shownScene && !store.takes.contains { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == idx } }) {
+                    Button("Next: \(scenes[nextUnshot].title)") {
+                        store.camera = .shoot(auditionID, scene: nextUnshot)
+                    }
+                    .buttonStyle(.otPrimary)
+                } else {
+                    Button(scenes.count > 1 ? "Check the tape" : circled.map { "Send take \($0.number)" } ?? "Check the tape") {
+                        store.push(.tapeCheck(auditionID))
+                    }
+                    .buttonStyle(.otPrimary)
+                    .disabled(!store.takes.contains { $0.auditionID == auditionID })
+                }
             }
             .padding(.horizontal, OT.gutter).padding(.vertical, 8).background(OT.bgCanvas)
         }

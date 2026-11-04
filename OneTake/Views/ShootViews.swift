@@ -459,7 +459,82 @@ struct ShootFlow: View {
             }
             .foregroundStyle(.white).padding(.horizontal, 12).frame(height: 32).background(OT.cameraGlass, in: Capsule())
             Spacer()
-            Color.clear.frame(width: 44, height: 44)
+            if camera.state == .recording {
+                Color.clear.frame(width: 44, height: 44)
+            } else {
+                topBarTrailing
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var topBarTrailing: some View {
+        let hasPreview = store.currentPath.contains(where: {
+            if case .preview(let id) = $0, id == auditionID { return true }
+            return false
+        })
+        let hasTapeCheck = store.currentPath.contains(where: {
+            if case .tapeCheck(let id) = $0, id == auditionID { return true }
+            return false
+        })
+
+        if hasPreview {
+            Button("Preview") { finish(goTo: .preview(auditionID)) }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(OT.cameraGlass, in: Capsule())
+        } else if hasTapeCheck {
+            Button("Tape check") { finish(goTo: .tapeCheck(auditionID)) }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(OT.cameraGlass, in: Capsule())
+        } else {
+            switch stage {
+            case .slate:
+                Button("Skip") {
+                    let a = store.audition(auditionID)
+                    stage = a?.asks.contains("Full length") == true ? .fullLength : .scene
+                }
+                .font(.otFootnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(OT.cameraGlass, in: Capsule())
+            case .fullLength:
+                Button("Skip") { stage = .scene }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(OT.cameraGlass, in: Capsule())
+            case .scene:
+                let sceneTakes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == sceneIndex }
+                if !sceneTakes.isEmpty {
+                    Button("Takes (\(sceneTakes.count))") {
+                        finish(goTo: .takes(auditionID, sceneIndex: sceneIndex))
+                    }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(OT.cameraGlass, in: Capsule())
+                } else if let a = store.audition(auditionID), let next = nextUnshotScene(in: a) {
+                    Button("Skip") { moveToScene(next) }
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(OT.cameraGlass, in: Capsule())
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            default:
+                Color.clear.frame(width: 44, height: 44)
+            }
         }
     }
 
@@ -504,6 +579,14 @@ struct ShootFlow: View {
             scenePicker(a)
         case .slate:
             promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
+            if camera.state != .recording {
+                let hasSlate = store.audition(auditionID)?.slateVideoURL != nil
+                Button(hasSlate ? "Keep current slate & continue" : "Skip slate & continue") {
+                    stage = a.asks.contains("Full length") ? .fullLength : .scene
+                }
+                .font(.otHeadline).foregroundStyle(.white)
+                .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
+            }
         case .slateDone:
             if isAnalyzingSlate {
                 VStack(spacing: 10) {
@@ -520,12 +603,55 @@ struct ShootFlow: View {
         case .fullLength:
             promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
             if camera.state != .recording {
-                Button("Skip full length") { stage = .scene }
+                let hasFull = store.audition(auditionID)?.fullLengthVideoURL != nil
+                Button(hasFull ? "Keep current full length & continue" : "Skip full length & continue") { stage = .scene }
                     .font(.otHeadline).foregroundStyle(.white)
                     .padding(.horizontal, 16).frame(height: 44).background(OT.cameraGlass, in: Capsule())
             }
         case .scene:
-            if camera.state != .recording { scenePicker(a) }
+            if camera.state != .recording {
+                scenePicker(a)
+                let sceneTakes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == sceneIndex }
+                let hasPreview = store.currentPath.contains(where: {
+                    if case .preview(let id) = $0, id == auditionID { return true }
+                    return false
+                })
+                let hasTapeCheck = store.currentPath.contains(where: {
+                    if case .tapeCheck(let id) = $0, id == auditionID { return true }
+                    return false
+                })
+
+                if !sceneTakes.isEmpty || hasPreview || hasTapeCheck {
+                    HStack(spacing: 8) {
+                        if !sceneTakes.isEmpty {
+                            Button("Review takes (\(sceneTakes.count))") {
+                                finish(goTo: .takes(auditionID, sceneIndex: sceneIndex))
+                            }
+                            .font(.otHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
+                        }
+                        if let next = nextUnshotScene(in: a) {
+                            Button("Next: \(a.scenes[next].title)") {
+                                moveToScene(next)
+                            }
+                            .font(.otHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
+                        } else if hasPreview {
+                            Button("Back to preview") {
+                                finish(goTo: .preview(auditionID))
+                            }
+                            .font(.otHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
+                        } else if hasTapeCheck {
+                            Button("Back to tape check") {
+                                finish(goTo: .tapeCheck(auditionID))
+                            }
+                            .font(.otHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 40).background(OT.cameraGlass, in: Capsule())
+                        }
+                    }
+                }
+            }
             let lines = sceneLines ?? []
             if !lines.isEmpty {
                 SidesPrompterView(
@@ -1086,8 +1212,11 @@ struct ShootFlow: View {
 
     private func finish(goTo route: Route?) {
         markSceneDone()
+        store.camera = nil
         dismiss()
-        if let route { store.push(route) } else { store.push(.auditionDetail(auditionID)) }
+        if let route {
+            store.popTo(route)
+        }
     }
 
     // MARK: Pieces
