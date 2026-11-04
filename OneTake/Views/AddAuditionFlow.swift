@@ -248,6 +248,32 @@ private struct OCRReviewSheet: View {
                         isRequired: true
                     )
 
+                    // Quick-select candidate roles extracted from the notice
+                    if !draft.candidateRoles.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(draft.candidateRoles, id: \.self) { roleOption in
+                                    Button {
+                                        roleText = roleOption
+                                        Haptics.tick()
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: roleText == roleOption ? "checkmark" : "plus.circle.fill")
+                                                .font(.system(size: 11, weight: .semibold))
+                                            Text(roleOption)
+                                                .font(.otCaption.weight(.medium))
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(roleText == roleOption ? OT.accent : OT.fillField, in: Capsule())
+                                        .foregroundStyle(roleText == roleOption ? .white : OT.labelPrimary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
                     reviewField(
                         icon: "building.2",
                         label: "Casting office",
@@ -545,7 +571,7 @@ enum NoticeParser {
         if firstMatch(#"(?i)\b(?:please\s+)?slate\s*(?:first|video|instructions?|clip|required)?\b|\binclude\s+(?:a\s+)?slate\b"#, in: text) != nil {
             ask("Slate first")
         }
-        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s*(?:mode|framing|orientation|video|format)?\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s+(?:mode|framing|orientation|video|format|shot)\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b|\b(?:slate\s+first[,\s]+)?landscape\s*,\s*full\s+length\b|\bhorizontal\s*\(landscape\)|\borientation\s*[:\-]\s*(?:horizontal|landscape)\b|\blandscape\s+only\b|\bhorizontal\s*/\s*landscape\b"#, in: text) != nil {
             ask("Landscape")
         }
         if firstMatch(#"(?i)\b(?:full-length|full\s+length|full-body|full\s+body)\s*(?:shot|slate|framing|video|view)\b|\bslate.*full\s+length\b"#, in: text) != nil {
@@ -554,7 +580,7 @@ enum NoticeParser {
         if firstMatch(#"(?i)\b(?:intro|introduction)\s+video\b|\bintroductory\s+video\b|\bintro\s+clip\b"#, in: text) != nil {
             ask("Intro video")
         }
-        if firstMatch(#"(?i)\b(?:send|attach|include|submit|mail)\b.*?\b(?:headshots?|pictures?|photos?)\b|\b(?:headshots?|recent\s+photos?)\s*(?:required|needed|welcome|to\s+be\s+sent)\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:headshots?|recent\s+photos?|recent\s+photographs?)\b|(?is)\b(?:send|attach|include|submit|mail|with|along\s+with)\b[\s\S]{0,60}?\b(?:pictures?|photos?)\b"#, in: text) != nil {
             ask("Headshots")
         }
         if let location = detectLocation(in: text) {
@@ -645,7 +671,7 @@ enum NoticeParser {
             d.projectType = "Feature film"
         } else if firstMatch(#"(?i)\b(?:tv\s+series|television\s+series|web\s+series|limited\s+series|mini-?series|episodic|drama\s+series|comedy\s+series|pilot)\b"#, in: text) != nil {
             d.projectType = "Series"
-        } else if firstMatch(#"(?i)\b(?:commercial|brand\s+campaign|tv\s+spot|ad\s+campaign|promo)\b"#, in: text) != nil {
+        } else if firstMatch(#"(?i)\b(?:commercial|brand\s+campaign|tv\s+spot|ad\s+campaign|ad\s+film|promo)\b"#, in: text) != nil {
             d.projectType = "Commercial"
         } else if firstMatch(#"(?i)\b(?:stage\s+play|theatrical\s+production|theatre\s+play|broadway|musical\s+theatre|stage\s+production)\b"#, in: text) != nil {
             d.projectType = "Theatre"
@@ -676,13 +702,37 @@ enum NoticeParser {
         return d
     }
 
-    /// Normalises OCR output: unified quotes/dashes/newlines, no zero-width characters.
+    /// Detects browser tab headers, repo paths, or window status chrome captured when scanning screen displays
+    private static func isNoiseLine(_ line: String) -> Bool {
+        let trimmed = clean(line)
+        if trimmed.isEmpty { return false }
+        // Browser tab / window chrome: e.g. "• - 100 Days Of Sv X Ineshag/Onetal X * History."
+        if trimmed.contains(" X ") || trimmed.contains(" x ") || trimmed.contains(" • ") || trimmed.hasPrefix("• -") || trimmed.hasPrefix("- •") {
+            if trimmed.contains("History") || trimmed.contains("/") || trimmed.contains("*") || trimmed.contains("Days Of") || trimmed.contains("localhost") {
+                return true
+            }
+        }
+        if trimmed.range(of: #"(?i)\b(?:github\.com|localhost|chrome|safari|firefox)\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if trimmed.range(of: #"^[•\-\*\s]+[0-9]+\s+Days\s+Of\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if trimmed.range(of: #"[A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+\s+X\s+\*"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
+    /// Normalises OCR output: unified quotes/dashes/newlines, no zero-width characters, strips display chrome noise.
     private static func tidy(_ text: String) -> String {
-        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "“", with: "\"").replacingOccurrences(of: "”", with: "\"")
             .replacingOccurrences(of: "‘", with: "'").replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "–", with: "-").replacingOccurrences(of: "—", with: "-")
             .replacingOccurrences(of: "\u{200B}", with: "")
+        let filteredLines = normalized.components(separatedBy: .newlines).filter { !isNoiseLine($0) }
+        return filteredLines.joined(separator: "\n")
     }
 
     private static func firstMatch(_ pattern: String, in text: String, group: Int = 1, options: NSRegularExpression.Options = []) -> String? {
@@ -704,7 +754,7 @@ enum NoticeParser {
             let pattern = #"^[\s>*•\-]*"# + NSRegularExpression.escapedPattern(for: label) + #"\s*[:\-]\s*(.+)$"#
             if let value = firstMatch(pattern, in: text, options: [.caseInsensitive, .anchorsMatchLines]) {
                 let cleaned = clean(value)
-                if !cleaned.isEmpty, cleaned.count <= 60 { return cleaned }
+                if !cleaned.isEmpty, cleaned.count <= 150 { return cleaned }
             }
         }
         return nil
@@ -726,7 +776,7 @@ enum NoticeParser {
         ]
 
         for match in matches {
-            guard let date = match.date, let r = Range(match.range, in: text) else { continue }
+            guard let r = Range(match.range, in: text) else { continue }
             let line = text.lineRange(for: r)
             let context = text[line].lowercased()
             // Skip dates in lines explicitly about filming/shooting/callbacks unless explicitly about tape deadline
@@ -734,10 +784,31 @@ enum NoticeParser {
                 continue
             }
             if submissionKeywords.contains(where: { context.contains($0) }) {
-                return date
+                // NSDataDetector has a quirk where "due by November 5" can offset the parsed date.
+                // Strip the preposition and evaluate the date substring directly when available.
+                let matchedSub = String(text[r])
+                if let stripped = firstMatch(#"(?i)(?:due\s+by|due|by|before|on)\s+([A-Za-z0-9,\s]+)"#, in: matchedSub) {
+                    if let refinedMatch = detector.matches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped)).first, let refinedDate = refinedMatch.date {
+                        return refinedDate
+                    }
+                }
+                if let d = match.date { return d }
             }
         }
-        return nil
+
+        // NSDataDetector can miss dates copied from HTML where the label and date are
+        // separated by non-breaking spaces or punctuation.
+        let labeledDatePattern = #"(?i)\b(?:deadline|due date|submission deadline|submit(?:ting)? by|tape due)\s*[:\-]?\s*([A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"#
+        guard let value = firstMatch(labeledDatePattern, in: text) else { return nil }
+        let normalized = value.replacingOccurrences(
+            of: #"(?i)(\d)(st|nd|rd|th)\b"#,
+            with: "$1",
+            options: .regularExpression
+        ).replacingOccurrences(of: ",", with: "")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMMM d yyyy"
+        return formatter.date(from: normalized)
     }
 
     /// Detects all candidate roles mentioned in a casting notice, prioritizing explicit roles, industry tiers, and demographic breakdowns.
@@ -747,7 +818,7 @@ enum NoticeParser {
         let invalidRoleNames: Set<String> = [
             "multiple roles", "multiple role", "each character", "separate video", "a separate video",
             "all roles", "any role", "both roles", "various roles", "other characters", "the role",
-            "your role", "character", "setting", "settings", "director note", "slate instruction",
+            "your role", "this role", "character", "cast", "setting", "settings", "director note", "slate instruction",
             "how to use these sides", "casting sides", "audition sides", "dialogue sides", "sides"
         ]
 
@@ -757,7 +828,9 @@ enum NoticeParser {
             let lower = cleaned.lowercased()
             guard !invalidRoleNames.contains(lower) else { return }
             let base = cleaned.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? cleaned
-            guard !ScriptParser.isBlacklistedNoticeWord(base) else { return }
+            if base.lowercased() != "male" && base.lowercased() != "female" {
+                guard !ScriptParser.isBlacklistedNoticeWord(base) else { return }
+            }
             roles.append(cleaned)
         }
 
@@ -794,6 +867,20 @@ enum NoticeParser {
             for m in matches {
                 if let range = Range(m.range(at: 1), in: text) {
                     addRole(String(text[range]).capitalized)
+                }
+            }
+        }
+
+        // Casting webpages often list role names as standalone lines under a
+        // "The Characters" heading, without screenplay-style age or pronoun metadata.
+        let characterSectionPattern = #"(?is)\bthe\s+characters\b\s*(.*?)(?=\bcasting\s+sides\b|\bvideo\s+submission\b|\z)"#
+        if let r = try? NSRegularExpression(pattern: characterSectionPattern),
+           let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(m.range(at: 1), in: text) {
+            for line in text[range].components(separatedBy: .newlines) {
+                let candidate = clean(line)
+                if candidate.range(of: #"^[A-Z][A-Za-z'\-]{1,20}$"#, options: .regularExpression) != nil {
+                    addRole(candidate.capitalized)
                 }
             }
         }
@@ -853,6 +940,36 @@ enum NoticeParser {
             }
         }
 
+        // 7b. Tabular / Columnar demographic breakdowns (e.g. Casting Bay flyer style):
+        // AGE \n 18 - 23 years \n AGE \n 45 - 55 years \n GENDER \n Female \n GENDER \n Male
+        var detectedAges: [String] = []
+        if let ageRegex = try? NSRegularExpression(pattern: #"(?i)(?:^|\b|\n)(?:age|age\s*group)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)"#) {
+            let matches = ageRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let r = Range(m.range(at: 1), in: text) {
+                    let a = clean(String(text[r]))
+                    if !detectedAges.contains(a) { detectedAges.append(a) }
+                }
+            }
+        }
+        var detectedGenders: [String] = []
+        if let genRegex = try? NSRegularExpression(pattern: #"(?i)(?:^|\b|\n)(?:gender|sex)\s*[:\-]?\s*(male|female|boy|girl|man|woman)\b"#) {
+            let matches = genRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let r = Range(m.range(at: 1), in: text) {
+                    let g = clean(String(text[r])).capitalized
+                    if !detectedGenders.contains(g) { detectedGenders.append(g) }
+                }
+            }
+        }
+        if !detectedAges.isEmpty && !detectedGenders.isEmpty {
+            let count = min(detectedAges.count, detectedGenders.count)
+            for i in 0..<count {
+                let rTitle = "\(detectedGenders[i]) (\(detectedAges[i]))"
+                addRole(rTitle)
+            }
+        }
+
         // 8. Seeking/looking for — strict validation so acting directions/adjectives never become roles
         let nonRoleWords: Set<String> = [
             "passionate", "grounded", "authentic", "talented", "experienced", "fresh", "creative",
@@ -885,6 +1002,7 @@ enum NoticeParser {
         // Filter out any blacklisted notice words or location names
         return roles.filter { role in
             let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            if base.lowercased() == "male" || base.lowercased() == "female" { return true }
             return !ScriptParser.isBlacklistedNoticeWord(base)
         }
     }
@@ -929,8 +1047,24 @@ enum NoticeParser {
         func cleanTitle(_ s: String) -> String? {
             var title = clean(s)
             guard !title.isEmpty, title.count >= 2, title.count <= 50 else { return nil }
-            if isGenericHeadline(title) || isSluglineOrScene(title) { return nil }
+            if isNoiseLine(title) || isSluglineOrScene(title) { return nil }
+            // Strip leading prefixes like "Casting Call:", "Casting Notice:", "Project:", "Audition Call:"
+            let prefixes = [
+                #"(?i)^casting\s+call\s*[:\-]\s*"#,
+                #"(?i)^casting\s+notice\s*[:\-]\s*"#,
+                #"(?i)^now\s+casting\s*[:\-]\s*"#,
+                #"(?i)^urgent\s+casting\s*[:\-]\s*"#,
+                #"(?i)^project\s*[:\-]\s*"#,
+                #"(?i)^audition\s*(?:call|notice)?\s*[:\-]\s*"#
+            ]
+            for p in prefixes {
+                if let r = title.range(of: p, options: .regularExpression) {
+                    title = String(title[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            if isGenericHeadline(title) { return nil }
             let lower = title.lowercased()
+            if lower.hasPrefix("role:") || lower.hasPrefix("character:") || lower.hasPrefix("part:") || lower.hasPrefix("sides:") || lower.hasPrefix("download:") || lower.hasPrefix("due:") { return nil }
             if lower.hasSuffix("casting") || lower.contains("casting director") || lower.contains("page ") { return nil }
             // Clean trailing role information e.g. "The Last Summer - Role of Maya" -> "The Last Summer"
             if let idx = title.range(of: #"\s*[-–—]\s*(?:Role|Part|Character)\b.*"#, options: .regularExpression) {
@@ -939,21 +1073,62 @@ enum NoticeParser {
             return title.isEmpty ? nil : title.capitalized
         }
 
-        // 1. Prominent project title immediately preceding "CASTING SIDES", "AUDITION SIDES", "CASTING NOTICE", "CASTING CALL"
+        // 1. Explicit high-confidence call line: "Casting Call: Ad Film", "Now Casting: <Title>"
+        if let callMatch = firstMatch(#"(?im)^(?:casting\s+call|now\s+casting|urgent\s+casting)\s*[:\-]\s*([A-Za-z0-9\s'&,\-]{2,40})$"#, in: text),
+           let valid = cleanTitle(callMatch) {
+            return valid
+        }
+
+        // 2. Explicitly labeled: "Project: ...", "Title: ...", "Project folder \"...\""
+        if let v = firstMatch(#"(?:project\s+folder|project(?:\s+name|\s+title)?|title|film\s+title|series\s+title|show\s+title)\s*[:\-]?\s*["“]([^"”\n]+)["”]"#, in: text, options: .caseInsensitive),
+           let valid = cleanTitle(v) {
+            return valid
+        }
+        if let v = labeled(["project name", "project title", "film title", "series title", "show title", "project folder", "title", "project"], in: text),
+           let valid = cleanTitle(v) {
+            return valid
+        }
+
+        // 3. Quoted title restricted to header region or explicit subject/folder phrasing
+        if let v = firstMatch(#"(?:subject|folder|titled|called|project)\s*[:\-]?\s*["“]([^"”\n]{2,45})["”]"#, in: text, options: .caseInsensitive),
+           let valid = cleanTitle(v) {
+            return valid
+        }
+
+        // 4. Prominent project title immediately preceding "CASTING SIDES", "AUDITION SIDES", "CASTING NOTICE", "CASTING CALL"
         let lines = text.components(separatedBy: .newlines).map { clean($0) }.filter { !$0.isEmpty }
         let sideKeywords = ["CASTING SIDES", "AUDITION SIDES", "CASTING NOTICE", "CASTING CALL", "AUDITION NOTICE", "SIDES"]
+
+        // Web casting pages commonly put the title between the call label and the venue,
+        // rather than on a standalone line before "CASTING SIDES".
+        if let first = lines.first,
+           let match = first.range(of: #"(?i)^casting\s+call\s*[-–—:]\s*([^|]+?)(?:\s*\|.*)?$"#, options: .regularExpression) {
+            let candidate = String(first[match]).replacingOccurrences(
+                of: #"(?i)^casting\s+call\s*[-–—:]\s*|\s*\|.*$"#,
+                with: "",
+                options: .regularExpression
+            )
+            if let valid = cleanTitle(candidate) { return valid }
+        }
+        if lines.count > 2, lines[1].lowercased().contains("for the new play"),
+           let valid = cleanTitle(lines[2]) {
+            return valid
+        }
+
         for i in 0..<min(lines.count - 1, 8) {
             let line = lines[i]
             let nextLine = lines[i + 1].uppercased()
-            if sideKeywords.contains(where: { nextLine == $0 || nextLine.hasPrefix($0) }) {
-                if let valid = cleanTitle(line) {
-                    return valid
+            if sideKeywords.contains(where: { nextLine == $0 || nextLine.hasPrefix($0 + " ") || nextLine.hasPrefix($0 + "-") }) {
+                if !line.lowercased().hasPrefix("role:") && !line.lowercased().hasPrefix("character:") {
+                    if let valid = cleanTitle(line) {
+                        return valid
+                    }
                 }
             }
         }
 
-        // 2. First line if standalone title followed by author or casting metadata
-        if let firstLine = lines.first, let valid = cleanTitle(firstLine) {
+        // 5. First line if standalone title followed by author or casting metadata
+        if let firstLine = lines.first, !isNoiseLine(firstLine), let valid = cleanTitle(firstLine) {
             let lower = text.lowercased()
             if lower.contains("casting") || lower.contains("sides") || lower.contains("audition") {
                 if lines.count > 1 {
@@ -965,23 +1140,7 @@ enum NoticeParser {
             }
         }
 
-        // 3. Labeled: "Project: ...", "Title: ...", "Project folder \"...\""
-        if let v = firstMatch(#"(?:project\s+folder|project(?:\s+name|\s+title)?|title|film\s+title|series\s+title|show\s+title)\s*[:\-]?\s*["“]([^"”\n]+)["”]"#, in: text, options: .caseInsensitive),
-           let valid = cleanTitle(v) {
-            return valid
-        }
-        if let v = labeled(["project name", "project title", "film title", "series title", "show title", "project folder", "title", "project"], in: text),
-           let valid = cleanTitle(v) {
-            return valid
-        }
-
-        // 4. Quoted title restricted to header region or explicit subject/folder phrasing
-        if let v = firstMatch(#"(?:subject|folder|titled|called|project)\s*[:\-]?\s*["“]([^"”\n]{2,45})["”]"#, in: text, options: .caseInsensitive),
-           let valid = cleanTitle(v) {
-            return valid
-        }
-
-        // 5. Specific project phrasing: "Self-tape for MAYA in THE LAST SUMMER (feature)"
+        // 6. Specific project phrasing: "Self-tape for MAYA in THE LAST SUMMER (feature)"
         let inPattern = #"(?i)\b(?:audition(?:ing)?\s+for|self-?tape\s+for|reading\s+for)\s+[A-Za-z0-9'\-]+\s+in\s+([A-Z][A-Za-z0-9'&, \-]{2,40}?)(?=\s*[\(.,]|\s+by\b|\s*$)"#
         if let v = firstMatch(inPattern, in: text), let valid = cleanTitle(v) {
             return valid
@@ -1000,6 +1159,13 @@ enum NoticeParser {
                 }
             }
         }
+
+        // 7. Standalone project mention e.g. "AD FILM" at bottom or header
+        if let adFilm = firstMatch(#"(?im)^[\s>*•\-\[\]]*AD\s+FILM[\s>*•\-\[\]]*$"#, in: text) {
+            let _ = adFilm
+            return "Ad Film"
+        }
+
         return nil
     }
 
@@ -1010,31 +1176,72 @@ enum NoticeParser {
             "tv casting", "television casting", "child casting", "voice casting", "worldwide casting", "online casting",
             "self-tape casting", "sides casting", "audition casting", "actors casting", "acting", "audition",
             "casting call bengaluru", "casting call mumbai", "casting call delhi", "bengaluru casting",
-            "mumbai casting", "delhi casting", "london casting", "nyc casting", "la casting", "los angeles casting"
+            "mumbai casting", "delhi casting", "london casting", "nyc casting", "la casting", "los angeles casting",
+            "history casting", "now casting", "casting now"
         ]
 
         if let office = labeled(["casting director", "casting office", "casting company", "casting agency", "casting by"], in: text) {
             let cleaned = clean(office)
-            if !cleaned.isEmpty && !genericCastingWords.contains(cleaned.lowercased()) {
+            if !cleaned.isEmpty && !genericCastingWords.contains(cleaned.lowercased()) && !isNoiseLine(cleaned) {
                 return cleaned.capitalized
             }
         }
+
+        // Check for "Casting <Name>" (e.g. "Casting Bay", "Casting Collective", "Casting Works")
+        if let v = firstMatch(#"(?im)^[\s>*•\-]*Casting[ \t]+([A-Z][A-Za-z0-9\-]+)(?:'|\b)"#, in: text) {
+            let full = "Casting \(clean(v))"
+            let lower = full.lowercased().replacingOccurrences(of: "\n", with: " ")
+            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("mumbai") {
+                return full.capitalized
+            }
+        }
+        if let v = firstMatch(#"\b(Casting[ \t]+[A-Z][A-Za-z0-9\-]+)\b"#, in: text) {
+            let lower = v.lowercased().replacingOccurrences(of: "\n", with: " ")
+            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("sides") && !lower.contains("mumbai") {
+                return clean(v).capitalized
+            }
+        }
+
         for rawLine in text.components(separatedBy: .newlines) {
             let line = clean(rawLine)
             let lower = line.lowercased()
-            if lower.hasSuffix("casting") && !genericCastingWords.contains(lower) && !lower.contains("casting call") && line.count <= 45 {
+            if lower.hasSuffix("casting") &&
+                !genericCastingWords.contains(lower) &&
+                !lower.contains("casting call") &&
+                !lower.contains("casting sides") &&
+                !lower.contains("download casting") &&
+                !lower.contains("theater lab") &&
+                !lower.contains("the lab") &&
+                !lower.contains("pilgrimage casting") &&
+                !isNoiseLine(line) &&
+                line.count <= 45 {
                 return line.capitalized
             }
         }
-        if let v = firstMatch(#"\b((?:[A-Z][A-Za-z0-9\-]+\s+){1,2}Casting)\b"#, in: text, options: .caseInsensitive) {
+        if let v = firstMatch(#"\b((?:[A-Z][A-Za-z0-9\-]+[ \t]+){1,2}Casting)\b"#, in: text, options: .caseInsensitive) {
             let cleaned = clean(v).replacingOccurrences(of: ".", with: "-")
             let lower = cleaned.lowercased()
-            if !genericCastingWords.contains(lower) && !lower.contains("casting call") {
+            if !genericCastingWords.contains(lower) &&
+                !lower.contains("casting call") &&
+                !lower.contains("casting sides") &&
+                !lower.contains("download casting") &&
+                !lower.contains("pilgrimage casting") &&
+                !isNoiseLine(cleaned) {
                 return cleaned.capitalized
             }
         }
         if let v = firstMatch(#"@([A-Za-z0-9\-]+casting)\.[a-z]+"#, in: text, options: .caseInsensitive) {
             return clean(v).capitalized
+        }
+        // Match casting portal domain e.g. "apply at castingbay.app" -> "Casting Bay"
+        if let domain = firstMatch(#"(?i)\b(?:apply\s+at\s+|visit\s+)?([a-z0-9\-]+casting|casting[a-z0-9\-]+)\.(?:app|com|in|co|org|net|io)\b"#, in: text) {
+            let lowerDomain = domain.lowercased()
+            if lowerDomain.hasPrefix("casting") {
+                let name = String(lowerDomain.dropFirst("casting".count))
+                if !name.isEmpty {
+                    return "Casting \(name.capitalized)"
+                }
+            }
         }
         return nil
     }
@@ -1611,6 +1818,7 @@ struct MissingDetailsView: View {
         // Filter out any blacklisted notice words or location names
         return roles.filter { role in
             let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            if base.lowercased() == "male" || base.lowercased() == "female" { return true }
             return !ScriptParser.isBlacklistedNoticeWord(base)
         }
     }
@@ -2054,6 +2262,7 @@ struct NoticeReviewView: View {
         // Filter out any blacklisted notice words or location names
         return roles.filter { role in
             let base = role.components(separatedBy: "(").first?.trimmingCharacters(in: .whitespaces) ?? role
+            if base.lowercased() == "male" || base.lowercased() == "female" { return true }
             return !ScriptParser.isBlacklistedNoticeWord(base)
         }
     }

@@ -161,6 +161,38 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(Set(allChars), Set(["Noor", "Maryam"]))
     }
 
+    func testParsesPilgrimageWebCastingPageFields() {
+        let text = """
+        Casting Call — Pilgrimage | Georgetown University Theater Lab
+        Casting Call For The New Play
+        Pilgrimage
+        Stage Reading Event:
+        November 13–16, 2026
+        at The Lab at Georgetown University
+        Director: Khaled Abol Naga (Kal)
+        The Characters
+        Noor
+        Maryam
+        Nadia
+        Sosan
+        Fatima
+        Video Submission Specs
+        Orientation: Horizontal / Landscape only
+        Deadline: October 15, 2026.
+        Upload your video to YouTube, Vimeo, or Google Drive.
+        Questions: kal@kalnaga.com
+        """
+
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Pilgrimage")
+        XCTAssertEqual(Set(draft.candidateRoles), Set(["Noor", "Maryam", "Nadia", "Sosan", "Fatima"]))
+        XCTAssertFalse(draft.candidateRoles.contains("This Role"))
+        XCTAssertNotNil(draft.due)
+        XCTAssertTrue(draft.asks.contains("Landscape"))
+        XCTAssertEqual(draft.destinationDetail, "kal@kalnaga.com")
+        XCTAssertEqual(draft.castingOffice, "")
+    }
+
     func testNoSluglineInProjectColumn() {
         let text = """
         INT. COFFEE SHOP - DAY
@@ -372,5 +404,47 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(draft.sidesLink, "https://bit.ly/secret-garden-sides")
         XCTAssertEqual(draft.destinationDetail, "https://bit.ly/secret-garden-upload")
         XCTAssertEqual(draft.destination, .emailOrLink)
+    }
+
+    func testParsesCastingBayFlyerWithBrowserChromeNoise() {
+        let text = """
+        • - 100 Days Of Sv X Ineshag/Onetal X * History.
+        Casting Bay'
+        - CASTING CALL
+        NOW
+        CASTING
+        Casting Call: Ad Film
+        Casting Mumbai-based actors and fresh faces for an ad film.
+        AGE
+        18 - 23 years
+        AGE
+        45 - 55 years
+        GENDER
+        Female
+        GENDER
+        Male
+        LANGUAGES
+        Hindi, English
+        LOCATION
+        Mumbai
+        If you fit the brief, apply at castingbay.app with
+        an updated profile, recent photographs, and an
+        introduction video.
+        AD FILM
+        SCAN AND APPLY
+        castingbay.app
+        """
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "Ad Film")
+        XCTAssertEqual(draft.castingOffice, "Casting Bay")
+        XCTAssertEqual(draft.projectType, "Commercial")
+        XCTAssertTrue(draft.candidateRoles.contains("Female (18 - 23 years)"))
+        XCTAssertTrue(draft.candidateRoles.contains("Male (45 - 55 years)"))
+        XCTAssertTrue(draft.asks.contains("Intro video"))
+        XCTAssertTrue(draft.asks.contains("Headshots"))
+        XCTAssertTrue(draft.asks.contains("Location: Mumbai"))
+        XCTAssertFalse(draft.project.contains("100 Days"))
+        XCTAssertFalse(draft.project.contains("History"))
+        XCTAssertFalse(draft.castingOffice.contains("History"))
     }
 }

@@ -442,8 +442,6 @@ enum SpokenLineMatcher {
     /// Evaluates whether two single tokens match acoustically or semantically.
     static func wordsMatch(_ w1: String, _ w2: String) -> Bool {
         if w1 == w2 { return true }
-        if let exp1 = contractionMap[w1], exp1.contains(w2) { return true }
-        if let exp2 = contractionMap[w2], exp2.contains(w1) { return true }
         if let num1 = numberWordMap[w1], num1 == w2 { return true }
         if let num2 = numberWordMap[w2], num2 == w1 { return true }
         // Tolerant prefix matching for trailing phonetic endings (e.g. "looking" vs "lookin")

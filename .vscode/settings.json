@@ -3,6 +3,9 @@
         "xcodebuild": true,
         "command": true,
         "true": true,
-        "xcode-select": true
+        "xcode-select": true,
+        "pdfinfo": true,
+        "printf": true,
+        "pdftotext": true
     }
 }

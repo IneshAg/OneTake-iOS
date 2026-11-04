@@ -165,7 +165,13 @@ enum ScriptParser {
                     scenes.append((heading, lines))
                     lines = []
                 }
-                heading = trimmed
+                if trimmed.uppercased().hasPrefix("SIDE ") {
+                    heading = "Side " + trimmed.dropFirst(5)
+                } else if trimmed.uppercased().hasPrefix("THE SIDE") {
+                    heading = "The Side" + trimmed.dropFirst(8)
+                } else {
+                    heading = trimmed
+                }
                 hasExplicitHeading = true
             } else if isActHeading(trimmed) || isWebJunkOrFooter(trimmed) {
                 flush()
@@ -299,7 +305,8 @@ enum ScriptParser {
             "SETTING:", "SETTINGS:", "DIRECTOR NOTE:", "DIRECTOR NOTES:", "SLATE INSTRUCTION",
             "HOW TO USE THESE SIDES", "THE CHARACTERS IN THIS DOCUMENT", "THE CHARACTERS:",
             "WHAT I'M LOOKING FOR:", "WHAT I NEED TO SEE:", "NOTE: H&B", "SLATE INSTRUCTION:",
-            "PLEASE READ ALL INSTRUCTIONS", "VIDEO:", "VISUAL:", "SFX:", "SUPER:", "GRAPHIC:", "DISCLAIMER:"
+            "PLEASE READ ALL INSTRUCTIONS", "VIDEO:", "VISUAL:", "SFX:", "SUPER:", "GRAPHIC:", "DISCLAIMER:",
+            "CLIENT:", "PRODUCT:", "AGENCY:", "CAMPAIGN:", "COMMERCIAL COPY"
         ]
         if notePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
@@ -424,15 +431,15 @@ enum ScriptParser {
             text = wontRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1on't")
         }
 
-        // Heal hyphenated line-wrap word breaks: e.g. "inter-\nrogation" or "inter- rogation" -> "interrogation"
-        if let hyphenRegex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s*\n?\s*([a-z]{2,}\b)"#) {
+        // Heal hyphenated line-wrap word breaks across newlines: e.g. "inter-\nrogation" -> "interrogation"
+        if let hyphenRegex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s*\n\s*([a-z]{2,}\b)"#) {
             text = hyphenRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
         }
 
         // Clean up line-by-line whitespace while preserving dots/colons in email addresses and URLs
         let lines = text.components(separatedBy: "\n").map { line -> String in
             var l = line.trimmingCharacters(in: .whitespaces)
-            let hasEmailOrURL = l.contains("@") || l.contains("http://") || l.contains("https://") || l.contains("www.")
+            let hasEmailOrURL = l.contains("@") || l.contains("http://") || l.contains("https://") || l.contains("www.") || l.range(of: #"[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(?:/|\b)"#, options: .regularExpression) != nil
             if !hasEmailOrURL {
                 // Fix spaces before punctuation: "hello , world" -> "hello, world"
                 if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
