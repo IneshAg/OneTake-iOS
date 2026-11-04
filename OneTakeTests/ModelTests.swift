@@ -31,6 +31,81 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(a.hoursLeft, 0)
     }
 
+    func testDueRemainingMoreThanOneDayShowsDayAndHours() {
+        var a = audition()
+        // 2 days and 4 hours
+        a.due = .now.addingTimeInterval(2 * 86400 + 4 * 3600 + 120)
+        let rem = a.dueRemaining
+        XCTAssertEqual(rem.days, 2)
+        XCTAssertEqual(rem.hours, 4)
+        XCTAssertEqual(rem.compactSummary, "2d 4h")
+        XCTAssertEqual(rem.descriptiveLeft, "2 days 4 hrs left")
+        XCTAssertEqual(rem.relativePhrase, "in 2 days 4 hrs")
+
+        // 1 day exact
+        a.due = .now.addingTimeInterval(86400 + 60)
+        let rem1 = a.dueRemaining
+        XCTAssertEqual(rem1.days, 1)
+        XCTAssertEqual(rem1.hours, 0)
+        XCTAssertEqual(rem1.compactSummary, "1d")
+        XCTAssertEqual(rem1.descriptiveLeft, "1 day left")
+        XCTAssertEqual(rem1.relativePhrase, "in 1 day")
+    }
+
+    func testDueRemainingBetweenOneHourAndOneDayShowsHours() {
+        var a = audition()
+        // 5 hours
+        a.due = .now.addingTimeInterval(5 * 3600 + 60)
+        let rem = a.dueRemaining
+        XCTAssertEqual(rem.days, 0)
+        XCTAssertEqual(rem.hours, 5)
+        XCTAssertEqual(rem.compactSummary, "5h")
+        XCTAssertEqual(rem.descriptiveLeft, "5 hrs left")
+        XCTAssertEqual(rem.relativePhrase, "in 5 hrs")
+
+        // 1 hour
+        a.due = .now.addingTimeInterval(3600 + 30)
+        let rem1 = a.dueRemaining
+        XCTAssertEqual(rem1.days, 0)
+        XCTAssertEqual(rem1.hours, 1)
+        XCTAssertEqual(rem1.compactSummary, "1h")
+        XCTAssertEqual(rem1.descriptiveLeft, "1 hr left")
+        XCTAssertEqual(rem1.relativePhrase, "in 1 hr")
+    }
+
+    func testDueRemainingLessThanOneHourShowsMinutes() {
+        var a = audition()
+        // 45 minutes
+        a.due = .now.addingTimeInterval(45 * 60 + 10)
+        let rem = a.dueRemaining
+        XCTAssertEqual(rem.days, 0)
+        XCTAssertEqual(rem.hours, 0)
+        XCTAssertEqual(rem.minutes, 45)
+        XCTAssertEqual(rem.compactSummary, "45m")
+        XCTAssertEqual(rem.descriptiveLeft, "45 mins left")
+        XCTAssertEqual(rem.relativePhrase, "in 45 mins")
+
+        // 1 minute
+        a.due = .now.addingTimeInterval(65)
+        let rem1 = a.dueRemaining
+        XCTAssertEqual(rem1.days, 0)
+        XCTAssertEqual(rem1.hours, 0)
+        XCTAssertEqual(rem1.minutes, 1)
+        XCTAssertEqual(rem1.compactSummary, "1m")
+        XCTAssertEqual(rem1.descriptiveLeft, "1 min left")
+        XCTAssertEqual(rem1.relativePhrase, "in 1 min")
+    }
+
+    func testDueRemainingPastDue() {
+        var a = audition()
+        a.due = .now.addingTimeInterval(-60)
+        let rem = a.dueRemaining
+        XCTAssertTrue(rem.isPastDue)
+        XCTAssertEqual(rem.compactSummary, "0m")
+        XCTAssertEqual(rem.descriptiveLeft, "0 mins left")
+        XCTAssertEqual(rem.relativePhrase, "past due")
+    }
+
     func testLegacyPlaceholderIsTheMockupPersona() {
         XCTAssertEqual(SlateInfo.legacyPlaceholder.name, "Kabir Sharma")
         XCTAssertNotEqual(SlateInfo(), SlateInfo.legacyPlaceholder)

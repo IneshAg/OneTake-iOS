@@ -46,9 +46,27 @@ struct AuditionDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "\(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
                     Text(a.project).font(.system(size: 40, weight: .bold)).foregroundStyle(OT.labelPrimary)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(a.hoursLeft)").font(.otNumber).foregroundStyle(OT.due)
-                        Text("h left").font(.otHeadline).foregroundStyle(OT.due)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        let rem = a.dueRemaining
+                        if rem.isPastDue {
+                            Text("0").font(.otNumber).foregroundStyle(OT.due)
+                            Text("mins left").font(.otHeadline).foregroundStyle(OT.due)
+                        } else if rem.days >= 1 {
+                            Text("\(rem.days)").font(.otNumber).foregroundStyle(OT.due)
+                            Text(rem.days == 1 ? "day" : "days").font(.otHeadline).foregroundStyle(OT.due)
+                            if rem.hours > 0 {
+                                Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
+                                Text(rem.hours == 1 ? "hr" : "hrs").font(.otHeadline).foregroundStyle(OT.due)
+                            }
+                            Text("left").font(.otHeadline).foregroundStyle(OT.due)
+                        } else if rem.hours >= 1 {
+                            Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
+                            Text(rem.hours == 1 ? "hr left" : "hrs left").font(.otHeadline).foregroundStyle(OT.due)
+                        } else {
+                            let mins = max(1, rem.minutes)
+                            Text("\(mins)").font(.otNumber).foregroundStyle(OT.due)
+                            Text(mins == 1 ? "min left" : "mins left").font(.otHeadline).foregroundStyle(OT.due)
+                        }
                         Text("·  Due \(a.due.otDue)").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     }
                     if !a.asks.isEmpty {

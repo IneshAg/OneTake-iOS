@@ -216,10 +216,11 @@ struct AuditionCard: View {
 
     @ViewBuilder private var statusLine: some View {
         if audition.status == .ready {
-            Label("Ready to send · due \(audition.due.formatted(.relative(presentation: .named)))", systemImage: "checkmark.circle")
+            Label("Ready to send · due \(audition.dueRemaining.relativePhrase)", systemImage: "checkmark.circle")
                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.success)
         } else {
-            Label("Due \(audition.due.formatted(.relative(presentation: .named)))", systemImage: "clock")
+            let labelText = audition.dueRemaining.isPastDue ? "Past due · was due \(audition.due.otDue)" : "Due \(audition.dueRemaining.relativePhrase)"
+            Label(labelText, systemImage: "clock")
                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.due)
         }
     }
@@ -318,7 +319,7 @@ struct SearchView: View {
                         ForEach(auditionHits) { a in
                             Button { store.push(.auditionDetail(a.id)) } label: {
                                 ScheduleRow(eyebrow: a.status == .sent ? "SENT" : a.due.formatted(.dateTime.weekday(.abbreviated)).uppercased(),
-                                            value: a.status == .sent ? (a.sentDate?.otDayMonth ?? "") : "\(a.hoursLeft)h",
+                                            value: a.status == .sent ? (a.sentDate?.otDayMonth ?? "") : a.dueRemaining.compactSummary,
                                             title: a.project, detail: "\(a.role) · due \(a.due.otDue)")
                             }
                             .buttonStyle(.plain)

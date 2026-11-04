@@ -152,6 +152,65 @@ enum PackageDeliverable: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct DueRemaining: Equatable, Hashable, Codable {
+    var days: Int
+    var hours: Int
+    var minutes: Int
+    var totalSeconds: TimeInterval
+
+    var isPastDue: Bool { totalSeconds <= 0 }
+
+    /// Short compact string for schedule rows and badges (e.g. "2d 4h", "5h", "45m")
+    var compactSummary: String {
+        if isPastDue { return "0m" }
+        if days >= 1 {
+            return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
+        } else if hours >= 1 {
+            return "\(hours)h"
+        } else {
+            return "\(max(1, minutes))m"
+        }
+    }
+
+    /// Full descriptive string with "left" (e.g. "2 days 4 hrs left", "5 hrs left", "45 mins left")
+    var descriptiveLeft: String {
+        if isPastDue { return "0 mins left" }
+        if days >= 1 {
+            let dayPart = "\(days) \(days == 1 ? "day" : "days")"
+            if hours > 0 {
+                let hrPart = "\(hours) \(hours == 1 ? "hr" : "hrs")"
+                return "\(dayPart) \(hrPart) left"
+            } else {
+                return "\(dayPart) left"
+            }
+        } else if hours >= 1 {
+            return "\(hours) \(hours == 1 ? "hr" : "hrs") left"
+        } else {
+            let m = max(1, minutes)
+            return "\(m) \(m == 1 ? "min" : "mins") left"
+        }
+    }
+
+    /// Relative phrase without "left" (e.g. "in 2 days 4 hrs", "in 5 hrs", "in 45 mins")
+    var relativePhrase: String {
+        if isPastDue { return "past due" }
+        if days >= 1 {
+            let dayPart = "\(days) \(days == 1 ? "day" : "days")"
+            if hours > 0 {
+                let hrPart = "\(hours) \(hours == 1 ? "hr" : "hrs")"
+                return "in \(dayPart) \(hrPart)"
+            } else {
+                return "in \(dayPart)"
+            }
+        } else if hours >= 1 {
+            return "in \(hours) \(hours == 1 ? "hr" : "hrs")"
+        } else {
+            let m = max(1, minutes)
+            return "in \(m) \(m == 1 ? "min" : "mins")"
+        }
+    }
+}
+
 struct Audition: Identifiable, Hashable, Codable {
     var id = UUID()
     var project: String
@@ -230,6 +289,21 @@ struct Audition: Identifiable, Hashable, Codable {
     var hoursLeft: Int {
         let remaining = due.timeIntervalSinceNow
         return remaining <= 0 ? 0 : max(1, Int(remaining / 3600))
+    }
+
+    /// Remaining time until the audition deadline, broken down into days, hours, and minutes.
+    var dueRemaining: DueRemaining {
+        let remaining = due.timeIntervalSinceNow
+        if remaining <= 0 {
+            return DueRemaining(days: 0, hours: 0, minutes: 0, totalSeconds: remaining)
+        }
+        let totalSeconds = remaining
+        let totalMinutes = Int(totalSeconds / 60)
+        let totalHours = Int(totalSeconds / 3600)
+        let days = totalHours / 24
+        let hours = totalHours % 24
+        let minutes = totalMinutes % 60
+        return DueRemaining(days: days, hours: hours, minutes: minutes, totalSeconds: remaining)
     }
 
     /// The filename casting sites expect: LASTNAME_FIRSTNAME_ROLE_PROJECT.mp4, computed from the
