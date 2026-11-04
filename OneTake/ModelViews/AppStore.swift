@@ -304,6 +304,47 @@ final class AppStore {
 
     func readerTracksDidChange() { readerTrackVersion += 1 }
 
+    /// Cleans all practice pieces, progress, active practice navigation, and associated practice takes.
+    func clearPracticeData() {
+        let practiceDirs = practice.map { "practice-\($0.id.uuidString)" }
+        let allPracticeFolders = (try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path))?.filter { $0.hasPrefix("practice-") } ?? []
+        MediaStore.deleteAll([ReaderTrackPlayer.folder] + practiceDirs + allPracticeFolders)
+        practice.removeAll()
+        practicePath.removeAll()
+        readerTracksDidChange()
+        if case .practiceTake = camera {
+            camera = nil
+        }
+        persist()
+    }
+
+    /// Cleans all local data on this iPhone: takes, headshots, reader tracks, exports, and practice pieces.
+    func clearAllLocalData() {
+        let practiceDirs = practice.map { "practice-\($0.id.uuidString)" }
+        let auditionDirs = auditions.map { "audition-\($0.id.uuidString)" }
+        let allPracticeFolders = (try? FileManager.default.contentsOfDirectory(atPath: MediaStore.documentsURL.path))?.filter { $0.hasPrefix("practice-") } ?? []
+        MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + auditionDirs + practiceDirs + allPracticeFolders)
+        HeadshotStore.clearCache()
+        headshotVersion += 1
+        readerTracksDidChange()
+        takes.removeAll()
+        for i in auditions.indices {
+            auditions[i].slateVideoURL = nil
+            auditions[i].slateOriginalVideoURL = nil
+            auditions[i].fullLengthVideoURL = nil
+            auditions[i].exportedFileURL = nil
+            guard auditions[i].status != .sent else { continue }
+            for j in auditions[i].pieces.indices { auditions[i].pieces[j].isDone = false }
+            auditions[i].status = .due
+        }
+        practice.removeAll()
+        practicePath.removeAll()
+        if case .practiceTake = camera {
+            camera = nil
+        }
+        persist()
+    }
+
     /// Replaces local app data from an explicitly selected offline backup. Account credentials stay
     /// on this device and are never restored from an archive.
     func restoreLocalBackup(_ state: PersistedState) {

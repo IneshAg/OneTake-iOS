@@ -65,4 +65,39 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.auditions.first?.due, a.due)
         XCTAssertTrue(loaded.isOnboarded)
     }
+
+    func testClearAllLocalDataCleansPracticeAndTakes() {
+        let store = AppStore()
+        let scene = ScriptScene(number: 1, title: "Scene 1", heading: "INT. ROOM", lines: [
+            ScriptLine(character: "MAYA", text: "Line 1", isMine: true),
+            ScriptLine(character: "JOHN", text: "Line 2", isMine: false)
+        ], estimatedSeconds: 30)
+        let piece = store.addStandalonePracticePiece(title: "Monologue", character: "MAYA", scene: scene)
+        XCTAssertFalse(store.practice.isEmpty, "Practice pieces must be added")
+
+        store.practicePath = [.standalonePractice(piece.id)]
+        store.takes = [Take(number: 1, duration: 5, recordedAt: Date(), isCircled: false, notes: [], fileURL: URL(fileURLWithPath: "/tmp/take.mov"), auditionID: UUID(), sceneIndex: 0)]
+
+        store.clearAllLocalData()
+
+        XCTAssertTrue(store.practice.isEmpty, "Practice pieces must be completely cleaned by clearAllLocalData")
+        XCTAssertTrue(store.practicePath.isEmpty, "Practice navigation path must be cleared")
+        XCTAssertTrue(store.takes.isEmpty, "Takes must be cleared")
+    }
+
+    func testClearPracticeDataCleansOnlyPractice() {
+        let store = AppStore()
+        let scene = ScriptScene(number: 1, title: "Scene 1", heading: "INT. ROOM", lines: [
+            ScriptLine(character: "MAYA", text: "Line 1", isMine: true)
+        ], estimatedSeconds: 30)
+        let piece = store.addStandalonePracticePiece(title: "Monologue", character: "MAYA", scene: scene)
+        store.practicePath = [.standalonePractice(piece.id)]
+        let initialReaderVersion = store.readerTrackVersion
+
+        store.clearPracticeData()
+
+        XCTAssertTrue(store.practice.isEmpty, "Practice pieces must be cleaned by clearPracticeData")
+        XCTAssertTrue(store.practicePath.isEmpty, "Practice path must be emptied")
+        XCTAssertGreaterThan(store.readerTrackVersion, initialReaderVersion, "Reader track version should be bumped to notify views")
+    }
 }

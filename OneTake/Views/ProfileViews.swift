@@ -450,6 +450,7 @@ struct PrivacyView: View {
     @State private var showConfirmDisconnectAccount = false
     @State private var showConfirmClearExports = false
     @State private var showConfirmClearReader = false
+    @State private var showConfirmClearPractice = false
     @State private var storageRefreshID = UUID()
     @State private var showBackupImporter = false
     @State private var showBackupShare = false
@@ -543,6 +544,14 @@ struct PrivacyView: View {
         } message: {
             Text("Scripts and scenes stay on this iPhone.")
         }
+        .confirmationDialog("Clear practice data?", isPresented: $showConfirmClearPractice, titleVisibility: .visible) {
+            Button("Clear practice data", role: .destructive) {
+                clearPractice()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Practice pieces and reader audio on this iPhone will be reset.")
+        }
         .confirmationDialog("Disconnect account?", isPresented: $showConfirmDisconnectAccount, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) {
                 store.deleteAccount()
@@ -550,11 +559,11 @@ struct PrivacyView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Delete all local data?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
-            Button("Delete everything", role: .destructive) { deleteAll() }
+        .confirmationDialog("Clean local data?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
+            Button("Clean everything", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This can’t be undone.")
+            Text("This deletes takes, headshots, reader tracks, and practice pieces. This can’t be undone.")
         }
     }
 
@@ -634,9 +643,9 @@ struct PrivacyView: View {
                 }
                 .foregroundStyle(OT.accent)
             }
-            if readerSize > 0 {
-                Button("Clear practice reader audio") {
-                    showConfirmClearReader = true
+            if readerSize > 0 || !store.practice.isEmpty {
+                Button("Clear practice audio and scenes") {
+                    showConfirmClearPractice = true
                 }
                 .foregroundStyle(OT.accent)
             }
@@ -669,10 +678,18 @@ struct PrivacyView: View {
     private var legalSection: some View {
         Section {
             NavigationLink("Privacy policy") { PrivacyPolicyView() }
-            Button("Delete all local data", role: .destructive) { showConfirmDeleteAll = true }
+            Button("Clean local data", role: .destructive) { showConfirmDeleteAll = true }
+                .accessibilityIdentifier("Clean local data")
         } footer: {
             Text("Sent tapes are not affected.")
         }
+    }
+
+    private func clearPractice() {
+        store.clearPracticeData()
+        for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
+        storageRefreshID = UUID()
+        Haptics.success()
     }
 
     private func clearExports() {
@@ -777,20 +794,8 @@ struct PrivacyView: View {
     }
 
     private func deleteAll() {
-        MediaStore.deleteAll(["headshots", "takes", "Exports", ReaderTrackPlayer.folder] + store.auditions.map { "audition-\($0.id.uuidString)" } + store.practice.map { "practice-\($0.id.uuidString)" })
-        HeadshotStore.clearCache()
-        store.headshotVersion += 1
+        store.clearAllLocalData()
         for url in legacyReaderFiles { try? FileManager.default.removeItem(at: url) }
-        store.takes.removeAll()
-        for i in store.auditions.indices {
-            store.auditions[i].slateVideoURL = nil; store.auditions[i].slateOriginalVideoURL = nil; store.auditions[i].fullLengthVideoURL = nil; store.auditions[i].exportedFileURL = nil
-            // The recordings and headshots behind these pieces are gone, so unsent auditions go back
-            // to "not done" rather than claiming to be ready. Sent ones keep their history (and link).
-            guard store.auditions[i].status != .sent else { continue }
-            for j in store.auditions[i].pieces.indices { store.auditions[i].pieces[j].isDone = false }
-            store.auditions[i].status = .due
-        }
-        for i in store.practice.indices { store.practice[i].takesRecorded = 0 }
         storageRefreshID = UUID()
         Haptics.success()
     }
@@ -816,7 +821,7 @@ struct PrivacyPolicyView: View {
                 section("Speech recognition", "Voice commands use on-device recognition when available. Otherwise Apple may process speech under its privacy policy.")
                 section("Sharing", "A tape leaves this iPhone only when you share it. iCloud links can be downloaded until they expire.")
                 section("Reminders and widgets", "These use audition details stored on this iPhone.")
-                section("Deleting data", "Delete local data in Profile → Privacy & data. Previously shared iCloud links remain in your iCloud Drive.")
+                section("Deleting data", "Clean local data in Profile → Privacy & data. Takes, headshots, reader tracks, and practice pieces are removed from this iPhone. Previously shared iCloud links remain in your iCloud Drive.")
             }
             .padding(.horizontal, OT.gutter)
             .padding(.vertical, 12)
