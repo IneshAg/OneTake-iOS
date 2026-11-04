@@ -15,6 +15,7 @@ struct AddAuditionFlow: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var unreadableNoticeError = false
+    @State private var emptyClipboardAlert = false
     /// Parsed draft pending the actor's review — shown in OCRReviewSheet before being committed.
     @State private var pendingReviewDraft: NoticeParser.Draft? = nil
 
@@ -77,6 +78,12 @@ struct AddAuditionFlow: View {
             } message: {
                 Text("No readable text was found — it may be blurry or very small print. You can type the details instead.")
             }
+            .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
+                Button("Type details manually") { store.startAuditionDraft(NoticeParser.Draft.blank) }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("No text was found on your clipboard. Copy text from your email, message, or sides first, then tap Paste.")
+            }
             .task { await readSharedNotice() }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
@@ -124,6 +131,24 @@ struct AddAuditionFlow: View {
         }
     }
 
+    private func handlePasteNotice(providedText: String? = nil) {
+        let raw = providedText ?? UIPasteboard.general.string ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            emptyClipboardAlert = true
+            Haptics.tick()
+            return
+        }
+        Haptics.success()
+        let cleaned = ScriptParser.cleanPastedText(trimmed)
+        Task {
+            let draft = await NoticeParser.parseAsync(cleaned)
+            await MainActor.run {
+                pendingReviewDraft = draft
+            }
+        }
+    }
+
     private var capture: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -134,29 +159,43 @@ struct AddAuditionFlow: View {
                         .buttonStyle(.plain).accessibilityLabel("Close")
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    handlePasteNotice()
+                } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "doc.on.clipboard").foregroundStyle(OT.accent)
-                            .frame(width: 36, height: 36).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 9))
-                        VStack(alignment: .leading) {
-                            Text("Copied notice or sides?").font(.otHeadline)
-                            Text("Paste breakdown, casting email, or script dialogue").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        Image(systemName: "doc.on.clipboard.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(OT.accent)
+                            .frame(width: 40, height: 40)
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Copied notice or sides?")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text("Tap to paste breakdown, email, or sides")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
                         }
+
+                        Spacer()
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.right.doc.on.clipboard")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Paste")
+                                .font(.otCaption.weight(.bold))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(OT.accent, in: Capsule())
+                        .foregroundStyle(.white)
                     }
-                    PasteButton(payloadType: String.self) { strings in
-                        let text = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !text.isEmpty else { return }
-                        let cleaned = ScriptParser.cleanPastedText(text)
-                        let draft = NoticeParser.parse(cleaned)
-                        store.startAuditionDraft(draft)
-                        Haptics.success()
-                    }
-                    .buttonBorderShape(.capsule)
-                    .tint(OT.accent)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .buttonStyle(.plain)
 
                 SectionLabel(text: "Or bring in notice or sides")
                 HStack {
@@ -1625,17 +1664,30 @@ struct AddDraftSidesSheet: View {
                         Text("Paste from clipboard")
                             .font(.otHeadline)
                         Spacer()
-                        PasteButton(payloadType: String.self) { strings in
-                            let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            let cleaned = ScriptParser.cleanPastedText(pasted)
+                        Button {
+                            let pasted = UIPasteboard.general.string ?? ""
+                            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let cleaned = ScriptParser.cleanPastedText(trimmed)
                             if !cleaned.isEmpty {
                                 text = cleaned
                                 editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
                                 Haptics.success()
+                            } else {
+                                Haptics.tick()
                             }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.right.doc.on.clipboard")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("Paste")
+                                    .font(.otCaption.weight(.bold))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(OT.accent, in: Capsule())
+                            .foregroundStyle(.white)
                         }
-                        .buttonBorderShape(.capsule)
-                        .tint(OT.accent)
+                        .buttonStyle(.plain)
                     }
 
                     TextField("Or paste or type sides here...", text: $text, axis: .vertical)

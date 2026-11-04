@@ -712,17 +712,30 @@ struct RevisedSidesSheet: View {
                         Text("Paste from clipboard")
                             .font(.otHeadline)
                         Spacer()
-                        PasteButton(payloadType: String.self) { strings in
-                            let pasted = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            let cleaned = ScriptParser.cleanPastedText(pasted)
+                        Button {
+                            let pasted = UIPasteboard.general.string ?? ""
+                            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let cleaned = ScriptParser.cleanPastedText(trimmed)
                             if !cleaned.isEmpty {
                                 text = cleaned
                                 editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
                                 Haptics.success()
+                            } else {
+                                Haptics.tick()
                             }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.right.doc.on.clipboard")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("Paste")
+                                    .font(.otCaption.weight(.bold))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(OT.accent, in: Capsule())
+                            .foregroundStyle(.white)
                         }
-                        .buttonBorderShape(.capsule)
-                        .tint(OT.accent)
+                        .buttonStyle(.plain)
                     }
 
                     TextField(isNewSides ? "Or paste or type sides here..." : "Paste the new sides", text: $text, axis: .vertical)
