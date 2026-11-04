@@ -666,6 +666,96 @@ On iOS 18 devices, particularly iPhone XS (A12 Bionic with tighter unified memor
    - Updated `InContentNavHeader`'s `.accessibilityLabel` to announce the exact contextual `backLabel` (`"Auditions"`, `"Cancel"`, `"Back"`, etc.) instead of generic "Back".
    - Maintained full 44×44 pt touch targets complying with Apple Human Interface Guidelines.
 
+---
+
+## 28. Native iOS Button Standardization: Continuous Rounded Rectangles & Opacity Press Feedback
+
+### Problem & Non-Native Styling
+- Buttons across the app previously used full Android-style `Capsule()` pill geometry with `.scaleEffect(configuration.isPressed ? 0.98 : 1)` bounce animations.
+- Sheet navigation headers featured custom capsule pill buttons (`"Cancel"`, `"Done"`) instead of standard iOS borderless and bold navigation action styles.
+- This deviated from iOS Human Interface Guidelines (HIG), creating an Android-like feel rather than native iOS system feel.
+
+### Implementation
+1. **Primary & Secondary Button Styles ([Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
+   - Replaced `Capsule()` with continuous rounded rectangles:
+     - `PrimaryButtonStyle`: 50 pt CTA height with `RoundedRectangle(cornerRadius: 14, style: .continuous)`.
+     - `SecondaryButtonStyle`: 44 pt height with `RoundedRectangle(cornerRadius: 14, style: .continuous)`.
+     - `CompactSecondaryButtonStyle`: 32 pt height with `RoundedRectangle(cornerRadius: 10, style: .continuous)`.
+   - Replaced all `scaleEffect` shrink animations with native iOS subtle opacity press feedback (`opacity: isPressed ? 0.70 : 1.0` with `.easeInOut(duration: 0.12)`).
+2. **Sheet Header Action Styling ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift), [AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift), [ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift))**:
+   - Replaced custom pill capsules with standard iOS navigation items: borderless `Cancel` button and bold `Done` / `Add` CTA in `OT.accent`.
+3. **Universal Audit & Replacement**:
+   - Replaced hardcoded `Capsule()` buttons across 11 views including `TakesViews.swift`, `TapePreviewView.swift`, `PackageViews.swift`, `ShootViews.swift`, `PrepareViews.swift`, and `LineLearningViews.swift`.
+
+---
+
+## 29. Height Unit Switcher Layout & Slate Spoken Preview Real-Time Updates
+
+### Problems Identified
+1. **Awkward Height Unit Switcher Placement**:
+   - In `EditSlateView`, the segmented unit picker (`ft / in` vs `cm`) was placed adjacent to or above the input label, causing awkward visual hierarchy.
+2. **Slate Preview Dependency on Name**:
+   - In `SlateInfo.spoken`, spoken preview generation was gated strictly behind `name`: if `name` was empty, `spoken` returned `""` even if height, agency, or location were typed. Users editing their height saw an empty preview until they went back to type their name.
+
+### Implementation
+1. **Height Unit Switcher Relocation ([ProfileViews.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/ProfileViews.swift))**:
+   - Placed the unit segmented picker (`ft / in` vs `cm`) directly underneath the height text box as a secondary control, providing intuitive visual hierarchy.
+2. **Real-Time Slate Preview Generation ([Models.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Models/Models.swift), [ModelTests.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTakeTests/ModelTests.swift))**:
+   - Updated `SlateInfo.spoken` so that entering height, agency, or location immediately reflects in the slate spoken script even when `name` is blank (e.g. `"[Your name], represented by CAA, 5 feet 11 inches, based in London."`).
+   - Added unit test `testSpokenSlatePreviewGeneratesWithoutName` to verify independent field previews.
+
+---
+
+## 30. Native Search Docking & Bottom Tab Bar Suppression
+
+### Problems Identified
+1. **Search Bar Overlay & Inset Conflicts**:
+   - In `SearchView`, the search bar was placed as an independent SwiftUI view under navigation titles, causing layout jumps and floating header misalignments.
+2. **Broken iOS 18 Search Tab Activation**:
+   - Calling `.tabViewSearchActivation(.searchTabSelection)` produced warnings and conflicts on older SDK toolchains and iOS 18 builds.
+3. **Bottom Tab Bar Visibility During Search**:
+   - While actively searching and reviewing search results, the bottom 3-tab bar remained visible, cluttering the keyboard and search result list.
+
+### Implementation
+1. **Navigation Bar Drawer Search Docking ([SearchView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/SearchView.swift))**:
+   - Docked the search bar directly into the top navigation bar drawer using `.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))`.
+2. **Dynamic Bottom Tab Bar Suppression ([SearchView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/SearchView.swift), [OneTakeApp.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/OneTakeApp.swift))**:
+   - Bound search focus using `@Environment(\.isSearching) private var isSearching`.
+   - Dynamically suppressed the bottom tab bar while searching using `.toolbar(isSearching ? .hidden : .visible, for: .tabBar)`.
+
+---
+
+## 31. Add Sides Architecture: Coordinated PDF/File Import & Centered Action Grid
+
+### Problems Identified
+1. **PDF Import Failures Across Sandbox Boundaries**:
+   - In `AddDraftSidesSheet`, `RevisedSidesSheet`, and `CallbackExtraSidesSheet`, importing a PDF via `.fileImporter` failed silently.
+   - `NoticeOCR.resolveSecurityScopedFile` previously used raw `FileManager.copyItem`, which fails without `NSFileCoordinator` on external security-scoped URLs (e.g. from iCloud Drive or Files app).
+   - When copying failed, the raw security-scoped URL was passed to asynchronous subthreads where PDFKit could not access the file descriptor.
+   - Furthermore, `NoticeOCR.extractText` relied on overly strict readability heuristics that dropped short digital PDF script sides, returning `nil` even when dialogue lines existed.
+2. **Off-Center Asymmetric Layout**:
+   - The sides sheet wrapped content in a SwiftUI `Form`, which applied asymmetric iOS grouped table insets, deep header margins, and uneven horizontal alignment relative to navigation headers and bottom buttons.
+3. **Cluttered Long Plain Text Action Rows**:
+   - Instead of intuitive buttons, the sheet displayed a series of plain text rows (`"Paste from clipboard"`, `"Import a PDF or text file"`, `"Pick from Photos"`, `"Scan the pages"`) and an oversized 14-line text box.
+
+### Implementation
+1. **Coordinated File Resolution & Fallback Extraction ([NoticeOCR.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/ModelViews/NoticeOCR.swift))**:
+   - Re-architected `NoticeOCR.resolveSecurityScopedFile` to use `NSFileCoordinator.coordinate(readingItemAt:options:error:byAccessor:)` with atomic local container copying into `FileManager.default.temporaryDirectory`.
+   - Guaranteed local isolated file descriptors so PDFKit and Vision OCR read files reliably across threads without permission revocation.
+   - Enhanced `NoticeOCR.extractText` to preserve digital screenplay cues and lines from `PDFDocument` without discarding them, and added multi-encoding text decoding (`.utf8`, `.ascii`, `.isoLatin1`).
+   - Added user-facing alerts for unreadable files and empty clipboard states with informative error guidance and haptic feedback.
+2. **Centered ScrollView & 2×2 Native Action Grid ([AddAuditionFlow.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AddAuditionFlow.swift), [AuditionDetailView.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/AuditionDetailView.swift), [Components.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTake/Views/Components.swift))**:
+   - Replaced `Form` with a clean, centered `ScrollView` layout using consistent horizontal margins (`OT.gutter`).
+   - Introduced reusable `SidesInputTile` in `Components.swift` with colored icon badge, bold title, and subtitle inside a continuous rounded rectangle (`cornerRadius: 14`).
+   - Arranged all 4 input methods into a balanced 2×2 grid:
+     - **📄 Import PDF** (`doc.badge.plus`)
+     - **📋 Paste Text** (`arrow.right.doc.on.clipboard`)
+     - **📷 Scan Pages** (`doc.viewfinder`)
+     - **🖼️ Photos** (`photo.on.rectangle`)
+   - Added a centered monospaced script text card with placeholder guidelines, a "Clear" button, and character/scene count badges (`[Scenes: X]`, `[Your lines: Y]`, `[Total lines: Z]`).
+3. **Automated Verification ([NoticeParserTests.swift](file:///Users/user76/Downloads/OneTake-iOS/OneTakeTests/NoticeParserTests.swift))**:
+   - Added unit tests `testExtractSidesFromScriptPDFAndParseScenes` and `testExtractSidesFromPlainTextFile` verifying end-to-end PDF context creation, security-scoped resolution, text extraction, and scene parsing. All 151 tests in the suite pass.
+
 
 
 
