@@ -27,7 +27,12 @@ struct OneTakeApp: App {
             .environment(store)
             .tint(OT.accent)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
-            .task { await store.validateAccount() }
+            .task {
+                if ProcessInfo.processInfo.arguments.contains("-openProfile") {
+                    store.showProfile = true
+                }
+                await store.validateAccount()
+            }
             // Widgets and the Live Activity open "onetake://audition/<id>".
             .onOpenURL { url in
                 // Google's sign-in redirect comes back through here too.
@@ -39,6 +44,10 @@ struct OneTakeApp: App {
                 }
                 if url.scheme == "onetake", url.host == "headshot" {
                     store.camera = .headshot
+                    return
+                }
+                if url.scheme == "onetake", url.host == "profile" {
+                    store.showProfile = true
                     return
                 }
                 guard url.scheme == "onetake", url.host == "audition",

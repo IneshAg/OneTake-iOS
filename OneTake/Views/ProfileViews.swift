@@ -17,7 +17,7 @@ struct ProfileView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 // Header
                 HStack(alignment: .center) {
                     Text("Profile").font(.otLargeTitle).foregroundStyle(OT.labelPrimary)
@@ -31,22 +31,22 @@ struct ProfileView: View {
                     .frame(height: 36)
                     .background(OT.fillField, in: Capsule())
                 }
-                .padding(.top, 30)
+                .padding(.top, 16)
 
                 // Slate & Headshot Card
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     Button { store.push(.editSlate) } label: {
                         HStack(spacing: 14) {
                             HeadshotImage(realKey: "front", iconSize: 28).id(store.headshotVersion)
-                                .frame(width: 64, height: 64)
+                                .frame(width: 56, height: 56)
                                 .clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otTitle).foregroundStyle(OT.labelPrimary)
+                                Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name).font(.otHeadline).foregroundStyle(OT.labelPrimary)
                                 Text(store.slate.summary)
                                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                             }
                             Spacer()
-                            Image(systemName: "pencil").foregroundStyle(OT.accent).frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
+                            Image(systemName: "pencil").foregroundStyle(OT.accent).frame(width: 32, height: 32).background(OT.accentSoft, in: Circle())
                         }
                     }
                     .buttonStyle(.plain)
@@ -66,23 +66,22 @@ struct ProfileView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(18)
-                .otCard(radius: 20)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .otCard(radius: 18)
 
                 // Every time you record
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "Recording")
 
                     VStack(spacing: 0) {
-                        // "Room noise" and "Export" settings used to sit here; nothing ever applied
-                        // them, so they're gone until there's processing behind them.
                         Toggle(isOn: $slateAtStart) {
                             Text("Slate at the start").font(.otBody).foregroundStyle(OT.labelPrimary)
                         }
-                            .tint(OT.accent)
-                            .frame(minHeight: 48)
+                        .tint(OT.accent)
+                        .frame(minHeight: 44)
 
-                        Divider().padding(.vertical, 4)
+                        Divider().padding(.vertical, 2)
 
                         HStack {
                             Text("Reader volume").font(.otBody).foregroundStyle(OT.labelPrimary)
@@ -92,28 +91,29 @@ struct ProfileView: View {
                             }
                             .tint(OT.accent)
                         }
-                        .frame(minHeight: 48)
-
+                        .frame(minHeight: 44)
                     }
-                    .padding(18)
-                    .otCard(radius: 20)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .otCard(radius: 18)
                 }
 
                 // Practice sample
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "Practice")
 
                     Toggle(isOn: $showSampleScene) {
                         Text("Show sample scene").font(.otBody).foregroundStyle(OT.labelPrimary)
                     }
                     .tint(OT.accent)
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 60)
-                    .otCard(radius: 20)
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .otCard(radius: 18)
                 }
 
                 // More section
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "More")
 
                     VStack(spacing: 0) {
@@ -159,12 +159,13 @@ struct ProfileView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(18)
-                    .otCard(radius: 20)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .otCard(radius: 18)
                 }
 
                 // Account section (moved down)
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "Account")
 
                     VStack(spacing: 0) {
@@ -210,12 +211,13 @@ struct ProfileView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(18)
-                    .otCard(radius: 20)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .otCard(radius: 18)
                 }
             }
             .padding(.horizontal, OT.gutter)
-            .padding(.bottom, 120)
+            .padding(.bottom, 32)
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
