@@ -348,7 +348,7 @@ struct Audition: Identifiable, Hashable, Codable {
 
     /// Automatically formats subject line based on notice instructions (e.g. Mention "Escape Plan" in subject) or standard casting protocol.
     func emailSubject(slate: SlateInfo) -> String {
-        let actorName = slate.isEmpty ? "Actor" : slate.name
+        let actorName = slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Actor" : slate.name
         for ask in asks {
             let lower = ask.lowercased()
             if lower.contains("in the subject") || lower.contains("subject:") {
@@ -368,8 +368,8 @@ struct Audition: Identifiable, Hashable, Codable {
 
     /// Professional casting submission cover email.
     func emailBody(slate: SlateInfo) -> String {
-        let actorName = slate.isEmpty ? "Actor" : slate.name
-        let slateDetails = slate.isEmpty ? "" : "\n• Details: \(slate.summary)"
+        let actorName = slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Actor" : slate.name
+        let slateDetails = slate.summary.isEmpty ? "" : "\n• Details: \(slate.summary)"
         let agencyLine = slate.representation.isEmpty ? "" : "\n• Agency: \(slate.representation)"
         return """
         Dear Casting Team,
@@ -728,15 +728,21 @@ struct SlateInfo: Hashable, Codable {
     /// has it saved; it's cleared on load (see `AppStore.init`).
     static let legacyPlaceholder = SlateInfo(name: "Kabir Sharma", height: "5′ 11″", basedIn: "Mumbai", representation: "")
 
-    var isEmpty: Bool { name.trimmingCharacters(in: .whitespaces).isEmpty }
+    var isEmpty: Bool {
+        name.trimmingCharacters(in: .whitespaces).isEmpty
+        && height.trimmingCharacters(in: .whitespaces).isEmpty
+        && basedIn.trimmingCharacters(in: .whitespaces).isEmpty
+        && representation.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     /// What the actor says to the lens — only the parts that are filled in.
     var spoken: String {
-        guard !isEmpty else { return "Say your name, height and where you're based." }
         let punct = CharacterSet(charactersIn: " ,;.-")
-        return [name, height, basedIn]
+        let parts = [name, height, basedIn]
             .map { $0.trimmingCharacters(in: punct) }
             .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return "Say your name, height and where you're based." }
+        return parts
             .map { $0 + "." }
             .joined(separator: " ")
     }

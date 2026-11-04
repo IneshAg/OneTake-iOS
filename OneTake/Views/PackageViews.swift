@@ -569,7 +569,7 @@ struct PackageView: View {
 
         if a.destination == .emailOrLink, deliverable == .combinedVideo {
             if let link = a.shareLink {
-                let who = store.slate.isEmpty ? "Self-tape" : store.slate.name
+                let who = store.slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Self-tape" : store.slate.name
                 return ["\(who) — \(a.role), \(a.project)", link]
             }
         }

@@ -14,6 +14,9 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(slate.isEmpty)
         XCTAssertEqual(slate.spoken, "Say your name, height and where you're based.")
         XCTAssertEqual(SlateInfo(name: "Asha Rao", basedIn: "Pune").spoken, "Asha Rao. Pune.")
+        XCTAssertEqual(SlateInfo(height: "5′ 11″").spoken, "5′ 11″.")
+        XCTAssertEqual(SlateInfo(height: "178 cm", basedIn: "Mumbai").spoken, "178 cm. Mumbai.")
+        XCTAssertEqual(SlateInfo(basedIn: "London").spoken, "London.")
     }
 
     func testDeliverableFileName() {
