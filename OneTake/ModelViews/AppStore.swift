@@ -686,8 +686,14 @@ final class AppStore {
 
     func recordStandaloneRun(pieceID: PracticePiece.ID, linesOnYourOwn: Int) {
         guard let index = practice.firstIndex(where: { $0.id == pieceID }) else { return }
-        practice[index].linesLearned = max(0, min(linesOnYourOwn, practice[index].linesTotal))
-        promotePracticePiece(pieceID)
+        let clamped = max(0, min(linesOnYourOwn, practice[index].linesTotal))
+        practice[index].linesLearned = clamped
+        if let audID = practice[index].auditionID, let sIdx = practice[index].sceneIndex {
+            recordRun(auditionID: audID, sceneIndex: sIdx, linesOnYourOwn: clamped)
+        } else {
+            promotePracticePiece(pieceID)
+            persist()
+        }
     }
 
     /// Finds or creates the `PracticePiece` for a given audition scene, so Quick Drills and the
@@ -724,6 +730,7 @@ final class AppStore {
         updated.linesLearned = max(0, min(linesOnYourOwn, updated.linesTotal))
         practice.remove(at: i)
         practice.insert(updated, at: 0)
+        persist()
     }
 
     /// Push a route on the currently selected tab's stack (or the profile sheet stack if open).

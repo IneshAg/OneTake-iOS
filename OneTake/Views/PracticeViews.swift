@@ -453,9 +453,11 @@ struct StandalonePracticeView: View {
     @State private var savedSampleID: PracticePiece.ID?
 
     private var piece: PracticePiece? {
+        if let id = savedSampleID ?? pieceID {
+            return store.practice.first { $0.id == id }
+        }
         if isSample { return samplePiece }
-        guard let pieceID else { return nil }
-        return store.practice.first { $0.id == pieceID }
+        return nil
     }
     private var scene: ScriptScene? { piece?.scene }
 
@@ -498,31 +500,35 @@ struct StandalonePracticeView: View {
                             }
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 16)
                         }
-                        let targetPieceID: PracticePiece.ID? = isSample ? savedSampleID : pieceID
+                        let targetPieceID: PracticePiece.ID? = isSample ? (savedSampleID ?? pieceID) : pieceID
                         if let targetID = targetPieceID {
+                            let activePiece = piece
                             HStack {
-                                Label("\(piece.linesLearned) of \(piece.linesTotal) learned",
-                                      systemImage: piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 ? "checkmark.circle.fill" : "checkmark.circle")
+                                Label("\(activePiece.linesLearned) of \(activePiece.linesTotal) learned",
+                                      systemImage: activePiece.linesLearned >= activePiece.linesTotal && activePiece.linesTotal > 0 ? "checkmark.circle.fill" : "checkmark.circle")
                                     .font(.otFootnote)
-                                    .foregroundStyle(piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 ? OT.accent : OT.labelTertiary)
+                                    .foregroundStyle(activePiece.linesLearned >= activePiece.linesTotal && activePiece.linesTotal > 0 ? OT.accent : OT.labelTertiary)
                                 Spacer()
-                                if piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 {
+                                if activePiece.linesLearned >= activePiece.linesTotal && activePiece.linesTotal > 0 {
                                     Button("Mark unlearned") {
                                         store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                        samplePiece.linesLearned = 0
                                         Haptics.tick()
                                     }
                                     .buttonStyle(.otCompact)
                                 } else {
                                     HStack(spacing: 8) {
-                                        if piece.linesLearned > 0 {
+                                        if activePiece.linesLearned > 0 {
                                             Button("Reset") {
                                                 store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                                samplePiece.linesLearned = 0
                                                 Haptics.tick()
                                             }
                                             .buttonStyle(.otCompact)
                                         }
                                         Button("Mark lines learned") {
-                                            store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: piece.linesTotal)
+                                            store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: activePiece.linesTotal)
+                                            samplePiece.linesLearned = activePiece.linesTotal
                                             Haptics.success()
                                         }
                                         .buttonStyle(.otCompact)
@@ -531,15 +537,18 @@ struct StandalonePracticeView: View {
                             }
                         } else if isSample && !scene.lines.isEmpty {
                             HStack {
-                                Label("0 of \(scene.lines.filter(\.isMine).count) learned", systemImage: "checkmark.circle")
+                                Label("\(samplePiece.linesLearned) of \(scene.lines.filter(\.isMine).count) learned",
+                                      systemImage: samplePiece.linesLearned >= scene.lines.filter(\.isMine).count && !scene.lines.isEmpty ? "checkmark.circle.fill" : "checkmark.circle")
                                     .font(.otFootnote)
-                                    .foregroundStyle(OT.labelTertiary)
+                                    .foregroundStyle(samplePiece.linesLearned >= scene.lines.filter(\.isMine).count ? OT.accent : OT.labelTertiary)
                                 Spacer()
                                 Button("Mark lines learned") {
-                                    let saved = store.addStandalonePracticePiece(title: piece.title, character: piece.character,
+                                    let saved = store.addStandalonePracticePiece(title: piece.title,
+                                                                                character: piece.character,
                                                                                 scene: scene, detail: "Sample scene")
                                     savedSampleID = saved.id
-                                    store.recordStandaloneRun(pieceID: saved.id, linesOnYourOwn: piece.linesTotal)
+                                    samplePiece.linesLearned = scene.lines.filter(\.isMine).count
+                                    store.recordStandaloneRun(pieceID: saved.id, linesOnYourOwn: scene.lines.filter(\.isMine).count)
                                     Haptics.success()
                                 }
                                 .buttonStyle(.otCompact)
@@ -706,8 +715,9 @@ struct PracticeTakeView: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
-                                .background(OT.cameraGlass, in: Circle())
+                                .background(.ultraThinMaterial, in: Circle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Close")
 
                         Spacer()
@@ -717,11 +727,27 @@ struct PracticeTakeView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(OT.cameraGlass, in: Capsule())
+                            .background(.ultraThinMaterial, in: Capsule())
 
                         Spacer()
 
-                        Color.clear.frame(width: 44)
+                        Menu {
+                            Button { prompterSize = 0; Haptics.tick() } label: {
+                                Label("Regular text (22pt)", systemImage: prompterSize == 0 ? "checkmark" : "")
+                            }
+                            Button { prompterSize = 1; Haptics.tick() } label: {
+                                Label("Big text (27pt)", systemImage: prompterSize == 1 ? "checkmark" : "")
+                            }
+                            Button { prompterSize = 2; Haptics.tick() } label: {
+                                Label("Huge text (34pt)", systemImage: prompterSize == 2 ? "checkmark" : "")
+                            }
+                        } label: {
+                            Image(systemName: "textformat.size")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
                     }
                     .padding(.top, 4)
                 }
@@ -739,23 +765,40 @@ struct PracticeTakeView: View {
                 }
 
                 if let lines = piece?.scene?.lines, !lines.isEmpty {
-                    SidesPrompterView(
-                        lines: lines,
-                        currentIndex: lineIndex,
-                        spokenTranscript: follower.transcript,
-                        prompterSize: prompterSize,
-                        mirror: mirrorPrompter,
-                        readerIsPlaying: false,
-                        readerAudioMissing: false,
-                        onAdvance: {
-                            if lineIndex + 1 < lines.count { lineIndex += 1; follower.reset(); Haptics.tick() }
-                        },
-                        onPrevious: {
-                            lineIndex = max(0, lineIndex - 1)
-                            follower.reset()
-                            Haptics.tick()
+                    if camera.state == .recording || recordedTakeURL == nil {
+                        SidesPrompterView(
+                            lines: lines,
+                            currentIndex: lineIndex,
+                            spokenTranscript: follower.transcript,
+                            prompterSize: prompterSize,
+                            mirror: mirrorPrompter,
+                            readerIsPlaying: false,
+                            readerAudioMissing: false,
+                            onAdvance: {
+                                if lineIndex + 1 < lines.count { lineIndex += 1; follower.reset(); Haptics.tick() }
+                            },
+                            onPrevious: {
+                                lineIndex = max(0, lineIndex - 1)
+                                follower.reset()
+                                Haptics.tick()
+                            }
+                        )
+                    } else {
+                        HStack(spacing: 8) {
+                            Text(lines.indices.contains(lineIndex) ? lines[lineIndex].text : sceneTitle)
+                                .font(.otFootnote.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineLimit(1)
+                            Spacer()
+                            Text("\(lineIndex + 1) of \(lines.count) lines")
+                                .font(.otCaption.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(OT.prompterGold)
                         }
-                    )
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+                    }
                 }
 
                 Spacer()
@@ -788,11 +831,38 @@ struct PracticeTakeView: View {
                                     Text("Watch take")
                                 }
                                 .font(.otFootnote.weight(.semibold))
-                                .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.capsule)
+                            .tint(.white)
+                            .foregroundStyle(.black)
+                        }
+
+                        // Explicit lines learned toggle
+                        let myLines = piece?.scene?.lines.filter(\.isMine).count ?? piece?.linesTotal ?? 0
+                        let isAllLearned = (piece?.linesLearned ?? 0) >= myLines && myLines > 0
+                        HStack {
+                            Button {
+                                if let p = piece {
+                                    let nextLearned = isAllLearned ? 0 : myLines
+                                    store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: nextLearned)
+                                    Haptics.success()
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isAllLearned ? "checkmark.circle.fill" : "circle")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(isAllLearned ? "Lines learned (\(myLines)/\(myLines))" : "Mark lines learned (\(myLines) lines)")
+                                        .font(.otFootnote.weight(.semibold))
+                                }
+                                .foregroundStyle(isAllLearned ? OT.accent : .white)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(OT.cameraGlass, in: Capsule())
+                                .background(isAllLearned ? OT.accentSoft : Color.white.opacity(0.12), in: Capsule())
                             }
+                            .buttonStyle(.plain)
+
+                            Spacer()
                         }
 
                         HStack(spacing: 10) {
@@ -804,24 +874,29 @@ struct PracticeTakeView: View {
                                         Text("Next scene")
                                         Image(systemName: "chevron.right")
                                     }
-                                    .font(.otHeadline)
-                                    .foregroundStyle(Color.black)
                                     .frame(maxWidth: .infinity, minHeight: 44)
-                                    .background(OT.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 }
+                                .buttonStyle(.borderedProminent)
+                                .buttonBorderShape(.roundedRectangle(radius: 12))
+                                .tint(OT.accent)
+                                .foregroundStyle(.white)
                             }
 
                             Button("Done") {
                                 dismiss()
                             }
-                            .font(.otHeadline)
-                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.roundedRectangle(radius: 12))
+                            .tint(.white)
                         }
                     }
                     .padding(14)
-                    .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
                     .padding(.bottom, 6)
                 }
 
@@ -950,11 +1025,15 @@ struct PracticeTakeView: View {
             recordedTakeDuration = Int(camera.elapsed)
             if let saved = MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(p.id.uuidString)") {
                 store.incrementPracticeTakes(for: p.id)
+                let linesCount = p.scene?.lines.filter(\.isMine).count ?? p.linesTotal
+                if lineIndex + 1 >= (p.scene?.lines.count ?? 0) && linesCount > 0 {
+                    store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: linesCount)
+                }
                 recordedTakeURL = saved
                 Haptics.success()
             }
         }
-        .sheet(isPresented: $showPlayer) {
+        .fullScreenCover(isPresented: $showPlayer) {
             if let url = recordedTakeURL {
                 PracticeVideoPlayerSheet(url: url)
             }
