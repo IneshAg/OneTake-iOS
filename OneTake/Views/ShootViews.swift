@@ -298,6 +298,7 @@ struct ShootFlow: View {
         let a = store.audition(auditionID)
         ZStack {
             CameraBackground(controller: camera)
+                .ignoresSafeArea()
             if camera.state == .recording { RoundedRectangle(cornerRadius: 55).stroke(OT.recRed, lineWidth: 6).ignoresSafeArea() }
 
             VStack(spacing: 12) {
@@ -1121,16 +1122,14 @@ struct ShootFlow: View {
         .padding(18).frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color.black.opacity(0.88), Color.black.opacity(0.78)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
+                .fill(Color.black.opacity(0.55))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
     }
 
     /// Spoken words turn to prompter gold (#FFCC00) as speech recognition hears them (matching Figma).
@@ -1389,16 +1388,14 @@ struct SidesPrompterView: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color.black.opacity(0.88), Color.black.opacity(0.78), Color.black.opacity(0.68)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
+                .fill(Color.black.opacity(0.55))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
         .contentShape(Rectangle())
         .onTapGesture { onAdvance() }
         .gesture(

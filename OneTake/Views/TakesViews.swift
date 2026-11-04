@@ -79,7 +79,7 @@ struct TakesView: View {
                     .opacity((current?.fileURL.map(VideoTrimmer.canTrim) ?? false) ? 1.0 : 0.4)
                     .accessibilityLabel("Trim")
                 }
-                .padding(.top, 4)
+                .padding(.top, 8)
 
                 if scenes.count > 1 {
                     Picker("Scene", selection: Binding(get: { shownScene }, set: { scene = $0; selected = nil })) {
@@ -88,6 +88,7 @@ struct TakesView: View {
                     .pickerStyle(.segmented)
                 }
                 PlayerCard(url: current?.fileURL)
+                    .padding(.top, 4)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -179,6 +180,7 @@ struct PlayerCard: View {
 
     var body: some View {
         ZStack {
+            Color.black
             if url != nil, let player { VideoPlayer(player: player) }
             else {
                 HeadshotImage(onDark: true)
@@ -186,8 +188,13 @@ struct PlayerCard: View {
                     .frame(width: 60, height: 60).background(.ultraThinMaterial, in: Circle())
             }
         }
-        .frame(height: 210)
+        .frame(height: 330)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
         .onChange(of: url) { _, newURL in
             player?.pause()
             player = newURL.map { AVPlayer(url: $0) }
