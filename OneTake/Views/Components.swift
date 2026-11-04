@@ -152,10 +152,27 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
+struct CompactSecondaryButtonStyle: ButtonStyle {
+    var onDark = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.otFootnote.weight(.semibold))
+            .foregroundStyle(onDark ? .white : OT.labelPrimary)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(onDark ? Color.white.opacity(0.14) : OT.fillField, in: Capsule())
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+}
+
 extension ButtonStyle where Self == PrimaryButtonStyle { static var otPrimary: PrimaryButtonStyle { .init() } }
 extension ButtonStyle where Self == SecondaryButtonStyle {
     static var otSecondary: SecondaryButtonStyle { .init() }
     static var otSecondaryDark: SecondaryButtonStyle { .init(onDark: true) }
+}
+extension ButtonStyle where Self == CompactSecondaryButtonStyle {
+    static var otCompact: CompactSecondaryButtonStyle { .init() }
+    static var otCompactDark: CompactSecondaryButtonStyle { .init(onDark: true) }
 }
 
 // MARK: - Schedule row (v2/Schedule Row)

@@ -498,7 +498,7 @@ struct StandalonePracticeView: View {
                                         store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
                                         Haptics.tick()
                                     }
-                                    .buttonStyle(.otSecondary)
+                                    .buttonStyle(.otCompact)
                                 } else {
                                     HStack(spacing: 8) {
                                         if piece.linesLearned > 0 {
@@ -506,13 +506,13 @@ struct StandalonePracticeView: View {
                                                 store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
                                                 Haptics.tick()
                                             }
-                                            .buttonStyle(.otSecondary)
+                                            .buttonStyle(.otCompact)
                                         }
                                         Button("Mark lines learned") {
                                             store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: piece.linesTotal)
                                             Haptics.success()
                                         }
-                                        .buttonStyle(.otSecondary)
+                                        .buttonStyle(.otCompact)
                                     }
                                 }
                             }
@@ -529,7 +529,7 @@ struct StandalonePracticeView: View {
                                     store.recordStandaloneRun(pieceID: saved.id, linesOnYourOwn: piece.linesTotal)
                                     Haptics.success()
                                 }
-                                .buttonStyle(.otSecondary)
+                                .buttonStyle(.otCompact)
                             }
                         }
                     }
