@@ -21,7 +21,7 @@ struct AddAuditionFlow: View {
 
     var body: some View {
         capture
-            .presentationDetents([.height(420)])
+            .presentationDetents([.height(315)])
             .presentationDragIndicator(.visible)
             .fullScreenCover(isPresented: $showScanner) {
                 DocumentScannerView { pages in
@@ -150,8 +150,8 @@ struct AddAuditionFlow: View {
     }
 
     private var capture: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 15) {
                 HStack {
                     Text("Add an audition").font(.otTitle)
                     Spacer()
@@ -209,8 +209,11 @@ struct AddAuditionFlow: View {
                 Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
                     .font(.otFootnote).foregroundStyle(OT.accent)
             }
-            .padding(OT.gutter)
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)

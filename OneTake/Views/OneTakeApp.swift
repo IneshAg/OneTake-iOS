@@ -46,6 +46,10 @@ struct OneTakeApp: App {
                     store.camera = .headshot
                     return
                 }
+                if url.scheme == "onetake", url.host == "add" {
+                    store.showAddAudition = true
+                    return
+                }
                 if url.scheme == "onetake", url.host == "profile" {
                     store.showProfile = true
                     return
@@ -141,6 +145,7 @@ struct RootTabView: View {
             }
         }) {
             AddAuditionFlow()
+                .presentationDetents([.height(315)])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
