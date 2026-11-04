@@ -212,6 +212,10 @@ final class AppStore {
             showProfile = true
             profilePath = [.editSlate]
         }
+        if ProcessInfo.processInfo.arguments.contains("-search") {
+            isOnboarded = true
+            tab = .search
+        }
         isLoading = false
         syncPieces()
         if removedLegacyDemoData { persist() }

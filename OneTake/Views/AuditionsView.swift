@@ -264,6 +264,7 @@ struct EmptyAuditionsView: View {
 
 struct SearchView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.isSearching) private var isSearching
     private var query: String { store.searchQuery }
 
     enum SearchScope: String, CaseIterable, Identifiable {
@@ -373,8 +374,9 @@ struct SearchView: View {
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
+        .navigationTitle("Search")
+        .searchable(text: Bindable(store).searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search auditions, sides, practice...")
+        .toolbar(isSearching ? .hidden : .visible, for: .tabBar)
         .onAppear {
             if !hasSetInitialScope {
                 hasSetInitialScope = true

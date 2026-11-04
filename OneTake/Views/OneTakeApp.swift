@@ -108,10 +108,9 @@ struct RootTabView: View {
             }
 
             if isSearchAvailable {
-                Tab(value: AppTab.search, role: .search) {
+                Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
                     NavigationStack(path: $store.searchPath) {
                         SearchView().withRoutes()
-                            .applySearch(enabled: isSearchAvailable, text: $store.searchQuery)
                     }
                     .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 }
@@ -119,7 +118,6 @@ struct RootTabView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(OT.bgCanvas.ignoresSafeArea())
-        .applySearchTabActivation()
         .onChange(of: isSearchAvailable) { _, available in
             if !available && store.tab == .search {
                 store.tab = .auditions
