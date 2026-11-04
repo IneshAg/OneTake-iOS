@@ -276,17 +276,7 @@ struct SlateDetailsView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 if let onBack {
-                    Button(action: onBack) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                            Text("Back")
-                                .font(.otHeadline)
-                        }
-                        .foregroundStyle(OT.labelPrimary)
-                        .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
+                    GlassBackButton(label: "Back", onDark: false, action: onBack)
                 }
                 Spacer()
                 Button("Skip", action: onContinue)

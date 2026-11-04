@@ -357,6 +357,78 @@ extension Date {
     var otDayMonth: String { formatted(.dateTime.day().month(.abbreviated)) }
 }
 
+// MARK: - Native iOS Glass Back Button
+
+struct GlassBackButton: View {
+    var label: String = "Back"
+    var onDark: Bool = false
+    var action: () -> Void
+
+    private var isSymbolOnly: Bool {
+        label.isEmpty || label.caseInsensitiveCompare("Back") == .orderedSame
+    }
+
+    private var isDismissStyle: Bool {
+        label.caseInsensitiveCompare("Cancel") == .orderedSame ||
+        label.caseInsensitiveCompare("Done") == .orderedSame ||
+        label.caseInsensitiveCompare("Close") == .orderedSame
+    }
+
+    var body: some View {
+        Button(action: {
+            Haptics.tick()
+            action()
+        }) {
+            Group {
+                if isSymbolOnly {
+                    // Standard iOS circular glass back button (44×44 pt native tap target)
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(onDark ? .white : OT.labelPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            onDark
+                            ? AnyShapeStyle(OT.cameraGlass)
+                            : AnyShapeStyle(.ultraThinMaterial),
+                            in: Circle()
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(onDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), lineWidth: 0.5)
+                        )
+                } else {
+                    // Named destination glass capsule (e.g. "< Auditions", "Cancel", "Done")
+                    HStack(spacing: 5) {
+                        if !isDismissStyle {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(label)
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundStyle(onDark ? .white : OT.labelPrimary)
+                    .padding(.horizontal, isDismissStyle ? 16 : 14)
+                    .frame(height: 44)
+                    .background(
+                        onDark
+                        ? AnyShapeStyle(OT.cameraGlass)
+                        : AnyShapeStyle(.ultraThinMaterial),
+                        in: Capsule()
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(onDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), lineWidth: 0.5)
+                    )
+                }
+            }
+            .shadow(color: .black.opacity(onDark ? 0.3 : 0.06), radius: 8, y: 2)
+            .contentShape(isSymbolOnly ? AnyShape(Circle()) : AnyShape(Capsule()))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label.isEmpty ? "Back" : label)
+    }
+}
+
 // MARK: - In-content Navigation Header
 
 struct InContentNavHeader<TrailingContent: View>: View {
@@ -377,21 +449,9 @@ struct InContentNavHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button {
+            GlassBackButton(label: backLabel, onDark: onDark) {
                 if let onBack { onBack() } else { dismiss() }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text(backLabel)
-                        .font(.otHeadline)
-                }
-                .foregroundStyle(onDark ? OT.cameraLabel : OT.labelPrimary)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(backLabel)
 
             Spacer()
 
