@@ -21,7 +21,7 @@ import os
 import sys
 import json
 import re
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -33,6 +33,7 @@ USE_LOCAL_LLM = os.environ.get("USE_LOCAL_LLM", "1") == "1"
 BASE_MODEL_NAME = os.environ.get("BASE_MODEL_NAME", "Qwen/Qwen2.5-1.5B-Instruct")
 LORA_PATH = os.environ.get("LORA_PATH", str(Path(__file__).resolve().parent.parent / "models" / "onetake-parser-lora"))
 
+ENABLE_EXTERNAL_LLM = os.environ.get("ENABLE_EXTERNAL_LLM", "0") == "1"
 # External LLM Proxy Configuration (optional fallback)
 LLM_API_BASE = os.environ.get("LLM_API_BASE", "http://localhost:11434/v1")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "EMPTY")
@@ -238,10 +239,20 @@ def clean_and_parse_json(content: str) -> dict:
     return json.loads(content.strip())
 
 # -----------------------------------------------------------------------------
-# Cloud / External Proxy Fallback
+# Cloud / External Proxy Fallback with Fast Circuit Breaker
 # -----------------------------------------------------------------------------
+_EXTERNAL_LLM_AVAILABLE = True
+_EXTERNAL_LLM_LAST_CHECK = 0.0
+_EXTERNAL_LLM_COOLDOWN = 60.0
+
 def call_external_llm(system_prompt: str, user_prompt: str) -> dict:
-    import urllib.request
+    global _EXTERNAL_LLM_AVAILABLE, _EXTERNAL_LLM_LAST_CHECK
+    import time, urllib.request, urllib.error
+
+    now = time.time()
+    if not _EXTERNAL_LLM_AVAILABLE and (now - _EXTERNAL_LLM_LAST_CHECK) < _EXTERNAL_LLM_COOLDOWN:
+        raise RuntimeError("External LLM circuit breaker open (cooling down)")
+
     payload = {
         "model": LLM_MODEL,
         "messages": [
@@ -259,58 +270,223 @@ def call_external_llm(system_prompt: str, user_prompt: str) -> dict:
             "Authorization": f"Bearer {LLM_API_KEY}"
         }
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        res_data = json.loads(resp.read().decode("utf-8"))
-        content = res_data["choices"][0]["message"]["content"]
-        return clean_and_parse_json(content)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            _EXTERNAL_LLM_AVAILABLE = True
+            res_data = json.loads(resp.read().decode("utf-8"))
+            content = res_data["choices"][0]["message"]["content"]
+            return clean_and_parse_json(content)
+    except Exception as exc:
+        _EXTERNAL_LLM_AVAILABLE = False
+        _EXTERNAL_LLM_LAST_CHECK = now
+        raise exc
 
 # -----------------------------------------------------------------------------
-# Deterministic Fallbacks
+# High-Accuracy Deterministic Fallbacks
 # -----------------------------------------------------------------------------
 def deterministic_notice_fallback(text: str) -> dict:
     project = "Audition Project"
+    project_type = "Feature Film"
     role = "Lead Role"
-    for line in text.split("\n"):
-        upper = line.upper()
-        if "PROJECT:" in upper:
-            project = line.split(":", 1)[1].strip()
-        elif "ROLE:" in upper:
-            role = line.split(":", 1)[1].strip()
+    candidate_roles = []
+    role_size = "Lead"
+    casting_office = ""
+    due_date = None
+    specs = []
+    sides_link = None
+    submission_email = None
+    director_guidance = ""
+
+    # Detect Project
+    proj_patterns = [
+        r"(?i)\b(?:PROJECT|TITLE)\s*[:\-]\s*([^\n\r]{2,50})",
+        r"(?i)\b(?:CASTING NOTICE|CASTING CALL|BREAKDOWN)\s*[:\-]?\s*([^\n\r]{2,50})",
+        r"(?i)mention\s+[\'\"“]([^\'\"”\n]{2,35})[\'\"”]",
+        r"(?i)\b([A-Z][A-Za-z0-9\s\'\-]{2,25})\s+is\s+(?:a|an|such\s+a)\s+(?:fun\s+)?(?:production|musical|play|film|movie|show|series|theatrical)\b",
+    ]
+    for p_pat in proj_patterns:
+        m = re.search(p_pat, text)
+        if m:
+            candidate = m.group(1).strip()
+            candidate = re.sub(r"[\*#\-_]+$", "", candidate).strip()
+            if candidate and len(candidate) > 1:
+                project = candidate
+                break
+
+    # Detect Project Type
+    upper_text = text.upper()
+    if "COMMERCIAL" in upper_text or "TVC" in upper_text or "BRAND CAMPAIGN" in upper_text:
+        project_type = "Commercial"
+    elif "THEATER" in upper_text or "THEATRE" in upper_text or "PLAY" in upper_text or "REVIVAL" in upper_text:
+        project_type = "Theater"
+    elif "EPISODIC" in upper_text or "SERIES" in upper_text or "LIMITED SERIES" in upper_text or "TV" in upper_text:
+        project_type = "TV Episodic"
+    elif "SHORT FILM" in upper_text or "STUDENT FILM" in upper_text:
+        project_type = "Short Film"
+    elif "FEATURE" in upper_text or "FILM" in upper_text:
+        project_type = "Feature Film"
+
+    # Detect Candidate Roles & Target Role
+    roles_block_m = re.search(r"(?is)(?:ROLES TO CAST|CHARACTER BREAKDOWN|ROLES AVAILABLE|BREAKDOWN GRID)\s*[:\-]?\s*\n(.*?)(?=\n\s*(?:PRIMARY AUDITION|AUDITION FOCUS|SELF-TAPE|SUBMISSION|DIRECTOR|==|\*\*\*|\Z))", text)
+    if roles_block_m:
+        for r_line in roles_block_m.group(1).splitlines():
+            r_line = r_line.strip()
+            if not r_line or r_line.startswith("---") or r_line.startswith("==="):
+                continue
+            r_match = re.search(r"^[•\-\nav\*\s|]*([A-Za-z0-9\s\(\)\'\-]{2,35})", r_line)
+            if r_match:
+                cand = r_match.group(1).strip()
+                if cand and cand.upper() not in ("ROLE", "ROLES", "CHARACTER") and cand not in candidate_roles:
+                    candidate_roles.append(cand)
+
+    if not candidate_roles:
+        demo_matches = re.findall(r"(?i)\b(male|female|boy|girl)\s*(?:actor|actress|age)?\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)", text)
+        for g, a in demo_matches:
+            cand = f"{g.title()} Actor ({a})"
+            if cand not in candidate_roles:
+                candidate_roles.append(cand)
+
+    role_target_m = re.search(r"(?i)\b(?:PRIMARY AUDITION TARGET|AUDITION FOCUS|ROLE|TARGET ROLE|CHARACTER)\s*[:\-]\s*([^\n\r]{2,40})", text)
+    if role_target_m:
+        raw_role = role_target_m.group(1).strip()
+        clean_role = re.sub(r"\s*\([^\)]*\)\s*$", "", raw_role).strip()
+        if clean_role:
+            role = clean_role
+            if clean_role not in candidate_roles:
+                candidate_roles.insert(0, clean_role)
+    elif candidate_roles:
+        role = candidate_roles[0]
+
+    # Detect Role Size
+    if "SERIES REGULAR" in upper_text:
+        role_size = "Series Regular"
+    elif "CO-STAR" in upper_text or "DAY PLAYER" in upper_text:
+        role_size = "Co-Star"
+    elif "SUPPORTING" in upper_text:
+        role_size = "Supporting"
+    elif "LEAD" in upper_text:
+        role_size = "Lead"
+
+    # Detect Casting Office
+    office_m = re.search(r"(?i)\b(?:CASTING OFFICE|CASTING DIRECTOR|CASTING AGENCY|CASTING)\s*[:\-]\s*([^\n\r]{2,60})", text)
+    if office_m:
+        casting_office = office_m.group(1).strip()
+    elif "@mccc.in" in text.lower():
+        casting_office = "Mukesh Chhabra Casting Company (MCCC)"
+
+    # Detect Submission Email
+    email_m = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
+    if email_m:
+        submission_email = email_m.group(0)
+
+    # Detect Sides Link
+    link_m = re.search(r"https?://[^\s\)]+", text)
+    if link_m:
+        url = link_m.group(0)
+        if any(keyword in url.lower() for keyword in ("sides", "drive", "dropbox", "wetransfer", "onetake")):
+            sides_link = url
+
+    # Detect Due Date
+    iso_date_m = re.search(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b", text)
+    if iso_date_m:
+        due_date = iso_date_m.group(0)
+    else:
+        text_date_m = re.search(r"(?i)\b(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})\b", text)
+        if text_date_m:
+            due_date = text_date_m.group(1).strip()
+
+    # Detect Specs
+    specs_block_m = re.search(r"(?is)(?:SELF-TAPE SPECS|SELF-TAPE INSTRUCTIONS|SELF-TAPE REQUIREMENTS|TAPE SPECS)\s*[:\-]?\s*\n(.*?)(?=\n\s*(?:DIRECTOR|SUBMISSION|DEADLINE|==|\*\*\*|\Z))", text)
+    if specs_block_m:
+        for s_line in specs_block_m.group(1).splitlines():
+            s_line = s_line.strip()
+            if s_line and s_line.startswith(("-", "•", "*", "1.", "2.", "3.", "4.")):
+                clean_s = re.sub(r"^[\d\.\-\*•\s]+", "", s_line).strip()
+                if clean_s:
+                    specs.append(clean_s)
+    if not specs:
+        if "horizontal" in text.lower() or "landscape" in text.lower():
+            specs.append("Horizontal / landscape framing required")
+        if "slate" in text.lower():
+            specs.append("Include slate at head of tape")
+
+    # Detect Director Guidance
+    guidance_m = re.search(r"(?is)(?:DIRECTOR GUIDANCE|DIRECTOR\'S NOTES|CHARACTER NOTES|BRIEF)\s*[:\-]?\s*\n(.*?)(?=\n\s*(?:SUBMISSION|DEADLINE|==|\*\*\*|\Z))", text)
+    if guidance_m:
+        director_guidance = guidance_m.group(1).strip()
+
     return {
         "project": project,
-        "project_type": "Feature Film",
+        "project_type": project_type,
         "role": role,
-        "candidate_roles": [role],
-        "role_size": "Lead",
-        "casting_office": "",
-        "due_date": None,
-        "specs": ["Self-tape required"],
-        "sides_link": None,
-        "submission_email": None,
-        "director_guidance": ""
+        "candidate_roles": candidate_roles if candidate_roles else [role],
+        "role_size": role_size,
+        "casting_office": casting_office,
+        "due_date": due_date,
+        "specs": specs if specs else ["Self-tape required"],
+        "sides_link": sides_link,
+        "submission_email": submission_email,
+        "director_guidance": director_guidance
     }
 
 def deterministic_sides_fallback(text: str) -> dict:
     scenes = []
     current_lines = []
     heading = "SCENE 1"
-    
-    for raw in text.split("\n"):
-        line = raw.strip()
-        if not line:
+
+    slug_pattern = re.compile(r"(?im)^[\s>*—\-\[\]]*(INT\.|EXT\.|INT/EXT\.|EXT/INT\.|SCENE\s+[0-9A-Z]+|ACT\s+[0-9IVX]+).*$")
+
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i].strip()
+        i += 1
+        if not raw:
             continue
-        if line.startswith("INT.") or line.startswith("EXT."):
+
+        slug_m = slug_pattern.match(raw)
+        if slug_m:
             if current_lines:
                 scenes.append({"number": len(scenes) + 1, "heading": heading, "lines": current_lines})
                 current_lines = []
-            heading = line
-        elif line.isupper() and len(line) < 25:
-            current_lines.append({"character": line, "text": "", "parenthetical": None})
+            heading = raw.lstrip(">*—-[ ").rstrip()
+            continue
+
+        clean_cue = raw.rstrip(":")
+        if clean_cue.isupper() and 2 <= len(clean_cue) <= 30 and not clean_cue.startswith(("INT.", "EXT.", "PAGE", "ACT", "SCENE")):
+            char_name = clean_cue
+            parenthetical = None
+            dialogue_text = ""
+
+            if i < len(lines):
+                next_line = lines[i].strip()
+                if next_line.startswith("(") and next_line.endswith(")"):
+                    parenthetical = next_line[1:-1].strip()
+                    i += 1
+
+            while i < len(lines):
+                d_line = lines[i].strip()
+                if not d_line:
+                    i += 1
+                    break
+                if slug_pattern.match(d_line) or (d_line.rstrip(":").isupper() and 2 <= len(d_line.rstrip(":")) <= 30):
+                    break
+                if dialogue_text:
+                    dialogue_text += " " + d_line
+                else:
+                    dialogue_text = d_line
+                i += 1
+
+            current_lines.append({
+                "character": char_name,
+                "parenthetical": parenthetical,
+                "text": dialogue_text
+            })
         elif current_lines:
             if current_lines[-1]["text"]:
-                current_lines[-1]["text"] += " " + line
+                current_lines[-1]["text"] += " " + raw
             else:
-                current_lines[-1]["text"] = line
+                current_lines[-1]["text"] = raw
 
     if current_lines:
         scenes.append({"number": len(scenes) + 1, "heading": heading, "lines": current_lines})
@@ -325,13 +501,15 @@ def parse_with_fallback(system_prompt: str, user_prompt: str, fallback_func, tex
         except Exception as e:
             print(f"[!] Local inference error: {e}")
 
-    # 2. Attempt external LLM endpoint
-    try:
-        return call_external_llm(system_prompt, user_prompt)
-    except Exception as e:
-        print(f"[!] External LLM error: {e}")
+    # 2. Attempt external LLM endpoint with circuit breaker if explicitly enabled
+    if ENABLE_EXTERNAL_LLM:
+        try:
+            return call_external_llm(system_prompt, user_prompt)
+        except Exception as e:
+            if "circuit breaker" not in str(e).lower():
+                print(f"[!] External LLM error (activating circuit breaker): {e}")
 
-    # 3. Deterministic regex fallback
+    # 3. High-accuracy deterministic fallback
     return fallback_func(text)
 
 # -----------------------------------------------------------------------------
@@ -343,6 +521,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
@@ -424,7 +603,7 @@ def main():
         except Exception as e:
             print(f"[!] Pre-warming local model encountered an issue: {e}")
 
-    server = HTTPServer((HOST, PORT), RequestHandler)
+    server = ThreadingHTTPServer((HOST, PORT), RequestHandler)
     print(f"\n[+] Server listening on http://localhost:{PORT}")
     print(f"    - Notice Parser: POST http://localhost:{PORT}/api/v1/parse/notice")
     print(f"    - Sides Parser:  POST http://localhost:{PORT}/api/v1/parse/sides")
