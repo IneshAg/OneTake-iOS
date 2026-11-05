@@ -4,6 +4,8 @@
 > together, the invariants worth not breaking, and the rough edges to check before shipping.
 >
 > Snapshot: commit `ce7aeeb` (Oct 2026), with the ZIP streaming and Sent screen follow-up changes noted below.
+>
+> **Authoritative Architecture Reference**: See [`docs/STRUCTURE_AND_WORKING.md`](STRUCTURE_AND_WORKING.md) for the complete 18-section guide detailing current product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
 
 ---
 

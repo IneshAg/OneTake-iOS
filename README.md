@@ -114,7 +114,7 @@ open OneTake.xcodeproj
 ```
 
 Run on an iPhone simulator or a device (set your team under *Signing & Capabilities*). On a device,
-the iCloud container `iCloud.com.onetake.app` and the App Group `group.com.onetake.app` must be
+the iCloud container `iCloud.com.onetake.app` and the App Group `group.com.srmist.onetake` (as specified in `project.yml` and `OneTake.entitlements`) must be
 registered for your team for "Email or link" sending, widgets and the share extension. The open
 build leaves Sign in with Apple disabled because its capability requires a paid Apple Developer
 account; a paid team can enable the capability and set `AppleSignInEnabled: true` in `project.yml`.
@@ -133,6 +133,16 @@ every push and pull request.
 ### Simulator notes
 The Simulator has no camera, so the camera screens show a plain silhouette and headshot capture saves a
 placeholder; recording itself needs a real iPhone.
+
+---
+
+## 📖 Architecture & Documentation
+
+Comprehensive engineering documentation and architectural invariants are maintained in `docs/`:
+
+- **[Structure and Working (`docs/STRUCTURE_AND_WORKING.md`)](docs/STRUCTURE_AND_WORKING.md)**: Exhaustive 18-section reference detailing the product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
+- **[Navigation & UX Changes (`docs/NAVIGATION_CHANGES.md`)](docs/NAVIGATION_CHANGES.md)**: Design choices, header/tabbar HIG alignment, real-time audition flow optimization, and Reader Audio integration.
+- **[On-Device Intelligence & ML Pipeline (`docs/ML_PIPELINE.md`)](docs/ML_PIPELINE.md)**: LoRA fine-tuning, Core ML ANE INT4 palettization, pure-Swift BPE tokenizer, and grammar-constrained JSON decoding.
 
 ---
 

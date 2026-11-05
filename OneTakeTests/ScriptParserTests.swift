@@ -427,4 +427,23 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertTrue(chatTokens.contains(tokenizer.imStartTokenID))
         XCTAssertTrue(chatTokens.contains(tokenizer.imEndTokenID))
     }
+    func testBPETokenizerQwenParityTokenIDs() {
+        let tokenizer = BPETokenizer.shared
+
+        // 1. "Project: Grease" -> [7849, 25, 13532, 519]
+        let greaseTokens = tokenizer.encode(text: "Project: Grease")
+        XCTAssertEqual(greaseTokens, [7849, 25, 13532, 519])
+        XCTAssertEqual(tokenizer.decode(tokens: greaseTokens), "Project: Grease")
+
+        // 2. "Role: Sandy" -> [9030, 25, 38385]
+        let sandyTokens = tokenizer.encode(text: "Role: Sandy")
+        XCTAssertEqual(sandyTokens, [9030, 25, 38385])
+        XCTAssertEqual(tokenizer.decode(tokens: sandyTokens), "Role: Sandy")
+
+        // 3. "{"project": "Hamlet", "role": "Ophelia"}" -> [4913, 4987, 788, 330, 39941, 1149, 497, 330, 5778, 788, 330, 46, 759, 35929, 9207]
+        let hamletJSON = "{\"project\": \"Hamlet\", \"role\": \"Ophelia\"}"
+        let hamletTokens = tokenizer.encode(text: hamletJSON)
+        XCTAssertEqual(hamletTokens, [4913, 4987, 788, 330, 39941, 1149, 497, 330, 5778, 788, 330, 46, 759, 35929, 9207])
+        XCTAssertEqual(tokenizer.decode(tokens: hamletTokens), hamletJSON)
+    }
 }
