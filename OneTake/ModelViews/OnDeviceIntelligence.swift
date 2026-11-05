@@ -312,6 +312,7 @@ enum OnDeviceIntelligence {
     /// Runs 100% offline Core ML Apple Neural Engine parsing on a casting notice snippet.
     static func parseNoticeWithCoreML(text: String) async -> NoticeParser.Draft? {
         guard await CoreMLParserRunner.shared.isAvailable else { return nil }
+        defer { Task { await CoreMLParserRunner.shared.unloadModel() } }
         let system = """
         You are OneTake's audition notice parser.
         Extract the casting details from the provided text into JSON:
@@ -339,6 +340,7 @@ enum OnDeviceIntelligence {
     private static func respond(to prompt: String) async -> String? {
         // 1. First Priority: On-Device Apple Neural Engine Core ML Runner (iPhone 13-16, 100% offline)
         if await CoreMLParserRunner.shared.isAvailable {
+            defer { Task { await CoreMLParserRunner.shared.unloadModel() } }
             if let output = await CoreMLParserRunner.shared.generate(userPrompt: prompt) {
                 return output
             }

@@ -101,7 +101,7 @@ def score_notice(gold: dict[str, Any], prediction: Any) -> dict[str, Any]:
         return {"valid_schema": False, "field_matches": 0, "field_total": len(NOTICE_FIELDS), "hallucinated": 0}
     matches = sum(normalize(prediction.get(field)) == normalize(gold.get(field)) for field in NOTICE_FIELDS)
     comparable_missing = sum(
-        not normalize(gold.get(field)) and normalize(prediction.get(field))
+        int(not normalize(gold.get(field)) and bool(normalize(prediction.get(field))))
         for field in NOTICE_FIELDS
     )
     return {

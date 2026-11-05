@@ -92,14 +92,14 @@ def evaluate_coreml_model():
             err_deg = abs(pred_yaw_deg - target_yaw_deg)
             yaw_errors_deg.append(err_deg)
 
-            print(f"  [{'✓' if is_correct else '✗'}] {img_path.name:32s} | Target: {expected_angle:13s} "
-                  f"| Pred: {pred_class:13s} ({probs[pred_cls_idx]*100:.1f}%) | Yaw: {pred_yaw_deg:5.1f}° (Err: {err_deg:4.1f}°)")
+            print(f"  [{'PASS' if is_correct else 'FAIL'}] {img_path.name:32s} | Target: {expected_angle:13s} "
+                  f"| Pred: {pred_class:13s} ({probs[pred_cls_idx]*100:.1f}%) | Yaw: {pred_yaw_deg:5.1f} deg (Err: {err_deg:4.1f} deg)")
 
     acc = (correct / total * 100.0) if total > 0 else 0
     mean_err = sum(yaw_errors_deg) / len(yaw_errors_deg) if yaw_errors_deg else 0
     print("-------------------------------------------------------")
     print(f" Model Test Accuracy: {acc:.1f}% ({correct}/{total})")
-    print(f" Model Yaw Angle MAE: {mean_err:.2f}°")
+    print(f" Model Yaw Angle MAE: {mean_err:.2f} deg")
     print("=======================================================\n")
 
 def main():

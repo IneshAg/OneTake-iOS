@@ -842,7 +842,7 @@ Current confidence:
 - Evaluation methodology: **Insufficient for accuracy claims**.
 - Backend fallback architecture: **Useful but requires stronger schema validation**.
 - iOS Core ML deployment: **Not complete**.
-- Swift tokenizer parity: **High-risk and currently unverified**.
+- Swift tokenizer parity: **Promising for the tested corpus; complete app-bundle parity remains unverified**.
 - Production effectiveness: **Not established**.
 
 The highest-value next step is to fix tokenizer/model deployment parity and implement field-level
@@ -975,25 +975,26 @@ python scripts/evaluate_parser_models.py \
 The endpoint must expose `/api/v1/parse/notice` and `/api/v1/parse/sides`, accepting
 `{"text": "..."}`. The report includes valid JSON rate, schema validity, notice field exact-match
 rate, missing-field hallucinations, scene-count accuracy, heading similarity, character similarity,
-dialogue similarity, and mean/median/p95 latency. The current 24-row corpus remains a smoke test,
-not a statistically sufficient production benchmark.
+dialogue similarity, and mean/median/p95 latency. The evaluation corpus is still too small for a
+statistically sufficient production benchmark.
 
 ### Executed local results
 
-The deterministic fallback endpoint was run against all 24 evaluation rows on Windows
-(2026-11-06). The external proxy was intentionally unavailable, so these results measure the
-fallback parser, not a neural model:
+The current ignored evaluation file was re-counted before the final run and contains 100 rows:
+66 notices and 34 sides. The deterministic fallback endpoint was run against all 100 rows on
+Windows (2026-11-06). The external proxy was intentionally unavailable, so these results measure
+the fallback parser, not a neural model:
 
 | Metric | Result |
 |---|---:|
-| Samples | 24 |
+| Samples | 100 |
 | Valid JSON rate | 100% |
 | Schema-valid rate | 100% |
-| Notice field exact-match rate | 17.7% |
+| Notice field exact-match rate | 19.1% |
 | Sides scene-count accuracy | 100% |
 | Sides heading similarity | 0% |
-| Sides character similarity | 2.4% |
-| Sides dialogue similarity | 0% |
+| Sides character similarity | 23.2% |
+| Sides dialogue similarity | 11.8% |
 | Mean latency | 2.06 s |
 | Median latency | 2.06 s |
 | p95 latency | 2.08 s |
@@ -1002,6 +1003,40 @@ The low content scores confirm that valid JSON alone is not a useful proxy for p
 The approximately two-second fallback latency is also inflated by the backend attempting an
 unavailable external endpoint before using its deterministic fallback. Production fallback mode
 should bypass unavailable providers quickly or use a short circuit breaker.
+
+An earlier neural smoke evaluation ran against a previous 24-row snapshot before the corpus was
+expanded: it achieved 100% JSON/schema validity, 2.1% notice field exact match, 100% scene-count
+accuracy, 0% heading similarity, 2.8% character similarity, 2.8% dialogue similarity, and
+19.13 seconds mean latency (37.35 seconds for the first request). Those results must not be
+compared numerically with the current 100-row deterministic run until the neural model is rerun
+against the same current corpus.
+
+The current merged neural model was then run against the same 100-row corpus with CUDA enabled on
+an NVIDIA GeForce RTX 4050 Laptop GPU. The model loaded in 4-bit mode and reported approximately
+1.2 GB allocated VRAM:
+
+| Metric | Deterministic fallback | Qwen merged model, CUDA |
+|---|---:|---:|
+| Samples | 100 | 100 |
+| Valid JSON rate | 100% | 100% |
+| Schema-valid rate | 100% | 100% |
+| Notice field exact-match rate | 19.1% | 9.3% |
+| Sides scene-count accuracy | 100% | 100% |
+| Sides heading similarity | 0% | 0% |
+| Sides character similarity | 23.2% | 16.3% |
+| Sides dialogue similarity | 11.8% | 21.0% |
+| Mean latency | 2.06 s | 6.59 s |
+| Median latency | 2.06 s | 6.76 s |
+| p95 latency | 2.08 s | 8.15 s |
+
+The neural model did not outperform the deterministic fallback on this corpus. It improved
+dialogue similarity but reduced notice and character accuracy, while remaining slower. This
+supports retaining the deterministic parser as the production baseline and using the model only
+behind confidence checks until training data, prompts, and decoding are improved.
+
+GPU acceleration clearly improved the earlier CPU experiment, but the current generation loop
+still recomputes the full sequence for each token and lacks a KV cache. The measured latency is
+therefore not representative of an optimized inference engine.
 
 The original `scripts/evaluate_field_accuracy.py` was found to substitute the gold target when
 the server was offline, which produced misleading perfect scores. It now delegates to the
