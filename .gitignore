@@ -16,3 +16,4 @@ data/
 *.mlmodelc/
 __pycache__/
 *.pyc
+/models/

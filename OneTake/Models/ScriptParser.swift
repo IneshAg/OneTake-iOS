@@ -890,4 +890,130 @@ enum ScriptParser {
 
         return [sentence]
     }
+
+    // MARK: - Hierarchical Scene Portion Chunking (Pass 2)
+
+    /// A bounded, independently parseable chunk of a sides document representing a single scene or monologue.
+    struct ScenePortion: Identifiable, Hashable, Sendable {
+        var id: String
+        var number: Int
+        var heading: String
+        var characters: [String]
+        var rawText: String
+        var lineCount: Int
+        var pageNumber: Int?
+
+        var displayTitle: String {
+            if heading.isEmpty { return "Scene \(number)" }
+            return heading
+        }
+    }
+
+    /// Identifies individual scene portions from a multi-page sides document without parsing all lines yet.
+    /// Splits by scene headings (e.g. ACT ONE SCENE SIX, INT. / EXT., SCENE 1) or monologue cuts.
+    static func identifyScenePortions(from text: String, pages: [String] = []) -> [ScenePortion] {
+        var portions: [ScenePortion] = []
+
+        let sceneHeadingRegex = try? NSRegularExpression(
+            pattern: #"(?im)^[\s>*—\-\[\]]*(?:ACT\s+(?:ONE|TWO|THREE|[0-9IVX]+)(?:[\s,]+SCENE\s+[0-9IVX]+)?|(?:INT\.|EXT\.|INT/EXT|EXT/INT)\s+.*|SCENE\s+[0-9A-Z]+|For\s+(?:Female|Male|Any)\s+(?:Identifying|Gender)|[A-Z]{2,20}\s*[-—–]\s*(?:Page|Pg\.?)\s*\d+)\b"#
+        )
+
+        let lines = text.components(separatedBy: .newlines)
+        var currentHeading: String? = nil
+        var currentLines: [String] = []
+        var sceneCounter = 1
+
+        func saveCurrentPortion() {
+            guard !currentLines.isEmpty else { return }
+            let rawChunk = currentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawChunk.isEmpty, rawChunk.count > 40 else { return }
+
+            let heading = currentHeading ?? "Scene \(sceneCounter)"
+            let chars = extractCharacters(from: rawChunk)
+            let estimatedLines = rawChunk.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+
+            let portion = ScenePortion(
+                id: "scene-\(sceneCounter)-\(abs(heading.hashValue))",
+                number: sceneCounter,
+                heading: heading,
+                characters: chars,
+                rawText: rawChunk,
+                lineCount: estimatedLines,
+                pageNumber: nil
+            )
+            portions.append(portion)
+            sceneCounter += 1
+            currentLines.removeAll()
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let isHeading: Bool
+            if let regex = sceneHeadingRegex,
+               let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               match.range.location == 0 {
+                isHeading = true
+            } else {
+                isHeading = false
+            }
+
+            if isHeading {
+                saveCurrentPortion()
+                currentHeading = trimmed
+                currentLines.append(line)
+            } else {
+                currentLines.append(line)
+            }
+        }
+        saveCurrentPortion()
+
+        // Fallback: If no explicit headings split the text but multiple pages exist, use page boundaries
+        if portions.count <= 1 && pages.count > 1 {
+            portions.removeAll()
+            let startIdx = pages.count >= 3 ? 1 : 0
+            for (idx, pageText) in pages[startIdx...].enumerated() {
+                let trimmed = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                let chars = extractCharacters(from: trimmed)
+                let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespaces) ?? "Page \(idx + startIdx + 1)"
+                portions.append(
+                    ScenePortion(
+                        id: "page-\(idx + startIdx + 1)",
+                        number: idx + 1,
+                        heading: firstLine,
+                        characters: chars,
+                        rawText: trimmed,
+                        lineCount: trimmed.components(separatedBy: .newlines).count,
+                        pageNumber: idx + startIdx + 1
+                    )
+                )
+            }
+        }
+
+        return portions
+    }
+
+    /// Pass 2: Parses only the user-selected scene portions independently, then concatenates them
+    /// into a unified list of [ScriptScene] with consistent sequential numbering.
+    static func parseSelectedPortions(_ portions: [ScenePortion], myRole: String) -> [ScriptScene] {
+        var allScenes: [ScriptScene] = []
+        var sceneNumber = 1
+
+        for portion in portions {
+            let scenes = parseScenes(from: portion.rawText, myRole: myRole)
+            for s in scenes {
+                let renumbered = ScriptScene(
+                    number: sceneNumber,
+                    title: "Scene \(sceneNumber)",
+                    heading: portion.heading.isEmpty ? s.heading : portion.heading,
+                    lines: s.lines,
+                    estimatedSeconds: s.estimatedSeconds
+                )
+                allScenes.append(renumbered)
+                sceneNumber += 1
+            }
+        }
+        return allScenes
+    }
+
 }

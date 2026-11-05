@@ -360,4 +360,71 @@ final class ScriptParserTests: XCTestCase {
         // Final full stop added
         XCTAssertTrue(formatted.hasSuffix("earthly problems."))
     }
+
+    func testNonStandardCuesAndMultiLineParentheticals() {
+        let sides = """
+        [HAMLET]
+        (leaning close to the audience,
+         pausing for dramatic breath)
+        To be, or not to be.
+
+        CLAUDIUS - CONT'D
+        What does he mean?
+        """
+        let scenes = ScriptParser.parseScenes(from: sides, myRole: "Hamlet")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Hamlet")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "To be, or not to be.")
+        XCTAssertEqual(scenes[0].lines[1].character, "Claudius")
+        XCTAssertEqual(scenes[0].lines[1].text, "What does he mean?")
+    }
+
+    func testIdentifyScenePortionsAndHierarchicalChunking() {
+        let multiSceneScript = """
+        ACT ONE SCENE SIX
+        SANDY:
+        Do a split, give a yell!
+        DANNY:
+        Hiya, Sandy.
+
+        ACT TWO SCENE FIVE
+        SANDY:
+        Look at me, I'm Sandra Dee.
+        """
+
+        let portions = ScriptParser.identifyScenePortions(from: multiSceneScript)
+        XCTAssertEqual(portions.count, 2)
+        XCTAssertEqual(portions[0].heading, "ACT ONE SCENE SIX")
+        XCTAssertTrue(portions[0].characters.contains("SANDY"))
+        XCTAssertTrue(portions[0].characters.contains("DANNY"))
+
+        XCTAssertEqual(portions[1].heading, "ACT TWO SCENE FIVE")
+        XCTAssertTrue(portions[1].characters.contains("SANDY"))
+
+        // Pass 2: User selects only Scene 2 (ACT TWO SCENE FIVE)
+        let selectedPortion = [portions[1]]
+        let parsed = ScriptParser.parseSelectedPortions(selectedPortion, myRole: "Sandy")
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].title, "Scene 1")
+        XCTAssertEqual(parsed[0].lines.count, 1)
+        XCTAssertEqual(parsed[0].lines[0].character, "Sandy")
+        XCTAssertEqual(parsed[0].lines[0].text, "Look at me, I'm Sandra Dee.")
+    }
+
+    func testBPETokenizerEncodingDecoding() {
+        let tokenizer = BPETokenizer.shared
+        let original = "{\"project\": \"Grease\", \"role\": \"Sandy\"}"
+
+        let tokens = tokenizer.encode(text: original)
+        XCTAssertFalse(tokens.isEmpty)
+
+        let decoded = tokenizer.decode(tokens: tokens)
+        XCTAssertEqual(decoded, original)
+
+        let chatTokens = tokenizer.applyChatTemplate(system: "System prompt", user: "User notice text")
+        XCTAssertTrue(chatTokens.contains(tokenizer.imStartTokenID))
+        XCTAssertTrue(chatTokens.contains(tokenizer.imEndTokenID))
+    }
 }

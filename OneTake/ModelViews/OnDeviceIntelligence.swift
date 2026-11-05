@@ -309,7 +309,42 @@ enum OnDeviceIntelligence {
         return lines.count > 1 ? lines : nil
     }
 
+    /// Runs 100% offline Core ML Apple Neural Engine parsing on a casting notice snippet.
+    static func parseNoticeWithCoreML(text: String) async -> NoticeParser.Draft? {
+        guard await CoreMLParserRunner.shared.isAvailable else { return nil }
+        let system = """
+        You are OneTake's audition notice parser.
+        Extract the casting details from the provided text into JSON:
+        {"project": "Title", "project_type": "Feature film", "role": "Target Character", "candidate_roles": ["Role 1"], "role_size": "Lead", "casting_office": "Agency", "due_date": null, "specs": ["Landscape", "Slate first"], "sides_link": null, "submission_email": null, "director_guidance": null}
+        Output valid JSON only.
+        """
+        guard let jsonString = await CoreMLParserRunner.shared.generate(systemPrompt: system, userPrompt: text) else { return nil }
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        var draft = NoticeParser.Draft()
+        draft.project = json["project"] as? String ?? ""
+        draft.role = json["role"] as? String ?? ""
+        draft.candidateRoles = json["candidate_roles"] as? [String] ?? []
+        draft.roleSize = json["role_size"] as? String ?? "Lead"
+        draft.castingOffice = json["casting_office"] as? String ?? ""
+        draft.sourceText = text
+        if let specs = json["specs"] as? [String] { draft.asks = specs }
+        if let email = json["submission_email"] as? String { draft.destinationDetail = email; draft.destination = .emailOrLink }
+        if let sides = json["sides_link"] as? String { draft.sidesLink = sides }
+        if let notes = json["director_guidance"] as? String { draft.castingNotes = notes }
+        return draft
+    }
+
     private static func respond(to prompt: String) async -> String? {
+        // 1. First Priority: On-Device Apple Neural Engine Core ML Runner (iPhone 13-16, 100% offline)
+        if await CoreMLParserRunner.shared.isAvailable {
+            if let output = await CoreMLParserRunner.shared.generate(userPrompt: prompt) {
+                return output
+            }
+        }
+
+        // 2. Second Priority: FoundationModels on iOS 26+ (Apple Intelligence)
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             do {

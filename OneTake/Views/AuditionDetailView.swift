@@ -107,6 +107,8 @@ struct AuditionDetailView: View {
 
                 sidesCard(a)
 
+                readerTrackCard(a)
+
                 headshotsCard(a)
 
                 if let then = thenLine(a) {
@@ -307,6 +309,51 @@ struct AuditionDetailView: View {
         .otCard()
     }
 
+    @ViewBuilder private func readerTrackCard(_ a: Audition) -> some View {
+        let unownedLines = a.scenes.flatMap(\.lines).filter { !$0.isMine }
+        if !unownedLines.isEmpty {
+            let readerName = unownedLines.first?.character.capitalized ?? "Reader"
+            let totalCues = unownedLines.count
+            var recordedCount = 0
+            for (sIndex, scene) in a.scenes.enumerated() {
+                let readerIndices = scene.lines.indices.filter { !scene.lines[$0].isMine }
+                for (lineOffset, _) in readerIndices.enumerated() {
+                    if ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sIndex, line: lineOffset) {
+                        recordedCount += 1
+                    }
+                }
+            }
+            let isComplete = recordedCount == totalCues && totalCues > 0
+            let firstSceneIndex = a.scenes.indices.first(where: { !a.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) ?? 0
+
+            HStack(spacing: 12) {
+                Image(systemName: isComplete ? "waveform.badge.checkmark" : "person.wave.2.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isComplete ? OT.success : OT.reader)
+                    .frame(width: 34, height: 34)
+                    .background(isComplete ? OT.success.opacity(0.15) : OT.reader.opacity(0.15), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionLabel(text: "Reader Track · \(readerName)")
+                    Text(recordedCount == 0
+                         ? "\(totalCues) cue\(totalCues == 1 ? "" : "s") · not recorded yet"
+                         : "\(recordedCount) of \(totalCues) cue\(totalCues == 1 ? "" : "s") recorded")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                }
+
+                Spacer()
+
+                Button(recordedCount == 0 ? "Record" : (isComplete ? "Review" : "Continue")) {
+                    store.push(.reader(a.id, sceneIndex: firstSceneIndex))
+                }
+                .buttonStyle(.otCompact)
+            }
+            .padding(16)
+            .otCard()
+        }
+    }
+
     @ViewBuilder private func headshotsCard(_ a: Audition) -> some View {
         let hasHeadshots = HeadshotStore.exists(key: "front", auditionID: a.id)
         let count = HeadshotStore.taken(auditionID: a.id).count
@@ -451,6 +498,7 @@ struct CallbackSheet: View {
     @State private var isProcessingPDF = false
     @State private var showPDFError = false
     @State private var showExtraSidesSheet = false
+    @State private var recordCallbackReaderNow = false
 
     private var readerName: String {
         callbackScenes.first?.lines.first(where: { !$0.isMine })?.character
@@ -472,7 +520,13 @@ struct CallbackSheet: View {
                         bringReader: bringReader
                     ) {
                         dismiss()
-                        store.push(.auditionDetail(id))
+                        if recordCallbackReaderNow,
+                           let cbAudition = store.audition(id),
+                           let firstScene = cbAudition.scenes.indices.first(where: { !cbAudition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                            store.push(.reader(id, sceneIndex: firstScene))
+                        } else {
+                            store.push(.auditionDetail(id))
+                        }
                     }
                 }
                 .font(.otHeadline)
@@ -652,7 +706,12 @@ struct CallbackSheet: View {
                     Text("Private rehearsal notes, intentions, and character choices for this callback.")
                 }
 
-                Section { Toggle("Bring over reader track · \(readerName)", isOn: $bringReader) }
+                Section {
+                    Toggle("Bring over reader track · \(readerName)", isOn: $bringReader)
+                    if !bringReader || !extraScriptText.isEmpty {
+                        Toggle("Record cues for callback scenes after creating", isOn: $recordCallbackReaderNow)
+                    }
+                }
             }
             .scrollContentBackground(.hidden)
         }
@@ -1106,6 +1165,7 @@ struct EditAuditionSheet: View {
     @State private var showRevisedSides = false
     @State private var isProcessingPDF = false
     @State private var showPDFError = false
+    @State private var recordReaderAfterSave = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1125,6 +1185,11 @@ struct EditAuditionSheet: View {
                     store.updateSceneCount(for: auditionID, count: sceneCount)
                     store.reclassifyRole(for: auditionID)
                     dismiss()
+                    if recordReaderAfterSave,
+                       let updated = store.audition(auditionID),
+                       let firstScene = updated.scenes.indices.first(where: { !updated.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                        store.push(.reader(auditionID, sceneIndex: firstScene))
+                    }
                 }
                 .font(.otHeadline)
                 .foregroundStyle(OT.accent)
@@ -1192,8 +1257,8 @@ struct EditAuditionSheet: View {
 
                             let otherChars = chars.filter { $0.caseInsensitiveCompare(audition.wrappedValue.role) != .orderedSame }
                             if let reader = otherChars.first {
-                                Text("Next screen will show: Who reads \(reader)?")
-                                    .font(.otCaption)
+                                Toggle("Record cues for \(reader) after saving", isOn: $recordReaderAfterSave)
+                                    .font(.otCaption.weight(.medium))
                                     .foregroundStyle(OT.reader)
                             }
                         }
@@ -1674,6 +1739,16 @@ struct RevisedSidesSheet: View {
         editableScenes.isEmpty ? parsed : editableScenes
     }
 
+    @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
+
+    private var readerLines: [ScriptLine] {
+        activeScenes.flatMap(\.lines).filter { !$0.isMine }
+    }
+
+    private var detectedReaderName: String {
+        readerLines.first?.character.capitalized ?? "Reader"
+    }
+
     var body: some View {
         let role = audition?.role ?? ""
         VStack(spacing: 0) {
@@ -1685,6 +1760,10 @@ struct RevisedSidesSheet: View {
                 Button(isNewSides ? "Add" : "Replace") {
                     store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
                     dismiss()
+                    if readerAudioPlan == .recordNow,
+                       let firstScene = activeScenes.indices.first(where: { !activeScenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                        store.push(.reader(auditionID, sceneIndex: firstScene))
+                    }
                 }
                 .font(.otHeadline)
                 .foregroundStyle(OT.accent)
@@ -1820,7 +1899,35 @@ struct RevisedSidesSheet: View {
                                 HStack(spacing: 8) {
                                     SidesChip(title: "Scenes", value: "\(activeScenes.count)", isAccent: false)
                                     SidesChip(title: role.isEmpty ? "Your role" : role, value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)", isAccent: true)
+                                    if !readerLines.isEmpty {
+                                        SidesChip(title: "Reader (\(detectedReaderName))", value: "\(readerLines.count)", isAccent: false)
+                                    }
                                     SidesChip(title: "Total lines", value: "\(activeScenes.flatMap(\.lines).count)", isAccent: false)
+                                }
+
+                                if !readerLines.isEmpty {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack {
+                                            Label("Reader audio", systemImage: "person.wave.2.fill")
+                                                .font(.otHeadline)
+                                                .foregroundStyle(OT.labelPrimary)
+                                            Spacer()
+                                            HStack(spacing: 4) {
+                                                Text("Reader:").font(.otCaption.weight(.bold)).foregroundStyle(OT.reader)
+                                                Text(detectedReaderName).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.reader)
+                                            }
+                                        }
+                                        Text("Record \(detectedReaderName)’s \(readerLines.count) cue\(readerLines.count == 1 ? "" : "s") in your voice so it plays under your takes.")
+                                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+
+                                        Picker("Reader audio", selection: $readerAudioPlan) {
+                                            Text("Record cues now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
+                                            Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                                        }
+                                        .pickerStyle(.segmented)
+                                    }
+                                    .padding(14)
+                                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 }
 
                                 ScriptReviewAndEditView(scenes: $editableScenes)

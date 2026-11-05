@@ -126,6 +126,23 @@ final class AppStore {
         pendingRouteAfterAdd = draft.missingRequiredDetails.isEmpty ? .noticeReview : .missingDetails
     }
 
+    /// Commits a confirmed draft directly into a persistent Audition, skipping redundant review screens
+    /// and navigating directly to the Audition Detail or Reader recording.
+    func commitAuditionDraft(_ draft: NoticeParser.Draft, readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .later) {
+        let audition = draft.makeAudition()
+        add(audition)
+        auditionDraft = .blank
+        showAddAudition = false
+        tab = .auditions
+        if readerAudioPlan == .recordNow,
+           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[].lines.filter({ !.isMine }).isEmpty }) {
+            pendingRouteAfterAdd = .reader(audition.id, sceneIndex: firstScene)
+        } else {
+            pendingRouteAfterAdd = .auditionDetail(audition.id)
+            continueAfterAdd = audition.id
+        }
+    }
+
     // Send state
     var sendProgress: Double = 0
 
@@ -1038,3 +1055,63 @@ final class AppStore {
         }
     }
 }
+
+
+// MARK: - Autocomplete & Personal Suggestions for User Typing
+
+extension AppStore {
+    /// Personalized history-based project suggestions, most recent first.
+    var projectSuggestions: [String] {
+        var seen = Set<String>()
+        var list: [String] = []
+        for a in auditions.reversed() {
+            let p = a.project.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !p.isEmpty && p.lowercased() != "untitled audition" && !seen.contains(p.lowercased()) {
+                seen.insert(p.lowercased())
+                list.append(p)
+            }
+        }
+        return list
+    }
+
+    /// Personalized history-based role suggestions, most recent first.
+    var roleSuggestions: [String] {
+        var seen = Set<String>()
+        var list: [String] = []
+        for r in auditionDraft.candidateRoles {
+            let cleanR = r.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanR.isEmpty && !seen.contains(cleanR.lowercased()) {
+                seen.insert(cleanR.lowercased())
+                list.append(cleanR)
+            }
+        }
+        for a in auditions.reversed() {
+            let r = a.role.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !r.isEmpty && r.lowercased() != "role" && !seen.contains(r.lowercased()) {
+                seen.insert(r.lowercased())
+                list.append(r)
+            }
+        }
+        return list
+    }
+
+    /// Personalized history-based casting office suggestions, including industry agencies.
+    var castingOfficeSuggestions: [String] {
+        var seen = Set<String>()
+        var list: [String] = []
+        for a in auditions.reversed() {
+            let o = a.castingOffice.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !o.isEmpty && !seen.contains(o.lowercased()) {
+                seen.insert(o.lowercased())
+                list.append(o)
+            }
+        }
+        let common = ["Telsey + Company", "Casting Bay", "Mukesh Chhabra Casting Company (MCCC)", "Barden / Schnee", "Carmen Cuba", "Avy Kaufman"]
+        for o in common where !seen.contains(o.lowercased()) {
+            seen.insert(o.lowercased())
+            list.append(o)
+        }
+        return list
+    }
+}
+

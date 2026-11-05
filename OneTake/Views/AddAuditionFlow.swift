@@ -42,9 +42,13 @@ struct AddAuditionFlow: View {
             // OCR Review sheet — shown after every scan/photo/file import so the actor can
             // verify parsed fields before they are committed to the audition draft.
             .sheet(item: $pendingReviewDraft) { draft in
-                OCRReviewSheet(draft: draft) { confirmedDraft in
+                OCRReviewSheet(draft: draft) { confirmedDraft, readerPlan in
                     pendingReviewDraft = nil
-                    store.startAuditionDraft(confirmedDraft)
+                    if confirmedDraft.missingRequiredDetails.isEmpty {
+                        store.commitAuditionDraft(confirmedDraft, readerAudioPlan: readerPlan)
+                    } else {
+                        store.startAuditionDraft(confirmedDraft)
+                    }
                 } onDiscard: {
                     pendingReviewDraft = nil
                 }
@@ -55,8 +59,10 @@ struct AddAuditionFlow: View {
                     let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
                     Task {
                         defer { resolved.cleanup() }
-                        let text = await NoticeOCR.extractText(fromFileAt: resolved.url)
-                        if let text, NoticeOCR.looksReadable(text) {
+                        if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
+                            let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages)
+                            await MainActor.run { pendingReviewDraft = draft }
+                        } else if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
                             let draft = await NoticeParser.parseAsync(text)
                             await MainActor.run { pendingReviewDraft = draft }
                         } else {
@@ -234,10 +240,48 @@ struct AddAuditionFlow: View {
 /// Shown after every scan, photo import, file import, and share-sheet import so the actor
 /// can verify what OneTake read before it is committed to an audition draft.
 /// The actor can correct individual fields inline; tapping "Use this" proceeds.
+/// Interactive autofill suggestion chip bar for personalized typing help
+struct SuggestionChipBar: View {
+    let suggestions: [String]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        if !suggestions.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(suggestions.prefix(6), id: \.self) { item in
+                        Button {
+                            Haptics.tick()
+                            onSelect(item)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(item)
+                                    .font(.otCaption.weight(.medium))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(OT.surfaceCard, in: Capsule())
+                            .overlay(
+                                Capsule().stroke(OT.borderSubtle, lineWidth: 1)
+                            )
+                            .foregroundStyle(OT.labelPrimary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+}
+
 private struct OCRReviewSheet: View {
+    @Environment(AppStore.self) private var store
     /// The draft that the parser produced — presented as editable fields.
     @State var draft: NoticeParser.Draft
-    let onConfirm: (NoticeParser.Draft) -> Void
+    let onConfirm: (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void
     let onDiscard: () -> Void
 
     @State private var projectText: String
@@ -253,25 +297,48 @@ private struct OCRReviewSheet: View {
     @State private var isHeadshotOptional: Bool
     @State private var includeSlate: Bool
     @State private var includeHeadshots: Bool
+    @State private var selectedPortionIDs: Set<String>
+    @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
 
-    init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft) -> Void, onDiscard: @escaping () -> Void) {
+    private var hasReaderLines: Bool {
+        let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !effective.isEmpty else { return false }
+        let scenes = (draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective)
+        return (scenes ?? []).contains { $0.lines.contains { !$0.isMine } }
+    }
+
+    private var detectedReaderName: String {
+        let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scenes = (draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective)
+        let unowned = (scenes ?? []).flatMap(\.lines).filter { !$0.isMine }
+        return unowned.first?.character.capitalized ?? "Reader"
+    }
+
+    private var canUseThis: Bool {
+        !projectText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void, onDiscard: @escaping () -> Void) {
         self._draft = State(initialValue: draft)
         self.onConfirm = onConfirm
         self.onDiscard = onDiscard
         self._projectText = State(initialValue: draft.project)
-        self._roleText = State(initialValue: draft.role)
+        let effectiveRole = draft.role.isEmpty ? (draft.candidateRoles.first ?? "") : draft.role
+        self._roleText = State(initialValue: effectiveRole)
         self._castingOfficeText = State(initialValue: draft.castingOffice)
         self._sidesLinkText = State(initialValue: draft.sidesLink ?? "")
         self._destinationDetailText = State(initialValue: draft.destinationDetail ?? "")
         self._hasDueDate = State(initialValue: draft.due != nil)
         self._dueDate = State(initialValue: draft.due ?? .now.addingTimeInterval(3 * 86400))
-        let initialCastingNotes = draft.castingNotes ?? NoticeParser.extractCharacterDescription(for: draft.role, in: draft.sourceText) ?? ""
+        let initialCastingNotes = draft.castingNotes ?? NoticeParser.extractCharacterDescription(for: effectiveRole, in: draft.sourceText) ?? ""
         self._castingNotesText = State(initialValue: initialCastingNotes)
         self._actorNotesText = State(initialValue: draft.actorNotes ?? "")
         self._isSlateOptional = State(initialValue: draft.isSlateOptional)
         self._isHeadshotOptional = State(initialValue: draft.isHeadshotOptional)
         self._includeSlate = State(initialValue: draft.includeSlate)
         self._includeHeadshots = State(initialValue: draft.includeHeadshots)
+        self._selectedPortionIDs = State(initialValue: draft.selectedPortionIDs)
     }
 
     var body: some View {
@@ -287,20 +354,33 @@ private struct OCRReviewSheet: View {
                             .foregroundStyle(OT.labelSecondary)
                     }
 
+                    let matchingProjects = store.projectSuggestions.filter {
+                        projectText.isEmpty || $0.localizedCaseInsensitiveContains(projectText)
+                    }
                     reviewField(
                         icon: "film",
                         label: "Project",
                         placeholder: "e.g. The White Lotus",
                         text: $projectText,
-                        isRequired: true
+                        isRequired: true,
+                        suggestions: matchingProjects
                     )
 
+                    let matchingRoles = store.roleSuggestions.filter {
+                        roleText.isEmpty || $0.localizedCaseInsensitiveContains(roleText)
+                    }
                     reviewField(
                         icon: "person",
                         label: "Role",
                         placeholder: "e.g. Detective Roy",
                         text: $roleText,
-                        isRequired: true
+                        isRequired: true,
+                        suggestions: matchingRoles,
+                        onSelectSuggestion: { chosen in
+                            if let auto = NoticeParser.extractCharacterDescription(for: chosen, in: draft.sourceText) {
+                                castingNotesText = auto
+                            }
+                        }
                     )
 
                     // Quick-select candidate roles extracted from the notice
@@ -313,6 +393,8 @@ private struct OCRReviewSheet: View {
                                         if let auto = NoticeParser.extractCharacterDescription(for: roleOption, in: draft.sourceText) {
                                             castingNotesText = auto
                                         }
+                                        let matching = draft.availablePortions.filter { $0.characters.contains { $0.caseInsensitiveCompare(roleOption) == .orderedSame } }.map(\.id)
+                                        if !matching.isEmpty { selectedPortionIDs = Set(matching) }
                                         Haptics.tick()
                                     } label: {
                                         HStack(spacing: 5) {
@@ -332,12 +414,16 @@ private struct OCRReviewSheet: View {
                         }
                     }
 
+                    let matchingOffices = store.castingOfficeSuggestions.filter {
+                        castingOfficeText.isEmpty || $0.localizedCaseInsensitiveContains(castingOfficeText)
+                    }
                     reviewField(
                         icon: "building.2",
                         label: "Casting office",
                         placeholder: "Optional",
                         text: $castingOfficeText,
-                        isRequired: false
+                        isRequired: false,
+                        suggestions: matchingOffices
                     )
 
                     // Sides link (Google Drive / Dropbox / Cloud link for script sides)
@@ -373,6 +459,96 @@ private struct OCRReviewSheet: View {
                             text: $destinationDetailText,
                             isRequired: false
                         )
+                    }
+
+
+                    // Which scene(s) are you taping? (Hierarchical Scene Chunker UI)
+                    if !draft.availablePortions.isEmpty && draft.availablePortions.count > 1 {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Label("Which scene(s) are you taping?", systemImage: "film.stack")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Spacer()
+                                Button(selectedPortionIDs.count == draft.availablePortions.count ? "Deselect all" : "Select all") {
+                                    if selectedPortionIDs.count == draft.availablePortions.count {
+                                        selectedPortionIDs.removeAll()
+                                    } else {
+                                        selectedPortionIDs = Set(draft.availablePortions.map(\.id))
+                                    }
+                                    Haptics.tick()
+                                }
+                                .font(.otCaption.weight(.medium))
+                                .foregroundStyle(OT.accent)
+                            }
+
+                            Text("This packet contains \(draft.availablePortions.count) scenes. Pick the portion you want in your self-tape sides.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+
+                            VStack(spacing: 8) {
+                                ForEach(draft.availablePortions) { portion in
+                                    let isSelected = selectedPortionIDs.contains(portion.id)
+                                    let isForMyRole = portion.characters.contains { $0.caseInsensitiveCompare(roleText) == .orderedSame }
+                                    Button {
+                                        if isSelected {
+                                            selectedPortionIDs.remove(portion.id)
+                                        } else {
+                                            selectedPortionIDs.insert(portion.id)
+                                        }
+                                        Haptics.tick()
+                                    } label: {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 18, weight: .semibold))
+                                                .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
+                                                .padding(.top, 2)
+
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack {
+                                                    Text(portion.displayTitle)
+                                                        .font(.otSubhead.weight(.semibold))
+                                                        .foregroundStyle(OT.labelPrimary)
+                                                    Spacer()
+                                                    if isForMyRole {
+                                                        Text("Matches role")
+                                                            .font(.system(size: 10, weight: .bold))
+                                                            .padding(.horizontal, 6)
+                                                            .padding(.vertical, 2)
+                                                            .background(OT.accentSoft, in: Capsule())
+                                                            .foregroundStyle(OT.accent)
+                                                    }
+                                                }
+
+                                                if !portion.characters.isEmpty {
+                                                    ScrollView(.horizontal, showsIndicators: false) {
+                                                        HStack(spacing: 4) {
+                                                            ForEach(portion.characters.prefix(4), id: \.self) { c in
+                                                                Text(c)
+                                                                    .font(.system(size: 11, weight: .medium))
+                                                                    .padding(.horizontal, 6)
+                                                                    .padding(.vertical, 2)
+                                                                    .background(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accent.opacity(0.15) : OT.fillField, in: RoundedRectangle(cornerRadius: 6))
+                                                                    .foregroundStyle(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accent : OT.labelSecondary)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .padding(12)
+                                        .background(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .stroke(isSelected ? OT.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
 
                     // Due date
@@ -458,6 +634,32 @@ private struct OCRReviewSheet: View {
                     .padding(14)
                     .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
+                    // Reader audio option if lines for reader are present
+                    if hasReaderLines {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("Reader audio", systemImage: "person.wave.2")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Spacer()
+                                HStack(spacing: 4) {
+                                    Text("Reader:").font(.otCaption.weight(.bold)).foregroundStyle(OT.reader)
+                                    Text(detectedReaderName).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.reader)
+                                }
+                            }
+                            Text("Record cues in your voice so they play under your takes.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+
+                            Picker("Reader audio", selection: $readerAudioPlan) {
+                                Text("Record cues now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
+                                Text("Add later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(14)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
                     // Detected asks chips
                     if !draft.asks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -506,10 +708,22 @@ private struct OCRReviewSheet: View {
                         confirmed.isHeadshotOptional = isHeadshotOptional
                         confirmed.includeSlate = includeSlate
                         confirmed.includeHeadshots = includeHeadshots
-                        onConfirm(confirmed)
+
+                        // Pass 2: Targeted Scene Chunker
+                        if !draft.availablePortions.isEmpty {
+                            let chosen = draft.availablePortions.filter { selectedPortionIDs.contains($0.id) }
+                            if !chosen.isEmpty {
+                                let parsedScenes = ScriptParser.parseSelectedPortions(chosen, myRole: confirmed.role)
+                                confirmed.customScenes = parsedScenes
+                                confirmed.scenes = parsedScenes.count
+                                confirmed.sourceText = chosen.map(\.rawText).joined(separator: "\n\n")
+                            }
+                        }
+                        onConfirm(confirmed, readerAudioPlan)
                     }
                     .font(.otHeadline)
-                    .foregroundStyle(OT.accent)
+                    .foregroundStyle(canUseThis ? OT.accent : OT.labelTertiary)
+                    .disabled(!canUseThis)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -524,7 +738,9 @@ private struct OCRReviewSheet: View {
         label: String,
         placeholder: String,
         text: Binding<String>,
-        isRequired: Bool
+        isRequired: Bool,
+        suggestions: [String] = [],
+        onSelectSuggestion: ((String) -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -553,6 +769,13 @@ private struct OCRReviewSheet: View {
                             lineWidth: 1.5
                         )
                 )
+
+            if !suggestions.isEmpty {
+                SuggestionChipBar(suggestions: suggestions) { chosen in
+                    text.wrappedValue = chosen
+                    onSelectSuggestion?(chosen)
+                }
+            }
         }
     }
 }
@@ -590,6 +813,8 @@ enum NoticeParser {
         var isHeadshotOptional: Bool = false
         var includeSlate: Bool = true
         var includeHeadshots: Bool = true
+        var availablePortions: [ScriptParser.ScenePortion] = []
+        var selectedPortionIDs: Set<String> = []
 
         static let blank = Draft()
 
@@ -652,12 +877,19 @@ enum NoticeParser {
         return await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
     }
 
-    static func parse(_ rawText: String) -> Draft {
+    static func parse(_ rawText: String, pages: [String] = []) -> Draft {
         var d = Draft()
         let cleaned = ScriptParser.cleanPastedText(rawText)
         d.sourceText = cleaned
-        // OCR joins lines oddly and swaps quotes/dashes; work on a tidied copy for field detection.
-        let text = tidy(cleaned)
+
+        // Pass 1 (Notice Extractor): If multi-page packet, focus notice field extraction on Pages 1–2
+        let isLongPacket = pages.count >= 2 || rawText.count > 3500
+        let noticeSource = isLongPacket && !pages.isEmpty
+            ? pages.prefix(2).joined(separator: "\n\n")
+            : (rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned)
+
+        let text = tidy(noticeSource)
+        let fullTidied = isLongPacket ? tidy(cleaned) : text
         let lower = text.lowercased()
 
         d.due = detectDate(in: text)
@@ -696,9 +928,19 @@ enum NoticeParser {
         if let office = detectCastingOffice(in: text) {
             d.castingOffice = office
         }
+        // Hierarchical Scene Portions (Pass 2 identification)
+        let portions = ScriptParser.identifyScenePortions(from: cleaned, pages: pages)
+        d.availablePortions = portions
+
+        let targetRole = d.role.isEmpty ? (d.candidateRoles.first ?? "") : d.role
+        let matchingIDs = portions.filter { $0.characters.contains { $0.caseInsensitiveCompare(targetRole) == .orderedSame } }.map(\.id)
+        d.selectedPortionIDs = Set(matchingIDs.isEmpty ? portions.prefix(3).map(\.id) : matchingIDs)
+
         let parsedScenes = ScriptParser.parseScenes(from: cleaned, myRole: d.role)
         if !parsedScenes.isEmpty {
             d.scenes = parsedScenes.count
+        } else if !portions.isEmpty {
+            d.scenes = d.selectedPortionIDs.isEmpty ? portions.count : d.selectedPortionIDs.count
         } else if let explicit = detectSceneCount(in: text) {
             d.scenes = max(explicit, 0)
         } else {
@@ -935,6 +1177,22 @@ enum NoticeParser {
             }
         }
 
+        // Support day-first formats like "5 November 2026" or "5th Nov 2026"
+        let dayFirstPattern = #"(?i)\b(?:deadline|due date|submission deadline|last date to apply|submit(?:ting)? by|tape due)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})\b"#
+        if let value = firstMatch(dayFirstPattern, in: text) {
+            let normalized = value.replacingOccurrences(
+                of: #"(?i)(\d)(st|nd|rd|th)\b"#,
+                with: "$1",
+                options: .regularExpression
+            ).replacingOccurrences(of: ",", with: "")
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "d MMMM yyyy"
+            if let d = formatter.date(from: normalized) { return d }
+            formatter.dateFormat = "d MMM yyyy"
+            if let d = formatter.date(from: normalized) { return d }
+        }
+
         // NSDataDetector can miss dates copied from HTML where the label and date are
         // separated by non-breaking spaces or punctuation.
         let labeledDatePattern = #"(?i)\b(?:deadline|due date|submission deadline|submit(?:ting)? by|tape due)\s*[:\-]?\s*([A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"#
@@ -1070,6 +1328,25 @@ enum NoticeParser {
                 guard !ScriptParser.isBlacklistedNoticeWord(base) else { return }
             }
             roles.append(cleaned)
+        }
+
+        // 0. Audition sides page breakdown table (e.g. Grease style breakdown)
+        let bdPattern = #"(?is)(?:Audition\s+Sides\s+Page\s+Breakdown|Sides\s+Page\s+Breakdown|Sides\s+Breakdown)\s*[:\n](.*?)(?=\n\s*\d+\s*\n|\n==|\z)"#
+        if let regex = try? NSRegularExpression(pattern: bdPattern),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range(at: 1), in: text) {
+            let block = text[range]
+            for line in block.components(separatedBy: .newlines) {
+                let trimmed = clean(line)
+                if trimmed.isEmpty || trimmed.lowercased().contains("please familiarise") { continue }
+                let parts = trimmed.components(separatedBy: CharacterSet(charactersIn: "-–—"))
+                if let firstPart = parts.first?.trimmingCharacters(in: .whitespaces), !firstPart.isEmpty {
+                    let name = firstPart.components(separatedBy: .whitespaces).first ?? firstPart
+                    if name.count >= 2 && !invalidRoleNames.contains(name.lowercased()) {
+                        addRole(name.capitalized)
+                    }
+                }
+            }
         }
 
         // 1. Character index list in sides packet: "THE CHARACTERS IN THIS DOCUMENT\nNOOR — Page 2\n..."
@@ -1311,6 +1588,12 @@ enum NoticeParser {
             return title.isEmpty ? nil : title.capitalized
         }
 
+        // Show / musical / production phrasing: e.g. "GREASE is such a fun production"
+        let showPattern = #"(?i)\b([A-Z][A-Za-z0-9\s'\-]{2,25})\s+is\s+(?:a|an|such\s+a)\s+(?:fun\s+)?(?:production|musical|play|film|movie|show|series|theatrical)\b"#
+        if let showMatch = firstMatch(showPattern, in: text), let valid = cleanTitle(showMatch) {
+            return valid
+        }
+
         // 1. Explicit high-confidence call line: "Casting Call: Ad Film", "Now Casting: <Title>"
         if let callMatch = firstMatch(#"(?im)^(?:casting\s+call|now\s+casting|urgent\s+casting)\s*[:\-]\s*([A-Za-z0-9\s'&,\-]{2,40})$"#, in: text),
            let valid = cleanTitle(callMatch) {
@@ -1417,6 +1700,11 @@ enum NoticeParser {
             "mumbai casting", "delhi casting", "london casting", "nyc casting", "la casting", "los angeles casting",
             "history casting", "now casting", "casting now"
         ]
+
+        // Acronym or compound casting companies like Mukesh Chhabra Casting Company (MCCC)
+        if let m = firstMatch(#"(?i)\b(Mukesh\s+Chhabra\s+Casting\s+Company(?:\s*\(MCCC\))?|MCCC)\b"#, in: text) {
+            return "Mukesh Chhabra Casting Company (MCCC)"
+        }
 
         if let office = labeled(["casting director", "casting office", "casting company", "casting agency", "casting by"], in: text) {
             let cleaned = clean(office)
@@ -1953,6 +2241,11 @@ struct AddDraftSidesSheet: View {
                                 HStack(spacing: 8) {
                                     SidesChip(title: "Scenes", value: "\(activeScenes.count)", isAccent: false)
                                     SidesChip(title: draft.role.isEmpty ? "Your role" : draft.role, value: "\(activeScenes.flatMap(\.lines).filter(\.isMine).count)", isAccent: true)
+                                    let readerLines = activeScenes.flatMap(\.lines).filter { !$0.isMine }
+                                    if !readerLines.isEmpty {
+                                        let readerName = readerLines.first?.character.capitalized ?? "Reader"
+                                        SidesChip(title: "Reader (\(readerName))", value: "\(readerLines.count)", isAccent: false)
+                                    }
                                     SidesChip(title: "Total lines", value: "\(activeScenes.flatMap(\.lines).count)", isAccent: false)
                                 }
 
@@ -2238,6 +2531,13 @@ struct MissingDetailsView: View {
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                                         .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                 )
+
+                            let matchingProjects = store.projectSuggestions.filter {
+                                store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
+                            }
+                            SuggestionChipBar(suggestions: matchingProjects) { selected in
+                                store.auditionDraft.project = selected
+                            }
                             if showValidationErrors && isProjectEmpty {
                                 Label("Please enter the project name to continue", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -2346,6 +2646,20 @@ struct MissingDetailsView: View {
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                                             .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                     )
+
+                                let matchingRoles = store.roleSuggestions.filter {
+                                    store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
+                                }
+                                SuggestionChipBar(suggestions: matchingRoles) { selected in
+                                    store.auditionDraft.role = selected
+                                    let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
+                                    if !parsed.isEmpty {
+                                        store.auditionDraft.scenes = parsed.count
+                                    }
+                                    if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
+                                        store.auditionDraft.castingNotes = notes
+                                    }
+                                }
                             }
 
                             if showValidationErrors && isRoleEmpty {
@@ -2361,6 +2675,13 @@ struct MissingDetailsView: View {
                                 .textInputAutocapitalization(.words)
                                 .padding(12)
                                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                            let matchingOffices = store.castingOfficeSuggestions.filter {
+                                store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
+                            }
+                            SuggestionChipBar(suggestions: matchingOffices) { selected in
+                                store.auditionDraft.castingOffice = selected
+                            }
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -2787,6 +3108,16 @@ struct NoticeReviewView: View {
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                                         .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                 )
+
+                            let matchingProjects = store.projectSuggestions.filter {
+                                store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
+                            }
+                            if !matchingProjects.isEmpty {
+                                SuggestionChipBar(suggestions: matchingProjects) { chosen in
+                                    store.auditionDraft.project = chosen
+                                }
+                            }
+
                             if showValidationErrors && isProjectEmpty {
                                 Label("Please enter the project name", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -2895,6 +3226,18 @@ struct NoticeReviewView: View {
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                                             .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                     )
+
+                                let matchingRoles = store.roleSuggestions.filter {
+                                    store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
+                                }
+                                if !matchingRoles.isEmpty {
+                                    SuggestionChipBar(suggestions: matchingRoles) { chosen in
+                                        store.auditionDraft.role = chosen
+                                        if let notes = NoticeParser.extractCharacterDescription(for: chosen, in: store.auditionDraft.sourceText) {
+                                            store.auditionDraft.castingNotes = notes
+                                        }
+                                    }
+                                }
                             }
 
                             if showValidationErrors && isRoleEmpty {
@@ -2910,6 +3253,15 @@ struct NoticeReviewView: View {
                                 .textInputAutocapitalization(.words)
                                 .padding(12)
                                 .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                            let matchingOffices = store.castingOfficeSuggestions.filter {
+                                store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
+                            }
+                            if !matchingOffices.isEmpty {
+                                SuggestionChipBar(suggestions: matchingOffices) { chosen in
+                                    store.auditionDraft.castingOffice = chosen
+                                }
+                            }
                         }
 
                         Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
@@ -3152,8 +3504,8 @@ struct NoticeReviewView: View {
             if let actorNotes = store.auditionDraft.actorNotes {
                 updated.actorNotes = actorNotes
             }
-            let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-            if !parsedScenes.isEmpty { updated.scenes = parsedScenes }
+            let parsedScenes = (store.auditionDraft.customScenes?.isEmpty == false ? store.auditionDraft.customScenes : nil) ?? ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+            if let parsedScenes, !parsedScenes.isEmpty { updated.scenes = parsedScenes }
             store.auditions[idx] = updated
             auditionID = existingID
         } else {

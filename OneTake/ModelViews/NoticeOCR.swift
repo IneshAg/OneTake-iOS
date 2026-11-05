@@ -68,20 +68,23 @@ enum NoticeOCR {
                     continue
                 }
 
-                // Use top-3 candidates per observation and select based on confidence.
-                // This recovers from cases where Vision's first guess is uncertain (low-contrast
-                // fonts, handwritten headings) by trying the next-best candidate instead.
-                let lines: [String] = (request.results ?? []).compactMap { observation in
+                // Extract observations into 2D layout boxes with coordinates and confidence
+                let boxes: [OCRLayoutReconstructor.TextBoundingBox] = (request.results ?? []).compactMap { observation in
                     let candidates = observation.topCandidates(3)
                     guard let best = candidates.first else { return nil }
-                    // Accept the best candidate if it meets the confidence threshold.
-                    if best.confidence >= minimumLineConfidence { return best.string }
-                    // Below threshold: try a lower-ranked candidate that at least contains letters.
-                    return candidates.first(where: {
-                        $0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2
-                    })?.string
+                    let chosen = (best.confidence >= minimumLineConfidence)
+                        ? best
+                        : candidates.first(where: { $0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2 })
+                    guard let candidate = chosen else { return nil }
+                    return OCRLayoutReconstructor.TextBoundingBox(
+                        text: candidate.string,
+                        rect: observation.boundingBox,
+                        confidence: candidate.confidence
+                    )
                 }
-                if !lines.isEmpty { return lines.joined(separator: "\n") }
+
+                let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
+                if !reconstructed.isEmpty { return reconstructed }
             }
             return ""
         }
@@ -208,6 +211,88 @@ enum NoticeOCR {
             return (url, {
                 if accessed { url.stopAccessingSecurityScopedResource() }
             })
+        }
+    }
+
+    /// A structured extracted document preserving page boundaries for hierarchical chunking.
+    struct ExtractedDocument: Sendable {
+        var pages: [String] = []
+        var fullText: String { pages.joined(separator: "\n\n") }
+        var pageCount: Int { pages.count }
+        /// Pass 1 text: Feeds only Pages 1–2 (breakdown table and director's note)
+        var noticeHeaderPagesText: String {
+            pages.prefix(2).joined(separator: "\n\n")
+        }
+    }
+
+    /// Extracts a multi-page document preserving page boundaries for hierarchical chunking.
+    static func extractDocument(fromFileAt url: URL) async -> ExtractedDocument? {
+        switch url.pathExtension.lowercased() {
+        case "pdf":
+            let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
+            guard let doc else { return nil }
+            var pages: [String] = []
+            for i in 0..<doc.pageCount {
+                if let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !pageStr.isEmpty {
+                    pages.append(pageStr)
+                }
+            }
+            if !pages.isEmpty && looksReadable(pages.joined(separator: "\n")) {
+                return ExtractedDocument(pages: pages)
+            }
+
+            // Scanned PDF fallback: render pages to high-res images and run on-device Apple Vision OCR
+            var images: [UIImage] = []
+            let pageLimit = min(doc.pageCount, 30)
+            if doc.pageCount > 30 {
+                #if DEBUG
+                print("[NoticeOCR] Note: Scanned PDF has \(doc.pageCount) pages; processing first \(pageLimit) pages to protect memory.")
+                #endif
+            }
+            for i in 0..<pageLimit {
+                if let page = doc.page(at: i), let img = renderPDFPage(page) {
+                    images.append(img)
+                }
+            }
+            if !images.isEmpty {
+                var ocrPages: [String] = []
+                for img in images {
+                    let pageText = await recognizeText(in: [img]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !pageText.isEmpty { ocrPages.append(pageText) }
+                }
+                if !ocrPages.isEmpty && looksReadable(ocrPages.joined(separator: "\n")) {
+                    return ExtractedDocument(pages: ocrPages)
+                }
+            }
+            return pages.isEmpty ? nil : ExtractedDocument(pages: pages)
+        case "rtf":
+            guard let data = try? Data(contentsOf: url),
+                  let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+            else { return nil }
+            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard looksReadable(text) else { return nil }
+            let rawPages = text.components(separatedBy: "\u{000C}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return ExtractedDocument(pages: rawPages.isEmpty ? [text] : rawPages)
+        default:
+            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
+                var pages: [String] = []
+                for i in 0..<doc.pageCount {
+                    if let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !pageStr.isEmpty {
+                        pages.append(pageStr)
+                    }
+                }
+                if !pages.isEmpty && looksReadable(pages.joined(separator: "\n")) {
+                    return ExtractedDocument(pages: pages)
+                }
+            }
+            if let str = try? String(contentsOf: url, encoding: .utf8) {
+                let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                if looksReadable(trimmed) {
+                    let rawPages = trimmed.components(separatedBy: "\u{000C}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    return ExtractedDocument(pages: rawPages.isEmpty ? [trimmed] : rawPages)
+                }
+            }
+            return nil
         }
     }
 
