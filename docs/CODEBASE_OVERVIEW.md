@@ -6,6 +6,8 @@
 > Snapshot: commit `ce7aeeb` (Oct 2026), with the ZIP streaming and Sent screen follow-up changes noted below.
 >
 > **Authoritative Architecture Reference**: See [`docs/STRUCTURE_AND_WORKING.md`](STRUCTURE_AND_WORKING.md) for the complete 18-section guide detailing current product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
+>
+> **Future Enhancements & Mockups**: See [`docs/FUTURE_ENHANCEMENTS.md`](FUTURE_ENHANCEMENTS.md) for specifications and UX mockups of planned improvements (including the Custom In-App Photo Picker, discrete dual-document intake wizard, and non-destructive trimming).
 
 ---
 
@@ -78,7 +80,7 @@ OneTakeWidgets/   NextAuditionWidget, AuditionLiveActivity, bundle entry
 OneTakeShare/     ShareViewController + ShareView
 Shared/           WidgetSnapshot, ShareInbox, AuditionActivity (App Group contracts)
 OneTakeTests/     Model, ScriptParser, NoticeParser, Persistence tests
-docs/             This file + NAVIGATION_CHANGES.md (UI decision log)
+docs/             This file + STRUCTURE_AND_WORKING.md + FUTURE_ENHANCEMENTS.md + NAVIGATION_CHANGES.md
 ```
 
 `build/` is local DerivedData; ignore it.
