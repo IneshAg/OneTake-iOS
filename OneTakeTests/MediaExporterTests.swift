@@ -167,10 +167,15 @@ final class MediaExporterTests: XCTestCase {
         XCTAssertGreaterThan(zipData.count, 0)
 
         // Verify the ZIP archive structure contains Videos/ entries
+        // Clips are now prefixed with the actor/role/project token for casting-portal compliance.
+        // Format: <LAST_FIRST_ROLE_PROJECT>_<CLIP_TYPE>[_TAKE_N].ext
         let fileContentString = String(decoding: zipData, as: UTF8.self)
-        XCTAssertTrue(fileContentString.contains("Videos/Slate.mov") || fileContentString.contains("Videos/Slate"))
-        XCTAssertTrue(fileContentString.contains("Videos/Full_length.mov") || fileContentString.contains("Videos/Full_length"))
-        XCTAssertTrue(fileContentString.contains("Videos/Scene_1_-_Take_1.mov"))
+        XCTAssertTrue(fileContentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_SLATE.mov"),
+                      "Slate clip must be prefixed with actor/role/project identity")
+        XCTAssertTrue(fileContentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_FULL_LENGTH.mov"),
+                      "Full-length clip must be prefixed with actor/role/project identity")
+        XCTAssertTrue(fileContentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_Scene_1_TAKE_1.mov"),
+                      "Scene clip must be prefixed with actor/role/project identity including take number")
 
         // Clean up exported archive
         try? FileManager.default.removeItem(at: archiveURL)
@@ -222,9 +227,10 @@ final class MediaExporterTests: XCTestCase {
         let contentString = String(decoding: zipData, as: UTF8.self)
 
         // Must contain both Videos/ and Headshots/ structures
-        XCTAssertTrue(contentString.contains("Videos/Slate.mov"), "Archive must contain Videos/Slate.mov")
-        XCTAssertTrue(contentString.contains("Videos/Full_length.mov"), "Archive must contain Videos/Full_length.mov")
-        XCTAssertTrue(contentString.contains("Videos/Scene_1_-_Take_1.mov"), "Archive must contain Videos/Scene_1_-_Take_1.mov")
+        // Clips are now prefixed with actor/role/project identity for casting-portal compliance.
+        XCTAssertTrue(contentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_SLATE.mov"), "Archive must contain prefixed Slate clip")
+        XCTAssertTrue(contentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_FULL_LENGTH.mov"), "Archive must contain prefixed Full-length clip")
+        XCTAssertTrue(contentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_Scene_1_TAKE_1.mov"), "Archive must contain prefixed Scene clip with take number")
         XCTAssertTrue(contentString.contains("Headshots/RAO_ASHA_MAYA_THELASTSUMMER_HEADSHOT_FRONT.jpg"), "Archive must contain Headshots/<baseName>_HEADSHOT_FRONT.jpg")
     }
 
@@ -247,10 +253,10 @@ final class MediaExporterTests: XCTestCase {
         let dataTrue = try Data(contentsOf: archiveURLTrue)
         let strTrue = String(decoding: dataTrue, as: UTF8.self)
 
-        let slateRangeTrue = strTrue.range(of: "Videos/Slate.mov")
-        let sceneRangeTrue = strTrue.range(of: "Videos/Scene_1_-_Take_1.mov")
-        XCTAssertNotNil(slateRangeTrue)
-        XCTAssertNotNil(sceneRangeTrue)
+        let slateRangeTrue = strTrue.range(of: "Videos/RAO_ASHA_MAYA_ORDERINGTEST_SLATE.mov")
+        let sceneRangeTrue = strTrue.range(of: "Videos/RAO_ASHA_MAYA_ORDERINGTEST_Scene_1_TAKE_1.mov")
+        XCTAssertNotNil(slateRangeTrue, "Slate clip must appear in archive with prefixed name")
+        XCTAssertNotNil(sceneRangeTrue, "Scene clip must appear in archive with prefixed name")
         if let s = slateRangeTrue, let t = sceneRangeTrue {
             XCTAssertLessThan(s.lowerBound, t.lowerBound, "When slateAtStart is true, Slate.mov must precede Scene_1 in the archive")
         }
@@ -261,10 +267,10 @@ final class MediaExporterTests: XCTestCase {
         let dataFalse = try Data(contentsOf: archiveURLFalse)
         let strFalse = String(decoding: dataFalse, as: UTF8.self)
 
-        let slateRangeFalse = strFalse.range(of: "Videos/Slate.mov")
-        let sceneRangeFalse = strFalse.range(of: "Videos/Scene_1_-_Take_1.mov")
-        XCTAssertNotNil(slateRangeFalse)
-        XCTAssertNotNil(sceneRangeFalse)
+        let slateRangeFalse = strFalse.range(of: "Videos/RAO_ASHA_MAYA_ORDERINGTEST_SLATE.mov")
+        let sceneRangeFalse = strFalse.range(of: "Videos/RAO_ASHA_MAYA_ORDERINGTEST_Scene_1_TAKE_1.mov")
+        XCTAssertNotNil(slateRangeFalse, "Slate clip must appear in archive with prefixed name")
+        XCTAssertNotNil(sceneRangeFalse, "Scene clip must appear in archive with prefixed name")
         if let s = slateRangeFalse, let t = sceneRangeFalse {
             XCTAssertLessThan(t.lowerBound, s.lowerBound, "When slateAtStart is false, Scene_1 must precede Slate.mov in the archive")
         }
@@ -290,5 +296,57 @@ final class MediaExporterTests: XCTestCase {
         let contentString = String(decoding: zipData, as: UTF8.self)
         XCTAssertTrue(contentString.contains("Headshots/"), "Archive with only headshots must include Headshots/")
         XCTAssertFalse(contentString.contains("Videos/"), "Archive with only headshots must not include Videos/")
+    }
+
+    // MARK: - Custom Filename Template
+
+    func testClipFileNamesUseCustomTemplateWhenSet() throws {
+        let scene = ScriptScene(number: 1, title: "Scene 1", heading: "INT. STAGE", lines: [], estimatedSeconds: 20)
+        var audition = makeAudition(role: "Maya", project: "The Last Summer", scenes: [scene])
+
+        // Apply a casting-director-specified template
+        var instructions = AuditionSubmissionInstructions()
+        instructions.fileNameTemplate = "{firstName}.{lastName}.{role}.{scene}"
+        audition.submissionInstructions = instructions
+
+        let takeURL = tempDirectory.appendingPathComponent("template_take.mov")
+        try Data("TEMPLATE_TAKE".utf8).write(to: takeURL)
+
+        let take = Take(number: 1, duration: 20, recordedAt: .now, isCircled: true, notes: [], fileURL: takeURL, auditionID: audition.id, sceneIndex: 0)
+        let slate = SlateInfo(name: "Asha Rao")
+
+        let archiveURL = try MediaExporter.makeSeparateArchive(audition, takes: [take], slate: slate)
+        let zipData = try Data(contentsOf: archiveURL)
+        let contentString = String(decoding: zipData, as: UTF8.self)
+
+        // The scene clip should use the custom template, not the default LAST_FIRST_ROLE_PROJECT prefix.
+        // Template {firstName}.{lastName}.{role}.{scene} with Asha Rao / Maya / "Scene 1" →
+        // Asha.Rao.Maya.Scene_1 (spaces → underscores after sanitize)
+        XCTAssertTrue(
+            contentString.contains("Videos/Asha.Rao.Maya.Scene_1"),
+            "ZIP clip names must follow casting's custom filename template when one is set"
+        )
+    }
+
+    func testDefaultFileNameIsUsedWhenNoTemplateSet() throws {
+        let scene = ScriptScene(number: 1, title: "Scene 1", heading: "INT. STAGE", lines: [], estimatedSeconds: 20)
+        var audition = makeAudition(role: "Maya", project: "The Last Summer", scenes: [scene])
+        // No custom template — submissionInstructions is nil
+
+        let takeURL = tempDirectory.appendingPathComponent("default_take.mov")
+        try Data("DEFAULT_TAKE".utf8).write(to: takeURL)
+
+        let take = Take(number: 1, duration: 20, recordedAt: .now, isCircled: true, notes: [], fileURL: takeURL, auditionID: audition.id, sceneIndex: 0)
+        let slate = SlateInfo(name: "Asha Rao")
+
+        let archiveURL = try MediaExporter.makeSeparateArchive(audition, takes: [take], slate: slate)
+        let zipData = try Data(contentsOf: archiveURL)
+        let contentString = String(decoding: zipData, as: UTF8.self)
+
+        // Default format: LAST_FIRST_ROLE_PROJECT_<scene>_TAKE_<n>
+        XCTAssertTrue(
+            contentString.contains("Videos/RAO_ASHA_MAYA_THELASTSUMMER_Scene_1_TAKE_1.mov"),
+            "Default ZIP clips must use LAST_FIRST_ROLE_PROJECT prefix when no custom template is set"
+        )
     }
 }

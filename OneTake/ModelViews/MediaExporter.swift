@@ -25,6 +25,14 @@ enum MediaExporter {
         let kind: Kind
         let label: String
         let url: URL
+        let takeNumber: Int?
+
+        init(kind: Kind, label: String, url: URL, takeNumber: Int? = nil) {
+            self.kind = kind
+            self.label = label
+            self.url = url
+            self.takeNumber = takeNumber
+        }
     }
 
     /// A stretch of the finished tape — what Preview lists and jumps between.
@@ -61,7 +69,7 @@ enum MediaExporter {
         for sceneIndex in audition.scenes.indices {
             let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
             if let chosen = sceneTakes.first(where: \.isCircled), let url = chosen.fileURL {
-                clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url))
+                clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url, takeNumber: chosen.number))
             }
         }
         return slateAtStart ? slate + clips : clips + slate
@@ -78,8 +86,27 @@ enum MediaExporter {
                 throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: clip.url.path])
             }
             let ext = clip.url.pathExtension.isEmpty ? "mov" : clip.url.pathExtension
-            let name = clip.label.replacingOccurrences(of: " · ", with: " - ").replacingOccurrences(of: " ", with: "_")
-            entries.append(ZipArchive.Entry(name: "Videos/\(name).\(ext)", fileURL: clip.url))
+            let name: String
+            switch clip.kind {
+            case .slate:
+                name = audition.clipFileName(slate: slate, scene: "SLATE", extension: ext)
+            case .fullLength:
+                name = audition.clipFileName(slate: slate, scene: "FULL_LENGTH", extension: ext)
+            case .scene(let index):
+                let sceneTitle = audition.scenes.indices.contains(index) ? audition.scenes[index].title : "Scene_\(index + 1)"
+                let matchingMaterial = audition.sideMaterials?.first {
+                    $0.roleName?.caseInsensitiveCompare(audition.role) == .orderedSame &&
+                    ($0.title.localizedCaseInsensitiveContains(sceneTitle) || sceneTitle.localizedCaseInsensitiveContains($0.title))
+                }
+                name = audition.clipFileName(
+                    slate: slate,
+                    scene: sceneTitle,
+                    take: clip.takeNumber,
+                    side: matchingMaterial?.sideNumber,
+                    extension: ext
+                )
+            }
+            entries.append(ZipArchive.Entry(name: "Videos/\(name)", fileURL: clip.url))
         }
         for url in HeadshotStore.deliverables(baseName: baseName, auditionID: audition.id) {
             entries.append(ZipArchive.Entry(name: "Headshots/\(url.lastPathComponent)", fileURL: url))

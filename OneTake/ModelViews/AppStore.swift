@@ -976,6 +976,21 @@ final class AppStore {
         auditions[i].shareLinkExpires = link.expires
     }
 
+    /// Saves a custom filename template for this audition's deliverables.
+    /// Supported tokens: `{name}`, `{firstName}`, `{lastName}`, `{role}`, `{project}`,
+    /// `{side}`, `{scene}`, `{take}`, `{song}`.
+    /// Pass `nil` to revert to the app default (`LAST_FIRST_ROLE_PROJECT.mp4`).
+    func setFileNameTemplate(_ template: String?, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if auditions[i].submissionInstructions == nil {
+            auditions[i].submissionInstructions = AuditionSubmissionInstructions()
+        }
+        let trimmed = template?.trimmingCharacters(in: .whitespacesAndNewlines)
+        auditions[i].submissionInstructions?.fileNameTemplate = (trimmed?.isEmpty == false) ? trimmed : nil
+        // Template change means old exports (which used the old name) are stale.
+        invalidateExport(for: id)
+    }
+
     func setExportedFile(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].exportedFileURL = url

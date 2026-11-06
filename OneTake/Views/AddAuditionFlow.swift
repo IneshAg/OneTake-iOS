@@ -33,7 +33,7 @@ struct AddAuditionFlow: View {
                         if !NoticeOCR.looksReadable(text) {
                             await MainActor.run { unreadableNoticeError = true }
                         } else {
-                            let draft = await NoticeParser.parseAsync(text, pages: pageTexts)
+                            let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: [AuditionSource(name: "Scanned notice", kind: .castingNotice, pageCount: pageTexts.count)])
                             await MainActor.run { pendingReviewDraft = draft }
                         }
                     }
@@ -61,10 +61,10 @@ struct AddAuditionFlow: View {
                     Task {
                         defer { resolved.cleanup() }
                         if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
-                            let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages)
+                            let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)])
                             await MainActor.run { pendingReviewDraft = draft }
                         } else if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
-                            let draft = await NoticeParser.parseAsync(text)
+                            let draft = await NoticeParser.parseAsync(text, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: 1)])
                             await MainActor.run { pendingReviewDraft = draft }
                         } else {
                             await MainActor.run { unreadableNoticeError = true }
@@ -119,24 +119,31 @@ struct AddAuditionFlow: View {
         store.incomingShare = nil
         var parts: [String] = []
         var pageTexts: [String] = []
+        var sourceDocuments: [AuditionSource] = []
         if let text = item.text, !text.isEmpty {
             parts.append(text)
             pageTexts.append(text)
+            sourceDocuments.append(AuditionSource(name: "Shared text", kind: .castingNotice, pageNumber: pageTexts.count, pageCount: 1))
         }
         for pdfURL in item.pdfs {
             if let document = await NoticeOCR.extractDocument(fromFileAt: pdfURL) {
                 parts.append(document.fullText)
+                let firstPage = pageTexts.count + 1
                 pageTexts.append(contentsOf: document.pages)
+                sourceDocuments.append(AuditionSource(name: pdfURL.lastPathComponent, kind: .castingNotice, url: pdfURL, pageNumber: firstPage, pageCount: document.pageCount))
             } else if let extracted = await NoticeOCR.extractText(fromFileAt: pdfURL) {
                 parts.append(extracted)
                 pageTexts.append(extracted)
+                sourceDocuments.append(AuditionSource(name: pdfURL.lastPathComponent, kind: .castingNotice, url: pdfURL, pageNumber: pageTexts.count, pageCount: 1))
             }
         }
         let images = item.images.compactMap { UIImage(contentsOfFile: $0.path) }
         if !images.isEmpty {
             let pages = await NoticeOCR.recognizePages(in: images)
+            let firstPage = pageTexts.count + 1
             pageTexts.append(contentsOf: pages)
             parts.append(pages.joined(separator: "\n\n"))
+            sourceDocuments.append(AuditionSource(name: "Shared images", kind: .castingNotice, pageNumber: firstPage, pageCount: pages.count))
         }
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -145,7 +152,7 @@ struct AddAuditionFlow: View {
         } else {
             // Route through OCR Review sheet so the actor can verify what was read
             // from the shared notice before it is committed to the audition draft.
-            let draft = await NoticeParser.parseAsync(text, pages: pageTexts)
+            let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: sourceDocuments)
             await MainActor.run { pendingReviewDraft = draft }
         }
     }
@@ -899,6 +906,14 @@ enum NoticeParser {
         var includeHeadshots: Bool = true
         var availablePortions: [ScriptParser.ScenePortion] = []
         var selectedPortionIDs: Set<String> = []
+        var projectDetails: AuditionProjectDetails? = nil
+        var importantDates: [AuditionDate] = []
+        var roleBreakdowns: [AuditionRoleBreakdown] = []
+        var sideMaterials: [AuditionSideMaterial] = []
+        var noticeSources: [AuditionSource] = []
+        var fieldEvidence: [AuditionFieldEvidence] = []
+        var submissionInstructions: AuditionSubmissionInstructions? = nil
+        var sourceDocuments: [AuditionSource] = []
 
         static let blank = Draft()
 
@@ -952,21 +967,32 @@ enum NoticeParser {
             audition.sidesLink = sidesLink
             audition.castingNotes = resolvedCastingNotes
             audition.actorNotes = actorNotes
+            audition.projectDetails = projectDetails
+            audition.importantDates = importantDates.isEmpty ? nil : importantDates
+            audition.roleBreakdowns = roleBreakdowns.isEmpty ? nil : roleBreakdowns
+            audition.sideMaterials = sideMaterials.isEmpty ? nil : sideMaterials
+            audition.sourceDocuments = sourceDocuments.isEmpty ? nil : sourceDocuments
+            audition.noticeSources = noticeSources.isEmpty ? nil : noticeSources
+            audition.fieldEvidence = fieldEvidence.isEmpty ? nil : fieldEvidence
+            audition.submissionInstructions = submissionInstructions
             return audition
         }
     }
 
     /// Asynchronous parsing pipeline: runs deterministic regex/anchor extraction first,
     /// then enriches with the on-device Foundation Model when supported on this iPhone.
-    static func parseAsync(_ rawText: String, pages: [String] = []) async -> Draft {
-        let base = parse(rawText, pages: pages)
-        return await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
+    static func parseAsync(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) async -> Draft {
+        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments)
+        var refined = await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
+        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: pages)
+        return refined
     }
 
-    static func parse(_ rawText: String, pages: [String] = []) -> Draft {
+    static func parse(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) -> Draft {
         var d = Draft()
         let cleaned = ScriptParser.cleanPastedText(rawText)
         d.sourceText = cleaned
+        d.sourceDocuments = sourceDocuments
 
         // Pass 1 (Notice Extractor): If multi-page packet, focus notice field extraction on Pages 1–2
         let isLongPacket = pages.count >= 2 || rawText.count > 3500
@@ -1178,7 +1204,208 @@ enum NoticeParser {
                 }
             }
         }
+        populateStructuredNoticeData(&d, text: cleaned, pages: pages)
         return d
+    }
+
+    /// Adds a structured, source-aware layer over the rule-based notice and sides extraction.
+    /// The raw text remains available for review; this layer records only fields grounded in it.
+    private static func populateStructuredNoticeData(_ draft: inout Draft, text: String, pages: [String]) {
+        draft.fieldEvidence = []
+        let sourcePages = pages.isEmpty ? [text] : pages
+        if draft.sourceDocuments.isEmpty {
+            draft.sourceDocuments = [AuditionSource(name: "Pasted or imported notice", kind: .castingNotice, pageCount: sourcePages.count)]
+        }
+        draft.noticeSources = sourcePages.enumerated().map { index, page in
+            let lower = page.lowercased()
+            let looksLikeSides = !ScriptParser.extractCharacters(from: page).isEmpty ||
+                lower.contains("audition sides") || lower.contains("script sides")
+            let kind: AuditionSourceKind = looksLikeSides ? .scriptSides : .castingNotice
+            let parent = draft.sourceDocuments.first(where: { doc in
+                let start = (doc.pageNumber ?? 1)
+                let end = start + max((doc.pageCount ?? 1) - 1, 0)
+                return (start...end).contains(index + 1)
+            })
+            return AuditionSource(name: "\(parent?.name ?? "Imported document") · page \(index + 1)", kind: kind, url: parent?.url, pageNumber: index + 1, pageCount: 1, parentSourceID: parent?.id)
+        }
+
+        let synopsis = firstMatch(
+            #"(?is)(?:about\s+the\s+project|project\s+synopsis|synopsis)(?:\s*:\s*|\s+)(.+?)(?=\n\s*(?:character\s+breakdowns?|note\s+on\s+casting|production\s+schedule|production\s+information|audition\s+dates|audition\s+requirements|submission|casting\s+team)\b|\z)"#,
+            in: text
+        ).map { clean($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let payLine = lines.first { $0.range(of: #"(?i)\b(?:pay|paid|stipend|salary|rate|compensation|honorarium|per\s+diem)\b"#, options: .regularExpression) != nil }
+        let unionLine = lines.first { $0.range(of: #"(?i)\b(?:SAG[- ]?AFTRA|AEA|Equity|non[- ]union|nonunion|union contract|no union contract)\b"#, options: .regularExpression) != nil }
+        let ndaLine = lines.first { $0.range(of: #"(?i)\bNDA\b|non[- ]disclosure agreement"#, options: .regularExpression) != nil }
+        let travelLine = lines.first { $0.range(of: #"(?i)\b(?:travel|travel expenses|accommodation|lodging|per diem|relocation)\b"#, options: .regularExpression) != nil }
+        draft.projectDetails = AuditionProjectDetails(
+            synopsis: synopsis?.isEmpty == true ? nil : synopsis,
+            productionCompany: labeled(["production company", "produced by"], in: text),
+            producer: labeled(["producer"], in: text),
+            director: labeled(["director"], in: text),
+            payTerms: payLine,
+            unionStatus: unionLine,
+            ndaNotes: ndaLine,
+            castingArea: detectLocation(in: text),
+            productionLocation: labeled(["production location", "filming location", "location"], in: text),
+            travelNotes: travelLine
+        )
+
+        draft.importantDates = extractImportantDates(in: draft.sourceText, pages: sourcePages, sources: draft.noticeSources)
+        draft.roleBreakdowns = draft.candidateRoles.map { role in
+            let description = extractCharacterDescription(for: role, in: draft.sourceText)
+            let age = description.flatMap { firstMatch(#"(?i)\b(?:early\s+|mid[- ]|late\s+)?\d{1,2}\s*(?:-|–|to)\s*\d{1,2}\b|\b(?:early|mid|late)\s+\d{1,2}s?\b|\b\d{1,2}s\b"#, in: $0) }
+            let gender = description.flatMap { firstMatch(#"(?i)\b(?:female|male|woman|man|non[- ]binary|femme|F|M|NB)\b"#, in: $0) }
+            return AuditionRoleBreakdown(
+                name: role,
+                description: description,
+                ageRange: age,
+                gender: gender,
+                ethnicity: nil,
+                skills: [],
+                eligibilityNotes: description
+            )
+        }
+
+        var materials: [AuditionSideMaterial] = []
+        for portion in draft.availablePortions {
+            let sideNumber = firstMatch(#"(?i)\bside\s*#?\s*([A-Z0-9]+)\b"#, in: portion.heading)
+                ?? firstMatch(#"(?i)\bside\s*#?\s*([A-Z0-9]+)\b"#, in: portion.rawText)
+            let material = AuditionSideMaterial(
+                title: portion.displayTitle,
+                roleName: portion.characters.count == 1 ? portion.characters.first : nil,
+                sideNumber: sideNumber,
+                pageStart: portion.pageNumber,
+                sourceID: portion.pageNumber.flatMap { page in draft.noticeSources.first(where: { $0.pageNumber == page })?.id },
+                text: portion.rawText
+            )
+            materials.append(material)
+            for character in portion.characters {
+                if let roleIndex = draft.roleBreakdowns.firstIndex(where: { $0.name.caseInsensitiveCompare(character) == .orderedSame }) {
+                    draft.roleBreakdowns[roleIndex].sideMaterialIDs.append(material.id)
+                }
+            }
+        }
+        draft.sideMaterials = materials
+
+        var instructions = AuditionSubmissionInstructions()
+        instructions.slateRequirements = lines.filter { $0.localizedCaseInsensitiveContains("slate") }
+        if text.range(of: #"(?i)\b(?:horizontal|landscape)\b"#, options: .regularExpression) != nil { instructions.videoOrientation = "Landscape" }
+        else if text.range(of: #"(?i)\b(?:vertical|portrait)\b"#, options: .regularExpression) != nil { instructions.videoOrientation = "Portrait" }
+        instructions.acceptedFormats = ["mp4", "mov", "m4v"].filter { format in
+            text.range(of: #"(?i)\.\s*"# + format + #"\b|\b"# + format + #"\s+(?:format|file)"#, options: .regularExpression) != nil
+        }
+        instructions.requiredVideoCount = firstMatch(#"(?i)\b(?:record|submit|send|upload)\s+(?:exactly\s+)?(\d{1,2}|one|two|three|four)\s+(?:separate\s+)?videos?\b"#, in: text).flatMap(parseSmallNumber)
+        instructions.maxTakes = firstMatch(#"(?i)\b(?:maximum|max|up to|no more than)\s+(\d{1,2})\s+takes?\b"#, in: text).flatMap(Int.init)
+        let filename = detectFileNamingInstruction(in: text)
+        instructions.fileNamingRule = filename.rule
+        instructions.fileNameTemplate = filename.template
+        instructions.submissionRouteNotes = lines.first { $0.range(of: #"(?i)\b(?:submit|upload|email|send|share)\b"#, options: .regularExpression) != nil }
+        instructions.otherRequirements = draft.asks
+        draft.submissionInstructions = instructions
+
+        func addEvidence(field: String, value: String) {
+            guard let range = text.range(of: value, options: .caseInsensitive),
+                  let pageIndex = sourcePages.firstIndex(where: { $0.range(of: value, options: .caseInsensitive) != nil }),
+                  draft.noticeSources.indices.contains(pageIndex) else { return }
+            let nsText = text as NSString
+            let match = nsText.range(of: value, options: .caseInsensitive)
+            guard match.location != NSNotFound else { return }
+            let excerptRange = NSRange(location: max(0, match.location - 80), length: min(nsText.length - max(0, match.location - 80), match.length + 180))
+            draft.fieldEvidence.append(AuditionFieldEvidence(
+                field: field,
+                sourceID: draft.noticeSources[pageIndex].id,
+                pageNumber: pageIndex + 1,
+                excerpt: nsText.substring(with: excerptRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
+        }
+        if !draft.project.isEmpty { addEvidence(field: "project", value: draft.project) }
+        if !draft.castingOffice.isEmpty { addEvidence(field: "castingOffice", value: draft.castingOffice) }
+        if !draft.role.isEmpty { addEvidence(field: "role", value: draft.role) }
+        for date in draft.importantDates {
+            if let sourceText = date.sourceText { addEvidence(field: "date.\(date.kind.rawValue)", value: sourceText) }
+        }
+    }
+
+    private static func parseSmallNumber(_ value: String) -> Int? {
+        if let number = Int(value) { return number }
+        return ["one": 1, "two": 2, "three": 3, "four": 4][value.lowercased()]
+    }
+
+    private static func detectFileNamingInstruction(in text: String) -> (rule: String?, template: String?) {
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        for line in lines where line.range(of: #"(?i)\b(?:file\s*name|filename|name\s+(?:each\s+|all\s+)?files?|label\s+(?:each\s+|all\s+)?files?)\b"#, options: .regularExpression) != nil {
+            let templatePattern = #"(?i)(?:format|as|like|e\.g\.|e\.g|:|with)\s*[\"']?([A-Za-z][A-Za-z0-9{}#._-]*(?:[._-][A-Za-z0-9{}#._-]+){1,})"#
+            let template = firstMatch(templatePattern, in: line).map(normalizeFileNameTemplate)
+            if template != nil { return (line, template) }
+            if line.localizedCaseInsensitiveContains("side #") || line.localizedCaseInsensitiveContains("side number") {
+                return (line, "{name}_SIDE_{side}")
+            }
+            if line.localizedCaseInsensitiveContains("full name") {
+                return (line, "{name}")
+            }
+            return (line, nil)
+        }
+        return (nil, nil)
+    }
+
+    private static func normalizeFileNameTemplate(_ raw: String) -> String {
+        var template = raw
+        let replacements: [(String, String)] = [
+            (#"(?i)first[ _-]?name"#, "{firstName}"),
+            (#"(?i)last[ _-]?name"#, "{lastName}"),
+            (#"(?i)(?:actor|performer|full)[ _-]?name|\bname\b"#, "{name}"),
+            (#"(?i)role|character"#, "{role}"),
+            (#"(?i)project|production|job"#, "{project}"),
+            (#"(?i)side\s*#?"#, "{side}"),
+            (#"(?i)scene"#, "{scene}"),
+            (#"(?i)take"#, "{take}"),
+            (#"(?i)song\s*title"#, "{song}")
+        ]
+        for (pattern, replacement) in replacements {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            template = regex.stringByReplacingMatches(in: template, range: NSRange(template.startIndex..., in: template), withTemplate: replacement)
+        }
+        return template
+    }
+
+    private static func extractImportantDates(in text: String, pages: [String], sources: [AuditionSource]) -> [AuditionDate] {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return [] }
+        let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        var dates: [AuditionDate] = []
+        for match in matches {
+            guard let date = match.date, let range = Range(match.range, in: text) else { continue }
+            let lineRange = text.lineRange(for: range)
+            let context = String(text[lineRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = context.lowercased()
+            let hasDateContext = ["deadline", "due", "submit", "submission", "callback", "recall", "rehearsal", "audition", "dance call", "vocal call", "performance", "opening", "closing", "show date", "production", "filming", "shoot", "schedule", "dates"].contains(where: lower.contains)
+            guard hasDateContext else { continue }
+            let kind: AuditionDateKind
+            if ["deadline", "due", "submit by", "submission", "accepted until", "tape due"].contains(where: lower.contains) {
+                kind = .submissionDeadline
+            } else if lower.contains("callback") || lower.contains("recall") {
+                kind = .callback
+            } else if lower.contains("rehearsal") {
+                let priorSameLine = dates.filter { $0.label == context && $0.kind == .rehearsalStart }.count
+                kind = priorSameLine == 0 ? .rehearsalStart : .rehearsalEnd
+            } else if lower.contains("audition") || lower.contains("dance call") || lower.contains("vocal call") {
+                kind = .audition
+            } else if lower.contains("performance") || lower.contains("opening") || lower.contains("show date") {
+                kind = lower.contains("closing") || lower.contains("last performance") ? .performanceEnd : .performanceStart
+            } else if lower.contains("production") || lower.contains("filming") || lower.contains("shoot") {
+                let priorSameLine = dates.filter { $0.label == context && $0.kind == .productionStart }.count
+                kind = lower.contains("wrap") || lower.contains("end") || priorSameLine > 0 ? .productionEnd : .productionStart
+            } else if lower.contains("rehearsal") {
+                kind = .rehearsalEnd
+            } else {
+                kind = .other
+            }
+            let dateText = String(text[range])
+            let pageIndex = pages.firstIndex { $0.range(of: dateText, options: .caseInsensitive) != nil }
+            let source = pageIndex.flatMap { sources.indices.contains($0) ? sources[$0] : nil }
+            dates.append(AuditionDate(kind: kind, date: date, label: context, sourceID: source?.id, pageNumber: source?.pageNumber, sourceText: String(text[range])))
+        }
+        return dates
     }
 
     /// A casting notice that says the actor may choose a character must not be converted into an

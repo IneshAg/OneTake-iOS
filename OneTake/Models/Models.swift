@@ -90,6 +90,95 @@ enum AuditionStatus: String, Codable, Hashable {
     case due, ready, sent
 }
 
+// MARK: - Casting notice model
+
+enum AuditionDateKind: String, Codable, CaseIterable, Hashable {
+    case submissionDeadline, audition, callback, rehearsalStart, rehearsalEnd
+    case productionStart, productionEnd, performanceStart, performanceEnd, other
+}
+
+enum AuditionSourceKind: String, Codable, CaseIterable, Hashable {
+    case castingNotice, roleBreakdown, scriptSides, instructions, auditionForm, socialPost, unknown
+}
+
+struct AuditionSource: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var name: String
+    var kind: AuditionSourceKind
+    var url: URL? = nil
+    var pageNumber: Int? = nil
+    var pageCount: Int? = nil
+    var parentSourceID: UUID? = nil
+}
+
+struct AuditionFieldEvidence: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var field: String
+    var sourceID: UUID
+    var pageNumber: Int? = nil
+    var excerpt: String
+}
+
+struct AuditionDate: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var kind: AuditionDateKind
+    var date: Date
+    var label: String
+    var sourceID: UUID? = nil
+    var pageNumber: Int? = nil
+    var sourceText: String? = nil
+}
+
+struct AuditionProjectDetails: Codable, Hashable {
+    var synopsis: String? = nil
+    var productionCompany: String? = nil
+    var producer: String? = nil
+    var director: String? = nil
+    var payTerms: String? = nil
+    var unionStatus: String? = nil
+    var ndaNotes: String? = nil
+    var castingArea: String? = nil
+    var productionLocation: String? = nil
+    var travelNotes: String? = nil
+}
+
+struct AuditionSideMaterial: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var title: String
+    var roleName: String? = nil
+    var sideNumber: String? = nil
+    var pageStart: Int? = nil
+    var pageEnd: Int? = nil
+    var sourceID: UUID? = nil
+    var sourceURL: URL? = nil
+    var text: String? = nil
+}
+
+struct AuditionRoleBreakdown: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var name: String
+    var description: String? = nil
+    var ageRange: String? = nil
+    var gender: String? = nil
+    var ethnicity: String? = nil
+    var skills: [String] = []
+    var eligibilityNotes: String? = nil
+    var sideMaterialIDs: [UUID] = []
+}
+
+struct AuditionSubmissionInstructions: Codable, Hashable {
+    var slateRequirements: [String] = []
+    var videoOrientation: String? = nil
+    var requiredVideoCount: Int? = nil
+    var maxTakes: Int? = nil
+    var acceptedFormats: [String] = []
+    var fileNamingRule: String? = nil
+    /// A pattern may use {name}, {firstName}, {lastName}, {role}, {project}, {side}, {scene}, {take}, or {song}.
+    var fileNameTemplate: String? = nil
+    var submissionRouteNotes: String? = nil
+    var otherRequirements: [String] = []
+}
+
 enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
     case actorsAccess = "Actors Access"
     case backstage = "Backstage"
@@ -269,6 +358,15 @@ struct Audition: Identifiable, Hashable, Codable {
     var castingNotes: String?
     /// Private rehearsal notes, subtext, objective, or character choices written by the actor.
     var actorNotes: String?
+    /// Structured enrichment kept optional so auditions saved by older app versions still decode.
+    var projectDetails: AuditionProjectDetails? = nil
+    var importantDates: [AuditionDate]? = nil
+    var roleBreakdowns: [AuditionRoleBreakdown]? = nil
+    var sideMaterials: [AuditionSideMaterial]? = nil
+    var sourceDocuments: [AuditionSource]? = nil
+    var noticeSources: [AuditionSource]? = nil
+    var fieldEvidence: [AuditionFieldEvidence]? = nil
+    var submissionInstructions: AuditionSubmissionInstructions? = nil
 
     /// "22 days" style remaining lifetime of the sent link, or nil if there's no (live) link.
     var shareLinkTimeLeft: String? {
@@ -331,15 +429,73 @@ struct Audition: Identifiable, Hashable, Codable {
         return DueRemaining(days: days, hours: hours, minutes: minutes, totalSeconds: remaining)
     }
 
-    /// The filename casting sites expect: LASTNAME_FIRSTNAME_ROLE_PROJECT.mp4, computed from the
-    /// real slate and role instead of a hardcoded example.
-    func deliverableFileName(slate: SlateInfo) -> String {
-        func token(_ s: String) -> String { s.uppercased().filter { $0.isLetter || $0.isNumber } }
-        let parts = slate.name.split(separator: " ")
-        let last = parts.last.map(String.init) ?? "ACTOR"
-        let first = parts.count > 1 ? String(parts.first!) : ""
-        let pieces = [token(last), token(first), token(role), token(project)].filter { !$0.isEmpty }
-        return pieces.joined(separator: "_") + ".mp4"
+    /// Uses a notice-provided template when one was extracted; otherwise keeps the app's stable
+    /// actor/role/project filename. Supported template tokens are documented on
+    /// `AuditionSubmissionInstructions.fileNameTemplate`.
+    func deliverableFileName(
+        slate: SlateInfo,
+        side: String? = nil,
+        scene: String? = nil,
+        take: Int? = nil,
+        song: String? = nil
+    ) -> String {
+        let words = slate.name.split(whereSeparator: \.isWhitespace).map(String.init)
+        let first = words.first ?? "Actor"
+        let last = words.count > 1 ? (words.last ?? "") : ""
+        let replacements: [(String, String)] = [
+            ("{firstName}", first), ("{lastName}", last), ("{name}", slate.name),
+            ("{role}", role), ("{project}", project), ("{side}", side ?? ""),
+            ("{scene}", scene ?? ""), ("{take}", take.map(String.init) ?? ""), ("{song}", song ?? "")
+        ]
+
+        if var template = submissionInstructions?.fileNameTemplate, !template.isEmpty {
+            template = template.replacingOccurrences(of: #"(?i)\.(?:mp4|mov|m4v)$"#, with: "", options: .regularExpression)
+            let available: [String: String?] = [
+                "{firstname}": first.isEmpty ? nil : first,
+                "{lastname}": last.isEmpty ? nil : last,
+                "{name}": slate.name.isEmpty ? nil : slate.name,
+                "{role}": role.isEmpty ? nil : role,
+                "{project}": project.isEmpty ? nil : project,
+                "{side}": side,
+                "{scene}": scene,
+                "{take}": take.map(String.init),
+                "{song}": song
+            ]
+            let templateHasUnavailableToken = available.contains { token, value in
+                template.localizedCaseInsensitiveContains(token) && value == nil
+            }
+            guard !templateHasUnavailableToken else {
+                return defaultDeliverableFileName(first: first, last: last)
+            }
+            for (placeholder, value) in replacements {
+                template = template.replacingOccurrences(of: placeholder, with: value, options: .caseInsensitive)
+            }
+            let safe = template
+                .replacingOccurrences(of: #"[^A-Za-z0-9._-]+"#, with: "_", options: .regularExpression)
+                .replacingOccurrences(of: #"[._-]{2,}"#, with: "_", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
+            if !safe.isEmpty { return (safe as NSString).appendingPathExtension("mp4") ?? "\(safe).mp4" }
+        }
+
+        return defaultDeliverableFileName(first: first, last: last)
+    }
+
+    private func defaultDeliverableFileName(first: String, last: String) -> String {
+        func token(_ value: String) -> String { value.uppercased().filter { $0.isLetter || $0.isNumber } }
+        let defaultParts = [last.isEmpty ? first : last, last.isEmpty ? "" : first, role, project]
+            .map(token).filter { !$0.isEmpty }
+        return defaultParts.joined(separator: "_") + ".mp4"
+    }
+
+    func clipFileName(slate: SlateInfo, scene: String, take: Int? = nil, side: String? = nil, extension fileExtension: String) -> String {
+        let custom = deliverableFileName(slate: slate, side: side, scene: scene, take: take)
+        var stem = (custom as NSString).deletingPathExtension
+        let template = submissionInstructions?.fileNameTemplate?.lowercased() ?? ""
+        if !template.contains("{scene}") { stem += "_\(scene)" }
+        if !template.contains("{side}"), let side { stem += "_SIDE_\(side)" }
+        if !template.contains("{take}"), let take { stem += "_TAKE_\(take)" }
+        stem = stem.replacingOccurrences(of: #"[^A-Za-z0-9._-]+"#, with: "_", options: .regularExpression)
+        return "\(stem).\(fileExtension)"
     }
 
     /// Detected casting email address from requirements or destination detail.

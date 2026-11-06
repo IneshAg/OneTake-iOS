@@ -33,6 +33,7 @@ struct PackageView: View {
     @State private var showSignIn = false
     @State private var trimmingClip: PackageTrimTarget?
     @State private var shareDeliverableOverride: PackageDeliverable? = nil
+    @State private var showFileNameEditor = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -287,18 +288,37 @@ struct PackageView: View {
         let deliverable = a.packageDeliverable ?? .combinedVideo
         let slate = store.slate
         let fileName = deliverable == .separateZip ? separateArchiveName(a) : a.deliverableFileName(slate: slate)
+        let hasCustomTemplate = a.submissionInstructions?.fileNameTemplate?.isEmpty == false
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Filename:", systemImage: "doc.text")
-                    .font(.otCaption.weight(.medium))
-                    .foregroundStyle(OT.labelTertiary)
-                Spacer()
-                Text(fileName)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(OT.labelPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+            // Tappable filename row — opens the name template editor
+            Button {
+                showFileNameEditor = true
+            } label: {
+                HStack {
+                    Label("Filename:", systemImage: "doc.text")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelTertiary)
+                    if hasCustomTemplate {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(OT.accent)
+                    }
+                    Spacer()
+                    Text(fileName)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(OT.labelPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(OT.labelTertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showFileNameEditor) {
+                FileNameTemplateSheet(auditionID: a.id)
+                    .environment(store)
             }
 
             Divider()
@@ -1134,5 +1154,132 @@ struct SentView: View {
         if let url = audition.separateArchiveURL { return url.lastPathComponent }
         let base = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
         return "\(base)_SEPARATE.zip"
+    }
+}
+
+// MARK: - Filename Template Editor Sheet
+
+/// A bottom sheet that lets the actor override the deliverable filename pattern for a specific
+/// audition. Supports {firstName}, {lastName}, {name}, {role}, {project}, {side}, {scene}, {take}.
+/// Leaving the field blank reverts to the app default (`LAST_FIRST_ROLE_PROJECT.mp4`).
+private struct FileNameTemplateSheet: View {
+    let auditionID: Audition.ID
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var draft: String = ""
+
+    private let tokens = ["{firstName}", "{lastName}", "{name}", "{role}", "{project}", "{side}", "{scene}", "{take}"]
+
+    private var audition: Audition? { store.audition(auditionID) }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+
+                // Description
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Match Casting's Instructions")
+                        .font(.otHeadline)
+                    Text("Enter the exact filename pattern casting asked for. Use tokens for the parts that vary. Leave blank to use the OneTake default.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+
+                // Template text field
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pattern")
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(OT.labelTertiary)
+                    TextField(
+                        "{lastName}_{firstName}_{role}_{project}",
+                        text: $draft,
+                        axis: .vertical
+                    )
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .padding(12)
+                    .background(OT.surfaceSunken)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    if !draft.isEmpty {
+                        Text("Preview: \(previewName)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(OT.accent)
+                            .lineLimit(2)
+                    }
+                }
+
+                // Token chips
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Available tokens — tap to insert")
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelTertiary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], spacing: 8) {
+                        ForEach(tokens, id: \.self) { token in
+                            Button {
+                                draft += (draft.isEmpty ? "" : "_") + token
+                            } label: {
+                                Text(token)
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity)
+                                    .background(OT.accent.opacity(0.12))
+                                    .foregroundStyle(OT.accent)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                }
+
+                // Reset button
+                if audition?.submissionInstructions?.fileNameTemplate?.isEmpty == false {
+                    Button(role: .destructive) {
+                        store.setFileNameTemplate(nil, for: auditionID)
+                        dismiss()
+                    } label: {
+                        Label("Reset to Default", systemImage: "arrow.counterclockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 24)
+            .navigationTitle("Filename Pattern")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        store.setFileNameTemplate(draft.isEmpty ? nil : draft, for: auditionID)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                draft = audition?.submissionInstructions?.fileNameTemplate ?? ""
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var previewName: String {
+        guard let a = audition else { return draft }
+        let slate = store.slate
+        // Build a fake submissionInstructions with the current draft as the template
+        var mockInstructions = AuditionSubmissionInstructions()
+        mockInstructions.fileNameTemplate = draft
+        var mockAudition = a
+        mockAudition.submissionInstructions = mockInstructions
+        return mockAudition.deliverableFileName(slate: slate)
     }
 }
