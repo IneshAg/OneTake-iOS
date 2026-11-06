@@ -412,9 +412,14 @@ struct ShootFlow: View {
         // The prompter follows your voice: once you've said your line, it moves on to the next one.
         .onChange(of: follower.transcript) { _, transcript in
             guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines,
-                  lines.indices.contains(lineIndex), lines[lineIndex].isMine,
-                  SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
-            interpretTalkback(lines[lineIndex])
+                  lines.indices.contains(lineIndex) else { return }
+            let line = lines[lineIndex]
+            if line.isMine || readerAudioMissing {
+                let required = SpokenLineMatcher.requiredMatches(for: line.text)
+                if required > 0 && SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: transcript).count >= required {
+                    interpretTalkback(line)
+                }
+            }
         }
         // Face detection is only for the pre-shoot check; don't spend CPU on it while filming.
         .onChange(of: stage) { _, newStage in camera.faceGuidanceActive = (newStage == .check) }
@@ -1173,10 +1178,12 @@ struct ShootFlow: View {
     private func handleCameraStateChange(_ newState: CameraController.State) {
         if newState == .recording {
             if stage == .scene {
-                if camera.elapsed == 0 { startScene() } else { speakIfReader() }
+                if camera.elapsed == 0 { startScene() } else { speakIfReader(); scheduleTimedAdvance() }
             }
         } else {
             stopReader()
+            timedAdvance?.cancel()
+            timedAdvance = nil
         }
     }
 
@@ -1226,6 +1233,8 @@ struct ShootFlow: View {
             guard !Task.isCancelled, camera.state == .recording, stage == .scene,
                   sceneLines?.indices.contains(lineIndex) == true,
                   SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: follower.transcript).count >= SpokenLineMatcher.requiredMatches(for: line.text) else { return }
+            timedAdvance?.cancel()
+            timedAdvance = nil
             advanceLine()
         }
     }
@@ -1264,20 +1273,32 @@ struct ShootFlow: View {
         reader.stop()
     }
 
-    /// Timed mode is deliberately simple: it advances only while filming, leaves enough time to
-    /// read each line, and can still be overridden by a tap or swipe. Reader recordings use their
-    /// actual duration; absent reader audio receives the same timed allowance.
+    /// Schedules automatic line advance:
+    /// - In timed mode: advances every line based on word length.
+    /// - In voice-following mode: automatically advances reader lines that have no recorded audio,
+    ///   or lines without spoken words (silent reactions, punctuation like "?"), so the prompter rolls naturally.
     private func scheduleTimedAdvance() {
         timedAdvance?.cancel()
         timedAdvance = nil
-        guard !followVoice, camera.state == .recording, stage == .scene,
+        guard camera.state == .recording, stage == .scene,
               let lines = sceneLines, lines.indices.contains(lineIndex) else { return }
         let line = lines[lineIndex]
-        if !line.isMine, !readerAudioMissing { return }
-        let delay = max(2.2, Double(line.text.count) * 0.075 + 1.1)
+        let hasSpokenWords = !line.text.split(separator: " ").map({ SpokenLineMatcher.cleanWord($0) }).filter({ !$0.isEmpty }).isEmpty
+        if followVoice && line.isMine && hasSpokenWords { return }
+        if followVoice && !line.isMine && !readerAudioMissing { return }
+
+        let wordCount = max(1, line.text.split(separator: " ").count)
+        let delay: Double
+        if !hasSpokenWords || line.isSilentReactionCue {
+            delay = 1.6
+        } else if !line.isMine {
+            delay = max(2.0, Double(wordCount) * 0.38 + 0.8)
+        } else {
+            delay = max(2.2, Double(wordCount) * 0.45 + 1.2)
+        }
         timedAdvance = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, !followVoice, camera.state == .recording else { return }
+            guard !Task.isCancelled, camera.state == .recording else { return }
             advanceLine()
         }
     }
@@ -1560,148 +1581,137 @@ struct SidesPrompterView: View {
                             let isCurrent = (index == currentIndex)
                             let isPast = (index < currentIndex)
 
-                            // Regular: only current line & compact peek of the next line (no past lines cluttering).
-                            // Huge: current line with massive text & subtle next peek.
-                            // Big: includes previous cue for context, active line, and upcoming line.
-                            let shouldShow: Bool = {
-                                if prompterSize == 0 || prompterSize == 2 {
-                                    return index == currentIndex || index == currentIndex + 1
-                                } else {
-                                    return index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 1)
-                                }
-                            }()
+                            VStack(alignment: .leading, spacing: prompterSize == 0 ? 3 : 6) {
+                                // Header tag
+                                HStack(spacing: 8) {
+                                    Text(line.isMine ? "\(line.character.uppercased()) · YOU" : line.character.uppercased())
+                                        .font(.system(size: isCurrent ? (prompterSize == 0 ? 12 : 13) : 11, weight: .bold, design: .monospaced))
+                                        .tracking(0.8)
+                                        .foregroundStyle(isCurrent ? (line.isMine ? OT.prompterGold : OT.reader) : Color.white.opacity(0.40))
 
-                            if shouldShow {
-                                VStack(alignment: .leading, spacing: prompterSize == 0 ? 3 : 6) {
-                                    // Header tag
-                                    HStack(spacing: 8) {
-                                        Text(line.isMine ? "\(line.character.uppercased()) · YOU" : line.character.uppercased())
-                                            .font(.system(size: isCurrent ? (prompterSize == 0 ? 12 : 13) : 11, weight: .bold, design: .monospaced))
-                                            .tracking(0.8)
-                                            .foregroundStyle(isCurrent ? (line.isMine ? OT.prompterGold : OT.reader) : Color.white.opacity(0.40))
-
-                                        if isCurrent {
-                                            if !line.isMine {
-                                                if readerIsPlaying {
-                                                    HStack(spacing: 3) {
-                                                        Image(systemName: "waveform")
-                                                            .font(.system(size: 11, weight: .semibold))
-                                                        Text("Reading")
-                                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                                    }
-                                                    .foregroundStyle(OT.reader)
-                                                } else if readerAudioMissing {
-                                                    Text("No audio · tap to continue")
-                                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                                        .foregroundStyle(OT.due)
+                                    if isCurrent {
+                                        if !line.isMine {
+                                            if readerIsPlaying {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: "waveform")
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                    Text("Reading")
+                                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                                 }
+                                                .foregroundStyle(OT.reader)
+                                            } else if readerAudioMissing {
+                                                Text("No audio · auto-playing")
+                                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                                    .foregroundStyle(OT.due)
                                             }
-                                        }
-
-                                        Spacer()
-
-                                        if isCurrent {
-                                            // Clickable prompter size badge right on the prompter line header
-                                            if let onCycleSize {
-                                                Button {
-                                                    onCycleSize()
-                                                } label: {
-                                                    HStack(spacing: 3) {
-                                                        Image(systemName: "textformat.size")
-                                                            .font(.system(size: 9, weight: .bold))
-                                                        Text(["Regular", "Big", "Huge"][min(max(prompterSize, 0), 2)])
-                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                                    }
-                                                    .foregroundStyle(Color.white.opacity(0.88))
-                                                    .padding(.horizontal, 7)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.white.opacity(0.16), in: Capsule())
-                                                }
-                                                .buttonStyle(.plain)
-                                            }
-
-                                            Text("\(index + 1) of \(lines.count)")
-                                                .font(.system(size: prompterSize == 0 ? 11 : 12, weight: .semibold, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(0.50))
                                         }
                                     }
 
-                                    // Dialogue content
-                                    if isCurrent {
-                                        if line.isMine {
-                                            let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
-                                            let isRev = revealedLines.contains(line.id)
-                                            if line.isSilentReactionCue {
-                                                SilentReactionCue()
-                                            } else {
-                                                attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
-                                                    .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                                    .shadow(
-                                                        color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
-                                                        radius: matchedIndices.isEmpty ? 0 : 7
-                                                    )
-                                                    .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                            }
+                                    Spacer()
 
-                                            if displayMode != .full && !line.isSilentReactionCue {
-                                                Button {
-                                                    onToggleReveal?(line.id)
-                                                } label: {
-                                                    HStack(spacing: 4) {
-                                                        Image(systemName: isRev ? "eye.slash" : "eye")
-                                                        Text(isRev ? "Hide hint" : displayMode == .firstLetters ? "Show full line hint" : "Reveal line hint")
-                                                    }
-                                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                                    .foregroundStyle(OT.prompterGold)
-                                                    .padding(.horizontal, 9)
-                                                    .padding(.vertical, 4)
-                                                    .background(Color.white.opacity(0.14), in: Capsule())
+                                    if isCurrent {
+                                        // Clickable prompter size badge right on the prompter line header
+                                        if let onCycleSize {
+                                            Button {
+                                                onCycleSize()
+                                            } label: {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: "textformat.size")
+                                                        .font(.system(size: 9, weight: .bold))
+                                                    Text(["Regular", "Big", "Huge"][min(max(prompterSize, 0), 2)])
+                                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                                                 }
-                                                .buttonStyle(.plain)
-                                                .padding(.top, 2)
-                                            }
-                                        } else {
-                                            Text(line.text)
-                                                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                                .italic()
                                                 .foregroundStyle(Color.white.opacity(0.88))
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 3)
+                                                .background(Color.white.opacity(0.16), in: Capsule())
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+
+                                        Text("\(index + 1) of \(lines.count)")
+                                            .font(.system(size: prompterSize == 0 ? 11 : 12, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(0.50))
+                                    }
+                                }
+
+                                // Dialogue content
+                                if isCurrent {
+                                    if line.isMine {
+                                        let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
+                                        let isRev = revealedLines.contains(line.id)
+                                        if line.isSilentReactionCue {
+                                            SilentReactionCue()
+                                        } else {
+                                            attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
+                                                .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                                                .shadow(
+                                                    color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
+                                                    radius: matchedIndices.isEmpty ? 0 : 7
+                                                )
                                                 .scaleEffect(x: mirror ? -1 : 1, y: 1)
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                    } else if isPast {
-                                        Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
-                                            .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                            .foregroundStyle(Color.white.opacity(0.30))
+
+                                        if displayMode != .full && !line.isSilentReactionCue {
+                                            Button {
+                                                onToggleReveal?(line.id)
+                                            } label: {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: isRev ? "eye.slash" : "eye")
+                                                    Text(isRev ? "Hide hint" : displayMode == .firstLetters ? "Show full line hint" : "Reveal line hint")
+                                                }
+                                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                .foregroundStyle(OT.prompterGold)
+                                                .padding(.horizontal, 9)
+                                                .padding(.vertical, 4)
+                                                .background(Color.white.opacity(0.14), in: Capsule())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .padding(.top, 2)
+                                        }
+                                    } else {
+                                        Text(line.text)
+                                            .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                            .italic()
+                                            .foregroundStyle(Color.white.opacity(0.88))
+                                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                } else if isPast {
+                                    Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
+                                        .font(.system(size: prompterSize == 0 ? 11 : 12, weight: .regular, design: .monospaced))
+                                        .foregroundStyle(Color.white.opacity(0.25))
+                                        .lineLimit(1)
+                                } else {
+                                    // Upcoming lines left below the active line (compact peek)
+                                    let isImmediateNext = (index == currentIndex + 1)
+                                    let nextLimit = isImmediateNext ? (prompterSize == 0 ? 1 : 2) : 1
+                                    let nextOpacity = isImmediateNext ? 0.55 : 0.20
+                                    if line.isMine && displayMode == .firstLetters {
+                                        Text(promptFirstLettersString(line.text))
+                                            .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(nextOpacity))
+                                            .lineLimit(nextLimit)
+                                    } else if line.isMine && displayMode == .hideMine && !revealedLines.contains(line.id) {
+                                        Text(String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8)))
+                                            .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(nextOpacity))
                                             .lineLimit(1)
                                     } else {
-                                        // Upcoming lines left below the active line (compact peek)
-                                        let nextLimit = (prompterSize == 0 || prompterSize == 2) ? 1 : 2
-                                        if line.isMine && displayMode == .firstLetters {
-                                            Text(promptFirstLettersString(line.text))
-                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.60 : 0.30))
-                                                .lineLimit(nextLimit)
-                                        } else if line.isMine && displayMode == .hideMine && !revealedLines.contains(line.id) {
-                                            Text(String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8)))
-                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.40 : 0.20))
-                                                .lineLimit(1)
-                                        } else {
-                                            Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
-                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.60 : 0.30))
-                                                .lineLimit(nextLimit)
-                                        }
+                                        Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
+                                            .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(nextOpacity))
+                                            .lineLimit(nextLimit)
                                     }
                                 }
-                                .id("prompter_line_\(index)")
-                                .padding(.vertical, isCurrent ? (prompterSize == 0 ? 2 : 4) : 1)
                             }
+                            .id("prompter_line_\(index)")
+                            .padding(.vertical, isCurrent ? (prompterSize == 0 ? 2 : 4) : 1)
                         }
                     }
                     .padding(.top, 4)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, prompterMaxHeight * 0.85)
                 }
                 .frame(maxHeight: prompterMaxHeight)
                 .clipped()
@@ -1718,12 +1728,8 @@ struct SidesPrompterView: View {
                     )
                 )
                 .onChange(of: currentIndex) { _, newIndex in
-                    // Schedule after the new active row enters the render window; otherwise a
-                    // fast spoken-line advance can ask ScrollViewReader for an ID not laid out yet.
-                    DispatchQueue.main.async {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            proxy.scrollTo("prompter_line_\(newIndex)", anchor: .center)
-                        }
+                    withAnimation(.spring(response: 0.40, dampingFraction: 0.82)) {
+                        proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
                     }
                 }
                 .onAppear {

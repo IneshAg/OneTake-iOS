@@ -770,6 +770,7 @@ struct PracticeTakeView: View {
     @State private var recordMode: PracticeRecordMode = .camera
     @State private var revealedLines: Set<ScriptLine.ID> = []
     @State private var onYourOwnLines: Set<ScriptLine.ID> = []
+    @State private var autoAdvanceTask: Task<Void, Never>?
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
@@ -1040,12 +1041,15 @@ struct PracticeTakeView: View {
                             displayMode: displayMode,
                             revealedLines: revealedLines,
                             onAdvance: {
-                                if lineIndex + 1 < lines.count { lineIndex += 1; follower.reset(); Haptics.tick() }
+                                advanceRehearsalLine()
                             },
                             onPrevious: {
+                                autoAdvanceTask?.cancel()
+                                autoAdvanceTask = nil
                                 lineIndex = max(0, lineIndex - 1)
                                 follower.reset()
                                 Haptics.tick()
+                                scheduleRehearsalAutoAdvance()
                             },
                             onToggleReveal: { id in
                                 if revealedLines.contains(id) {
@@ -1346,21 +1350,18 @@ struct PracticeTakeView: View {
             if await SpeechFollower.requestAccess() {
                 follower.start()
             }
+            scheduleRehearsalAutoAdvance()
         }
         .onChange(of: follower.transcript) { _, transcript in
-            guard camera.state == .recording, let lines = piece?.scene?.lines,
-                  lines.indices.contains(lineIndex), lines[lineIndex].isMine,
-                  SpokenLineMatcher.matchedWordIndices(in: lines[lineIndex].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[lineIndex].text) else { return }
-            let curID = lines[lineIndex].id
-            if !revealedLines.contains(curID) {
-                onYourOwnLines.insert(curID)
-            }
-            if lineIndex + 1 < lines.count {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                    lineIndex += 1
+            guard let lines = piece?.scene?.lines, lines.indices.contains(lineIndex) else { return }
+            let line = lines[lineIndex]
+            let required = SpokenLineMatcher.requiredMatches(for: line.text)
+            if required > 0 && SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: transcript).count >= required {
+                let curID = line.id
+                if line.isMine && !revealedLines.contains(curID) {
+                    onYourOwnLines.insert(curID)
                 }
-                follower.reset()
-                Haptics.tick()
+                advanceRehearsalLine()
             }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
@@ -1369,6 +1370,7 @@ struct PracticeTakeView: View {
                 recordedTakeURL = nil
                 onYourOwnLines.removeAll()
                 camera.startRecording()
+                scheduleRehearsalAutoAdvance()
             }
             if cmd?.word == "cut", camera.state == .recording {
                 Haptics.impact(.medium)
@@ -1385,6 +1387,7 @@ struct PracticeTakeView: View {
                 recordedTakeURL = nil
                 onYourOwnLines.removeAll()
                 camera.startRecording()
+                scheduleRehearsalAutoAdvance()
             }
         }
         .onChange(of: camera.state) { _, newState in
@@ -1408,8 +1411,44 @@ struct PracticeTakeView: View {
             }
         }
         .onDisappear {
+            autoAdvanceTask?.cancel()
+            autoAdvanceTask = nil
             camera.stop()
             follower.stop()
+        }
+    }
+
+    private func advanceRehearsalLine() {
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
+        follower.reset()
+        guard let lines = piece?.scene?.lines, lines.indices.contains(lineIndex) else { return }
+        if lineIndex + 1 < lines.count {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                lineIndex += 1
+            }
+            Haptics.tick()
+            scheduleRehearsalAutoAdvance()
+        }
+    }
+
+    private func scheduleRehearsalAutoAdvance() {
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
+        guard let lines = piece?.scene?.lines, lines.indices.contains(lineIndex) else { return }
+        let line = lines[lineIndex]
+        let hasSpokenWords = !line.text.split(separator: " ").map({ SpokenLineMatcher.cleanWord($0) }).filter({ !$0.isEmpty }).isEmpty
+
+        // Auto-advance reader lines or non-dialogue cues (silence/punctuation)
+        guard !line.isMine || !hasSpokenWords || line.isSilentReactionCue else { return }
+
+        let wordCount = max(1, line.text.split(separator: " ").count)
+        let delay: Double = (!hasSpokenWords || line.isSilentReactionCue) ? 1.6 : max(2.0, Double(wordCount) * 0.38 + 0.8)
+
+        autoAdvanceTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            advanceRehearsalLine()
         }
     }
 }

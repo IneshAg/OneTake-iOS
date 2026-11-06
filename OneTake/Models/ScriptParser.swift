@@ -534,7 +534,18 @@ enum ScriptParser {
             return l
         }
 
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        // PDFKit often preserves each printed line but drops the blank spacer between dialogue
+        // turns. Recreate that structural gap from screenplay cue lines so native-text PDFs and
+        // pasted sides read like sides even when OCR was not needed.
+        var formattedLines: [String] = []
+        for line in lines {
+            if !line.isEmpty, isLikelyCue(line), let previous = formattedLines.last, !previous.isEmpty {
+                formattedLines.append("")
+            }
+            formattedLines.append(line)
+        }
+
+        return formattedLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Formats dialogue extracted from sides OCR:

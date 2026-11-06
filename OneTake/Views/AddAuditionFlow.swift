@@ -939,7 +939,9 @@ enum NoticeParser {
                 pieces.append(.init(kind: .headshot, title: isHeadshotOptional ? "Headshot (Optional)" : "Headshot", detail: "Photos", isDone: false, isOptional: isHeadshotOptional))
             }
             let autoNotes = NoticeParser.extractCharacterDescription(for: role, in: sourceText)
-            let resolvedCastingNotes = castingNotes ?? autoNotes ?? (aiGuidance.isEmpty ? nil : aiGuidance)
+            // Project-level guidance is not a character breakdown. Keep it out of the casting
+            // notes column unless we have notes explicitly attached to the selected role.
+            let resolvedCastingNotes = castingNotes ?? autoNotes
             var audition = Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
                             role: role.isEmpty ? "Role" : role, roleSize: roleSize, castingOffice: castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
@@ -982,7 +984,7 @@ enum NoticeParser {
             candidates = ScriptParser.extractCharacters(from: cleaned)
         }
         d.candidateRoles = candidates
-        if candidates.count == 1 {
+        if candidates.count == 1 && !containsOpenRoleChoice(in: text) {
             d.role = candidates[0]
             d.castingNotes = extractCharacterDescription(for: d.role, in: cleaned)
         } else {
@@ -1177,6 +1179,12 @@ enum NoticeParser {
             }
         }
         return d
+    }
+
+    /// A casting notice that says the actor may choose a character must not be converted into an
+    /// arbitrary role selection, even if OCR happened to find only one role on the notice page.
+    static func containsOpenRoleChoice(in text: String) -> Bool {
+        firstMatch(#"(?i)\b(?:your choice|role of your choice|character of your choice|any character|choose (?:a|any) character|character you(?:'|’)d like to read|role you(?:'|’)d like to read)\b"#, in: text) != nil
     }
 
     /// Verifies that an extracted guidance block contains genuine director/actor instructions,
@@ -1910,7 +1918,10 @@ enum NoticeParser {
         if let v = firstMatch(inPattern, in: text), let valid = cleanTitle(v) {
             return valid
         }
-        if let v = firstMatch(#"(?i)\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?=\s*[\(.,]|\s+by\b|\s*$)"#, in: text),
+        // This fallback intentionally requires an all-caps title. A case-insensitive
+        // `[A-Z]` also matches lowercase text and used to turn synopsis phrases such as
+        // “in a small western town...” into the project name.
+        if let v = firstMatch(#"\bin\s+([A-Z][A-Z0-9'&, \-]{2,40}?)(?=\s*[\(.,]|\s+by\b|\s*$)"#, in: text),
            let valid = cleanTitle(v), detectLocation(in: valid) == nil {
             return valid
         }

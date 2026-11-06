@@ -51,10 +51,28 @@ struct OCRLayoutReconstructor {
         }
 
         var reconstructedLines: [String] = []
+        var previousRowBottom: CGFloat?
+        var previousRowHeight: CGFloat = 0
 
         for row in rows {
             // Sort items in this visual row from left to right
             let sortedRow = row.sorted { $0.rect.minX < $1.rect.minX }
+            let rowTop = row.map(\.rect.maxY).max() ?? 0
+            let rowBottom = row.map(\.rect.minY).min() ?? rowTop
+            let rowHeight = max(rowTop - rowBottom, 0.001)
+
+            // OCR observations contain one box per printed line, so joining every row with a
+            // single newline erases the vertical blank lines that separate speaker turns and
+            // paragraphs in sides. Restore one empty line when the page has a clear paragraph gap.
+            if let previousRowBottom {
+                let verticalGap = previousRowBottom - rowTop
+                let paragraphThreshold = max(min(previousRowHeight, rowHeight) * 0.7, 0.006)
+                if verticalGap > paragraphThreshold, !reconstructedLines.isEmpty {
+                    reconstructedLines.append("")
+                }
+            }
+            previousRowBottom = rowBottom
+            previousRowHeight = rowHeight
 
             if sortedRow.count == 2 {
                 let leftText = sortedRow[0].text.trimmingCharacters(in: .whitespaces)

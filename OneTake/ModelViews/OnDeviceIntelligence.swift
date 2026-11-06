@@ -189,22 +189,21 @@ enum OnDeviceIntelligence {
         return frontMatter + roleSnippet
     }
 
-    /// Uses the on-device Foundation Model (when supported and available) to refine and enrich a parsed draft
-    /// from raw casting notice text, resolving natural-language descriptions, director's notes, and ambiguous fields
-    /// without overwriting validated deterministic regex fields.
+    /// Secondary enrichment only: OCR and the deterministic parser own field extraction. The
+    /// language model may fill a missing value when it can be tied back to the source, but it may
+    /// not replace structured values or invent requirements/dates from unrelated notice sections.
     static func refineDraftWithFoundationModel(_ draft: NoticeParser.Draft, sourceText: String) async -> NoticeParser.Draft {
         let snippet = focusedContextSnippet(sourceText: sourceText, targetRole: draft.role, candidateRoles: draft.candidateRoles)
         guard !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return draft }
 
         let prompt = """
-        You are an expert casting director assistant. Analyze this casting call notice and extract the key audition fields.
+        You are an expert casting director assistant. Extract only values explicitly supported by this notice.
+        Do not treat a synopsis, production description, rehearsal date, callback date, or script dialogue as a project title, deadline, casting office, or audition requirement.
+        Do not choose a role when the notice says the actor may choose a character.
         Return each field on its own line using EXACTLY these keys (or 'None' if not mentioned):
         PROJECT: [Name of film, show, commercial, or play]
         ROLE: [Main character name being cast]
-        ROLE_SIZE: [Lead / Supporting / Co-Star / Day Player / Series Regular / None]
         CASTING_OFFICE: [Name of casting director or casting agency]
-        DEADLINE: [Self-tape submission due date/time, e.g. 'November 5, 2026' or 'Friday 5pm']
-        REQUIREMENTS: [Any specific video rules: Slate first, Landscape, Full length, Headshots, etc.]
         SIDES_LINK: [Cloud link for script sides if mentioned]
         SUBMISSION_LINK: [Tape upload link, form, or submission email]
         GUIDANCE: [Brief director's note, tone, or character background]
@@ -215,6 +214,7 @@ enum OnDeviceIntelligence {
         Current known details (do not contradict if accurate):
         Project: \(draft.project.isEmpty ? "Unknown" : draft.project)
         Role: \(draft.role.isEmpty ? "Unknown" : draft.role)
+        Candidate roles: \(draft.candidateRoles.isEmpty ? "Unknown" : draft.candidateRoles.joined(separator: ", "))
         """
 
         guard let answer = await respond(to: prompt) else { return draft }
@@ -225,43 +225,26 @@ enum OnDeviceIntelligence {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.uppercased().hasPrefix("PROJECT:") {
                 let val = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
-                if refined.project.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 50 {
+                if refined.project.isEmpty && isGroundedProjectTitle(val, in: sourceText) {
                     refined.project = val
                 }
             } else if trimmed.uppercased().hasPrefix("ROLE:") {
                 let val = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                 let normalizedRole = val.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " \t.,:;!?()[]{}\"'"))
-                let vagueRole = ["your choice", "character of your choice", "a character of your choice", "any character", "multiple roles"].contains(normalizedRole)
-                if refined.role.isEmpty && !vagueRole && !val.isEmpty && normalizedRole != "none" && val.count <= 35 {
-                    refined.role = val
-                    if !refined.candidateRoles.contains(val) { refined.candidateRoles.append(val) }
-                }
-            } else if trimmed.uppercased().hasPrefix("ROLE_SIZE:") {
-                let val = String(trimmed.dropFirst(10)).trimmingCharacters(in: .whitespaces)
-                if !val.isEmpty && val.lowercased() != "none" {
-                    refined.roleSize = val
+                let supportedRole = refined.candidateRoles.first { $0.caseInsensitiveCompare(val) == .orderedSame }
+                let explicitlyNamedRole = sourceText.range(of: #"(?i)\b(?:role|character|part)\s*[:\-]\s*"# + NSRegularExpression.escapedPattern(for: val), options: .regularExpression) != nil
+                let roleIsSupported = supportedRole != nil || (refined.candidateRoles.isEmpty && explicitlyNamedRole)
+                if refined.role.isEmpty && !NoticeParser.containsOpenRoleChoice(in: sourceText) && normalizedRole != "none" &&
+                    !val.isEmpty && val.count <= 35 && roleIsSupported && refined.candidateRoles.count <= 1 {
+                    refined.role = supportedRole ?? val
+                    if !refined.candidateRoles.contains(where: { $0.caseInsensitiveCompare(refined.role) == .orderedSame }) {
+                        refined.candidateRoles.append(refined.role)
+                    }
                 }
             } else if trimmed.uppercased().hasPrefix("CASTING_OFFICE:") {
                 let val = String(trimmed.dropFirst(15)).trimmingCharacters(in: .whitespaces)
-                if refined.castingOffice.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 50 {
+                if refined.castingOffice.isEmpty && isGroundedCastingOffice(val, in: sourceText) {
                     refined.castingOffice = val
-                }
-            } else if trimmed.uppercased().hasPrefix("DEADLINE:") {
-                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
-                if refined.due == nil && !val.isEmpty && val.lowercased() != "none" {
-                    if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
-                       let match = detector.firstMatch(in: val, range: NSRange(val.startIndex..., in: val)),
-                       let date = match.date {
-                        refined.due = date
-                    }
-                }
-            } else if trimmed.uppercased().hasPrefix("REQUIREMENTS:") {
-                let val = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
-                if !val.isEmpty && val.lowercased() != "none" {
-                    let items = val.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                    for item in items where !item.isEmpty && !refined.asks.contains(item) {
-                        refined.asks.append(item)
-                    }
                 }
             } else if trimmed.uppercased().hasPrefix("SIDES_LINK:") {
                 let val = String(trimmed.dropFirst(11)).trimmingCharacters(in: .whitespaces)
@@ -276,13 +259,44 @@ enum OnDeviceIntelligence {
                 }
             } else if trimmed.uppercased().hasPrefix("GUIDANCE:") {
                 let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
-                if refined.aiGuidance.isEmpty && !val.isEmpty && val.lowercased() != "none" {
+                if refined.aiGuidance.isEmpty && !val.isEmpty && val.lowercased() != "none" && hasExplicitGuidanceSection(in: sourceText) {
                     refined.aiGuidance = val
                 }
             }
         }
 
         return refined
+    }
+
+    private static func isGroundedProjectTitle(_ value: String, in source: String) -> Bool {
+        let candidate = value.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'.,;:-"))
+        guard !candidate.isEmpty, candidate.count <= 50, candidate.lowercased() != "none" else { return false }
+        let escaped = NSRegularExpression.escapedPattern(for: candidate)
+        let anchoredPatterns = [
+            #"(?i)\b(?:project(?:\s+(?:name|title|folder))?|film title|series title|show title|title|titled|called)\s*[:\-]?\s*[\"“']?"# + escaped,
+            #"(?i)\b(?:world premiere(?: production)?|premiere production|production|staging|revival|adaptation)\s+of\s+[\"“']?"# + escaped
+        ]
+        return anchoredPatterns.contains { source.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    private static func isGroundedCastingOffice(_ value: String, in source: String) -> Bool {
+        let candidate = value.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'.,;:-"))
+        guard !candidate.isEmpty, candidate.count <= 60, candidate.lowercased() != "none" else { return false }
+        let lines = source.components(separatedBy: .newlines)
+        for line in lines where line.range(of: candidate, options: .caseInsensitive) != nil {
+            let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !lower.hasPrefix("note on casting"), !lower.hasPrefix("a note on casting"),
+                  !lower.hasPrefix("casting notes"), !lower.hasPrefix("notes from casting") else { continue }
+            if lower.range(of: #"\bcasting\s+(?:director|office|company|agency)\b|\bcast by\b|\bcasting by\b"#, options: .regularExpression) != nil ||
+                candidate.lowercased().contains("casting") {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func hasExplicitGuidanceSection(in source: String) -> Bool {
+        source.range(of: #"(?i)\b(?:director(?:['’]s)?\s+notes?|acting notes?|tone notes?|what (?:we|i)'?re? looking for|character (?:note|brief|description|background)|role description)\s*[:\-]"#, options: .regularExpression) != nil
     }
 
     /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
