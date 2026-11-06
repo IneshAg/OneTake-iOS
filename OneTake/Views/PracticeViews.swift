@@ -570,7 +570,7 @@ struct StandalonePracticeView: View {
                                     .font(.otCaption.weight(.semibold))
                                     .foregroundStyle(line.isMine ? OT.accent : OT.reader)
                                 if line.isSilentReactionCue {
-                                    SilentReactionCue()
+                                    SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
                                 } else {
                                     HStack(alignment: .top, spacing: 10) {
                                         if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }

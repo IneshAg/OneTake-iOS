@@ -1386,6 +1386,23 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(scenes[0].lines[1].isMine)
     }
 
+    func testSilentReactionCueRecognitionForReaderAndActor() {
+        let lineMine = ScriptLine(character: "Maggie", text: "?", isMine: true)
+        XCTAssertTrue(lineMine.isSilentReactionCue)
+
+        let lineReader = ScriptLine(character: "Francis", text: "?", isMine: false)
+        XCTAssertTrue(lineReader.isSilentReactionCue)
+
+        let lineBeat = ScriptLine(character: "Maggie", text: "...", isMine: true)
+        XCTAssertTrue(lineBeat.isSilentReactionCue)
+
+        let linePause = ScriptLine(character: "Francis", text: "(pause)", isMine: false)
+        XCTAssertTrue(linePause.isSilentReactionCue)
+
+        let lineNormal = ScriptLine(character: "Francis", text: "What did you say?", isMine: false)
+        XCTAssertFalse(lineNormal.isSilentReactionCue)
+    }
+
     func testParsesInstagramFlyerWithDemographicsAndDeadline() {
 
         let text = """

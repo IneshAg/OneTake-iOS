@@ -1250,10 +1250,15 @@ struct ShootFlow: View {
     /// has had time to land (the same pacing as Run Lines).
     private func speakIfReader() {
         guard camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex), !lines[lineIndex].isMine else { return }
-        let readerIndex = lines[..<lineIndex].filter { !$0.isMine }.count
         readerAdvance?.cancel()
         readerAdvance = nil
         readerAudioMissing = false
+        if lines[lineIndex].isSilentReactionCue {
+            // Non-verbal reader reaction beat: hold natural beat and advance
+            scheduleTimedAdvance()
+            return
+        }
+        let readerIndex = lines[..<lineIndex].filter { !$0.isMine }.count
         guard reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerIndex, volume: readerGain) else {
             readerAudioMissing = true
             scheduleTimedAdvance()
@@ -1637,23 +1642,21 @@ struct SidesPrompterView: View {
 
                                 // Dialogue content
                                 if isCurrent {
-                                    if line.isMine {
+                                    if line.isSilentReactionCue {
+                                        SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: true)
+                                    } else if line.isMine {
                                         let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
                                         let isRev = revealedLines.contains(line.id)
-                                        if line.isSilentReactionCue {
-                                            SilentReactionCue()
-                                        } else {
-                                            attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
-                                                .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                                .shadow(
-                                                    color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
-                                                    radius: matchedIndices.isEmpty ? 0 : 7
-                                                )
-                                                .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
+                                        attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
+                                            .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                                            .shadow(
+                                                color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
+                                                radius: matchedIndices.isEmpty ? 0 : 7
+                                            )
+                                            .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                                        if displayMode != .full && !line.isSilentReactionCue {
+                                        if displayMode != .full {
                                             Button {
                                                 onToggleReveal?(line.id)
                                             } label: {
@@ -1679,7 +1682,7 @@ struct SidesPrompterView: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 } else if isPast {
-                                    Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
+                                    Text(line.isSilentReactionCue ? "[ \(line.text) ] Reaction beat" : line.text)
                                         .font(.system(size: prompterSize == 0 ? 11 : 12, weight: .regular, design: .monospaced))
                                         .foregroundStyle(Color.white.opacity(0.25))
                                         .lineLimit(1)
@@ -1688,7 +1691,12 @@ struct SidesPrompterView: View {
                                     let isImmediateNext = (index == currentIndex + 1)
                                     let nextLimit = isImmediateNext ? (prompterSize == 0 ? 1 : 2) : 1
                                     let nextOpacity = isImmediateNext ? 0.55 : 0.20
-                                    if line.isMine && displayMode == .firstLetters {
+                                    if line.isSilentReactionCue {
+                                        Text("[ \(line.text) ] \(line.isMine ? "Questioning expression" : "Reaction beat")")
+                                            .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(nextOpacity))
+                                            .lineLimit(1)
+                                    } else if line.isMine && displayMode == .firstLetters {
                                         Text(promptFirstLettersString(line.text))
                                             .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
                                             .foregroundStyle(Color.white.opacity(nextOpacity))
@@ -1699,7 +1707,7 @@ struct SidesPrompterView: View {
                                             .foregroundStyle(Color.white.opacity(nextOpacity))
                                             .lineLimit(1)
                                     } else {
-                                        Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
+                                        Text(line.text)
                                             .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
                                             .foregroundStyle(Color.white.opacity(nextOpacity))
                                             .lineLimit(nextLimit)

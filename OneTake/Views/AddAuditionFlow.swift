@@ -2243,28 +2243,33 @@ struct ScriptReviewAndEditView: View {
                             }
 
                             // Editable Line Text
-                            Text(line.text)
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(OT.labelPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(line.isMine ? OT.accentSoft.opacity(0.35) : OT.fillField)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(line.isMine ? OT.accent.opacity(0.25) : OT.separator.opacity(0.5), lineWidth: 1)
-                                )
-                                .onTapGesture {
+                            if line.isSilentReactionCue {
+                                Button {
                                     editingLine = (sIdx, lIdx)
                                     editedText = line.text
+                                } label: {
+                                    SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
                                 }
-                            if line.isSilentReactionCue {
-                                Label("Silent reaction · react in character, no reader audio", systemImage: "face.smiling")
-                                    .font(.otCaption)
-                                    .foregroundStyle(OT.labelSecondary)
+                                .buttonStyle(.plain)
+                            } else {
+                                Text(line.text)
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(line.isMine ? OT.accentSoft.opacity(0.35) : OT.fillField)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(line.isMine ? OT.accent.opacity(0.25) : OT.separator.opacity(0.5), lineWidth: 1)
+                                    )
+                                    .onTapGesture {
+                                        editingLine = (sIdx, lIdx)
+                                        editedText = line.text
+                                    }
                             }
                         }
                         .padding(.vertical, 3)

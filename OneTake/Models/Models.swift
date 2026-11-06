@@ -53,9 +53,18 @@ struct ScriptLine: Identifiable, Hashable, Codable, Sendable {
     var text: String
     var isMine: Bool
 
-    /// A question mark on the actor's cue line represents a silent reaction, not spoken dialogue.
+    /// A line consisting of punctuation or stage-direction reaction (e.g. "?", "...", ".", "(pause)", "(scoffs)")
+    /// represents a non-verbal expression/reaction beat rather than spoken dialogue.
     var isSilentReactionCue: Bool {
-        isMine && text.trimmingCharacters(in: .whitespacesAndNewlines) == "?"
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "?" || trimmed == "..." || trimmed == "…" || trimmed == "." { return true }
+        if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
+            let inner = trimmed.dropFirst().dropLast().lowercased().trimmingCharacters(in: .whitespaces)
+            if ["pause", "beat", "scoffs", "shrugs", "silence", "silent", "reacts", "hesitates", "looks"].contains(inner) {
+                return true
+            }
+        }
+        return false
     }
 }
 

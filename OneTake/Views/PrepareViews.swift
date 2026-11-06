@@ -151,7 +151,7 @@ struct PrepareView: View {
             HStack(alignment: .top, spacing: 10) {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
                 if line.isSilentReactionCue {
-                    SilentReactionCue()
+                    SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
                 } else {
                     Text(display(line))
                         .font(line.isMine ? .system(size: CGFloat(textSize), weight: .semibold) : .system(size: CGFloat(textSize - 2)))
@@ -267,21 +267,22 @@ struct RunLinesView: View {
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
-                        if lines[index - 1].isSilentReactionCue { SilentReactionCue() }
-                        else { Text(lines[index - 1].text).font(.otCallout).foregroundStyle(OT.labelTertiary) }
+                        if lines[index - 1].isSilentReactionCue {
+                            SilentReactionCue(cueText: lines[index - 1].text, isMine: lines[index - 1].isMine, inPrompter: false)
+                        } else {
+                            Text(lines[index - 1].text).font(.otCallout).foregroundStyle(OT.labelTertiary)
+                        }
                     }
                     let line = lines[index]
-                    if line.isMine {
-                        if line.isSilentReactionCue {
-                            SilentReactionCue()
-                        } else {
-                            Label("Your line · listening", systemImage: "waveform")
-                                .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
-                            Text(highlighted(line.text))
-                                .font(.system(size: 30, weight: .bold))
-                                .foregroundStyle(OT.labelPrimary)
-                            Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
-                        }
+                    if line.isSilentReactionCue {
+                        SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
+                    } else if line.isMine {
+                        Label("Your line · listening", systemImage: "waveform")
+                            .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
+                        Text(highlighted(line.text))
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(OT.labelPrimary)
+                        Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
                     } else {
                         Label(readerAudioMissing ? "\(line.character.capitalized) · no recording" : "\(line.character.capitalized) · your recording", systemImage: readerAudioMissing ? "mic.slash" : "waveform")
                             .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
@@ -343,6 +344,15 @@ struct RunLinesView: View {
         readerAdvance?.cancel()
         readerAdvance = nil
         readerAudioMissing = false
+        if lines[index].isSilentReactionCue {
+            // Non-verbal reader beat: hold natural pause and advance
+            readerAdvance = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.6))
+                guard !Task.isCancelled else { return }
+                advance(lines)
+            }
+            return
+        }
         let readerLineIndex = lines[..<index].filter { !$0.isMine }.count
         guard readerPlayer.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: readerLineIndex) else {
             readerAudioMissing = true
@@ -406,7 +416,7 @@ struct RunFinishedView: View {
             ForEach(Array(lines.enumerated()), id: \.element.id) { i, l in
                 HStack(alignment: .top) {
                     Image(systemName: symbol(i, l)).foregroundStyle(onYourOwn.contains(i) ? OT.accent : OT.labelTertiary)
-                    if l.isSilentReactionCue { SilentReactionCue() }
+                    if l.isSilentReactionCue { SilentReactionCue(cueText: l.text, isMine: l.isMine, inPrompter: false) }
                     else { Text(l.text).font(l.isMine ? .otHeadline : .otCallout).foregroundStyle(l.isMine ? OT.labelPrimary : OT.labelTertiary) }
                 }
                 .accessibilityElement(children: .combine)
@@ -555,6 +565,7 @@ struct ReaderView: View {
                         Text("No reader lines for \(effectiveReaderName) in this scene.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     } else {
                         ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
+                            let isSilent = line.isSilentReactionCue
                             let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 12) {
@@ -571,16 +582,16 @@ struct ReaderView: View {
                                             }
                                         }
                                     } label: {
-                                        Image(systemName: recorded ? (playingLine == index && player.isPlaying ? "pause.fill" : "play.fill") : "mic.slash")
-                                            .foregroundStyle(recorded ? OT.labelPrimary : OT.labelTertiary)
+                                        Image(systemName: isSilent ? "face.smiling" : (recorded ? (playingLine == index && player.isPlaying ? "pause.fill" : "play.fill") : "mic.slash"))
+                                            .foregroundStyle(isSilent ? OT.accent : (recorded ? OT.labelPrimary : OT.labelTertiary))
                                             .frame(width: 36, height: 36).background(OT.accentSoft, in: Circle())
                                     }
                                     .buttonStyle(.plain)
-                                    .disabled(!recorded)
+                                    .disabled(!recorded || isSilent)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("Line \(index + 1)").font(.otBody)
-                                        Text(recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet").font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                        Text(isSilent ? "Silent reaction beat [ \(line.text) ] · No audio needed" : (recorded ? "Recorded · \"\(line.text.prefix(40))\"" : "Not recorded yet")).font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                     }
                                     Spacer()
 
@@ -1022,7 +1033,14 @@ struct RecordReaderView: View {
                     HStack {
                         SectionLabel(text: "\(readerName) · line \(lineIndex + 1)")
                         Spacer()
-                        if isCurrentRecorded {
+                        if line.isSilentReactionCue {
+                            HStack(spacing: 4) {
+                                Image(systemName: "face.smiling")
+                                Text("Silent beat · No audio needed")
+                            }
+                            .font(.otCaption.weight(.semibold))
+                            .foregroundStyle(OT.reader)
+                        } else if isCurrentRecorded {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.fill")
                                 Text("Recorded")
@@ -1040,12 +1058,16 @@ struct RecordReaderView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 14) {
-                        Text(line.text)
-                            .font(.system(size: 26, weight: .bold))
-                            .lineSpacing(4)
-                            .foregroundStyle(OT.labelPrimary)
+                        if line.isSilentReactionCue {
+                            SilentReactionCue(cueText: line.text, isMine: false, inPrompter: false)
+                        } else {
+                            Text(line.text)
+                                .font(.system(size: 26, weight: .bold))
+                                .lineSpacing(4)
+                                .foregroundStyle(OT.labelPrimary)
+                        }
 
-                        if isCurrentRecorded {
+                        if isCurrentRecorded && !line.isSilentReactionCue {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Play & Scrub Recorded Audio")
                                     .font(.otCaption.weight(.semibold))
@@ -1105,51 +1127,68 @@ struct RecordReaderView: View {
 
                     Spacer()
 
-                    if recording {
-                        VStack(spacing: 8) {
-                            HStack(spacing: 6) {
-                                Circle().fill(Color.red).frame(width: 8, height: 8)
-                                Text("Listening... Say the line clearly")
-                                    .font(.otFootnote.weight(.semibold))
-                                    .foregroundStyle(OT.labelPrimary)
+                    if line.isSilentReactionCue {
+                        Button {
+                            if lineIndex + 1 < readerLines.count {
+                                lineIndex += 1
+                            } else {
+                                lineIndex = readerLines.count
                             }
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(OT.fillField)
-                                        .frame(height: 6)
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(OT.accent)
-                                        .frame(width: max(8, geo.size.width * CGFloat(recorder.liveAudioLevel)), height: 6)
-                                        .animation(.easeOut(duration: 0.08), value: recorder.liveAudioLevel)
-                                }
-                            }
-                            .frame(height: 6)
-                            .padding(.horizontal, 40)
-                            Text("Tap stop when finished")
-                                .font(.otCaption)
-                                .foregroundStyle(OT.labelTertiary)
+                            Haptics.tick()
+                        } label: {
+                            Text(lineIndex < readerLines.count - 1 ? "Continue to next line" : "Review reader cues")
+                                .font(.otHeadline)
+                                .frame(maxWidth: .infinity)
                         }
-                    } else if isProcessing {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Verifying speech...")
+                        .buttonStyle(.otPrimary)
+                        .padding(.top, 8)
+                    } else {
+                        if recording {
+                            VStack(spacing: 8) {
+                                HStack(spacing: 6) {
+                                    Circle().fill(Color.red).frame(width: 8, height: 8)
+                                    Text("Listening... Say the line clearly")
+                                        .font(.otFootnote.weight(.semibold))
+                                        .foregroundStyle(OT.labelPrimary)
+                                }
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(OT.fillField)
+                                            .frame(height: 6)
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(OT.accent)
+                                            .frame(width: max(8, geo.size.width * CGFloat(recorder.liveAudioLevel)), height: 6)
+                                            .animation(.easeOut(duration: 0.08), value: recorder.liveAudioLevel)
+                                    }
+                                }
+                                .frame(height: 6)
+                                .padding(.horizontal, 40)
+                                Text("Tap stop when finished")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                        } else if isProcessing {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Verifying speech...")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Text(isCurrentRecorded ? "Tap record to retake this line" : "Tap record when you're ready")
                                 .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
+                                .foregroundStyle(OT.labelTertiary)
+                                .frame(maxWidth: .infinity)
+                        }
+
+                        RecordButton(isRecording: recording) {
+                            handleRecordTap(readerLines: readerLines, isCurrentRecorded: isCurrentRecorded)
                         }
                         .frame(maxWidth: .infinity)
-                    } else {
-                        Text(isCurrentRecorded ? "Tap record to retake this line" : "Tap record when you're ready")
-                            .font(.otFootnote)
-                            .foregroundStyle(OT.labelTertiary)
-                            .frame(maxWidth: .infinity)
+                        .disabled(isProcessing)
                     }
-
-                    RecordButton(isRecording: recording) {
-                        handleRecordTap(readerLines: readerLines, isCurrentRecorded: isCurrentRecorded)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .disabled(isProcessing)
                 } else {
                     // All lines completed or Review Mode
                     VStack(alignment: .leading, spacing: 12) {
@@ -1162,11 +1201,12 @@ struct RecordReaderView: View {
                         ScrollView {
                             VStack(spacing: 10) {
                                 ForEach(Array(readerLines.enumerated()), id: \.offset) { idx, line in
+                                    let isSilent = line.isSilentReactionCue
                                     let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: idx)
                                     VStack(alignment: .leading, spacing: 8) {
                                         HStack(spacing: 12) {
                                             Button {
-                                                if isRec {
+                                                if isRec && !isSilent {
                                                     if player.isPlaying && playingReviewIndex == idx {
                                                         player.pause()
                                                     } else if !player.isPlaying && playingReviewIndex == idx {
@@ -1178,18 +1218,18 @@ struct RecordReaderView: View {
                                                     }
                                                 }
                                             } label: {
-                                                Image(systemName: isRec ? (player.isPlaying && playingReviewIndex == idx ? "pause.fill" : "play.fill") : "mic.slash")
-                                                    .foregroundStyle(isRec ? OT.labelPrimary : OT.labelTertiary)
+                                                Image(systemName: isSilent ? "face.smiling" : (isRec ? (player.isPlaying && playingReviewIndex == idx ? "pause.fill" : "play.fill") : "mic.slash"))
+                                                    .foregroundStyle(isSilent ? OT.accent : (isRec ? OT.labelPrimary : OT.labelTertiary))
                                                     .frame(width: 36, height: 36)
                                                     .background(OT.accentSoft, in: Circle())
                                             }
                                             .buttonStyle(.plain)
-                                            .disabled(!isRec)
+                                            .disabled(!isRec || isSilent)
 
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text("Line \(idx + 1)")
                                                     .font(.otHeadline)
-                                                Text(line.text)
+                                                Text(isSilent ? "Silent reaction beat [ \(line.text) ] · No audio needed" : line.text)
                                                     .font(.otFootnote)
                                                     .foregroundStyle(OT.labelSecondary)
                                                     .lineLimit(2)
