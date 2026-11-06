@@ -2,11 +2,13 @@
 
 
 
-This master specification allows **any developer, automated CI/CD pipeline, or AI coding assistant** to replicate, train, evaluate, and benchmark the complete OneTake ML and document-parsing pipeline on any fresh computer from zero.
+This is a research and experimentation guide for the scripts under `scripts/`; it is not a description of the complete production iOS runtime. The commands and model results below must be treated as research workflows and claims to verify against the current code and artifacts before relying on them.
 
 
 
-All ML models, datasets, training scripts, and evaluation harnesses are strictly isolated in `scripts/` and `dataset/` to enable offline training, fine-tuning, and benchmarking before any integration into the iOS app (`OneTake/`).
+The production notice path is implemented in the iOS app. It uses PDFKit/Vision OCR and deterministic `NoticeParser` / `ScriptParser` extraction, followed by optional Apple Foundation Models refinement on supported devices. Structured notice metadata is stored on `Audition`, including project details, typed dates, roles, side materials, source documents/pages, field evidence, and submission instructions. The refined draft's structured layer is rebuilt from its source-grounded values.
+
+The production path does **not** route casting notices to Gemini or Ollama, and does not use a Core ML notice parser. Those cloud/local backend paths and the training/evaluation commands described later in this guide belong to the research tooling, not the iOS intake flow. The headshot pose model's presence and runtime use should be verified in the app code before assuming the training results below represent shipped behavior.
 
 
 
@@ -14,7 +16,7 @@ All ML models, datasets, training scripts, and evaluation harnesses are strictly
 
 
 
-## 1. Quickstart for AI Agents & New Machines (5-Minute Turnkey Setup)
+## 1. Research quickstart (not required to run the iOS app)
 
 
 
@@ -50,7 +52,7 @@ chmod +x scripts/setup_env.sh
 
 
 
-# Step 5: Verify model accuracy (Expect >= 90% accuracy, <= 11° yaw MAE)
+# Step 5: Measure model performance on the current dataset; results are not a production guarantee
 
 ./scripts/.venv/bin/python scripts/evaluate_dataset.py
 
@@ -62,7 +64,7 @@ chmod +x scripts/setup_env.sh
 
 
 
-# Step 7: Test the dual parsing route (Gemini Cloud Free Tier & Privacy-First Local Model)
+# Step 7: Run the experimental cloud/local parser harness (not the app's runtime route)
 
 ./scripts/.venv/bin/python scripts/test_free_cloud_parser.py --all
 
@@ -74,65 +76,32 @@ chmod +x scripts/setup_env.sh
 
 
 
-## 2. System Architecture & Dual Route Strategy
+## 2. Production notice parsing architecture
 
-
-
-OneTake addresses two distinct intelligence challenges in the self-tape audition workflow:
-
-
+The shipped iOS notice path preserves the original document/page text and runs deterministic parsing
+before an optional on-device Foundation Models refinement:
 
 ```mermaid
-
 flowchart TD
-
-    subgraph OnDevice["1. Vision & Pose (On-Device CoreML)"]
-
-        Camera["Live Camera Feed (60 fps)"] --> PoseNet["HeadshotPoseNet (MobileNetV3)"]
-
-        PoseNet --> PoseOut["• 3-Pose Angle (Front / Left Profile / Right Profile)<br>• Continuous Yaw Radians (±1.45 rad)<br>• 100% Offline / Real-time on Apple Neural Engine"]
-
-    end
-
-
-
-    subgraph DualParsing["2. Document & Sides Parsing (Dual Route)"]
-
-        DocInput["20+ Page Sides PDF / Scanned Notice"] --> Router{"Classify Sensitivity"}
-
-        Router -->|"Public / Fast (1M Context)"| Gemini["Google Gemini 1.5/2.0 Flash<br>(Cloud Free Tier: 1,500 req/day)"]
-
-        Router -->|"Confidential / NDA Sides"| Ollama["Privacy-First Model<br>(Local Ollama: Qwen2.5-7B on Mac)"]
-
-        Gemini --> Schema["Structured OneTake JSON<br>(NoticeParser.Draft & ScriptScene)"]
-
-        Ollama --> Schema
-
-    end
-
+    Input["PDF / photo / scan / pasted text / share"] --> OCR["PDFKit or Vision OCR<br>page text retained"]
+    OCR --> Rules["NoticeParser + ScriptParser<br>deterministic extraction"]
+    Rules --> Refine["Optional Apple Foundation Models<br>secondary, source-grounded refinement"]
+    Refine --> Structured["Draft: project / roles / dates / sides / instructions / evidence"]
+    Structured --> Review["Actor reviews and corrects"]
+    Review --> Saved["Audition persisted locally"]
 ```
 
+The structured layer includes project details, typed dates, role breakdowns, role-specific sides,
+source-document and page references, field evidence, and submission instructions. It is rebuilt after
+Foundation Model refinement so it reflects the final grounded draft. The deterministic path remains
+available if Foundation Models are unavailable.
 
-
-### Feature Comparison
-
-
-
-| Component | Architecture / Model | Context Window | Native PDF Vision? | Privacy | Cost |
-
-| :--- | :--- | :--- | :--- | :--- | :--- |
-
-| **Headshot Pose Classifier** | `MobileNetV3-Small` CoreML | 1 Frame ($224 \times 224$) | Direct Image | 100% On-Device | **$0.00** |
-
-| **Gemini Flash (Cloud Free)** | Gemini 1.5/2.0 Flash | **1,000,000 tokens** | **Yes** (Layout vision) | Sent to Google AI Studio | **$0.00** (1.5k req/day) |
-
-| **Privacy-First Model** | `Qwen2.5:7b` / `Llama3.1:8b` | **32,768 tokens** | Text/OCR | **100% On-Device (Zero data leaves)** | **$0.00** (Unlimited) |
-
-
+The production notice path is on-device. It does not send imported notices or sides to Gemini or
+Ollama. The Python cloud/local parser scripts elsewhere in this guide are experiments, not fallback
+routes used by the iOS app. This guide's training and benchmark commands describe research tooling;
+verify any model, accuracy, or runtime claims against the current app and generated artifacts.
 
 ---
-
-
 
 ## 3. System Prerequisites & Environment Matrix
 

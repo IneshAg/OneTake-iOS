@@ -188,12 +188,40 @@ An audition contains:
 - callback round
 - casting notes
 - private actor notes
+- optional structured notice details, role breakdowns, dates, side materials, source references,
+  evidence excerpts, and submission instructions
 
 Its state is:
 ```text
 due → ready → sent
 ```
 `ready` means all required pieces are complete. Optional pieces do not block packaging.
+
+### Structured casting-notice records
+
+The optional notice metadata types in `Models.swift` keep useful casting information separate
+without breaking older saved `Audition` records:
+
+| Model | Stored information |
+| --- | --- |
+| `AuditionProjectDetails` | Synopsis, production company/team, pay and union terms, NDA, casting/production locations, travel notes |
+| `AuditionDate` | Typed submission, audition, callback, rehearsal, production, or performance dates, with source page/text when found |
+| `AuditionRoleBreakdown` | Role description, age/gender wording when explicitly present, eligibility notes, and linked side IDs |
+| `AuditionSideMaterial` | Side title/number, associated role, page/source reference, and extracted text |
+| `AuditionSource` | Imported document or page identity, kind, URL, page count, and parent document reference |
+| `AuditionFieldEvidence` | Field name, source page, and a short surrounding excerpt |
+| `AuditionSubmissionInstructions` | Slate directions, orientation, video/take counts, accepted formats, submission route, and filename rule/template |
+
+`NoticeParser` fills these records from OCR/PDF, pasted text, scans, and shared files. Page records
+retain their parent document ID so a multi-file share can distinguish a notice from its sides. The
+records are evidence-oriented: demographic fields are only populated from explicit text; this parser
+does not infer ethnicity, skills, or missing requirements. The actor's editable review fields remain
+the source of truth for the main project, role, and deadline.
+
+Apple Foundation Models are a secondary refinement step for supported devices. After refinement,
+the structured records and evidence are rebuilt from the grounded draft so they stay in sync with
+the selected role and source. The production notice path does not route notice text to Gemini or
+Ollama, and it does not use a Core ML notice parser.
 
 ### `Piece`
 A `Piece` represents one checklist item:
@@ -397,13 +425,14 @@ The draft can identify:
 
 The draft is shown in a review screen before committing.
 
-### Parser fallback strategy
-The project supports multiple parsing paths:
-1. deterministic local parsing
-2. optional Core ML parser
-3. optional Apple Foundation Models explanation/guidance
+### Parser refinement strategy
+The production notice path has two layers:
+1. deterministic on-device OCR/text extraction and rule-based notice/script parsing
+2. optional Apple Foundation Models refinement on supported devices; deterministic values are retained unless a missing value can be grounded in the source
 
-The deterministic parser remains the source of measured facts. AI output is used for explanation or enhancement rather than silently replacing the underlying media checks.
+OCR text, page boundaries, and deterministic parser output remain available for review. A failed or
+unavailable Foundation Model pass does not block notice parsing. The research scripts under
+`scripts/` are experiments and evaluation tools; they are not the app's runtime parser.
 
 ---
 
@@ -701,7 +730,7 @@ It:
 Orientation is explicitly reapplied because copying raw frames alone would lose the recorded transform.
 
 ### File naming
-The final file name is generated from the actor profile and audition:
+The final file name defaults to the actor profile and audition:
 ```text
 LAST_FIRST_ROLE_PROJECT.mp4
 ```
@@ -710,6 +739,14 @@ For example:
 RAO_ASHA_MAYA_THELASTSUMMER.mp4
 ```
 The generated name is sanitized to uppercase letters and numbers.
+
+When a casting notice provides a recognizable naming rule, `NoticeParser` stores both the original
+rule and a normalized template. `Audition.deliverableFileName` substitutes supported tokens
+(`{name}`, `{firstName}`, `{lastName}`, `{role}`, `{project}`, `{side}`, `{scene}`, `{take}`,
+`{song}`) when the required values are available, then sanitizes the result. Separate clip exports
+add scene/side/take labels when the casting template does not contain those tokens. If a required
+token is unavailable or no usable template was found, the app uses its existing default naming
+pattern. A filename template can also be edited in Package.
 
 ### ZIP packaging
 `ZipArchive.swift` implements a custom store-only ZIP writer.

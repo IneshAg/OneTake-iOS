@@ -8,6 +8,8 @@
 > **Authoritative Architecture Reference**: See [`docs/STRUCTURE_AND_WORKING.md`](STRUCTURE_AND_WORKING.md) for the complete 18-section guide detailing current product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
 >
 > **Future Enhancements & Mockups**: See [`docs/FUTURE_ENHANCEMENTS.md`](FUTURE_ENHANCEMENTS.md) for specifications and UX mockups of planned improvements (including the Custom In-App Photo Picker, discrete dual-document intake wizard, and non-destructive trimming).
+>
+> **Session Changelog**: See [`docs/SESSION_CHANGELOG.md`](SESSION_CHANGELOG.md) for a commit-by-commit log of every change made, bugs fixed, and errors encountered across all active development sessions.
 
 ---
 
@@ -209,7 +211,10 @@ continues straight into its first step without presenting a camera over a dismis
 - `Audition` — project/type, role/size, casting office, due date, `asks: [String]`, ordered
   `pieces: [Piece]`, `scenes: [ScriptScene]`, destination, status (`due` / `ready` / `sent`),
   `sentDate`, recorded URLs (`slateVideoURL`, `fullLengthVideoURL`, `exportedFileURL`),
-  `shareLink` + `shareLinkExpires`, and optional `round` / `castingNotes` (callbacks).
+  `shareLink` + `shareLinkExpires`, optional `round` / `castingNotes` (callbacks), and optional
+  structured notice metadata: project details, important dates, role breakdowns, side materials,
+  source documents/pages, field evidence, and submission instructions. These fields remain optional
+  so previously persisted auditions continue to decode.
 - `Piece` — checklist row: `.headshot`, `.slate`, `.fullLength`, `.scene`, with title/detail/isDone.
   Order is tape order: headshot (not on tape, sent as photo), slate, full length, scenes.
 - `ScriptScene` / `ScriptLine` — scenes with number/title/heading, lines with character/text/isMine
@@ -305,11 +310,18 @@ Pipeline:
    due/deadline/submit/by; role (labelled, then phrases like "role of X", then caps cue); project
    (labelled or "X (feature)" patterns); casting office; scene count (explicit or parsed sluglines);
    asks (slate, landscape, full length, "Under N min", destination); project type.
+It also creates structured project details, typed dates, per-role breakdowns, side-material records,
+submission instructions, source-document/page references, and field-evidence excerpts. OCR-imported
+documents retain page-to-parent-document links; pasted text gets a generic source record. The
+Foundation Model refinement is secondary and the structured records are rebuilt afterward to keep
+them aligned with the refined, source-grounded draft.
 3. Missing date → `MissingDateView`, then review. Unreadable → retry/scan/type.
 4. Review lets every field be edited, then `Draft.makeAudition()`:
    - Always creates headshot + slate pieces.
    - `ScriptParser.parseScenes(sourceText, myRole:)` creates real scenes/pieces. If nothing parsed,
      creates `Scenes N` placeholders with "No sides yet — add them".
+   - Optional structured notice metadata is persisted on `Audition`; older saves decode because
+     these fields are optional.
 5. `save()` adds the audition, sets the Auditions stack to its detail, sets `continueAfterAdd`, and on
    the **first** audition requests notification permission. Sheet dismissal then continues into the
    first step.
