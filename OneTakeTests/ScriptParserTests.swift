@@ -413,6 +413,24 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(parsed[0].lines[0].text, "Look at me, I'm Sandra Dee.")
     }
 
+    func testCastingFlyerPayAndUsageLabelsAreNotDialogueOrScenes() {
+        // Layout and wording are based on a public two-page casting flyer. This fixture uses
+        // short synthetic text rather than reproducing the notice's role copy.
+        let flyer = """
+        CASTING CALL — COMMERCIAL
+        Seeking local adult actors for an internal training video.
+
+        RATE OF PAY: PRINCIPAL ROLE $1,500/DAY, SECONDARY ROLE $800/DAY + agency fee.
+        VIDEO USAGE: Internal training only. No broadcast. Location: Buffalo, NY.
+
+        Submit a self-tape by email. Include a headshot and resume.
+        """
+
+        XCTAssertTrue(ScriptParser.extractCharacters(from: flyer).isEmpty)
+        XCTAssertTrue(ScriptParser.parseScenes(from: flyer, myRole: "").isEmpty)
+        XCTAssertTrue(ScriptParser.identifyScenePortions(from: flyer).isEmpty)
+    }
+
     func testBPETokenizerEncodingDecoding() {
         let tokenizer = BPETokenizer.shared
         let original = "{\"project\": \"Grease\", \"role\": \"Sandy\"}"

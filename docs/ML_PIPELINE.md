@@ -10,6 +10,17 @@ The production notice path is implemented in the iOS app. It uses PDFKit/Vision 
 
 The production path does **not** route casting notices to Gemini or Ollama, and does not use a Core ML notice parser. Those cloud/local backend paths and the training/evaluation commands described later in this guide belong to the research tooling, not the iOS intake flow. The headshot pose model's presence and runtime use should be verified in the app code before assuming the training results below represent shipped behavior.
 
+### Public-format audit corpus (November 2026)
+
+The current intake regression checks include synthetic, copyright-safe fixtures based on these public format patterns:
+
+- [Pilgrimage casting notice and sides](https://www.kalnaga.com/pilgrimage/casting.html) and its [six-page sides PDF](https://www.kalnaga.com/pilgrimage/Pilgrimage_Casting_Sides.pdf): one notice plus role-specific pages, slate and video requirements, director notes, dialogue sides, and separate takes for multiple roles.
+- [Casting Buffalo two-page flyer](https://www.castingbuffalo.com/_files/ugd/574ead_34724d118e8b461796a4f5b7d17f7b03.pdf): poster-style production details and role breakdowns, with repeated right-aligned video-audition labels but no continuous column gutter.
+- [Long Beach Playhouse Hangmen audition notice](https://lbplayhouse.org/event/auditions-hangmen/) and a directly linked [Inspector Fry side PDF](https://lbplayhouse.org/wp-content/uploads/2026/03/Inspector-Fry-Audition-Side.pdf): theater event details, role breakdowns and individually linked sides; the side PDF is image-only.
+- [The Public Theater casting instructions](https://info-faqpt.helpscoutdocs.com/article/97-casting) and current [sides listing](https://thepublictheatre.org/sides/): submissions may require a full-name subject, cover letter, headshot/resume, and a choice among side materials.
+
+Audit observations: the downloadable Pilgrimage text layer yields six non-empty pages and five role portions; role-based parsing found 1–2 scenes for each selected role in the sample packet. The Casting Buffalo notice exposed a parser false positive where “Rate Of Pay” and “Video Usage” looked like speaker cues; cue filtering now rejects those metadata labels, and the regression expects zero script characters, scenes, or side portions from such a flyer. The two-column OCR fixture also caught explicit `ROLE:` entries losing parenthetical age/tier details as malformed names and later entries being ignored; the parser now scans each labeled role and strips its parenthetical metadata before listing it. The poster-layout fixture checks that repeated right-edge labels without a real gutter do not reorder role blocks. The raster-only Hangmen side cannot be checked through PDFKit text extraction; rendered-image OCR must be verified on an Apple device/runtime. Local Vision OCR could not be executed in the current audit environment because image request setup failed before recognition, so these checks do not claim image OCR accuracy.
+
 
 
 ---
@@ -95,6 +106,15 @@ The structured layer includes project details, typed dates, role breakdowns, rol
 source-document and page references, field evidence, and submission instructions. It is rebuilt after
 Foundation Model refinement so it reflects the final grounded draft. The deterministic path remains
 available if Foundation Models are unavailable.
+
+Vision image OCR uses a small luminance sample to stretch the useful contrast range before
+recognition, then retries with inverted text only when the first result is unreadable. Layout recovery
+uses observed column gaps and overlapping vertical spans before reading columns top-to-bottom; it
+falls back to row order when body text crosses the proposed gutter. Centered uppercase cue lines retain
+their measured indentation through script cleanup. Foundation Model context is bounded to the notice
+header, role excerpts, and later production/submission details, and structured refinements are checked
+against the relevant labeled source section. Ambiguous milestone phrases are not assigned a fabricated
+current date.
 
 The production notice path is on-device. It does not send imported notices or sides to Gemini or
 Ollama. The Python cloud/local parser scripts elsewhere in this guide are experiments, not fallback
@@ -747,3 +767,15 @@ Previous iterations of `OnDeviceIntelligence.swift` relied exclusively on `#if c
    - Priority 1: Executes offline on Neural Engine via `CoreMLParserRunner.shared`.
    - Priority 2: Falls back to `FoundationModels` when available.
    - Priority 3: Fallback to deterministic regex extractor.
+
+### Practice recall gaps
+Meaningful-word gap practice calls Foundation Models directly on iOS 26+ to choose a fixed number of meaning-bearing word indices from the actor's line. The line-index selection is cached locally and remains stable across attempts. If Foundation Models is unavailable or the response is invalid, a deterministic local ranking selects the words. The model receives only the line text and the request stays on device.
+
+### Voice-practice line review
+`VoicePracticeReviewAnalyzer` uses Apple Speech with `requiresOnDeviceRecognition = true` to
+transcribe a saved voice-only practice take and obtain per-word timestamps. A dynamic-programming
+alignment compares that transcript with actor-owned script lines, assigning possible skipped or
+extra words and within-line pauses back to their likely line. The UI calls these findings
+suggestions, allows correction/dismissal and avoids a performance score. Speech recognition can
+mishear accents, acting choices and paraphrase; unsupported on-device recognition fails to a
+manual-review message rather than uploading the recording or silently passing it.

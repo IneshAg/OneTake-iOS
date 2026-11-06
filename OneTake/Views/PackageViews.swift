@@ -11,6 +11,7 @@ import SwiftUI
 struct PackageView: View {
     enum Phase { case review, sending, readyToShare, failed, sent }
     enum ExportStage: Equatable {
+        case preparing
         case composing
         case archiving
         case uploading
@@ -20,8 +21,10 @@ struct PackageView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @State private var phase: Phase = .review
-    @State private var exportStage: ExportStage = .composing
+    @State private var exportStage: ExportStage = .preparing
     @State private var showDestination = false
+    @State private var showDeliverableSelector = false
+    @State private var showSubmissionSpecs = false
     @State private var showShare = false
     @State private var progress = 0.0
     @State private var exportErrorMessage: String?
@@ -32,12 +35,12 @@ struct PackageView: View {
     @State private var reportedProgress = -1.0
     @State private var showSignIn = false
     @State private var trimmingClip: PackageTrimTarget?
-    @State private var shareDeliverableOverride: PackageDeliverable? = nil
     @State private var showFileNameEditor = false
 
     var body: some View {
         if let a = store.audition(auditionID) {
-            let deliverable = a.packageDeliverable ?? .combinedVideo
+            let requiredFormat = requiredDeliverable(for: a)
+            let deliverable = a.packageDeliverable ?? requiredFormat ?? .combinedVideo
             Group {
                 switch phase {
                 case .review:  review(a)
@@ -47,30 +50,27 @@ struct PackageView: View {
                         audition: a,
                         destination: a.destination,
                         deliverable: deliverable,
-                        onShare: {
-                            shareDeliverableOverride = nil
-                            showShare = true
-                        },
-                        onShareAlternate: { alt in
-                            shareDeliverableOverride = alt
-                            showShare = true
-                        },
+                        onShare: { showShare = true },
                         onBack: { phase = .review }
                     )
-                case .failed:  SendFailedView(message: exportErrorMessage, onRetry: send)
+                case .failed:  SendFailedView(message: exportErrorMessage, onEditOptions: { phase = .review }, onRetry: send)
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: phase)
+            .onAppear {
+                if a.packageDeliverable == nil, let requiredFormat,
+                   let binding = store.binding(for: a.id) {
+                    binding.wrappedValue.packageDeliverable = requiredFormat
+                }
+            }
             .onChange(of: progress) { _, p in reportUpload(p) }
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
             .sheet(isPresented: $showShare) {
-                let targetDeliverable = shareDeliverableOverride ?? a.packageDeliverable ?? .combinedVideo
-                if let items = shareItems(a, deliverableOverride: targetDeliverable) {
+                if let items = shareItems(a) {
                     ShareSheet(items: items, subject: a.emailSubject(slate: store.slate)) { completed in
-                        shareDeliverableOverride = nil
                         if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
                         else { phase = .readyToShare }
                         endUpload()
@@ -100,7 +100,8 @@ struct PackageView: View {
 
     private func review(_ a: Audition) -> some View {
         let legend = tapeLegend(a)
-        let deliverable = a.packageDeliverable ?? .combinedVideo
+        let deliverable = a.packageDeliverable
+        let requiredFormat = requiredDeliverable(for: a)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 InContentNavHeader(backLabel: "Back", onBack: { store.pop() })
@@ -120,9 +121,25 @@ struct PackageView: View {
                 SectionLabel(text: "Submission Destination").padding(.top, 4)
                 destinationCard(a)
 
-                // 3. Notice Submission Specs & Validation
-                SectionLabel(text: "Submission Specs & Validation").padding(.top, 4)
-                submissionSpecsCard(a)
+                submissionCheckSummary(a)
+
+                DisclosureGroup(isExpanded: $showSubmissionSpecs) {
+                    submissionSpecsCard(a)
+                        .padding(.top, 8)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text.magnifyingglass").foregroundStyle(OT.labelSecondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("File specs & validation").font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
+                            Text("Filename, duration, size, and slate details")
+                                .font(.otCaption).foregroundStyle(OT.labelSecondary)
+                        }
+                        Spacer()
+                    }
+                }
+                .tint(OT.accent)
+                .padding(14)
+                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 // 4. Preview & Tape Check
                 VStack(spacing: 0) {
@@ -141,64 +158,101 @@ struct PackageView: View {
             bottomSendBar(a, deliverable: deliverable)
         }
         .sheet(isPresented: $showDestination) { DestinationSheet(auditionID: a.id).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $showDeliverableSelector) {
+            PackageFormatSheet(auditionID: a.id, required: requiredFormat)
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func submissionCheckSummary(_ audition: Audition) -> some View {
+        let format = audition.packageDeliverable
+        let destinationChosen = audition.destinationWasChosen ?? false
+        return VStack(alignment: .leading, spacing: 9) {
+            Label("Submission check", systemImage: "checkmark.seal")
+                .font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelSecondary)
+            checkRow(
+                title: "Delivery format",
+                value: format?.shortTitle ?? "Choose one",
+                isReady: format != nil
+            ) { showDeliverableSelector = true }
+            checkRow(
+                title: "Submission destination",
+                value: destinationChosen ? audition.destination.rawValue : "Choose one",
+                isReady: destinationChosen
+            ) { showDestination = true }
+        }
+        .padding(12)
+        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func checkRow(title: String, value: String, isReady: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: isReady ? "checkmark.circle.fill" : "circle.dashed")
+                    .foregroundStyle(isReady ? OT.success : OT.warning)
+                Text(title).foregroundStyle(OT.labelSecondary)
+                Spacer(minLength: 4)
+                Text(value).foregroundStyle(OT.labelPrimary).lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(OT.labelTertiary)
+            }
+            .font(.otCaption.weight(.medium))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Deliverable Format Card
-    private func deliverableFormatCard(_ a: Audition, current: PackageDeliverable) -> some View {
-        VStack(spacing: 8) {
-            ForEach(PackageDeliverable.allCases) { item in
-                let isSelected = item == current
-                Button {
-                    if let binding = store.binding(for: a.id) {
-                        binding.wrappedValue.packageDeliverable = item
+    private func deliverableFormatCard(_ a: Audition, current: PackageDeliverable?) -> some View {
+        Button { showDeliverableSelector = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: current?.icon ?? "shippingbox")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(current?.rawValue ?? "Choose a delivery format")
+                        .font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                    if let required = requiredDeliverable(for: a) {
+                        Text(current == required ? "Required by the casting notice" : "Casting requires: \(required.rawValue)")
+                            .font(.otCaption.weight(.semibold)).foregroundStyle(OT.accent)
+                    } else {
+                        Text(current.map { sizeLabelForDeliverable($0, audition: a) } ?? "No format specified by casting")
+                            .font(.otCaption).foregroundStyle(OT.labelSecondary)
                     }
-                    Haptics.tick()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(isSelected ? OT.accent : OT.labelSecondary)
-                            .frame(width: 32)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(item.rawValue)
-                                    .font(.otHeadline)
-                                    .foregroundStyle(OT.labelPrimary)
-                                Spacer()
-                                Text(sizeLabelForDeliverable(item, audition: a))
-                                    .font(.otCaption.weight(.semibold))
-                                    .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
-                            }
-                            Text(item.subtitle)
-                                .font(.otCaption)
-                                .foregroundStyle(OT.labelSecondary)
-                        }
-
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 20))
-                            .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(isSelected ? OT.accent : Color.clear, lineWidth: 1.5)
-                    )
                 }
-                .buttonStyle(.plain)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(OT.labelTertiary)
             }
+            .padding(14)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .padding(12)
+        .buttonStyle(.plain)
         .otCard(radius: 18)
+    }
+
+    private func requiredDeliverable(for audition: Audition) -> PackageDeliverable? {
+        let text = (audition.asks + (audition.submissionInstructions?.acceptedFormats ?? []) + (audition.submissionInstructions?.otherRequirements ?? []))
+            .joined(separator: " ").lowercased()
+        if text.range(of: #"\b(?:full package|video\s*\+\s*zip|video,?\s*clips?\s*(?:and|\+)\s*photos?)\b"#, options: .regularExpression) != nil {
+            return .completePackage
+        }
+        if text.range(of: #"\b(?:separate clips?|individual clips?|each scene separately|zip archive|zip file|\.zip)\b"#, options: .regularExpression) != nil {
+            return .separateZip
+        }
+        if text.range(of: #"\b(?:headshots? only|photos? only|only photos?)\b"#, options: .regularExpression) != nil {
+            return .headshotsOnly
+        }
+        if text.range(of: #"\b(?:single video|one video file|one combined file|combined video|single mp4|one mp4)\b"#, options: .regularExpression) != nil {
+            return .combinedVideo
+        }
+        return nil
     }
 
     // MARK: - Destination Card
     private func destinationCard(_ a: Audition) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let destinationChosen = a.destinationWasChosen ?? false
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Image(systemName: a.destination.icon)
                     .font(.system(size: 20, weight: .semibold))
@@ -206,10 +260,10 @@ struct PackageView: View {
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(a.destination.rawValue)
+                    Text(destinationChosen ? a.destination.rawValue : "Choose a submission destination")
                         .font(.otHeadline)
                         .foregroundStyle(OT.labelPrimary)
-                    Text(destinationSummary(a))
+                    Text(destinationChosen ? destinationSummary(a) : "No destination specified by casting")
                         .font(.otCaption)
                         .foregroundStyle(OT.labelSecondary)
                 }
@@ -217,7 +271,7 @@ struct PackageView: View {
                 Button {
                     showDestination = true
                 } label: {
-                    Text("Change")
+                    Text(destinationChosen ? "Change" : "Choose")
                         .font(.otFootnote.weight(.semibold))
                         .foregroundStyle(OT.accent)
                         .padding(.horizontal, 10)
@@ -226,41 +280,17 @@ struct PackageView: View {
                 }
                 .buttonStyle(.plain)
             }
-
-            // Quick destination selector pills
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    quickDestinationPill(label: "Files / AirDrop", icon: "folder.fill", destination: .localFiles, current: a.destination)
-                    quickDestinationPill(label: "Direct Email", icon: "envelope.fill", destination: .email, current: a.destination)
-                    quickDestinationPill(label: "Actors Access", icon: "ticket.fill", destination: .actorsAccess, current: a.destination)
-                    quickDestinationPill(label: "Backstage", icon: "theatermasks.fill", destination: .backstage, current: a.destination)
-                    quickDestinationPill(label: "Hosted Link", icon: "link", destination: .emailOrLink, current: a.destination)
+            if destinationChosen && a.destination == .emailOrLink && store.account == nil {
+                Button { showSignIn = true } label: {
+                    Label("Sign in or create an account", systemImage: "person.crop.circle.badge.plus")
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(OT.accent)
                 }
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
             }
         }
         .padding(14)
         .otCard(radius: 18)
-    }
-
-    private func quickDestinationPill(label: String, icon: String, destination: Destination, current: Destination) -> some View {
-        let isSelected = destination == current
-        return Button {
-            if let binding = store.binding(for: auditionID) {
-                binding.wrappedValue.destination = destination
-            }
-            Haptics.tick()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.caption2)
-                Text(label).font(.otCaption.weight(.medium))
-            }
-            .foregroundStyle(isSelected ? OT.labelOnAccent : OT.labelSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(isSelected ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private func destinationSummary(_ a: Audition) -> String {
@@ -285,7 +315,7 @@ struct PackageView: View {
 
     // MARK: - Submission Assistant & Validation Specs Card
     private func submissionSpecsCard(_ a: Audition) -> some View {
-        let deliverable = a.packageDeliverable ?? .combinedVideo
+        let deliverable = a.packageDeliverable
         let slate = store.slate
         let fileName = deliverable == .separateZip ? separateArchiveName(a) : a.deliverableFileName(slate: slate)
         let hasCustomTemplate = a.submissionInstructions?.fileNameTemplate?.isEmpty == false
@@ -305,7 +335,7 @@ struct PackageView: View {
                             .foregroundStyle(OT.accent)
                     }
                     Spacer()
-                    Text(fileName)
+                    Text(deliverable == nil ? "Choose a format above" : fileName)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(OT.labelPrimary)
                         .lineLimit(1)
@@ -328,7 +358,7 @@ struct PackageView: View {
                     .font(.otCaption.weight(.medium))
                     .foregroundStyle(OT.labelTertiary)
                 Spacer()
-                Text(deliverable == .separateZip ? "ZIP Archive (H.264 clips + JPEG)" : "H.264 · 1080p MP4")
+                Text(deliverable == nil ? "Not selected" : deliverable == .separateZip ? "ZIP Archive (H.264 clips + JPEG)" : "H.264 · 1080p MP4")
                     .font(.otCaption.weight(.semibold))
                     .foregroundStyle(OT.labelPrimary)
             }
@@ -373,7 +403,8 @@ struct PackageView: View {
         .otCard(radius: 18)
     }
 
-    private func sizeLabelForDeliverable(_ deliverable: PackageDeliverable, audition a: Audition) -> String {
+    private func sizeLabelForDeliverable(_ deliverable: PackageDeliverable?, audition a: Audition) -> String {
+        guard let deliverable else { return "Choose a format" }
         switch deliverable {
         case .combinedVideo:
             return exportedSizeLabel(a)
@@ -387,12 +418,26 @@ struct PackageView: View {
         }
     }
 
-    private func bottomSendBar(_ a: Audition, deliverable: PackageDeliverable) -> some View {
-        VStack(spacing: 4) {
-            Button { send() } label: {
+    private func bottomSendBar(_ a: Audition, deliverable: PackageDeliverable?) -> some View {
+        let destinationChosen = a.destinationWasChosen ?? false
+        let actionTitle: String
+        let actionIcon: String
+        if let deliverable {
+            actionTitle = destinationChosen ? sendButtonTitle(a, deliverable: deliverable) : "Choose submission destination"
+            actionIcon = destinationChosen ? sendButtonIcon(a) : "paperplane"
+        } else {
+            actionTitle = "Choose delivery format"
+            actionIcon = "shippingbox"
+        }
+        return VStack(spacing: 4) {
+            Button {
+                if deliverable == nil { showDeliverableSelector = true }
+                else if !destinationChosen { showDestination = true }
+                else { send() }
+            } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: sendButtonIcon(a))
-                    Text(sendButtonTitle(a, deliverable: deliverable))
+                    Image(systemName: actionIcon)
+                    Text(actionTitle)
                 }
                 .font(.otHeadline)
             }
@@ -425,7 +470,14 @@ struct PackageView: View {
         case .spotlight:
             return "Export \(deliverable.shortTitle) for Spotlight"
         case .emailOrLink:
-            return "Create Hosted Share Link"
+            let item: String
+            switch deliverable {
+            case .combinedVideo: item = "Video Link"
+            case .separateZip: item = "Clips ZIP Link"
+            case .headshotsOnly: item = "Photos ZIP Link"
+            case .completePackage: item = "Full Package Link"
+            }
+            return "Create \(item)"
         }
     }
 
@@ -488,18 +540,19 @@ struct PackageView: View {
     /// only once that succeeds does the share sheet open so the real file can actually go somewhere.
     private func send() {
         guard let a = store.audition(auditionID) else { return }
+        guard a.packageDeliverable != nil else {
+            showDeliverableSelector = true
+            return
+        }
+        guard a.destinationWasChosen ?? false else {
+            showDestination = true
+            return
+        }
         // A submission link is the one thing that needs an account — the actor's own iCloud. File
         // hand-offs to the casting sites never do.
         let asLink = a.destination == .emailOrLink
         // Account first (Apple or Google), then iCloud, which hosts the file.
         if asLink && store.account == nil {
-            // In a build without either capability there is no sign-in screen that could help;
-            // say so here instead of presenting a dead end.
-            guard AccountAuth.canSignIn else {
-                exportErrorMessage = "Sending a link needs an Apple or Google account, and sign-in isn't set up in this build. Choose Files or a casting site to hand over the tape instead."
-                phase = .failed
-                return
-            }
             showSignIn = true
             return
         }
@@ -511,41 +564,75 @@ struct PackageView: View {
         uploading = false
         phase = .sending
         progress = 0
-        exportStage = .composing
+        exportStage = .preparing
         exportErrorMessage = nil
+        store.clearShareLink(for: a.id)
         let takesForAudition = store.takes.filter { $0.auditionID == a.id }
         let slate = store.slate
         exportTask?.cancel()
         exportTask = Task {
             do {
-                // Stage 1: Composing video file (0% to 75% for files, 0% to 55% for link)
-                let videoWeight = asLink ? 0.55 : 0.75
-                let url = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
-                    Task { @MainActor in
-                        progress = min(videoWeight, p * videoWeight)
+                let format = a.packageDeliverable ?? .combinedVideo
+                let needsVideo = format == .combinedVideo || format == .completePackage
+                let needsClipArchive = format == .separateZip || format == .completePackage
+                var videoURL: URL?
+                var clipArchiveURL: URL?
+                var hostedArtifactURL: URL?
+
+                if needsVideo {
+                    await MainActor.run { exportStage = .composing; progress = 0.05 }
+                    let videoWeight = asLink ? 0.48 : 0.82
+                    videoURL = try await MediaExporter.export(a, takes: takesForAudition, slate: slate) { p in
+                        Task { @MainActor in progress = max(progress, p * videoWeight) }
+                    }
+                    if let videoURL {
+                        await MainActor.run { store.setExportedFile(videoURL, for: a.id) }
                     }
                 }
 
-                // Stage 2: Archiving separate clips & headshots
-                await MainActor.run {
-                    exportStage = .archiving
-                    progress = videoWeight + 0.05
-                }
-                let archiveURL = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
-                await MainActor.run {
-                    store.setExportedFile(url, for: a.id)
-                    store.setSeparateArchive(archiveURL, for: a.id)
-                    progress = asLink ? 0.75 : 0.95
+                if needsClipArchive {
+                    await MainActor.run {
+                        exportStage = .archiving
+                        progress = max(progress, needsVideo ? 0.52 : 0.10)
+                    }
+                    clipArchiveURL = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
+                    if let clipArchiveURL {
+                        await MainActor.run { store.setSeparateArchive(clipArchiveURL, for: a.id) }
+                    }
                 }
 
-                // Stage 3 (if link): Uploading to iCloud
+                switch format {
+                case .combinedVideo:
+                    hostedArtifactURL = videoURL
+                case .separateZip:
+                    hostedArtifactURL = clipArchiveURL
+                case .headshotsOnly:
+                    let baseName = (a.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+                    let photos = HeadshotStore.deliverables(baseName: baseName, auditionID: a.id)
+                    guard !photos.isEmpty else { throw MediaExporter.ExportError.nothingToExport }
+                    if asLink {
+                        await MainActor.run { exportStage = .archiving; progress = 0.4 }
+                        hostedArtifactURL = try MediaExporter.makeHeadshotsArchive(a, slate: slate)
+                    }
+                case .completePackage:
+                    guard let videoURL else { throw MediaExporter.ExportError.nothingToExport }
+                    if asLink {
+                        await MainActor.run { exportStage = .archiving; progress = 0.68 }
+                        hostedArtifactURL = try MediaExporter.makeCompletePackageArchive(
+                            a, combinedVideoURL: videoURL, takes: takesForAudition, slate: slate
+                        )
+                    }
+                }
+
+                // Hosted Link publishes the artifact selected above. It never substitutes an MP4.
                 if asLink {
+                    guard let hostedArtifactURL else { throw MediaExporter.ExportError.nothingToExport }
                     await MainActor.run {
                         exportStage = .uploading
                         uploading = true
-                        progress = 0.80
+                        progress = max(progress, 0.76)
                     }
-                    let link = try await CloudLink.publish(url)
+                    let link = try await CloudLink.publish(hostedArtifactURL)
                     await MainActor.run {
                         store.setShareLink(link, for: a.id)
                         progress = 0.95
@@ -557,7 +644,7 @@ struct PackageView: View {
                     }
                 }
 
-                // Stage 4: Finalizing & smooth completion
+                // Stage 4: Finalizing
                 await MainActor.run {
                     exportStage = .finalizing
                     progress = 1.0
@@ -582,15 +669,14 @@ struct PackageView: View {
     }
 
     /// What the share sheet hands on: the chosen deliverable (single video, separate clips ZIP, photos, or full package).
-    private func shareItems(_ a: Audition, deliverableOverride: PackageDeliverable? = nil) -> [Any]? {
-        let deliverable = deliverableOverride ?? a.packageDeliverable ?? .combinedVideo
+    private func shareItems(_ a: Audition) -> [Any]? {
+        guard let deliverable = a.packageDeliverable else { return nil }
         let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
 
-        if a.destination == .emailOrLink, deliverable == .combinedVideo {
-            if let link = a.shareLink {
-                let who = store.slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Self-tape" : store.slate.name
-                return ["\(who) — \(a.role), \(a.project)", link]
-            }
+        if a.destination == .emailOrLink {
+            guard let link = a.shareLink else { return nil }
+            let who = store.slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Self-tape" : store.slate.name
+            return ["\(who) — \(a.role), \(a.project)", link]
         }
 
         var items: [Any] = []
@@ -601,34 +687,19 @@ struct PackageView: View {
 
         switch deliverable {
         case .combinedVideo:
-            if let video = a.exportedFileURL {
-                items.append(video)
-            } else if let link = a.shareLink {
-                items.append(link)
-            }
+            guard let video = a.exportedFileURL else { return nil }
+            items.append(video)
         case .separateZip:
-            if let zip = a.separateArchiveURL {
-                items.append(zip)
-            } else if let video = a.exportedFileURL {
-                items.append(video)
-            }
+            guard let zip = a.separateArchiveURL else { return nil }
+            items.append(zip)
         case .headshotsOnly:
             let headshots = HeadshotStore.deliverables(baseName: baseName, auditionID: a.id)
             items.append(contentsOf: headshots)
-            if items.isEmpty, let zip = a.separateArchiveURL {
-                items.append(zip)
-            }
+            guard !headshots.isEmpty else { return nil }
         case .completePackage:
-            if let video = a.exportedFileURL { items.append(video) }
-            if let zip = a.separateArchiveURL { items.append(zip) }
-            let headshots = HeadshotStore.deliverables(baseName: baseName, auditionID: a.id)
-            items.append(contentsOf: headshots)
-        }
-
-        if items.isEmpty {
-            if let video = a.exportedFileURL { items.append(video) }
-            if let zip = a.separateArchiveURL { items.append(zip) }
-            if let link = a.shareLink { items.append(link) }
+            guard let video = a.exportedFileURL, let zip = a.separateArchiveURL else { return nil }
+            items.append(video)
+            items.append(zip)
         }
 
         return items.isEmpty ? nil : items
@@ -700,10 +771,66 @@ struct TapeStrip: View {
 
 // MARK: - 20.1 / 20.2 Where is it going?
 
+private struct PackageFormatSheet: View {
+    let auditionID: Audition.ID
+    let required: PackageDeliverable?
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            InContentNavHeader(title: "Delivery format", backLabel: "Done", onBack: { dismiss() })
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 16)
+            Text(required.map { "Casting requests \($0.rawValue)." } ?? "No file format was specified. Choose what you want to send.")
+                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, OT.gutter).padding(.top, 10).padding(.bottom, 4)
+            if let binding = store.binding(for: auditionID) {
+                List {
+                    ForEach(PackageDeliverable.allCases) { option in
+                        let selected = binding.wrappedValue.packageDeliverable == option
+                        Button {
+                            if binding.wrappedValue.packageDeliverable != option {
+                                store.clearShareLink(for: auditionID)
+                            }
+                            binding.wrappedValue.packageDeliverable = option
+                            Haptics.tick()
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: option.icon).foregroundStyle(OT.accent).frame(width: 24)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(option.rawValue).font(.otBody.weight(.semibold))
+                                        if required == option {
+                                            Text("Required").font(.otCaption.weight(.bold)).foregroundStyle(OT.accent)
+                                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                                .background(OT.accentSoft, in: Capsule())
+                                        }
+                                    }
+                                    Text(option.subtitle).font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                                if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.accent) }
+                            }
+                            .foregroundStyle(OT.labelPrimary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .otCanvas()
+    }
+}
+
 struct DestinationSheet: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var showSignIn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -713,38 +840,77 @@ struct DestinationSheet: View {
 
             if let audition = store.binding(for: auditionID) {
                 let current = audition.wrappedValue.destination
+                let wasChosen = audition.wrappedValue.destinationWasChosen ?? false
                 List {
                     Section("Destination & Submission Method") {
                         ForEach(Destination.allCases) { d in
-                            destinationRow(for: d, isSelected: current == d) {
+                            destinationRow(for: d, isSelected: wasChosen && current == d) {
+                                if current != d { store.clearShareLink(for: auditionID) }
                                 audition.wrappedValue.destination = d
+                                audition.wrappedValue.destinationWasChosen = true
                                 Haptics.tick()
                             }
                         }
                     }
 
-                    Section {
-                        TextField(
-                            current == .email ? "Casting email address (e.g. casting@production.com)" :
-                            current == .emailOrLink ? "Hosted link (Google Drive / YouTube / Vimeo / iCloud)" :
-                            "\(current.rawValue) account or submission notes",
-                            text: destinationDetailBinding(for: audition)
-                        )
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(current == .email ? .emailAddress : .default)
-                    } header: {
-                        Text(current == .email ? "Casting Recipient Email" : "Details & Notes")
-                    } footer: {
-                        Text(current == .email ? "We automatically format the cover email, subject line, and attach your chosen deliverable." :
-                             current == .localFiles ? "Export directly to your iPhone Files app, AirDrop to your computer, or copy to cloud storage." :
-                             "We match the file name and specifications each platform asks for.")
+                    if store.account == nil {
+                        Section("Account") {
+                            Button { showSignIn = true } label: {
+                                Label("Sign in or create an account", systemImage: "person.crop.circle.badge.plus")
+                            }
+                            Text(AccountAuth.canSignIn
+                                 ? "Sign in here to use a hosted link. You’ll return to this audition afterward."
+                                 : "The sign-in screen is available here, but Apple and Google aren’t configured in this build yet.")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        }
+                    }
+
+                    if wasChosen {
+                        Section {
+                            TextField(
+                                current == .email ? "Casting email address (e.g. casting@production.com)" :
+                                current == .emailOrLink ? "Hosted link (Google Drive / YouTube / Vimeo / iCloud)" :
+                                "\(current.rawValue) account or submission notes",
+                                text: destinationDetailBinding(for: audition)
+                            )
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(current == .email ? .emailAddress : .default)
+                        } header: {
+                            Text(current == .email ? "Casting Recipient Email" : "Details & Notes")
+                        } footer: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(current == .email ? "We automatically format the cover email, subject line, and attach your chosen deliverable." :
+                                     current == .localFiles ? "Export directly to your iPhone Files app, AirDrop to your computer, or copy to cloud storage." :
+                                     "We match the file name and specifications each platform asks for.")
+                                if !AccountAuth.canSignIn {
+                                    Text("Sign-in options are in Profile → Sign in. Apple and Google sign-in are not configured in this build, so hosted links are unavailable.")
+                                }
+                            }
+                        }
+                    } else {
+                        Section {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Choose the place you’ll send your audition. The notice’s email has been preselected when detected.")
+                                if !AccountAuth.canSignIn {
+                                    Text("Sign-in options are in Profile → Sign in. Apple and Google sign-in are not configured in this build, so hosted links are unavailable.")
+                                }
+                            }
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        }
                     }
                 }
                 .scrollContentBackground(.hidden)
             }
         }
         .otCanvas()
+        .sheet(isPresented: $showSignIn) {
+            SignInView(reason: "Sign in here to use a hosted link. You’ll return to this audition afterward.") { account in
+                store.account = account
+                showSignIn = false
+            }
+            .presentationDragIndicator(.visible)
+        }
     }
 
     @ViewBuilder
@@ -770,8 +936,6 @@ struct DestinationSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(d == .emailOrLink && !AccountAuth.canSignIn)
-        .opacity(d == .emailOrLink && !AccountAuth.canSignIn ? 0.55 : 1)
     }
 
     private func destinationDetailBinding(for audition: Binding<Audition>) -> Binding<String> {
@@ -788,10 +952,6 @@ struct DestinationSheet: View {
             set: { newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 audition.wrappedValue.destinationDetail = trimmed.isEmpty ? nil : trimmed
-                if !trimmed.isEmpty && trimmed.contains("@") {
-                    audition.wrappedValue.asks.removeAll { $0.hasPrefix("Email: ") }
-                    audition.wrappedValue.asks.append("Email: \(trimmed)")
-                }
             }
         )
     }
@@ -818,7 +978,7 @@ struct SendProgressView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionLabel(text: "Packaging your tape").padding(.top, 20)
+            SectionLabel(text: "Preparing \(audition.packageDeliverable?.shortTitle ?? "delivery")").padding(.top, 20)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(Int(progress * 100))").font(.system(size: 72, weight: .bold)).monospacedDigit()
                 Text("%").font(.otTitle)
@@ -841,15 +1001,22 @@ struct SendProgressView: View {
                 .padding(.top, 2)
 
             SectionLabel(text: "Steps").padding(.top, 8)
-            step("Found your recorded pieces", done: true, active: false)
-            step("Composing main audition video",
-                 done: exportStage != .composing,
-                 active: exportStage == .composing)
-            step("Archiving separate clips & headshots",
-                 done: exportStage == .uploading || exportStage == .finalizing || progress >= 1.0,
-                 active: exportStage == .archiving)
+            let format = audition.packageDeliverable ?? .combinedVideo
+            if format != .headshotsOnly {
+                step("Found your recorded pieces", done: true, active: false)
+            }
+            if format == .combinedVideo || format == .completePackage {
+                step("Composing combined video",
+                     done: exportStage == .archiving || exportStage == .uploading || exportStage == .finalizing || progress >= 1.0,
+                     active: exportStage == .composing)
+            }
+            if format == .separateZip || format == .completePackage || (format == .headshotsOnly && audition.destination == .emailOrLink) {
+                step(format == .headshotsOnly ? "Preparing photos ZIP" : "Archiving selected clips and photos",
+                     done: exportStage == .uploading || exportStage == .finalizing || progress >= 1.0,
+                     active: exportStage == .archiving)
+            }
             if audition.destination == .emailOrLink {
-                step("Uploading to your iCloud",
+                step("Uploading selected file to your iCloud",
                      done: exportStage == .finalizing || progress >= 1.0,
                      active: exportStage == .uploading)
             }
@@ -862,12 +1029,14 @@ struct SendProgressView: View {
 
     private var statusMessage: String {
         switch exportStage {
+        case .preparing:
+            return "Getting the selected files ready..."
         case .composing:
-            return "Combining chosen takes and slate into one deliverable video..."
+            return "Combining the selected takes and slate into your video..."
         case .archiving:
-            return "Packaging individual clips and headshots into deliverable ZIP..."
+            return "Creating the selected ZIP package..."
         case .uploading:
-            return "Uploading your package to iCloud..."
+            return "Uploading the selected file to iCloud..."
         case .finalizing:
             return "Finalizing delivery package..."
         }
@@ -892,14 +1061,12 @@ struct SendProgressView: View {
     }
 }
 
-/// Export finishes here: allows the actor to share the chosen deliverable (video, ZIP, photos),
-/// or switch to alternate formats and copy email details without re-recording or going back.
+/// Export finishes here: the selected deliverable is ready to hand off.
 struct DeliveryReadyView: View {
     let audition: Audition
     let destination: Destination
     let deliverable: PackageDeliverable
     var onShare: () -> Void
-    var onShareAlternate: (PackageDeliverable) -> Void
     var onBack: () -> Void
 
     @State private var copiedNoticeToast: Bool = false
@@ -958,57 +1125,11 @@ struct DeliveryReadyView: View {
                 }
                 .buttonStyle(.otPrimary)
 
-                // Alternate formats quick export
-                SectionLabel(text: "Also Available to Share")
+                // Change choices by returning to package review; alternate formats aren't
+                // generated behind the scenes and must not silently change what gets shared.
                 VStack(spacing: 8) {
-                    if deliverable != .separateZip {
-                        Button {
-                            onShareAlternate(.separateZip)
-                        } label: {
-                            HStack {
-                                Label("Share Separate Clips (.zip)", systemImage: "doc.zipper")
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption)
-                            }
-                            .font(.otBody)
-                            .padding(14)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    if deliverable != .combinedVideo {
-                        Button {
-                            onShareAlternate(.combinedVideo)
-                        } label: {
-                            HStack {
-                                Label("Share Combined Video (.mp4)", systemImage: "film")
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption)
-                            }
-                            .font(.otBody)
-                            .padding(14)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    if deliverable != .headshotsOnly {
-                        Button {
-                            onShareAlternate(.headshotsOnly)
-                        } label: {
-                            HStack {
-                                Label("Share Headshots / Photos", systemImage: "photo.on.rectangle")
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption)
-                            }
-                            .font(.otBody)
-                            .padding(14)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
+                    Button("Change format or destination", action: onBack)
+                        .buttonStyle(.otSecondary)
                     if destination == .email {
                         Button {
                             let text = audition.emailBody(slate: SlateInfo())
@@ -1082,6 +1203,7 @@ struct DeliveryReadyView: View {
 
 struct SendFailedView: View {
     let message: String?
+    var onEditOptions: () -> Void
     var onRetry: () -> Void
 
     var body: some View {
@@ -1091,6 +1213,7 @@ struct SendFailedView: View {
             Text(message ?? "Something went wrong composing your tape. Your takes are untouched on this iPhone — this only affects the combined file.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
             Spacer()
+            Button("Back to package options", action: onEditOptions).buttonStyle(.otSecondary)
             Button("Try again", action: onRetry).buttonStyle(.otPrimary)
         }
         .padding(.horizontal, OT.gutter)

@@ -181,7 +181,7 @@ An audition contains:
 - selected package format
 - status
 - slate video
-- full-length video
+- requested full-body shot video
 - export URLs
 - ZIP archive URL
 - iCloud share link
@@ -227,7 +227,7 @@ Ollama, and it does not use a Core ML notice parser.
 A `Piece` represents one checklist item:
 - headshot
 - slate
-- full length
+- full-body shot (only when requested separately)
 - scene
 
 Each piece has:
@@ -236,7 +236,11 @@ Each piece has:
 - completion state
 - optional/required state
 
-The audition’s `nextPiece` drives the “Next” experience throughout the app.
+The audition’s `nextPiece` drives the “Next” experience throughout the app. It follows the stored
+piece order; new auditions default to **Headshots → Slate → Scenes**, inserting a separate **Full-body shot** only when the notice asks for a separate head-to-toe clip. If the notice includes full-body framing in the slate, it stays within the slate. Legacy full-length pieces are migrated to the new label.
+Actors can change that order in Edit Details by tapping **Edit** in Flow Order and dragging pieces.
+Optional work can appear in the chosen order while required work remains, but optional pieces do not
+prevent preview once all required pieces are complete.
 
 ### `ScriptScene`
 A scene contains:
@@ -362,7 +366,8 @@ The user can import a notice through:
 - RTF conversion
 - security-scoped file access
 - image normalization
-- grayscale and contrast enhancement
+- grayscale with sampled luminance-range normalization
+- dark-background detection and a separate inverted-text retry when the first pass is unreadable
 - English and Hindi recognition
 - readability validation
 
@@ -388,7 +393,12 @@ It handles:
 - vertical ordering
 - horizontal ordering
 - table-like key/value rows
-- two-column casting breakdowns
+- two-column casting breakdowns when both columns share a vertical band and have a clear center gutter
+- centered uppercase screenplay cues, whose measured left margin is preserved for script parsing
+
+If text crosses the center gutter through the body of a page, the reconstructor keeps the normal
+row-order fallback instead of moving that text to the end of a column. This avoids manufacturing a
+false reading order from a weak column guess.
 
 For example:
 ```text
@@ -425,10 +435,41 @@ The draft can identify:
 
 The draft is shown in a review screen before committing.
 
+The OCR review is an editable checkpoint, not a read-only extraction report. Its labels separate
+production/project facts, role and character information, casting notes, actor notes, delivery
+requirements, and practice cue audio. The original notice image can be opened beside the extracted
+values. Notice-only headings and submission checklists are excluded from script parsing unless
+actual side/scene structure is found. Scene selection is consequently omitted when no sides exist.
+The parser also recognizes whether slate, headshots, scenes, or résumé are optional when the notice
+states that explicitly. These are still extraction suggestions; the actor can correct them before
+saving.
+
+Casting notices and script sides are represented as distinct source kinds. The actor can add or
+replace sides after the notice through the Add/Replace Sides route. The current intake does not yet
+present a dedicated two-step wizard that requires two separately labeled PDFs.
+
+### Résumé handling
+`ResumeStore` copies the selected file into app-owned Profile storage. Profile can hold a reusable
+résumé; the OCR review can include or omit it for each audition and can replace the profile copy.
+Supported imports are PDF, DOC, DOCX, RTF and plain text. A résumé becomes a blocking requirement
+only when the source notice indicates it is required; “optional” wording stays optional.
+
 ### Parser refinement strategy
 The production notice path has two layers:
 1. deterministic on-device OCR/text extraction and rule-based notice/script parsing
 2. optional Apple Foundation Models refinement on supported devices; deterministic values are retained unless a missing value can be grounded in the source
+
+The refinement prompt includes the first-page/header text, bounded excerpts for detected roles, and
+later-page windows for production and submission details. Returned pay, union, location, date,
+orientation, and file-naming values must match a relevant source section before they are added.
+Imprecise milestone phrases are not stored with the current date as a stand-in. The separate Core ML
+notice parser helper is not connected to the production intake route; its field mapping applies the
+same source checks if that experimental helper is invoked.
+
+When Apple Foundation Models are unavailable, `ScriptParser.divideIntoThoughtUnits` provides an
+offline deterministic beat split for long dialogue. OCR-recognized centered cues retain their
+relative indentation through text cleanup so the script parser has both capitalization and layout
+to distinguish cues from short all-caps dialogue.
 
 OCR text, page boundaries, and deterministic parser output remain available for review. A failed or
 unavailable Foundation Model pass does not block notice parsing. The research scripts under
@@ -497,6 +538,7 @@ The actor can use:
 - first-letter prompts
 - hidden actor lines
 - mask-and-reveal
+- meaningful-word gaps (tap a masked word to reveal a clue)
 - audio gap
 - audio walk
 - reader playback
@@ -514,12 +556,27 @@ It supports:
 - repeated words
 - forward-only matching
 
+### Meaningful-word gaps
+`RecallGapSelectionStore` caches a stable set of hidden word positions for each line. On iOS 26+, it asks Foundation Models on-device to select meaning-bearing words. If that model is unavailable or fails, a deterministic local word-ranking fallback is used. Selections are cached so a line does not reshuffle between practice attempts; tapping a gap reveals that word as a temporary clue.
+
 The forward-monotonic matching prevents common words such as “you”, “the”, or “I” from being highlighted out of sequence.
+
+### Voice-practice review
+`VoicePracticeReviewAnalyzer` extracts the audio track from a saved voice-practice take and asks
+Apple Speech for on-device transcription with word timestamps. It aligns recognized words to the
+actor's script lines and surfaces per-line suggestions: Looks okay, Skipped, Forgot, Hesitated or
+Not in Script. A pause of around 1.25 seconds between matched words is a hesitation suggestion.
+The actor can change or dismiss a suggestion. This is not a performance score; recognition can
+miss accents, paraphrases or intentional acting pauses. If on-device recognition is unavailable,
+the app preserves the recording and offers manual review.
 
 ### Reader audio
 Reader tracks are recorded line-by-line and stored locally. The reader audio is then played during rehearsal and shooting.
 
 The app increments `readerTrackVersion` whenever reader recordings change so views backed by disk files refresh correctly.
+Existing reader cues can be scrubbed and trimmed. The first unedited recording is retained as an
+original copy, and the UI can restore it after confirmation. A failed trim leaves the currently
+installed cue intact.
 
 ---
 
@@ -565,7 +622,7 @@ Camera check
    ↓
 Slate
    ↓
-Optional full-length
+Requested separate full-body shot
    ↓
 Scene 1
    ↓
@@ -593,6 +650,12 @@ The app supports:
 
 The saved camera output is moved from temporary storage into permanent Documents storage before being added to the app state.
 
+Camera check shows preparation guidance before recording, including a notice-orientation warning
+and live microphone activity when the audio connection exposes metering. Resolution choices use
+the supported camera preset list. On Simulator, choosing a resolution only changes the app's
+preference; it does not make simulator camera capture possible. Shoot setup does not display a
+storage estimate.
+
 ---
 
 ## 10. Headshots
@@ -613,6 +676,10 @@ The app stores:
 - profile headshots
 
 Headshot images are cached because repeatedly decoding JPEG files while scrolling would cause unnecessary file I/O.
+
+After audition headshots are saved, the screen shows the saved set, thumbnails and the stored crop
+ratio for each angle, with a clear next action to continue to slate. Completion is derived from
+the actual saved angle files rather than the number of occupied slots.
 
 The optional pose guide uses on-device Vision/Core ML logic and does not upload pose data.
 
@@ -695,6 +762,11 @@ Optional timing prompts do not reduce the technical readiness score.
 
 Analysis results are cached using the file path, modification date, file size, and label, so unchanged clips do not need to be analyzed again.
 
+Tape Check also lists Slate, a requested separate Full-body shot, and each available scene as separate review entries.
+Opening an entry plays that clip and limits the displayed technical findings to that clip; its
+retake/edit action routes back to that element's capture or take-selection flow. The overall Tape
+Check and full preview remain separate destinations.
+
 ---
 
 ## 13. Preview and export
@@ -707,7 +779,7 @@ This prevents a preview/export mismatch.
 A tape consists of:
 ```text
 Slate
-Full length
+Full-body shot (if separately requested)
 Circled Scene 1 take
 Circled Scene 2 take
 ...
@@ -761,19 +833,25 @@ It streams files rather than loading complete videos into memory.
 
 It also validates extracted paths to prevent archive path traversal when restoring backups.
 
+### Current package choices and recovery
+Package format and destination are chosen in sheets. A compact submission check summarizes those
+choices near the top, while filename, duration, size and slate details are collapsed under file
+specifications. A detected required format may be preselected. If the notice does not specify a
+format, the check asks the actor to choose one.
+
 ---
 
 ## 14. Sending
 
 Package behavior is in `PackageViews.swift`.
 
-The actor chooses:
+The current format picker offers:
 - combined MP4
 - separate clips ZIP
 - headshots only
 - full package
 
-Then chooses a destination such as:
+The destination picker offers destinations such as:
 - Actors Access
 - Backstage
 - Casting Networks
@@ -781,6 +859,12 @@ Then chooses a destination such as:
 - direct email
 - Files/AirDrop
 - email or link
+
+The package UI includes sign-in entry from both Profile and destination selection. Apple and Google
+providers are not configured in the current build, so hosted link creation is not verified or
+available there. If packaging fails, the actor can return to package options or retry without being
+trapped on the error screen. Combined video remains one of the current format choices; removing it
+and reducing sharing to exactly two actions has not been implemented.
 
 ### Local delivery
 For ordinary destinations, OneTake:
@@ -791,8 +875,11 @@ For ordinary destinations, OneTake:
 
 The app does not pretend that a casting site accepted the submission.
 
-### iCloud delivery
-`CloudLink.swift` handles the “Email or link” option.
+### Hosted-link delivery status
+`CloudLink.swift` contains the “Email or link” path. The app's current build does not have Apple or
+Google sign-in providers configured, so hosted-link delivery must be treated as unavailable until
+provider setup and a successful end-to-end upload test are completed. The flow below describes the
+intended implementation, not a verified capability in this build.
 
 The sequence is:
 ```text

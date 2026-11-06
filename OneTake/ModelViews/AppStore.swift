@@ -18,6 +18,8 @@ enum Route: Hashable {
     case package(Audition.ID)
     /// 20.0 — the whole tape with chapters, after Tape Check and before Package.
     case preview(Audition.ID)
+    /// A focused review of one recorded part, separated from the whole-tape preview.
+    case elementReview(Audition.ID, element: AuditionReviewElement)
     /// Headshots, optionally opened from an audition's checklist so it can offer "Next" afterwards.
     case headshots(for: Audition.ID?)
     case editSlate
@@ -36,13 +38,27 @@ enum Route: Hashable {
     case testSides
 }
 
+enum AuditionReviewElement: Hashable {
+    case slate
+    case fullLength
+    case scene(Int)
+
+    var title: String {
+        switch self {
+        case .slate: "Slate"
+        case .fullLength: "Full-body shot"
+        case .scene(let index): "Scene \(index + 1)"
+        }
+    }
+}
+
 /// The camera flow runs full-screen and outside the tab navigation, like the system Camera.
 enum CameraFlow: Identifiable, Hashable {
     enum ShootStart: String, Hashable {
         case check, slate, fullLength
     }
 
-    case shoot(Audition.ID, scene: Int? = nil, start: ShootStart = .check)  // camera check → slate → full length → scene → take saved
+    case shoot(Audition.ID, scene: Int? = nil, start: ShootStart = .check)  // camera check → slate → requested full-body shot → scenes → take saved
     case headshot(auditionID: Audition.ID? = nil)                           // front → left → right → crop
     case scanSides
     case practiceTake(pieceID: PracticePiece.ID? = nil, initialDisplayMode: StandaloneDisplay = .full, initialRecordMode: PracticeRecordMode = .camera)
@@ -157,6 +173,7 @@ final class AppStore {
     init() {
         isLoading = true
         var removedLegacyDemoData = false
+        var reorderedLegacyPieces = false
         if let saved = Persistence.load() {
             auditions = saved.auditions.map { a in
                 var a = a
@@ -167,6 +184,39 @@ final class AppStore {
                 a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
                 a.separateArchiveURL = MediaStore.rebased(a.separateArchiveURL)
                 return a
+            }
+            let flowOrderMigrationKey = "migration.auditionPieces.headshotsSlateScenes.v1"
+            if !UserDefaults.standard.bool(forKey: flowOrderMigrationKey) {
+                for index in auditions.indices {
+                    let ordered = Piece.defaultFlowOrder(auditions[index].pieces)
+                    if ordered != auditions[index].pieces {
+                        auditions[index].pieces = ordered
+                        reorderedLegacyPieces = true
+                    }
+                }
+                UserDefaults.standard.set(true, forKey: flowOrderMigrationKey)
+            }
+            let fullBodyLabelMigrationKey = "migration.auditionPieces.fullBodyTerminology.v1"
+            if !UserDefaults.standard.bool(forKey: fullBodyLabelMigrationKey) {
+                for index in auditions.indices {
+                    if let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.kind == .fullLength }) {
+                        if auditions[index].pieces[pieceIndex].title.localizedCaseInsensitiveContains("full length") {
+                            auditions[index].pieces[pieceIndex].title = "Full-body shot"
+                            auditions[index].pieces[pieceIndex].detail = "Separate head-to-toe video, as requested"
+                            reorderedLegacyPieces = true
+                        }
+                    } else if auditions[index].asks.contains("Full length") {
+                        auditions[index].pieces.append(Piece(
+                            kind: .fullLength,
+                            title: "Full-body shot",
+                            detail: "Separate head-to-toe video, as requested",
+                            isDone: auditions[index].fullLengthVideoURL != nil
+                        ))
+                        auditions[index].pieces = Piece.defaultFlowOrder(auditions[index].pieces)
+                        reorderedLegacyPieces = true
+                    }
+                }
+                UserDefaults.standard.set(true, forKey: fullBodyLabelMigrationKey)
             }
             takes = saved.takes.map { t in
                 var t = t
@@ -278,7 +328,7 @@ final class AppStore {
         }
         isLoading = false
         syncPieces()
-        if removedLegacyDemoData { persist() }
+        if removedLegacyDemoData || reorderedLegacyPieces { persist() }
     }
 
     /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke.
@@ -415,7 +465,13 @@ final class AppStore {
             for (sceneIndex, title) in sceneTitles.enumerated() {
                 let hasTake = auditionTakes.contains { ($0.sceneIndex ?? 0) == sceneIndex }
                 for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .scene && auditions[i].pieces[j].title == title {
-                    auditions[i].pieces[j].isDone = hasTake
+                    if hasTake {
+                        auditions[i].pieces[j].isDone = true
+                    } else if !auditions[i].pieces[j].isOptional {
+                        // Preserve an explicit skip for optional scenes. Required scenes only
+                        // count as complete when a take exists.
+                        auditions[i].pieces[j].isDone = false
+                    }
                 }
             }
             if auditions[i].status != .sent {
@@ -785,6 +841,7 @@ final class AppStore {
         if let origFullLength = original.pieces.first(where: { $0.kind == .fullLength }) {
             newPieces.append(Piece(kind: .fullLength, title: origFullLength.title, detail: origFullLength.detail, isDone: false, isOptional: origFullLength.isOptional))
         }
+        newPieces = Piece.defaultFlowOrder(newPieces)
 
         var callback = Audition(
             project: original.project,
@@ -974,6 +1031,12 @@ final class AppStore {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].shareLink = link.url
         auditions[i].shareLinkExpires = link.expires
+    }
+
+    func clearShareLink(for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].shareLink = nil
+        auditions[i].shareLinkExpires = nil
     }
 
     /// Saves a custom filename template for this audition's deliverables.

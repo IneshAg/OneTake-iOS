@@ -36,11 +36,12 @@ final class CameraController: NSObject {
     private(set) var elapsed: TimeInterval = 0
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
+    private(set) var audioMeterAvailable = false
     private(set) var openPalmDetected = false
     private(set) var isExposureLocked = false
     private(set) var zoomFactor: CGFloat = 1
     private(set) var currentResolution: CameraResolution = .hd1080
-    private(set) var supportedResolutions: [CameraResolution] = [.hd720, .hd1080]
+    private(set) var supportedResolutions: [CameraResolution] = CameraResolution.allCases
 
     /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
     struct FaceReading: Equatable {
@@ -80,6 +81,8 @@ final class CameraController: NSObject {
     private let photoOutput = AVCapturePhotoOutput()
     private let queue = DispatchQueue(label: "onetake.camera")
     private var timer: Timer?
+    private var audioMeterTimer: Timer?
+    private var audioMeterTimerTarget: CameraAudioMeterTimerTarget?
     private var photoHandler: ((UIImage?) -> Void)?
     /// Called once the movie file is actually finalized on disk — `stopRecording()` returns before that.
     private var recordingFinishedHandler: ((URL?) -> Void)?
@@ -123,6 +126,10 @@ final class CameraController: NSObject {
         self.position = position
         isExposureLocked = false
         zoomFactor = 1
+        #if targetEnvironment(simulator)
+        currentResolution = resolution
+        supportedResolutions = CameraResolution.allCases
+        #endif
         queue.async { [weak self] in
             guard let self else { return }
             self.requestedZoomFactor = 1
@@ -145,10 +152,12 @@ final class CameraController: NSObject {
             let selected = supported.contains(resolution) ? resolution : (supported.contains(.hd1080) ? .hd1080 : supported.first ?? .hd1080)
             if session.canSetSessionPreset(selected.preset) { session.sessionPreset = selected.preset }
 
+            var hasAudioInput = false
             if let mic = AVCaptureDevice.default(for: .audio),
                let audioInput = try? AVCaptureDeviceInput(device: mic),
                session.canAddInput(audioInput) {
                 session.addInput(audioInput)
+                hasAudioInput = true
             }
             if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
             if !session.outputs.contains(photoOutput), session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
@@ -198,10 +207,14 @@ final class CameraController: NSObject {
 
             session.commitConfiguration()
             session.startRunning()
+            let hasAudioMeterConnection = hasAudioInput
+                && !(movieOutput.connection(with: .audio)?.audioChannels.isEmpty ?? true)
 
             Task { @MainActor in
                 self.supportedResolutions = supported
                 self.currentResolution = selected
+                self.audioMeterAvailable = hasAudioMeterConnection
+                if !hasAudioMeterConnection { self.audioLevel = 0 }
             }
 
             if self.subjectAreaChangeObserver == nil {
@@ -217,11 +230,19 @@ final class CameraController: NSObject {
                 self.videoDevice = camera
                 self.updateRotationCoordinator()
                 self.state = .ready
+                self.startAudioMeterPolling()
             }
         }
     }
 
     func setResolution(_ resolution: CameraResolution) {
+        #if targetEnvironment(simulator)
+        // Simulator has no camera capture device. Keep the requested quality as a usable app
+        // preference so the control remains testable, while making clear that it won't create media.
+        currentResolution = resolution
+        supportedResolutions = CameraResolution.allCases
+        return
+        #else
         queue.async { [weak self] in
             guard let self else { return }
             session.beginConfiguration()
@@ -236,6 +257,7 @@ final class CameraController: NSObject {
                 }
             }
         }
+        #endif
     }
 
     // MARK: Orientation
@@ -457,6 +479,37 @@ final class CameraController: NSObject {
     func stop() {
         queue.async { [weak self] in self?.session.stopRunning() }
         timer?.invalidate()
+        audioMeterTimer?.invalidate()
+        audioMeterTimer = nil
+        audioMeterTimerTarget = nil
+        audioLevel = 0
+    }
+
+    @MainActor
+    private func startAudioMeterPolling() {
+        audioMeterTimer?.invalidate()
+        let target = CameraAudioMeterTimerTarget(controller: self)
+        audioMeterTimerTarget = target
+        audioMeterTimer = Timer.scheduledTimer(
+            timeInterval: 0.12,
+            target: target,
+            selector: #selector(CameraAudioMeterTimerTarget.poll(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+    }
+
+    @MainActor
+    fileprivate func pollAudioMeter() {
+        guard audioMeterAvailable,
+              let channel = movieOutput.connection(with: .audio)?.audioChannels.first else {
+            audioLevel = 0
+            return
+        }
+        // AVFoundation reports dBFS (typically -60...0); expose a smoothed 0...1 value to UI.
+        let db = max(-60, min(0, channel.averagePowerLevel))
+        let level = Float(pow(10, db / 20))
+        audioLevel = audioLevel * 0.55 + level * 0.45
     }
 
     // MARK: Recording
@@ -559,6 +612,20 @@ final class CameraController: NSObject {
         }
     }
     #endif
+}
+
+/// Timer target keeps only a weak controller reference and avoids capturing the non-Sendable
+/// AVFoundation controller in Timer's @Sendable closure.
+private final class CameraAudioMeterTimerTarget: NSObject {
+    weak var controller: CameraController?
+
+    init(controller: CameraController) {
+        self.controller = controller
+    }
+
+    @MainActor @objc func poll(_ timer: Timer) {
+        controller?.pollAudioMeter()
+    }
 }
 
 /// Weak sendable handle used to access the controller from AVFoundation's queue callbacks.

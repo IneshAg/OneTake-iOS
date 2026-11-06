@@ -103,6 +103,119 @@ struct SilentReactionCue: View {
     }
 }
 
+/// First-letter recall text. Each masked word is an individual, accessible hint target.
+struct RecallWordHintText: View {
+    let text: String
+    let revealedWords: Set<Int>
+    let font: Font
+    let color: Color
+    let onRevealWord: (Int) -> Void
+
+    private var words: [String] {
+        text.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    var body: some View {
+        RecallWordsLayout(spacing: 3, lineSpacing: 2) {
+            ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                Button { onRevealWord(index) } label: {
+                    Text(revealedWords.contains(index) ? word : masked(word))
+                        .font(font)
+                        .foregroundStyle(color)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(revealedWords.contains(index) ? word : "Hidden word, tap to reveal")
+                .accessibilityHint("Reveals this word for your practice hint")
+            }
+        }
+    }
+
+    private func masked(_ word: String) -> String {
+        guard let first = word.first else { return word }
+        return String(first) + (word.count > 1 ? "—" : "")
+    }
+}
+
+/// Meaningful-word gaps. Each underscore is tappable and reveals its original word as a clue.
+struct RecallGapHintText: View {
+    let text: String
+    let hiddenWords: Set<Int>
+    let revealedWords: Set<Int>
+    let font: Font
+    let color: Color
+    let onToggleWord: (Int) -> Void
+
+    private var words: [String] { text.split(whereSeparator: \.isWhitespace).map(String.init) }
+
+    var body: some View {
+        RecallWordsLayout(spacing: 3, lineSpacing: 2) {
+            ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                let isHidden = hiddenWords.contains(index) && !revealedWords.contains(index)
+                Button { if hiddenWords.contains(index) { onToggleWord(index) } } label: {
+                    Text(isHidden ? masked(word) : word)
+                        .font(font)
+                        .foregroundStyle(color)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!hiddenWords.contains(index))
+                .accessibilityLabel(isHidden ? "Hidden word, tap to reveal" : word)
+                .accessibilityHint("Shows the full word as a practice clue")
+            }
+        }
+    }
+
+    private func masked(_ word: String) -> String {
+        let letters = word.filter(\.isLetter)
+        let punctuation = word.filter { !$0.isLetter && !$0.isNumber }
+        return String(repeating: "_", count: min(max(2, letters.count), 8)) + punctuation
+    }
+}
+
+/// A small wrapping layout lets each script word remain tappable without forcing the line into a horizontal scroll view.
+private struct RecallWordsLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                y += rowHeight + lineSpacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + (x > 0 ? spacing : 0)
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? max(x - spacing, 0), height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 // MARK: - Progress ring / readiness dial (v2/Progress Ring)
 
 /// Segmented dial: one segment per package piece. Done = accent, next = soft accent, todo = quiet track.
@@ -545,14 +658,7 @@ struct GlassBackButton: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(onDark ? .white : OT.labelPrimary)
-                        .frame(width: 38, height: 38)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(onDark ? 0.28 : 0.55), lineWidth: 0.7)
-                        )
                         .frame(width: 44, height: 44)
-                        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
                         .contentShape(Rectangle())
                 } else {
                     // Back is an icon-only glass control throughout the app. Context is kept
@@ -560,11 +666,7 @@ struct GlassBackButton: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(onDark ? Color.white : OT.accent)
-                        .frame(width: 38, height: 38)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(onDark ? 0.28 : 0.62), lineWidth: 0.7))
                         .frame(width: 44, height: 44)
-                        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
                         .contentShape(Circle())
                 }
             }
@@ -591,9 +693,6 @@ struct GlassIconButton: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(onDark ? Color.white : OT.labelPrimary)
                 .frame(width: 44, height: 44)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(onDark ? 0.28 : 0.62), lineWidth: 0.7))
-                .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
                 .contentShape(Circle())
         }
         .modifier(GlassButtonCompatibility(enabled: true))
@@ -607,13 +706,27 @@ struct GlassButtonCompatibility: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         #if compiler(>=6.2)
-        if enabled, #available(iOS 26.0, *) {
+        if !enabled {
+            // Text actions such as Cancel and Done must stay text actions. Applying the legacy
+            // circular material fallback here wrapped those labels in a stray circle on iOS 26.
+            content.buttonStyle(.plain)
+        } else if #available(iOS 26.0, *) {
             content.buttonStyle(.glass).buttonBorderShape(.circle)
         } else {
-            content.buttonStyle(NativeNavPressStyle())
+            content
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7))
+                .buttonStyle(NativeNavPressStyle())
         }
         #else
-        content.buttonStyle(NativeNavPressStyle())
+        if enabled {
+            content
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7))
+                .buttonStyle(NativeNavPressStyle())
+        } else {
+            content.buttonStyle(.plain)
+        }
         #endif
     }
 }
@@ -629,6 +742,22 @@ struct GlassCapsuleButtonCompatibility: ViewModifier {
         }
         #else
         content.buttonStyle(.otGlass)
+        #endif
+    }
+}
+
+/// Prominent native glass action with a branded solid fallback before iOS 26.
+struct GlassProminentCapsuleButtonCompatibility: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(OT.accent)
+        } else {
+            content.buttonStyle(.otPrimary)
+        }
+        #else
+        content.buttonStyle(.otPrimary)
         #endif
     }
 }
@@ -754,38 +883,30 @@ struct AuditionMaterialKindPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(AuditionMaterialKind.allCases) { kind in
-                        let isSelected = selected == kind
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                selected = kind
-                            }
-                            Haptics.tick()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: kind.icon)
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text(kind.shortLabel)
-                                    .font(.otSubhead.weight(isSelected ? .bold : .medium))
-                            }
-                            .foregroundStyle(isSelected ? Color.white : OT.labelPrimary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(
-                                isSelected ? OT.accent : OT.surfaceCard,
-                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(isSelected ? Color.clear : OT.separator, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
+            Menu {
+                ForEach(AuditionMaterialKind.allCases) { kind in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { selected = kind }
+                        Haptics.tick()
+                    } label: {
+                        Label(kind.shortLabel, systemImage: kind.icon)
                     }
                 }
-                .padding(.vertical, 2)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: selected.icon)
+                        .foregroundStyle(OT.accent)
+                    Text(selected.shortLabel)
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(OT.labelTertiary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             }
 
             Text(selected.description)
@@ -873,13 +994,13 @@ struct ProjectDetailsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Project & Production Breakdown", systemImage: "building.2.crop.circle")
+            Label("About this project", systemImage: "building.2.crop.circle")
                 .font(.otCaption.weight(.bold))
                 .foregroundStyle(OT.labelPrimary)
 
             if let synopsis = details.synopsis, !synopsis.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Synopsis").font(.system(size: 11, weight: .semibold)).foregroundStyle(OT.labelTertiary)
+                    Text("Project summary").font(.system(size: 11, weight: .semibold)).foregroundStyle(OT.labelTertiary)
                     Text(synopsis)
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelSecondary)
@@ -912,10 +1033,6 @@ struct ProjectDetailsCard: View {
                         }
                     }
                 }
-            } else if details.synopsis == nil || details.synopsis?.isEmpty == true {
-                Text("Standard self-tape production call.")
-                    .font(.otFootnote)
-                    .foregroundStyle(OT.labelTertiary)
             }
         }
         .padding(14)
@@ -994,44 +1111,47 @@ struct RoleBreakdownCard: View {
     let breakdown: AuditionRoleBreakdown
     let isSelected: Bool
     let onSelect: () -> Void
+    @State private var isExpanded = false
 
     var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    HStack(spacing: 6) {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "person.fill")
-                            .font(.system(size: 13, weight: .bold))
-                        Text(breakdown.name)
-                            .font(.otSubhead.weight(isSelected ? .bold : .semibold))
-                    }
-                    .foregroundStyle(isSelected ? Color.white : OT.accent)
-
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: onSelect) {
+                HStack(spacing: 8) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(breakdown.name)
+                        .font(.otSubhead.weight(.semibold))
                     Spacer(minLength: 4)
-
                     let tags = [breakdown.gender, breakdown.ageRange].compactMap { $0 }
                     if !tags.isEmpty {
                         Text(tags.joined(separator: " · "))
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(isSelected ? Color.white.opacity(0.85) : OT.labelTertiary)
                     }
                 }
+                .foregroundStyle(isSelected ? Color.white : OT.accent)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-                if let desc = breakdown.description, !desc.isEmpty {
+            if let desc = breakdown.description, !desc.isEmpty {
+                DisclosureGroup(isExpanded: $isExpanded) {
                     Text(desc)
-                        .font(.system(size: 11))
-                        .lineLimit(2)
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                } label: {
+                    Text(isExpanded ? "Hide full description" : "View full role description")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(isSelected ? Color.white.opacity(0.9) : OT.labelSecondary)
                 }
+                .tint(isSelected ? .white : OT.accent)
             }
-            .padding(12)
-            .background(isSelected ? OT.accent : OT.surfaceCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.clear : OT.separator, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .background(isSelected ? OT.accent : OT.surfaceCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isSelected ? Color.clear : OT.separator, lineWidth: 1))
     }
 }
 

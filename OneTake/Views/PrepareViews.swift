@@ -28,9 +28,6 @@ struct PrepareView: View {
                             Image(systemName: "textformat.size")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(OT.labelPrimary)
-                                .frame(width: 38, height: 38)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
                         }
@@ -57,15 +54,25 @@ struct PrepareView: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel("Scene audio flow")
 
+                            let readerLines = scene.lines.filter { !$0.isMine }
+                            let readerName = readerLines.first?.character.capitalized ?? "Reader"
+                            let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+                            if !specificReaderLines.isEmpty {
                             Button { store.push(.reader(a.id, sceneIndex: sceneIndex)) } label: {
-                                let readerLines = scene.lines.filter { !$0.isMine }
-                                let readerName = readerLines.first?.character.capitalized ?? "Reader"
-                                let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
                                 let recorded = specificReaderLines.indices.filter {
                                     ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sceneIndex, line: $0)
                                 }.count
-                                Label("\(readerName) · \(recorded) of \(specificReaderLines.count) recorded", systemImage: recorded == specificReaderLines.count && !specificReaderLines.isEmpty ? "waveform" : "mic")
-                                    .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.reader)
+                                HStack(spacing: 6) {
+                                    Image(systemName: recorded == specificReaderLines.count ? "waveform" : "mic")
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("Reader audio").font(.otFootnote.weight(.semibold))
+                                        Text("\(recorded) of \(specificReaderLines.count) cues recorded")
+                                            .font(.otCaption).foregroundStyle(OT.labelSecondary)
+                                    }
+                                }
+                                .foregroundStyle(OT.reader)
+                            }
+                            .buttonStyle(.plain)
                             }
                         }
                     }
@@ -215,7 +222,11 @@ struct PrompterSettingsSheet: View {
             Picker("Size", selection: $size) { Text("Regular").tag(0); Text("Big").tag(1); Text("Huge").tag(2) }.pickerStyle(.segmented)
             SectionLabel(text: "Scroll")
             Picker("Scroll", selection: $followVoice) { Text("Follows my voice").tag(true); Text("Timed").tag(false) }.pickerStyle(.segmented)
-            Toggle("Mirror text", isOn: $mirror)
+            DisclosureGroup("Advanced teleprompter options") {
+                Toggle("Mirror text for teleprompter glass", isOn: $mirror)
+                Text("Turn this on only when using a beam-splitter teleprompter attachment. Keep it off for normal phone recording.")
+                    .font(.otCaption).foregroundStyle(OT.labelSecondary)
+            }
         }
         .padding(OT.gutter)
     }
@@ -738,6 +749,10 @@ struct RecordReaderView: View {
     @State private var expandedReviewIndex: Int?
     @State private var selectedReader: String? = nil
     @State private var showFullScript = false
+    @State private var showAudioTrimmer = false
+    @State private var trimTargetLineIndex: Int?
+    @State private var restoreTargetLineIndex: Int?
+    @State private var showRestoreOriginalConfirmation = false
 
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
@@ -1075,6 +1090,22 @@ struct RecordReaderView: View {
 
                                 ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, compact: false)
 
+                                HStack(spacing: 10) {
+                                    Button { beginAudioTrim(lineIndex) } label: {
+                                        Label("Trim audio", systemImage: "scissors")
+                                            .font(.otFootnote.weight(.semibold))
+                                    }
+                                    .buttonStyle(.otGlass)
+
+                                    if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) {
+                                        Button { requestOriginalRestore(lineIndex) } label: {
+                                            Label("Restore original", systemImage: "arrow.uturn.backward")
+                                                .font(.otFootnote.weight(.semibold))
+                                        }
+                                        .buttonStyle(.otGlass)
+                                    }
+                                }
+
                                 Text("Tap Record below to retake this line")
                                     .font(.otCaption)
                                     .foregroundStyle(OT.labelTertiary)
@@ -1293,6 +1324,21 @@ struct RecordReaderView: View {
                                         if isRec && (expandedReviewIndex == idx || playingReviewIndex == idx) {
                                             ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx, compact: false)
                                                 .padding(.top, 4)
+                                            HStack(spacing: 10) {
+                                                Button { beginAudioTrim(idx) } label: {
+                                                    Label("Trim audio", systemImage: "scissors")
+                                                        .font(.otFootnote.weight(.semibold))
+                                                }
+                                                .buttonStyle(.otGlass)
+
+                                                if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: idx) {
+                                                    Button { requestOriginalRestore(idx) } label: {
+                                                        Label("Restore original", systemImage: "arrow.uturn.backward")
+                                                            .font(.otFootnote.weight(.semibold))
+                                                    }
+                                                    .buttonStyle(.otGlass)
+                                                }
+                                            }
                                         }
                                     }
                                     .padding(12)
@@ -1335,6 +1381,30 @@ struct RecordReaderView: View {
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
+            .sheet(isPresented: $showAudioTrimmer) {
+                if let trimTargetLineIndex {
+                    let sourceURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: trimTargetLineIndex)
+                    ReaderAudioTrimmer(url: sourceURL) { editedURL in
+                        guard let editedURL else { self.trimTargetLineIndex = nil; return }
+                        do {
+                            try ReaderTrackPlayer.installEditedRecording(editedURL, at: sourceURL)
+                            player.stop()
+                            store.readerTracksDidChange()
+                            successBanner = "Trimmed audio saved. The original can be restored."
+                            recordingError = nil
+                        } catch {
+                            recordingError = "Couldn’t save the trimmed audio. Your existing reader audio is unchanged."
+                        }
+                        self.trimTargetLineIndex = nil
+                    }
+                }
+            }
+            .confirmationDialog("Restore the original reader recording?", isPresented: $showRestoreOriginalConfirmation, titleVisibility: .visible) {
+                Button("Restore original") { restoreOriginalRecording() }
+                Button("Cancel", role: .cancel) { restoreTargetLineIndex = nil }
+            } message: {
+                Text("This replaces the trimmed version with the original recording.")
+            }
             .task {
                 microphoneAllowed = await SpeechFollower.requestAccess()
                 if let audition = store.audition(auditionID), audition.scenes.indices.contains(sceneIndex) {
@@ -1373,6 +1443,36 @@ struct RecordReaderView: View {
                 recorder.cancel()
             }
         }
+    }
+
+    private func beginAudioTrim(_ line: Int) {
+        player.stop()
+        isPreviewPlaying = false
+        playingReviewIndex = nil
+        trimTargetLineIndex = line
+        showAudioTrimmer = true
+    }
+
+    private func requestOriginalRestore(_ line: Int) {
+        player.stop()
+        isPreviewPlaying = false
+        playingReviewIndex = nil
+        restoreTargetLineIndex = line
+        showRestoreOriginalConfirmation = true
+    }
+
+    private func restoreOriginalRecording() {
+        guard let line = restoreTargetLineIndex else { return }
+        let recordingURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: line)
+        do {
+            try ReaderTrackPlayer.restoreOriginalRecording(at: recordingURL)
+            store.readerTracksDidChange()
+            successBanner = "Original reader audio restored."
+            recordingError = nil
+        } catch {
+            recordingError = "Couldn’t restore the original reader audio."
+        }
+        restoreTargetLineIndex = nil
     }
 
     private func handleRecordTap(readerLines: [ScriptLine], isCurrentRecorded: Bool) {

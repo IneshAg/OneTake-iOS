@@ -2,6 +2,7 @@ import SwiftUI
 import AVKit
 import PhotosUI
 import VisionKit
+@preconcurrency import Speech
 import UniformTypeIdentifiers
 import UIKit
 
@@ -212,6 +213,13 @@ struct PracticeOptionsView: View {
                         symbol: "textformat"
                     ) {
                         store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: .firstLetter))
+                    }
+                    practiceButton(
+                        title: "Meaningful word gaps",
+                        detail: "Hide key words · tap a gap for a clue",
+                        symbol: "text.word.spacing"
+                    ) {
+                        store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: .gapRecall))
                     }
                     practiceButton(
                         title: "Cold read",
@@ -534,6 +542,8 @@ struct StandalonePracticeView: View {
     @Environment(AppStore.self) private var store
     @State private var displayMode = StandaloneDisplay.full
     @State private var revealed: Set<ScriptLine.ID> = []
+    @State private var revealedWords: [ScriptLine.ID: Set<Int>] = [:]
+    @State private var hiddenGapWords: [ScriptLine.ID: Set<Int>] = [:]
     @State private var samplePiece = PracticeSample.make()
     @State private var savedSampleID: PracticePiece.ID?
 
@@ -561,6 +571,7 @@ struct StandalonePracticeView: View {
                         Picker("Practice display", selection: $displayMode) {
                             Text("Full").tag(StandaloneDisplay.full)
                             Text("First letters").tag(StandaloneDisplay.firstLetters)
+                            Text("Gaps").tag(StandaloneDisplay.gaps)
                             Text("Hide my lines").tag(StandaloneDisplay.hideMine)
                         }
                         .pickerStyle(.segmented)
@@ -574,17 +585,42 @@ struct StandalonePracticeView: View {
                                 } else {
                                     HStack(alignment: .top, spacing: 10) {
                                         if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
-                                        Text(displayText(for: line))
-                                            .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
-                                            .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .contentShape(Rectangle())
-                                            .onTapGesture {
-                                                guard line.isMine, displayMode != .full else { return }
-                                                if revealed.contains(line.id) { revealed.remove(line.id) }
-                                                else { revealed.insert(line.id) }
+                                        if line.isMine && displayMode == .firstLetters && !revealed.contains(line.id) {
+                                            RecallWordHintText(
+                                                text: line.text,
+                                                revealedWords: revealedWords[line.id, default: []],
+                                                font: .system(size: 19, weight: .semibold),
+                                                color: OT.labelPrimary
+                                            ) { wordIndex in
+                                                var words = revealedWords[line.id, default: []]
+                                                if words.contains(wordIndex) { words.remove(wordIndex) }
+                                                else { words.insert(wordIndex) }
+                                                revealedWords[line.id] = words
                                                 Haptics.tick()
                                             }
+                                        } else if line.isMine && displayMode == .gaps && !revealed.contains(line.id) {
+                                            RecallGapHintText(text: line.text,
+                                                              hiddenWords: hiddenGapWords[line.id, default: []],
+                                                              revealedWords: revealedWords[line.id, default: []],
+                                                              font: .system(size: 19, weight: .semibold), color: OT.labelPrimary) { wordIndex in
+                                                var words = revealedWords[line.id, default: []]
+                                                if words.contains(wordIndex) { words.remove(wordIndex) } else { words.insert(wordIndex) }
+                                                revealedWords[line.id] = words
+                                                Haptics.tick()
+                                            }
+                                        } else {
+                                            Text(displayText(for: line))
+                                                .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
+                                                .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    guard line.isMine, displayMode == .hideMine else { return }
+                                                    if revealed.contains(line.id) { revealed.remove(line.id) }
+                                                    else { revealed.insert(line.id) }
+                                                    Haptics.tick()
+                                                }
+                                        }
                                     }
                                 }
                                 if displayMode == .hideMine && line.isMine && !line.isSilentReactionCue {
@@ -593,7 +629,10 @@ struct StandalonePracticeView: View {
                                     }
                                     .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
                                 } else if displayMode == .firstLetters && line.isMine && !line.isSilentReactionCue {
-                                    Text(revealed.contains(line.id) ? "Tap the line to hide the hint" : "Tap the line for a full-line hint")
+                                    Text("Tap any word to reveal it")
+                                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                                } else if displayMode == .gaps && line.isMine && !line.isSilentReactionCue {
+                                    Text("Tap a gap to reveal its word")
                                         .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                 }
                             }
@@ -666,11 +705,9 @@ struct StandalonePracticeView: View {
                                 Text("Run voice")
                             }
                             .font(.otHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .frame(maxWidth: .infinity, minHeight: 52)
                         }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.roundedRectangle(radius: 14))
-                        .tint(.white)
+                        .modifier(GlassCapsuleButtonCompatibility())
 
                         Button {
                             launchPractice(mode: .camera)
@@ -680,11 +717,9 @@ struct StandalonePracticeView: View {
                                 Text("Record take")
                             }
                             .font(.otHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .frame(maxWidth: .infinity, minHeight: 52)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.roundedRectangle(radius: 14))
-                        .tint(OT.accent)
+                        .modifier(GlassProminentCapsuleButtonCompatibility())
                     }
                     .padding(.horizontal, OT.gutter)
                     .padding(.top, 10)
@@ -699,6 +734,18 @@ struct StandalonePracticeView: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .task(id: displayMode) {
+            guard displayMode == .gaps, let lines = scene?.lines else { return }
+            var selections: [ScriptLine.ID: Set<Int>] = [:]
+            for line in lines where line.isMine && !line.isSilentReactionCue {
+                selections[line.id] = await RecallGapSelectionStore.hiddenWordIndices(for: line.text)
+            }
+            hiddenGapWords = selections
+        }
+        .onChange(of: displayMode) { _, _ in
+            revealed.removeAll()
+            revealedWords.removeAll()
+        }
     }
 
     private func launchPractice(mode: PracticeRecordMode) {
@@ -729,10 +776,12 @@ struct StandalonePracticeView: View {
         switch displayMode {
         case .full: return line.text
         case .firstLetters: return otLineDisplay(line, mode: .firstLetters, peeked: revealed.contains(line.id))
+        case .gaps: return line.text
         case .hideMine:
             return revealed.contains(line.id) ? line.text : String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8))
         }
     }
+
 }
 
 private enum PracticeSample {
@@ -770,6 +819,11 @@ struct PracticeTakeView: View {
     @State private var recordMode: PracticeRecordMode = .camera
     @State private var revealedLines: Set<ScriptLine.ID> = []
     @State private var onYourOwnLines: Set<ScriptLine.ID> = []
+    @State private var hiddenGapWords: [ScriptLine.ID: Set<Int>] = [:]
+    @State private var voiceReview: [VoiceLineReview] = []
+    @State private var isAnalyzingVoice = false
+    @State private var voiceReviewError: String?
+    @State private var showVoiceReview = false
     @State private var autoAdvanceTask: Task<Void, Never>?
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
@@ -1039,6 +1093,7 @@ struct PracticeTakeView: View {
                             readerIsPlaying: false,
                             readerAudioMissing: false,
                             displayMode: displayMode,
+                            hiddenGapWords: hiddenGapWords,
                             revealedLines: revealedLines,
                             onAdvance: {
                                 advanceRehearsalLine()
@@ -1120,6 +1175,27 @@ struct PracticeTakeView: View {
                             .buttonBorderShape(.roundedRectangle(radius: 10))
                             .tint(.white)
                             .foregroundStyle(.black)
+                        }
+
+                        if recordMode == .voiceOnly {
+                            Button { showVoiceReview = true } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: isAnalyzingVoice ? "hourglass" : "text.alignleft")
+                                    Text(isAnalyzingVoice ? "Checking your lines…" : "Review speech against script")
+                                    Spacer()
+                                    if !isAnalyzingVoice, !voiceReview.isEmpty {
+                                        Text("\(voiceReview.filter { $0.mark != .matched && !$0.dismissed }.count) notes")
+                                            .font(.otCaption.weight(.semibold))
+                                    }
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                                }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(12)
+                                .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isAnalyzingVoice)
                         }
 
                         // Memory & lines learned evaluation
@@ -1352,6 +1428,14 @@ struct PracticeTakeView: View {
             }
             scheduleRehearsalAutoAdvance()
         }
+        .task(id: displayMode) {
+            guard displayMode == .gaps, let lines = piece?.scene?.lines else { return }
+            var selections: [ScriptLine.ID: Set<Int>] = [:]
+            for line in lines where line.isMine && !line.isSilentReactionCue {
+                selections[line.id] = await RecallGapSelectionStore.hiddenWordIndices(for: line.text)
+            }
+            hiddenGapWords = selections
+        }
         .onChange(of: follower.transcript) { _, transcript in
             guard let lines = piece?.scene?.lines, lines.indices.contains(lineIndex) else { return }
             let line = lines[lineIndex]
@@ -1402,6 +1486,19 @@ struct PracticeTakeView: View {
                     store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: learned)
                 }
                 recordedTakeURL = saved
+                if recordMode == .voiceOnly, let lines = p.scene?.lines {
+                    isAnalyzingVoice = true
+                    voiceReviewError = nil
+                    voiceReview = []
+                    Task { @MainActor in
+                        defer { isAnalyzingVoice = false }
+                        do {
+                            voiceReview = try await VoicePracticeReviewAnalyzer.analyze(url: saved, lines: lines)
+                        } catch {
+                            voiceReviewError = "On-device speech recognition wasn't available or couldn't detect enough speech. Your recording stays on this iPhone; play it and review the lines yourself."
+                        }
+                    }
+                }
                 Haptics.success()
             }
         }
@@ -1409,6 +1506,10 @@ struct PracticeTakeView: View {
             if let url = recordedTakeURL {
                 PracticeVideoPlayerSheet(url: url, isVoiceTake: recordMode == .voiceOnly, sceneTitle: sceneTitle)
             }
+        }
+        .sheet(isPresented: $showVoiceReview) {
+            VoicePracticeReviewView(recordingURL: recordedTakeURL, reviews: $voiceReview,
+                                    isAnalyzing: isAnalyzingVoice, errorMessage: voiceReviewError)
         }
         .onDisappear {
             autoAdvanceTask?.cancel()

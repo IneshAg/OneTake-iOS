@@ -40,9 +40,6 @@ struct AuditionDetailView: View {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(OT.labelPrimary)
-                                .frame(width: 38, height: 38)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
                         }
@@ -112,7 +109,7 @@ struct AuditionDetailView: View {
                     MilestoneDatesListCard(dates: dates)
                 }
 
-                if let details = a.projectDetails {
+                if let details = a.projectDetails, details.hasReviewableContent {
                     ProjectDetailsCard(details: details)
                 }
 
@@ -175,20 +172,20 @@ struct AuditionDetailView: View {
                 }
             } else if next?.kind == .slate || next?.kind == .fullLength {
                 let isOpt = next?.isOptional ?? false
-                let title = next?.kind == .slate ? "Slate" : "Full-length shot"
+                let title = next?.kind == .slate ? "Slate" : "Full-body shot"
                 SectionLabel(text: isOpt ? "Up next · \(title) (Optional)" : "Up next · \(title)")
                 if next?.kind == .slate {
                     Text("Record the slate").font(.otTitle)
                     quoteLine(store.slate.spoken)
                 } else {
-                    Text("Full-length shot").font(.otTitle)
-                    Text("Record your full performance in one uninterrupted take.")
+                    Text("Full-body shot").font(.otTitle)
+                    Text("Record a separate head-to-toe view, as requested.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 }
                 HStack(spacing: 10) {
                     Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
                     if isOpt {
-                        Button(next?.kind == .slate ? "Skip slate" : "Skip full length") {
+                        Button(next?.kind == .slate ? "Skip slate" : "Skip full-body shot") {
                             if let pieceID = next?.id {
                                 store.markPieceDone(a.id, pieceID: pieceID)
                                 Haptics.tick()
@@ -1268,20 +1265,24 @@ struct EditAuditionSheet: View {
                         if !chars.isEmpty {
                             Picker("Character in script", selection: Binding(
                                 get: {
-                                    chars.first { $0.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame } ?? ""
+                                    chars.first { $0.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame } ?? Self.customRoleTag
                                 },
                                 set: { newValue in
-                                    if !newValue.isEmpty {
+                                    if newValue != Self.customRoleTag {
                                         audition.wrappedValue.role = newValue
                                         Haptics.tick()
                                     }
                                 }
                             )) {
-                                Text("Custom role").tag("")
+                                Text("Enter a different role manually").tag(Self.customRoleTag)
                                 ForEach(chars, id: \.self) { char in
                                     Text(char).tag(char)
                                 }
                             }
+                            .pickerStyle(.menu)
+
+                            Text("Choose a character detected in the sides, or enter a different role below.")
+                                .font(.otCaption).foregroundStyle(OT.labelTertiary)
 
                             HStack(spacing: 8) {
                                 ForEach(chars, id: \.self) { char in
@@ -1313,9 +1314,13 @@ struct EditAuditionSheet: View {
                                     .font(.otCaption.weight(.medium))
                                     .foregroundStyle(OT.reader)
                             }
+                        } else {
+                            Label("No character names were found in the script. Enter your role below.", systemImage: "text.magnifyingglass")
+                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                         }
                         VStack(alignment: .leading, spacing: 4) {
-                            TextField("Role", text: audition.role)
+                            TextField("Your role / character", text: audition.role)
+                                .textInputAutocapitalization(.words)
                             if showValidationErrors && audition.wrappedValue.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Label("Character or role name is required", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -1379,6 +1384,7 @@ struct EditAuditionSheet: View {
                         .disabled(sceneCount >= 12)
                     }
                     Section {
+                        VStack(alignment: .leading, spacing: 12) {
                         // Slate
                         HStack {
                             Label("Slate", systemImage: "person.text.rectangle")
@@ -1391,7 +1397,8 @@ struct EditAuditionSheet: View {
                                         if !audition.wrappedValue.pieces.contains(where: { $0.kind == .slate }) {
                                             let isDone = audition.wrappedValue.slateVideoURL != nil
                                             let p = Piece(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: isDone, isOptional: false)
-                                            audition.wrappedValue.pieces.insert(p, at: 0)
+                                            let insertAt = audition.wrappedValue.pieces.firstIndex(where: { $0.kind == .headshot }).map { $0 + 1 } ?? 0
+                                            audition.wrappedValue.pieces.insert(p, at: insertAt)
                                         }
                                     } else {
                                         audition.wrappedValue.pieces.removeAll { $0.kind == .slate }
@@ -1428,7 +1435,8 @@ struct EditAuditionSheet: View {
                                         if !audition.wrappedValue.pieces.contains(where: { $0.kind == .headshot }) {
                                             let isDone = HeadshotStore.exists(key: "front", auditionID: auditionID)
                                             let p = Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: isDone, isOptional: false)
-                                            audition.wrappedValue.pieces.append(p)
+                                            let insertAt = audition.wrappedValue.pieces.firstIndex(where: { $0.kind != .headshot }) ?? audition.wrappedValue.pieces.endIndex
+                                            audition.wrappedValue.pieces.insert(p, at: insertAt)
                                         }
                                     } else {
                                         audition.wrappedValue.pieces.removeAll { $0.kind == .headshot }
@@ -1456,8 +1464,10 @@ struct EditAuditionSheet: View {
                         // Scenes requirement
                         let sceneIndices = audition.wrappedValue.pieces.indices.filter { audition.wrappedValue.pieces[$0].kind == .scene }
                         if !sceneIndices.isEmpty {
-                            Divider().padding(.vertical, 4)
-                            Text("Scenes").font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelSecondary)
+                            Text("Scenes")
+                                .font(.otCaption.weight(.semibold))
+                                .foregroundStyle(OT.labelSecondary)
+                                .padding(.top, 4)
                             ForEach(sceneIndices, id: \.self) { scenePieceIndex in
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
@@ -1482,21 +1492,55 @@ struct EditAuditionSheet: View {
                                 .padding(.vertical, 2)
                             }
                         }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                        .listRowSeparator(.hidden)
                     } header: {
                         Text("Audition Flow & Requirements")
                     } footer: {
                         Text("Scenes, Slate, and Headshots can each be set to Required or Optional depending on casting instructions.")
                     }
+                    Section {
+                        ForEach(audition.wrappedValue.pieces) { piece in
+                            HStack(spacing: 10) {
+                                Image(systemName: piece.kind.symbol)
+                                    .foregroundStyle(OT.accent)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(piece.title).font(.otBody.weight(.medium))
+                                    Text(piece.isOptional ? "Optional" : "Required")
+                                        .font(.otCaption).foregroundStyle(piece.isOptional ? OT.labelSecondary : OT.accent)
+                                }
+                            }
+                        }
+                        .onMove { source, destination in
+                            audition.wrappedValue.pieces.move(fromOffsets: source, toOffset: destination)
+                            Haptics.tick()
+                        }
+                    } header: {
+                        HStack {
+                            Text("Flow order")
+                            Spacer()
+                            EditButton()
+                        }
+                    } footer: {
+                        Text("Tap Edit, then drag items to choose the order you prepare them.")
+                    }
                     Section("Due") {
                         DatePicker("Due", selection: audition.due)
-                        HStack(spacing: 8) {
-                            Text("Presets:")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Quick time")
                                 .font(.otCaption)
                                 .foregroundStyle(OT.labelSecondary)
-                            presetTimeChip("5:00 PM") { setAuditionDueTime(audition: audition, hour: 17, minute: 0) }
-                            presetTimeChip("10:00 AM") { setAuditionDueTime(audition: audition, hour: 10, minute: 0) }
-                            presetTimeChip("Noon") { setAuditionDueTime(audition: audition, hour: 12, minute: 0) }
-                            presetTimeChip("11:59 PM") { setAuditionDueTime(audition: audition, hour: 23, minute: 59) }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    presetTimeChip("5:00 PM") { setAuditionDueTime(audition: audition, hour: 17, minute: 0) }
+                                    presetTimeChip("10:00 AM") { setAuditionDueTime(audition: audition, hour: 10, minute: 0) }
+                                    presetTimeChip("12:00 PM") { setAuditionDueTime(audition: audition, hour: 12, minute: 0) }
+                                    presetTimeChip("11:59 PM") { setAuditionDueTime(audition: audition, hour: 23, minute: 59) }
+                                }
+                            }
                         }
                     }
                     Section("Sending to") {
@@ -1711,19 +1755,22 @@ struct EditAuditionSheet: View {
         }
     }
 
+    private static let customRoleTag = "__onetake_custom_role__"
+
     private func scriptCharacters(for audition: Audition) -> [String] {
+        var candidates = (audition.roleBreakdowns ?? []).map(\.name)
         if let script = audition.scriptText, !script.isEmpty {
-            let extracted = ScriptParser.extractCharacters(from: script)
-            if !extracted.isEmpty { return extracted }
+            candidates += ScriptParser.extractCharacters(from: script)
+        }
+        for scene in audition.scenes {
+            candidates += scene.lines.map(\.character)
         }
         var found: [String] = []
-        for scene in audition.scenes {
-            for line in scene.lines {
-                let c = line.character.trimmingCharacters(in: .whitespaces)
-                if !c.isEmpty && !found.contains(where: { $0.caseInsensitiveCompare(c) == .orderedSame }) {
-                    found.append(c)
-                }
-            }
+        for candidate in candidates {
+            let name = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !ScriptParser.isBlacklistedNoticeWord(name),
+                  !found.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+            found.append(name)
         }
         return found
     }
@@ -1735,8 +1782,9 @@ struct EditAuditionSheet: View {
         }) {
             Text(title)
                 .font(.otCaption.weight(.semibold))
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .frame(minHeight: 34)
                 .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .foregroundStyle(OT.accent)
         }

@@ -85,9 +85,6 @@ struct TakesView: View {
                         Image(systemName: "scissors")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 38, height: 38)
-                            .background(.ultraThinMaterial, in: Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
                     }
@@ -281,6 +278,103 @@ struct TakeThumbnail: View {
 
 // MARK: - 19b Tape check
 
+struct AuditionElementReviewView: View {
+    let auditionID: Audition.ID
+    let element: AuditionReviewElement
+    @Environment(AppStore.self) private var store
+    @State private var player: AVPlayer?
+    @State private var findings: [TapeFinding] = []
+    @State private var isChecking = true
+
+    private var audition: Audition? { store.audition(auditionID) }
+    private var displayTitle: String {
+        if case .scene(let index) = element, let audition, audition.scenes.indices.contains(index) {
+            return audition.scenes[index].title
+        }
+        return element.title
+    }
+    private var clipURL: URL? {
+        guard let audition else { return nil }
+        switch element {
+        case .slate: return audition.slateVideoURL
+        case .fullLength: return audition.fullLengthVideoURL
+        case .scene(let index):
+            let takes = store.takes.filter { $0.auditionID == auditionID && $0.sceneIndex == index }
+            return (takes.first(where: \.isCircled) ?? takes.last)?.fileURL
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                InContentNavHeader(title: "Review \(displayTitle)", backLabel: "Back", onBack: { store.pop() })
+                    .padding(.top, 4)
+                if let player {
+                    VideoPlayer(player: player).frame(height: 250)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                } else {
+                    ContentUnavailableView("Recording unavailable", systemImage: "video.slash",
+                                           description: Text("This recording may have been moved or deleted."))
+                }
+                SectionLabel(text: "THIS PART ONLY")
+                if isChecking {
+                    Label("Checking this recording…", systemImage: "waveform")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                } else if findings.isEmpty {
+                    Label("No suggested changes", systemImage: "checkmark.circle.fill")
+                        .font(.otBody.weight(.medium)).foregroundStyle(OT.success)
+                } else {
+                    ForEach(findings) { finding in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(finding.title).font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                            Text(finding.advice).font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14).otCard(radius: 14)
+                    }
+                }
+                Text("Suggestions are advisory. Keep pauses or delivery choices that feel intentional.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            }
+            .padding(.horizontal, OT.gutter).padding(.bottom, 28)
+        }
+        .otCanvas()
+        .safeAreaInset(edge: .bottom) {
+            Button(actionTitle, action: editThisElement)
+                .buttonStyle(.otPrimary).padding(OT.gutter).background(OT.bgCanvas)
+        }
+        .task(id: clipURL) {
+            player?.pause()
+            guard let clipURL else { player = nil; isChecking = false; return }
+            player = AVPlayer(url: clipURL)
+            isChecking = true
+            if let audition {
+                let report = await TapeAnalyzer.analyze(audition, takes: store.takes.filter { $0.auditionID == auditionID && $0.isCircled })
+                guard !Task.isCancelled else { return }
+                findings = report.findings.filter { $0.clipURL == clipURL }
+            }
+            isChecking = false
+        }
+        .onDisappear { player?.pause() }
+    }
+
+    private var actionTitle: String {
+        switch element {
+        case .slate: "Retake slate"
+        case .fullLength: "Retake full-body shot"
+        case .scene: "Choose or record a take"
+        }
+    }
+
+    private func editThisElement() {
+        switch element {
+        case .slate: store.camera = .shoot(auditionID, start: .slate)
+        case .fullLength: store.camera = .shoot(auditionID, start: .fullLength)
+        case .scene(let index): store.push(.takes(auditionID, sceneIndex: index))
+        }
+    }
+}
+
 struct TapeCheckView: View {
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
@@ -312,14 +406,7 @@ struct TapeCheckView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 4) {
-                // Checked first, then watched: Preview is the last look before packaging.
-                Button("Preview the tape") { store.push(.preview(auditionID)) }.buttonStyle(.otPrimary)
-                if let first = report?.findings.first(where: { $0.clipURL != nil }) {
-                    Button("Watch the moments") { finding = first }
-                        .font(.otHeadline).foregroundStyle(OT.labelPrimary).frame(maxWidth: .infinity, minHeight: 48)
-                }
-            }
+            Button("Preview the full tape") { store.push(.preview(auditionID)) }.buttonStyle(.otPrimary)
             .padding(.horizontal, OT.gutter).background(OT.bgCanvas)
         }
         // Re-runs whenever what's on the tape changes (a different circled take, a new recording).
@@ -371,14 +458,33 @@ struct TapeCheckView: View {
         store.takes.filter { $0.auditionID == auditionID && $0.isCircled }
     }
 
+    private var reviewElements: [(element: AuditionReviewElement, url: URL)] {
+        guard let audition = store.audition(auditionID) else { return [] }
+        var items: [(AuditionReviewElement, URL)] = []
+        if let url = audition.slateVideoURL { items.append((.slate, url)) }
+        if let url = audition.fullLengthVideoURL { items.append((.fullLength, url)) }
+        for index in audition.scenes.indices {
+            let takes = finalizedTakes.filter { $0.sceneIndex == index }
+            if let url = takes.first?.fileURL { items.append((.scene(index), url)) }
+        }
+        return items.map { (element: $0.0, url: $0.1) }
+    }
+
+    private func reviewTitle(_ element: AuditionReviewElement) -> String {
+        if case .scene(let index) = element, let audition = store.audition(auditionID), audition.scenes.indices.contains(index) {
+            return audition.scenes[index].title
+        }
+        return element.title
+    }
+
     @ViewBuilder private func results(_ report: TapeAnalyzer.Report) -> some View {
         if report.clipCount == 0 {
             Text("Nothing to check yet").font(.otTitle)
             Text("Record your slate and a take, then come back — Tape Check looks at exactly what goes on the tape.")
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
         } else {
-            let worthReview = report.findings.filter { !$0.isSoftPrompt }
-            let optionalPrompts = report.findings.filter(\.isSoftPrompt)
+            let worthReview = report.findings.filter { !$0.isSoftPrompt && $0.clipURL == nil }
+            let optionalPrompts = report.findings.filter { $0.isSoftPrompt && $0.clipURL == nil }
             HStack(spacing: 16) {
                 ReadinessDial(done: report.passed.count, total: report.checkCount, size: 84, lineWidth: 8)
                     .accessibilityLabel("\(report.passed.count) of \(report.checkCount) technical checks passed")
@@ -391,6 +497,31 @@ struct TapeCheckView: View {
                             ? "These checks are advisory. Nothing blocks sending."
                             : "Timing cues can be intentional. Keep them if they feel right. Nothing blocks sending.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                }
+            }
+            if !reviewElements.isEmpty {
+                SectionLabel(text: "Review one part at a time")
+                Text("Each recording opens on its own, with its own checks and retake action.")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                ForEach(reviewElements.indices, id: \.self) { index in
+                    let item = reviewElements[index]
+                    let count = report.findings.filter { $0.clipURL == item.url }.count
+                    Button { store.push(.elementReview(auditionID, element: item.element)) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: item.element == .slate ? "person.text.rectangle" : "film")
+                                .font(.title3).foregroundStyle(OT.accent)
+                                .frame(width: 40, height: 40).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(reviewTitle(item.element)).font(.otBody.weight(.semibold)).foregroundStyle(OT.labelPrimary)
+                                Text(count == 0 ? "Ready to review" : "\(count) suggestion\(count == 1 ? "" : "s")")
+                                    .font(.otFootnote).foregroundStyle(count == 0 ? OT.success : OT.warning)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.forward").font(.caption.weight(.semibold)).foregroundStyle(OT.labelTertiary)
+                        }
+                        .padding(12).otCard(radius: 14)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             if !report.findings.isEmpty {

@@ -111,14 +111,27 @@ struct RootTabView: View {
             }
 
             if isSearchAvailable {
-                Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
-                    NavigationStack(path: $store.searchPath) {
-                        SearchView().withRoutes()
+                if #available(iOS 27.0, *) {
+                    // Keep Search as the distinct third control. iOS 27's prominent role
+                    // prevents it from being folded into the two destination tabs.
+                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
+                        NavigationStack(path: $store.searchPath) {
+                            SearchView().withRoutes()
+                        }
+                        .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                     }
-                    .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                } else {
+                    // Earlier iOS versions still get the native dedicated Search tab role.
+                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                        NavigationStack(path: $store.searchPath) {
+                            SearchView().withRoutes()
+                        }
+                        .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                    }
                 }
             }
         }
+        .applySearchTabActivation()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(OT.bgCanvas.ignoresSafeArea())
         .onChange(of: isSearchAvailable) { _, available in
@@ -188,6 +201,7 @@ private struct RouteDestinations: ViewModifier {
         case .tapeCheck(let id):                 TapeCheckView(auditionID: id)
         case .package(let id):                   PackageView(auditionID: id)
         case .preview(let id):                   TapePreviewView(auditionID: id)
+        case .elementReview(let id, let element): AuditionElementReviewView(auditionID: id, element: element)
         case .profile:                           ProfileView()
         case .headshots(let id):                 HeadshotsView(auditionID: id)
         case .editSlate:                         EditSlateView()

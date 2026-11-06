@@ -15,7 +15,7 @@ enum CloudLink {
             case .uploadFailed(let error):
                 "Couldn't upload to iCloud. \(error?.localizedDescription ?? "Check your connection and try again.")"
             case .uploadTimedOut:
-                "iCloud is taking too long to upload the tape. Check your connection and try again."
+                "iCloud is taking too long to upload the selected file. Check your connection and try again."
             }
         }
     }

@@ -75,6 +75,38 @@ enum OnDeviceIntelligence {
         return await respond(to: prompt)
     }
 
+    /// Selects meaning-bearing words for a stable practice gap. The model only chooses indices;
+    /// the caller caches them so the same line never reshuffles between practice attempts.
+    static func recallGapWordIndices(in line: String, level: Int) async -> Set<Int>? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable {
+            let words = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard words.count >= 3 else { return [] }
+            let count = min(max(1, level), max(1, words.count / 2))
+            let indexedWords = words.enumerated().map { "\($0.offset): \($0.element)" }.joined(separator: "\n")
+            let prompt = """
+            Choose exactly \(count) words that best carry the meaning, image, or emotional turn of this spoken line.
+            Prefer concrete nouns, vivid verbs, and emotionally important adjectives. Avoid articles,
+            conjunctions, and pronouns unless a pronoun is essential to the meaning. Do not rewrite the line.
+            Return only a JSON array of zero-based integer word indices. Word positions:
+            \(indexedWords)
+            """
+            do {
+                let session = LanguageModelSession(instructions: "Select useful, memorable script words for a line-recall exercise. Follow the requested output format exactly.")
+                let response = try await session.respond(to: prompt, options: GenerationOptions(temperature: 0, maximumResponseTokens: 80))
+                let data = Data(response.content.utf8)
+                if let indices = try? JSONDecoder().decode([Int].self, from: data) {
+                    let valid = Set(indices.filter { words.indices.contains($0) })
+                    if !valid.isEmpty { return Set(valid.prefix(count)) }
+                }
+            } catch {
+                // Use the stable local ranking below when Apple Intelligence is unavailable at runtime.
+            }
+        }
+        #endif
+        return nil
+    }
+
     struct ExtractedNoticeMetadata {
         var project: String?
         var roles: [String]
@@ -126,18 +158,17 @@ enum OnDeviceIntelligence {
         return ExtractedNoticeMetadata(project: project, roles: roles, asks: asks, deadline: deadline)
     }
 
-    /// Assembles a token-budget-aware context snippet (~2,500-3,000 chars) that includes the document
-    /// header/cover (project title, deadlines, general rules) plus the target character's specific
-    /// sides section (director's notes, role details), so characters on later pages of multi-role PDFs
-    /// are never starved of context.
+    /// Assembles a bounded context from the notice header, detected roles, and production /
+    /// submission detail sections. This keeps later pages available without sending the whole packet.
     static func focusedContextSnippet(sourceText: String, targetRole: String?, candidateRoles: [String]) -> String {
         let trimmed = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count <= 3000 {
             return trimmed
         }
 
-        // Project cover / front matter (first 1,200 chars typically contains title, deadlines, casting office)
-        let frontMatter = String(trimmed.prefix(1200))
+        let frontMatter = String(trimmed.prefix(1050))
+        var sections = [frontMatter]
+        var includedRanges: [Range<String.Index>] = []
 
         let roleToFind = targetRole?.trimmingCharacters(in: .whitespacesAndNewlines)
         var candidates: [String] = []
@@ -148,8 +179,7 @@ enum OnDeviceIntelligence {
             candidates.append(r)
         }
 
-        var roleSnippet = ""
-        for role in candidates {
+        for role in candidates.prefix(5) {
             // Find role heading in the source text (e.g. "MARYAM ·", "MARYAM -", "ROLE: MARYAM", or "\nMARYAM\n")
             let escaped = NSRegularExpression.escapedPattern(for: role)
             let patterns = [
@@ -160,33 +190,55 @@ enum OnDeviceIntelligence {
             var matchedRange: Range<String.Index>?
             for pat in patterns {
                 if let regex = try? NSRegularExpression(pattern: pat, options: .caseInsensitive),
-                   let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-                   let r = Range(match.range, in: trimmed) {
-                    matchedRange = r
+                   let match = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                    .compactMap({ Range($0.range, in: trimmed) })
+                    .first(where: { trimmed.distance(from: trimmed.startIndex, to: $0.lowerBound) > 900 }) {
+                    matchedRange = match
                     break
                 }
             }
             if matchedRange == nil {
-                matchedRange = trimmed.range(of: role, options: .caseInsensitive)
-            }
-
-            if let match = matchedRange {
-                let matchOffset = trimmed.distance(from: trimmed.startIndex, to: match.lowerBound)
-                // If the match starts well past the front matter, extract this character's block
-                if matchOffset > 1000 {
-                    let endIdx = trimmed.index(match.lowerBound, offsetBy: min(1600, trimmed.distance(from: match.lowerBound, to: trimmed.endIndex)))
-                    let section = String(trimmed[match.lowerBound..<endIdx])
-                    roleSnippet = "\n\n--- [ROLE DETAILS & SIDES FOR \(role.uppercased())] ---\n\(section)"
-                    break
+                if let regex = try? NSRegularExpression(pattern: #"(?i)\b"# + NSRegularExpression.escapedPattern(for: role) + #"\b"#),
+                   let match = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                    .compactMap({ Range($0.range, in: trimmed) })
+                    .first(where: { trimmed.distance(from: trimmed.startIndex, to: $0.lowerBound) > 900 }) {
+                    matchedRange = match
                 }
             }
+
+            guard let match = matchedRange else { continue }
+            let start = trimmed.index(match.lowerBound, offsetBy: -min(100, trimmed.distance(from: trimmed.startIndex, to: match.lowerBound)))
+            let end = trimmed.index(match.lowerBound, offsetBy: min(500, trimmed.distance(from: match.lowerBound, to: trimmed.endIndex)))
+            let range = start..<end
+            guard !includedRanges.contains(where: { $0.overlaps(range) }) else { continue }
+            let addition = "\n\n--- ROLE \(role.uppercased()) ---\n\(trimmed[range])"
+            guard sections.joined().count + addition.count <= 2600 else { continue }
+            sections.append(addition)
+            includedRanges.append(range)
         }
 
-        if roleSnippet.isEmpty {
-            return String(trimmed.prefix(3000))
+        let detailPatterns = [
+            #"(?i)callback(?:s)?\s*(?:date|window|schedule)?"#,
+            #"(?i)(?:production|filming|shoot)\s+dates?"#,
+            #"(?i)(?:pay|rate|compensation|stipend|union|SAG[- ]?AFTRA)"#,
+            #"(?i)(?:orientation|landscape|portrait|file\s*name|filename|submission\s+instructions?)"#
+        ]
+        for pattern in detailPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let matchRange = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                    .compactMap({ Range($0.range, in: trimmed) })
+                    .first(where: { trimmed.distance(from: trimmed.startIndex, to: $0.lowerBound) > 900 }) else { continue }
+            let start = trimmed.index(matchRange.lowerBound, offsetBy: -min(90, trimmed.distance(from: trimmed.startIndex, to: matchRange.lowerBound)))
+            let end = trimmed.index(matchRange.upperBound, offsetBy: min(160, trimmed.distance(from: matchRange.upperBound, to: trimmed.endIndex)))
+            let range = start..<end
+            guard !includedRanges.contains(where: { $0.overlaps(range) }) else { continue }
+            let addition = "\n\n--- NOTICE DETAIL ---\n\(trimmed[range])"
+            guard sections.joined().count + addition.count <= 2950 else { continue }
+            sections.append(addition)
+            includedRanges.append(range)
         }
 
-        return frontMatter + roleSnippet
+        return String(sections.joined().prefix(3000))
     }
 
     /// Secondary enrichment only: OCR and the deterministic parser own field extraction. The
@@ -207,6 +259,14 @@ enum OnDeviceIntelligence {
         SIDES_LINK: [Cloud link for script sides if mentioned]
         SUBMISSION_LINK: [Tape upload link, form, or submission email]
         GUIDANCE: [Brief director's note, tone, or character background]
+        SYNOPSIS: [1-2 sentence storyline or logline of the project]
+        UNION_STATUS: [Union status, e.g. SAG-AFTRA, Non-Union, Equity, ACTRA]
+        PAY_TERMS: [Compensation, day rate, buyout, or unpaid/copy/credit]
+        LOCATION: [Filming or production location/city]
+        CALLBACK_DATES: [Callback date, range, or window]
+        SHOOT_DATES: [Shoot dates, principal photography date range]
+        ORIENTATION: [Horizontal / Landscape or Vertical / Portrait]
+        FILE_NAMING: [Exact video filename convention or instructions]
 
         Casting Notice:
         \(snippet)
@@ -218,6 +278,12 @@ enum OnDeviceIntelligence {
         """
 
         guard let answer = await respond(to: prompt) else { return draft }
+        return applyGroundedFieldOutput(answer, to: draft, sourceText: sourceText)
+    }
+
+    /// Applies a model response without invoking a model, so source grounding can be audited and
+    /// exercised independently on a deterministic test corpus.
+    static func applyGroundedFieldOutput(_ answer: String, to draft: NoticeParser.Draft, sourceText: String) -> NoticeParser.Draft {
         var refined = draft
 
         let lines = answer.components(separatedBy: .newlines)
@@ -225,7 +291,7 @@ enum OnDeviceIntelligence {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.uppercased().hasPrefix("PROJECT:") {
                 let val = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
-                if refined.project.isEmpty && isGroundedProjectTitle(val, in: sourceText) {
+                if refined.project.isEmpty && !NoticeParser.isNoticeOnly(sourceText) && isGroundedProjectTitle(val, in: sourceText) {
                     refined.project = val
                 }
             } else if trimmed.uppercased().hasPrefix("ROLE:") {
@@ -256,11 +322,88 @@ enum OnDeviceIntelligence {
                 if refined.destinationDetail == nil && !val.isEmpty && val.lowercased() != "none" && sourceText.contains(val) {
                     refined.destinationDetail = val
                     refined.destination = .emailOrLink
+                    refined.destinationWasDetected = true
                 }
             } else if trimmed.uppercased().hasPrefix("GUIDANCE:") {
                 let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
                 if refined.aiGuidance.isEmpty && !val.isEmpty && val.lowercased() != "none" && hasExplicitGuidanceSection(in: sourceText) {
                     refined.aiGuidance = val
+                }
+            } else if trimmed.uppercased().hasPrefix("SYNOPSIS:") {
+                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if !NoticeParser.isNoticeOnly(sourceText) && isGroundedSynopsis(val, in: sourceText) {
+                    if refined.projectDetails == nil { refined.projectDetails = AuditionProjectDetails() }
+                    if refined.projectDetails?.synopsis == nil || refined.projectDetails?.synopsis?.isEmpty == true {
+                        refined.projectDetails?.synopsis = val
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("UNION_STATUS:") {
+                let val = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+                if isGroundedInSection(val, anchors: #"(?i)\b(?:union|SAG[- ]?AFTRA|AEA|Equity|ACTRA|non[- ]?union)\b"#, source: sourceText) {
+                    if refined.projectDetails == nil { refined.projectDetails = AuditionProjectDetails() }
+                    if refined.projectDetails?.unionStatus == nil || refined.projectDetails?.unionStatus?.isEmpty == true {
+                        refined.projectDetails?.unionStatus = val
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("PAY_TERMS:") {
+                let val = String(trimmed.dropFirst(10)).trimmingCharacters(in: .whitespaces)
+                if isGroundedInSection(val, anchors: #"(?i)\b(?:pay|paid|stipend|salary|rate|compensation|honorarium|buyout|per\s+diem)\b"#, source: sourceText) {
+                    if refined.projectDetails == nil { refined.projectDetails = AuditionProjectDetails() }
+                    if refined.projectDetails?.payTerms == nil || refined.projectDetails?.payTerms?.isEmpty == true {
+                        refined.projectDetails?.payTerms = val
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("LOCATION:") {
+                let val = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if isGroundedInSection(val, anchors: #"(?i)\b(?:production\s+location|filming\s+location|location|filming\s+in|shooting\s+in|based\s+in|located\s+in)\b"#, source: sourceText) {
+                    if refined.projectDetails == nil { refined.projectDetails = AuditionProjectDetails() }
+                    if refined.projectDetails?.productionLocation == nil || refined.projectDetails?.productionLocation?.isEmpty == true {
+                        refined.projectDetails?.productionLocation = val
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("CALLBACK_DATES:") {
+                let val = String(trimmed.dropFirst(15)).trimmingCharacters(in: .whitespaces)
+                if let date = groundedMilestoneDate(val, kind: .callback, sourceText: sourceText) {
+                    if !refined.importantDates.contains(where: { $0.kind == .callback }) {
+                        refined.importantDates.append(date)
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("SHOOT_DATES:") {
+                let val = String(trimmed.dropFirst(12)).trimmingCharacters(in: .whitespaces)
+                if let date = groundedMilestoneDate(val, kind: .productionStart, sourceText: sourceText) {
+                    if !refined.importantDates.contains(where: { $0.kind == .productionStart }) {
+                        refined.importantDates.append(date)
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("ORIENTATION:") {
+                let val = String(trimmed.dropFirst(12)).trimmingCharacters(in: .whitespaces)
+                if isGroundedOrientation(val, in: sourceText) {
+                    if refined.submissionInstructions == nil { refined.submissionInstructions = AuditionSubmissionInstructions() }
+                    let isLandscape = val.lowercased().contains("horizontal") || val.lowercased().contains("landscape")
+                    let isPortrait = val.lowercased().contains("vertical") || val.lowercased().contains("portrait")
+                    if isLandscape {
+                        refined.submissionInstructions?.videoOrientation = "Landscape"
+                        if !refined.asks.contains("Horizontal framing") && !refined.asks.contains("Landscape") {
+                            refined.asks.append("Horizontal framing")
+                        }
+                    } else if isPortrait {
+                        refined.submissionInstructions?.videoOrientation = "Portrait"
+                        if !refined.asks.contains("Vertical framing") && !refined.asks.contains("Portrait") {
+                            refined.asks.append("Vertical framing")
+                        }
+                    }
+                }
+            } else if trimmed.uppercased().hasPrefix("FILE_NAMING:") {
+                let val = String(trimmed.dropFirst(12)).trimmingCharacters(in: .whitespaces)
+                if isGroundedInSection(val, anchors: #"(?i)\b(?:file\s*name|filename|naming\s+convention|name\s+(?:each|all)\s+files?)\b"#, source: sourceText) {
+                    if refined.submissionInstructions == nil { refined.submissionInstructions = AuditionSubmissionInstructions() }
+                    if refined.submissionInstructions?.fileNamingRule == nil {
+                        refined.submissionInstructions?.fileNamingRule = val
+                    }
+                    if refined.submissionInstructions?.fileNameTemplate == nil {
+                        let detected = NoticeParser.detectFileNamingInstruction(in: val)
+                        refined.submissionInstructions?.fileNameTemplate = detected.template
+                    }
                 }
             }
         }
@@ -277,6 +420,123 @@ enum OnDeviceIntelligence {
             #"(?i)\b(?:world premiere(?: production)?|premiere production|production|staging|revival|adaptation)\s+of\s+[\"“']?"# + escaped
         ]
         return anchoredPatterns.contains { source.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    /// Rejects model values that cannot be traced to wording in the imported document.
+    /// Exact normalized matches are preferred; a high content-word overlap allows harmless
+    /// punctuation and formatting differences while rejecting unsupported additions.
+    private static func isGroundedNoticeValue(_ value: String, in source: String) -> Bool {
+        let candidate = value.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'“”‘’.,;:-"))
+        guard !candidate.isEmpty, candidate.count <= 260,
+              !["none", "unknown", "not specified", "n/a"].contains(candidate.lowercased()) else { return false }
+
+        let candidateTokens = candidate.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        let sourceTokenList = source.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        if !candidateTokens.isEmpty, candidateTokens.count <= sourceTokenList.count {
+            for start in 0...(sourceTokenList.count - candidateTokens.count) {
+                if Array(sourceTokenList[start..<(start + candidateTokens.count)]) == candidateTokens { return true }
+            }
+        }
+
+        let stopWords: Set<String> = ["the", "and", "for", "with", "from", "that", "this", "will", "are", "was", "has", "have", "per"]
+        let evidenceTokens = candidateTokens.filter { $0.count > 2 || $0.allSatisfy(\.isNumber) }.filter { !stopWords.contains($0) }
+        let sourceTokens = Set(sourceTokenList)
+        guard !evidenceTokens.isEmpty else { return false }
+        // Numeric details (rates, dates, age ranges) must match the source exactly.
+        let numbers = evidenceTokens.filter { $0.allSatisfy(\.isNumber) }
+        guard numbers.allSatisfy(sourceTokens.contains) else { return false }
+        let matched = evidenceTokens.filter(sourceTokens.contains).count
+        return Double(matched) / Double(evidenceTokens.count) >= 0.78
+    }
+
+    private static func hasExplicitSynopsisSection(in source: String) -> Bool {
+        source.range(of: #"(?i)\b(?:about\s+the\s+project|project\s+synopsis|synopsis|logline)\s*[:\-]"#, options: .regularExpression) != nil
+    }
+
+    private static func isGroundedSynopsis(_ value: String, in source: String) -> Bool {
+        hasExplicitSynopsisSection(in: source) && isGroundedInSection(
+            value,
+            anchors: #"(?i)\b(?:about\s+the\s+project|project\s+synopsis|synopsis|logline)\b"#,
+            source: source
+        )
+    }
+
+    private static func isGroundedInSection(_ value: String, anchors: String, source: String) -> Bool {
+        guard isFoundNearAnchor(anchors, in: source),
+              let anchorRegex = try? NSRegularExpression(pattern: anchors) else { return false }
+        let lines = source.components(separatedBy: .newlines)
+        for index in lines.indices where anchorRegex.firstMatch(in: lines[index], range: NSRange(lines[index].startIndex..., in: lines[index])) != nil {
+            let lower = max(lines.startIndex, index - 2)
+            let upper = min(lines.index(before: lines.endIndex), index + 2)
+            let context = lines[lower...upper].joined(separator: "\n")
+            if isGroundedNoticeValue(value, in: context) { return true }
+        }
+        return false
+    }
+
+    private static func isFoundNearAnchor(_ pattern: String, in source: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let lines = source.components(separatedBy: .newlines)
+        for index in lines.indices {
+            let lower = max(lines.startIndex, index - 2)
+            let upper = min(lines.index(before: lines.endIndex), index + 2)
+            let context = lines[lower...upper].joined(separator: "\n")
+            if regex.firstMatch(in: context, range: NSRange(context.startIndex..., in: context)) != nil { return true }
+        }
+        return false
+    }
+
+    private static func hasPairedSectionAnchors(_ first: String, _ second: String, in source: String) -> Bool {
+        guard let firstRegex = try? NSRegularExpression(pattern: first),
+              let secondRegex = try? NSRegularExpression(pattern: second) else { return false }
+        let lines = source.components(separatedBy: .newlines)
+        for index in lines.indices {
+            let lower = max(lines.startIndex, index - 2)
+            let upper = min(lines.index(before: lines.endIndex), index + 2)
+            let context = lines[lower...upper].joined(separator: "\n")
+            let range = NSRange(context.startIndex..., in: context)
+            if firstRegex.firstMatch(in: context, range: range) != nil,
+               secondRegex.firstMatch(in: context, range: range) != nil { return true }
+        }
+        return false
+    }
+
+    private static func isGroundedOrientation(_ value: String, in source: String) -> Bool {
+        let requested = value.lowercased()
+        if requested.contains("landscape") || requested.contains("horizontal") {
+            return hasPairedSectionAnchors(
+                #"(?i)\b(?:landscape|horizontal)\b"#,
+                #"(?i)\b(?:orientation|framing|format|record|shoot|film|video)\b"#,
+                in: source
+            )
+        }
+        if requested.contains("portrait") || requested.contains("vertical") {
+            return hasPairedSectionAnchors(
+                #"(?i)\b(?:portrait|vertical)\b"#,
+                #"(?i)\b(?:orientation|framing|format|record|shoot|film|video)\b"#,
+                in: source
+            )
+        }
+        return false
+    }
+
+    /// Model milestone text is only useful if the source contains a dated, year-specific value.
+    /// AuditionDate requires a Date, so never substitute `.now` for an imprecise phrase such as
+    /// “mid-January”; the deterministic parser can still retain it if it resolves a real date.
+    private static func groundedMilestoneDate(_ value: String, kind: AuditionDateKind, sourceText: String) -> AuditionDate? {
+        let anchors = kind == .callback
+            ? #"(?i)\b(?:callback|recall)\w*\b"#
+            : #"(?i)\b(?:production|filming|shoot|principal\s+photography)\w*\b"#
+        guard isGroundedNoticeValue(value, in: sourceText),
+              isGroundedInSection(value, anchors: anchors, source: sourceText),
+              value.range(of: #"\b(?:19|20)\d{2}\b"#, options: .regularExpression) != nil,
+              let date = detectedDate(in: value) else { return nil }
+        return AuditionDate(kind: kind, date: date, label: value, sourceText: value)
+    }
+
+    private static func detectedDate(in value: String) -> Date? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return nil }
+        return detector.matches(in: value, range: NSRange(value.startIndex..., in: value)).first?.date
     }
 
     private static func isGroundedCastingOffice(_ value: String, in source: String) -> Bool {
@@ -300,8 +560,8 @@ enum OnDeviceIntelligence {
     }
 
     /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
-    /// If unavailable or offline, returns nil, allowing the high-precision algorithmic beat divider
-    /// in ScriptParser to seamlessly handle segmentation on all iPhones.
+    /// If unavailable or offline, gracefully falls back to the high-precision algorithmic beat divider
+    /// in ScriptParser to seamlessly guarantee natural segmentation on all iPhones.
     static func formatAndSegmentSides(text: String, character: String) async -> [String]? {
         let prompt = """
         You are a professional acting coach and screenplay teleprompter formatter.
@@ -318,11 +578,17 @@ enum OnDeviceIntelligence {
         Text:
         \(text)
         """
-        guard let answer = await respond(to: prompt) else { return nil }
-        let lines = answer.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*•0123456789. ").union(.whitespaces)) }
-            .filter { !$0.isEmpty }
-        return lines.count > 1 ? lines : nil
+        if let answer = await respond(to: prompt) {
+            let lines = answer.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*•0123456789. ").union(.whitespaces)) }
+                .filter { !$0.isEmpty }
+            if lines.count > 1 {
+                return lines
+            }
+        }
+        // Algorithmic thought-unit fallback: 100% offline, guaranteed on all iOS versions
+        let algorithmic = ScriptParser.divideIntoThoughtUnits(text)
+        return algorithmic.count > 1 ? algorithmic : [text]
     }
 
     /// Runs 100% offline Core ML Apple Neural Engine parsing on a casting notice snippet.
@@ -332,7 +598,7 @@ enum OnDeviceIntelligence {
         let system = """
         You are OneTake's audition notice parser.
         Extract the casting details from the provided text into JSON:
-        {"project": "Title", "project_type": "Feature film", "role": "Target Character", "candidate_roles": ["Role 1"], "role_size": "Lead", "casting_office": "Agency", "due_date": null, "specs": ["Landscape", "Slate first"], "sides_link": null, "submission_email": null, "director_guidance": null}
+        {"project": "Title", "project_type": "Feature film", "role": "Target Character", "candidate_roles": ["Role 1"], "role_size": "Lead", "casting_office": "Agency", "due_date": null, "specs": ["Landscape", "Slate first"], "sides_link": null, "submission_email": null, "director_guidance": null, "synopsis": null, "union_status": null, "pay_terms": null, "location": null, "callback_dates": null, "shoot_dates": null, "orientation": null, "file_naming": null}
         Output valid JSON only.
         """
         guard let jsonString = await CoreMLParserRunner.shared.generate(systemPrompt: system, userPrompt: text) else { return nil }
@@ -340,16 +606,71 @@ enum OnDeviceIntelligence {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
         var draft = NoticeParser.Draft()
-        draft.project = json["project"] as? String ?? ""
-        draft.role = json["role"] as? String ?? ""
-        draft.candidateRoles = json["candidate_roles"] as? [String] ?? []
-        draft.roleSize = json["role_size"] as? String ?? "Lead"
-        draft.castingOffice = json["casting_office"] as? String ?? ""
+        let project = json["project"] as? String ?? ""
+        draft.project = !NoticeParser.isNoticeOnly(text) && isGroundedProjectTitle(project, in: text) ? project : ""
+        draft.candidateRoles = (json["candidate_roles"] as? [String] ?? [])
+            .filter { isGroundedNoticeValue($0, in: text) }
+        let role = json["role"] as? String ?? ""
+        let explicitRole = !role.isEmpty && text.range(
+            of: #"(?i)\b(?:role|character|part)\s*[:\-]\s*"# + NSRegularExpression.escapedPattern(for: role) + #"\b"#,
+            options: .regularExpression
+        ) != nil
+        if !NoticeParser.containsOpenRoleChoice(in: text),
+           draft.candidateRoles.count <= 1,
+           (draft.candidateRoles.contains(where: { $0.caseInsensitiveCompare(role) == .orderedSame }) ||
+            (draft.candidateRoles.isEmpty && explicitRole)) {
+            draft.role = role
+            if draft.candidateRoles.isEmpty { draft.candidateRoles = [role] }
+        }
+        let projectType = json["project_type"] as? String ?? ""
+        if isGroundedNoticeValue(projectType, in: text) { draft.projectType = projectType }
+        let roleSize = json["role_size"] as? String ?? ""
+        if isGroundedNoticeValue(roleSize, in: text) { draft.roleSize = roleSize }
+        let castingOffice = json["casting_office"] as? String ?? ""
+        if isGroundedCastingOffice(castingOffice, in: text) { draft.castingOffice = castingOffice }
         draft.sourceText = text
-        if let specs = json["specs"] as? [String] { draft.asks = specs }
-        if let email = json["submission_email"] as? String { draft.destinationDetail = email; draft.destination = .emailOrLink }
-        if let sides = json["sides_link"] as? String { draft.sidesLink = sides }
-        if let notes = json["director_guidance"] as? String { draft.castingNotes = notes }
+        if let specs = json["specs"] as? [String] { draft.asks = specs.filter { isGroundedNoticeValue($0, in: text) } }
+        if let due = json["due_date"] as? String,
+           isGroundedNoticeValue(due, in: text), let date = detectedDate(in: due) { draft.due = date }
+        if let email = json["submission_email"] as? String, isGroundedNoticeValue(email, in: text) {
+            draft.destinationDetail = email
+            draft.destination = .email
+            draft.destinationWasDetected = true
+        }
+        if let sides = json["sides_link"] as? String, isGroundedNoticeValue(sides, in: text) { draft.sidesLink = sides }
+        if let notes = json["director_guidance"] as? String,
+           hasExplicitGuidanceSection(in: text), isGroundedNoticeValue(notes, in: text) { draft.castingNotes = notes }
+
+        var details = AuditionProjectDetails()
+        if let syn = json["synopsis"] as? String, isGroundedSynopsis(syn, in: text) { details.synopsis = syn }
+        if let union = json["union_status"] as? String,
+           isGroundedInSection(union, anchors: #"(?i)\b(?:union|SAG[- ]?AFTRA|AEA|Equity|ACTRA|non[- ]?union)\b"#, source: text) { details.unionStatus = union }
+        if let pay = json["pay_terms"] as? String,
+           isGroundedInSection(pay, anchors: #"(?i)\b(?:pay|paid|stipend|salary|rate|compensation|honorarium|buyout|per\s+diem)\b"#, source: text) { details.payTerms = pay }
+        if let loc = json["location"] as? String,
+           isGroundedInSection(loc, anchors: #"(?i)\b(?:production\s+location|filming\s+location|location|filming\s+in|shooting\s+in|based\s+in|located\s+in)\b"#, source: text) { details.productionLocation = loc }
+        draft.projectDetails = details
+
+        if let cb = json["callback_dates"] as? String,
+           let date = groundedMilestoneDate(cb, kind: .callback, sourceText: text) {
+            draft.importantDates.append(date)
+        }
+        if let shoot = json["shoot_dates"] as? String,
+           let date = groundedMilestoneDate(shoot, kind: .productionStart, sourceText: text) {
+            draft.importantDates.append(date)
+        }
+
+        var instructions = AuditionSubmissionInstructions()
+        if let orient = json["orientation"] as? String, isGroundedOrientation(orient, in: text) {
+            instructions.videoOrientation = orient.lowercased().contains("landscape") || orient.lowercased().contains("horizontal") ? "Landscape" : "Portrait"
+        }
+        if let fn = json["file_naming"] as? String,
+           isGroundedInSection(fn, anchors: #"(?i)\b(?:file\s*name|filename|naming\s+convention|name\s+(?:each|all)\s+files?)\b"#, source: text) {
+            instructions.fileNamingRule = fn
+            instructions.fileNameTemplate = NoticeParser.detectFileNamingInstruction(in: fn).template
+        }
+        draft.submissionInstructions = instructions
+
         return draft
     }
 

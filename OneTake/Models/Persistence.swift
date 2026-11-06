@@ -163,6 +163,27 @@ enum MediaStore {
     }
 }
 
+enum ResumeStore {
+    /// Copies a resume selected through the Files picker into durable, app-owned storage.
+    /// The picker URL can be security-scoped and may stop being available after the import ends.
+    static func importFile(from sourceURL: URL) throws -> URL {
+        let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        let ext = sourceURL.pathExtension.lowercased()
+        guard ["pdf", "doc", "docx", "rtf", "txt"].contains(ext) else {
+            throw CocoaError(.fileReadUnsupportedScheme, userInfo: [NSFilePathErrorKey: sourceURL.path])
+        }
+        let directory = MediaStore.directory("Profile")
+        // Keep previous copies intact: older auditions may still reference their submitted résumé.
+        let destination = directory
+            .appendingPathComponent("Actor-Resume-\(UUID().uuidString.prefix(8))")
+            .appendingPathExtension(ext)
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        return destination
+    }
+}
+
 // MARK: - Headshots (real captured photos, keyed by angle)
 
 enum HeadshotStore {

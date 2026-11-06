@@ -210,7 +210,7 @@ struct TapePreviewView: View {
         case .clip(.slate):
             return "Change slate"
         case .clip(.fullLength):
-            return "Change full length"
+            return "Change full-body shot"
         case .clip(.scene(let index)):
             return "Change Scene \(index + 1) take"
         }

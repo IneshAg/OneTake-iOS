@@ -28,6 +28,7 @@ enum TapeAnalyzer {
         var totalSeconds = 0.0
         var measurementsComplete = true
         var allLandscape = true
+        var allPortrait = true
         var allHD = true
         var framingOK = true, lightOK = true, eyelineOK = true, audioOK = true
         var videoAnalyzed = true
@@ -48,6 +49,7 @@ enum TapeAnalyzer {
             }
             totalSeconds += result.duration
             if !result.isLandscape { allLandscape = false }
+            if result.isLandscape { allPortrait = false }
             if !result.isHD { allHD = false }
             if result.video.contains(where: { $0.category == "Video analysis" }) {
                 videoAnalyzed = false
@@ -69,7 +71,8 @@ enum TapeAnalyzer {
         var passed = report.passed
         let package = packageFindings(audition, clips: clips, totalSeconds: totalSeconds,
                                       measurementsComplete: measurementsComplete,
-                                      allLandscape: allLandscape, allHD: allHD, passed: &passed)
+                                      allLandscape: allLandscape, allPortrait: allPortrait,
+                                      allHD: allHD, passed: &passed)
         report.passed = passed
         report.findings += package
         report.passed.append("File name")
@@ -382,7 +385,7 @@ enum TapeAnalyzer {
     // MARK: Package
 
     private static func packageFindings(_ a: Audition, clips: [MediaExporter.Clip], totalSeconds: Double,
-                                        measurementsComplete: Bool, allLandscape: Bool, allHD: Bool,
+                                        measurementsComplete: Bool, allLandscape: Bool, allPortrait: Bool, allHD: Bool,
                                         passed: inout [String]) -> [TapeFinding] {
         var findings: [TapeFinding] = []
         func add(_ title: String, _ advice: String) {
@@ -405,9 +408,11 @@ enum TapeAnalyzer {
             add("There's no slate yet", "Most casting offices want a slate first. Record one from the camera — it only takes 5 seconds.")
         }
 
-        if a.asks.contains("Full length") {
-            if clips.contains(where: { $0.kind == .fullLength }) { passed.append("Full length") }
-            else { add("They asked for a full-length shot", "This notice asked for one. Add it from the camera — head to feet, a few seconds.") }
+        let needsSeparateFullBody = a.pieces.contains { $0.kind == .fullLength }
+            || a.asks.contains("Full length") // Legacy saved auditions
+        if needsSeparateFullBody {
+            if clips.contains(where: { $0.kind == .fullLength }) { passed.append("Full-body shot") }
+            else { add("They asked for a full-body shot", "This notice asked for a separate head-to-toe view. Record it from the camera after the slate.") }
         }
 
         let shot = Set(clips.compactMap { clip -> Int? in if case .scene(let i) = clip.kind { return i } else { return nil } })
@@ -431,9 +436,18 @@ enum TapeAnalyzer {
             if totalSeconds <= 180 { passed.append("Under 3 minutes") }
             else { add("The tape runs \(timestamp(totalSeconds))", "They asked for under 3 minutes. Pick shorter takes or trim the start and end.") }
         }
-        if measurementsComplete, a.asks.contains("Landscape") {
-            if allLandscape { passed.append("Landscape") }
-            else { add("Some of it is portrait", "They asked for landscape. Turn the phone sideways and re-record the portrait clips.") }
+        let requestedOrientation = a.submissionInstructions?.videoOrientation?.lowercased()
+            ?? a.asks.first(where: {
+                $0.localizedCaseInsensitiveContains("landscape") || $0.localizedCaseInsensitiveContains("portrait")
+            })?.lowercased()
+        if measurementsComplete, let requestedOrientation {
+            if requestedOrientation.contains("landscape") {
+                if allLandscape { passed.append("Landscape") }
+                else { add("Some clips are portrait", "Casting asked for landscape. Turn the phone sideways and re-record the portrait clips.") }
+            } else if requestedOrientation.contains("portrait") {
+                if allPortrait { passed.append("Portrait") }
+                else { add("Some clips are landscape", "Casting asked for portrait. Hold the phone upright and re-record the landscape clips.") }
+            }
         }
         if measurementsComplete {
             if allHD { passed.append("1080p") }

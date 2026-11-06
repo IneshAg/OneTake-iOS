@@ -207,7 +207,7 @@ final class PackageAndSentTests: XCTestCase {
         XCTAssertEqual(PackageDeliverable.completePackage.shortTitle, "All Deliverables")
 
         let audition = makeAudition()
-        XCTAssertEqual(audition.packageDeliverable, .combinedVideo)
+        XCTAssertNil(audition.packageDeliverable, "A format should only be preselected when casting explicitly requires it")
     }
 
     func testAuditionNoticeEmailExtraction() {

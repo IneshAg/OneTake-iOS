@@ -36,6 +36,25 @@ struct Piece: Identifiable, Hashable, Codable {
         self.isOptional = isOptional
     }
 
+    /// Standard capture order used when creating or migrating an audition. User reordering is
+    /// persisted as the pieces array order after this initial arrangement.
+    static func defaultFlowOrder(_ pieces: [Piece]) -> [Piece] {
+        pieces.enumerated().sorted { lhs, rhs in
+            let leftRank = flowRank(lhs.element.kind)
+            let rightRank = flowRank(rhs.element.kind)
+            return leftRank == rightRank ? lhs.offset < rhs.offset : leftRank < rightRank
+        }.map { $0.element }
+    }
+
+    private static func flowRank(_ kind: PieceKind) -> Int {
+        switch kind {
+        case .headshot: 0
+        case .slate: 1
+        case .fullLength: 2
+        case .scene: 3
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -215,6 +234,11 @@ struct AuditionProjectDetails: Codable, Hashable {
     var castingArea: String? = nil
     var productionLocation: String? = nil
     var travelNotes: String? = nil
+
+    var hasReviewableContent: Bool {
+        [synopsis, productionCompany, producer, director, payTerms, unionStatus, ndaNotes, castingArea, productionLocation, travelNotes]
+            .contains { !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
+    }
 }
 
 struct AuditionSideMaterial: Identifiable, Codable, Hashable {
@@ -404,11 +428,16 @@ struct Audition: Identifiable, Hashable, Codable {
     /// were initially treated as one-off speakers. Optional for older saved auditions.
     var scriptText: String? = nil
     var destination: Destination
+    /// Optional during migration: nil/false means the old default wasn't a user choice.
+    var destinationWasChosen: Bool? = nil
     var destinationDetail: String? = nil
     /// A cloud link (Google Drive, Dropbox, WeTransfer, iCloud) where the casting team has
     /// shared the script sides — distinct from `destinationDetail` which is the submission URL.
     var sidesLink: String? = nil
-    var packageDeliverable: PackageDeliverable? = .combinedVideo
+    /// Reusable actor résumé selected for this audition's submission.
+    var resumeURL: URL? = nil
+    /// Deliberately unset until the notice specifies a format or the actor chooses one.
+    var packageDeliverable: PackageDeliverable? = nil
     var status: AuditionStatus
     var sentDate: Date?
 
@@ -418,7 +447,7 @@ struct Audition: Identifiable, Hashable, Codable {
     /// Original slate is retained when an edge-silence trim is accepted, so it can be restored.
     var slateOriginalVideoURL: URL? = nil
     var fullLengthVideoURL: URL?
-    /// Original full-length recording retained when an edited version is chosen.
+    /// Original full-body shot recording retained when an edited version is chosen.
     var fullLengthOriginalVideoURL: URL? = nil
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
@@ -467,12 +496,11 @@ struct Audition: Identifiable, Hashable, Codable {
         return req.allSatisfy { $0.isDone }
     }
 
-    /// The next piece to work on. Returns the first uncompleted required piece; if all required pieces
-    /// are completed (package is ready), this returns nil so the actor can preview and package the tape
-    /// without being forced into optional pieces.
+    /// The next piece follows the actor's saved flow order. Optional pieces remain available while
+    /// required work is still underway, but they do not block preview once all required pieces finish.
     var nextPiece: Piece? {
         if isPackageReady { return nil }
-        return requiredPieces.first { !$0.isDone } ?? pieces.first { !$0.isDone }
+        return pieces.first { !$0.isDone }
     }
 
     /// The single "Next:" line used on Home and on audition cards.
@@ -482,7 +510,7 @@ struct Audition: Identifiable, Hashable, Codable {
         switch next.kind {
         case .headshot:   return "Take your headshot"
         case .slate:      return "Record the slate"
-        case .fullLength: return "Record the full-length shot"
+        case .fullLength: return "Record the full-body shot"
         case .scene:      return "Record \(next.title)"
         }
     }
@@ -695,13 +723,14 @@ struct PracticePiece: Identifiable, Hashable, Codable {
 /// reuse Prepare's own line-display transform; `audioGap` reuses Run Lines as-is; `handsFreeWalk` is
 /// the only one with its own screen (continuous looped audio, no screen interaction at all).
 enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
-    case firstLetter, maskAndReveal, audioGap, handsFreeWalk
+    case firstLetter, maskAndReveal, gapRecall, audioGap, handsFreeWalk
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .firstLetter:   "First-Letter Prompts"
         case .maskAndReveal: "Mask & Reveal Lines"
+        case .gapRecall: "Meaningful Word Gaps"
         case .audioGap:      "Audio Gap Rehearsal"
         case .handsFreeWalk: "Hands-Free Audio Walk"
         }
@@ -710,6 +739,7 @@ enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .firstLetter:   "Replaces lines with initial letters to trigger recall"
         case .maskAndReveal: "Hides words progressively · tap to peek on hesitation"
+        case .gapRecall: "Hides important words · tap a gap to reveal a clue"
         case .audioGap:      "Partner delivers cues, then leaves silence for your line"
         case .handsFreeWalk: "Listen to the whole scene on repeat, hands-free"
         }
@@ -718,6 +748,7 @@ enum LineLearningMode: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .firstLetter:   "textformat"
         case .maskAndReveal: "eye.slash"
+        case .gapRecall: "text.word.spacing"
         case .audioGap:      "waveform"
         case .handsFreeWalk: "headphones"
         }
@@ -732,6 +763,7 @@ enum LineDisplayMode: Hashable { case full, firstLetters, hide, masked(level: In
 enum StandaloneDisplay: String, CaseIterable, Hashable, Identifiable {
     case full = "Full lines"
     case firstLetters = "First letters"
+    case gaps = "Gaps"
     case hideMine = "Hide my lines"
 
     var id: String { rawValue }
@@ -740,6 +772,7 @@ enum StandaloneDisplay: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .full: return "Full"
         case .firstLetters: return "First letters"
+        case .gaps: return "Gaps"
         case .hideMine: return "Hide mine"
         }
     }
@@ -748,8 +781,63 @@ enum StandaloneDisplay: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .full: return .full
         case .firstLetters: return .firstLetters
+        case .gaps: return .masked(level: 2)
         case .hideMine: return .hide
         }
+    }
+}
+
+/// Persistent, on-device word selection for a line-recall gap. Keying by normalized line text makes
+/// the chosen words stable even when a scene is reloaded with newly decoded line IDs.
+enum RecallGapSelectionStore {
+    private static let prefix = "practice.recallGap.v1."
+    private static let commonWords: Set<String> = [
+        "a", "an", "the", "and", "or", "but", "if", "then", "than", "so", "because", "as",
+        "of", "at", "by", "for", "from", "in", "into", "on", "onto", "to", "with", "about",
+        "i", "me", "my", "mine", "we", "us", "our", "you", "your", "yours", "he", "him", "his",
+        "she", "her", "hers", "they", "them", "their", "it", "its", "this", "that", "these", "those",
+        "am", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "have", "has",
+        "had", "can", "could", "will", "would", "shall", "should", "may", "might", "must", "not",
+        "very", "just", "really", "still", "well"
+    ]
+
+    static func hiddenWordIndices(for line: String, level: Int = 2) async -> Set<Int> {
+        let words = line.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 3 else { return [] }
+        let key = cacheKey(for: line)
+        if let saved = UserDefaults.standard.array(forKey: key) as? [Int] {
+            return Set(saved.filter { words.indices.contains($0) })
+        }
+        let targetCount = min(max(1, level), max(1, words.count / 2))
+        let modelChoice = await OnDeviceIntelligence.recallGapWordIndices(in: line, level: targetCount)
+        let chosen = modelChoice ?? deterministicChoice(words: words, count: targetCount)
+        let valid = Set(chosen.filter { words.indices.contains($0) })
+        UserDefaults.standard.set(Array(valid).sorted(), forKey: key)
+        return valid
+    }
+
+    private static func deterministicChoice(words: [String], count: Int) -> Set<Int> {
+        let ranked = words.indices.map { index -> (Int, Int) in
+            let clean = words[index].trimmingCharacters(in: .punctuationCharacters).lowercased()
+            let letters = clean.filter(\.isLetter)
+            let score = (commonWords.contains(clean) ? -8 : 0)
+                + min(letters.count, 12)
+                + (letters.contains(where: { "aeiou".contains($0) }) ? 2 : 0)
+            return (index, score)
+        }
+        return Set(ranked.sorted { lhs, rhs in
+            lhs.1 == rhs.1 ? lhs.0 < rhs.0 : lhs.1 > rhs.1
+        }.prefix(count).map(\.0))
+    }
+
+    private static func cacheKey(for line: String) -> String {
+        // FNV-1a keeps the UserDefaults key short without persisting the script text itself.
+        var hash: UInt64 = 14695981039346656037
+        for byte in line.lowercased().utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return prefix + String(hash, radix: 16)
     }
 }
 
@@ -975,6 +1063,8 @@ struct SlateInfo: Hashable, Codable {
     var height: String = ""
     var basedIn: String = ""
     var representation: String = ""
+    /// The actor's reusable profile résumé. Each audition can choose whether to include it.
+    var resumeURL: URL? = nil
 
     /// The design-mockup persona earlier builds pre-filled. Anyone who skipped the slate step still
     /// has it saved; it's cleared on load (see `AppStore.init`).

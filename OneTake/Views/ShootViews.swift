@@ -142,6 +142,8 @@ struct ShootSetupView: View {
     var scene: Int? = nil
     @Environment(AppStore.self) private var store
     @AppStorage("speech.recognitionLocale") private var speechRecognitionLocale = SpeechFollower.defaultAccentIdentifier
+    @AppStorage("camera.voiceCommandsEnabled") private var voiceCommandsEnabled = true
+    @AppStorage("camera.gesturesEnabled") private var gesturesEnabled = false
 
     private var shootScene: Int { scene ?? store.sceneToShoot(auditionID) }
     /// Focus/Do Not Disturb can't be read or set by an app, so this one is the actor's own tick.
@@ -153,16 +155,22 @@ struct ShootSetupView: View {
     private var checks: [Check] {
         var checks: [Check] = []
 
-        switch SFSpeechRecognizer.authorizationStatus() {
-        case .authorized:
-            checks.append(Check(eyebrow: "Hands-free", title: "Say “Action” and “Cut”",
-                                detail: "Or press a volume button, Camera Control, or your AirPods stem.", ok: true))
-        case .notDetermined:
-            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands prompt at start",
-                                detail: "", ok: true))
-        default:
-            checks.append(Check(eyebrow: "Hands-free", title: "Voice commands are off",
-                                detail: "Enable Speech Recognition in Settings.", ok: false))
+        if voiceCommandsEnabled {
+            switch SFSpeechRecognizer.authorizationStatus() {
+            case .authorized:
+                checks.append(Check(eyebrow: "Voice", title: "Say “Action” to start and “Cut” to stop",
+                                    detail: "", ok: true))
+            case .notDetermined:
+                checks.append(Check(eyebrow: "Voice", title: "Allow speech access when prompted",
+                                    detail: "Then say “Action” or “Cut” while filming.", ok: true))
+            default:
+                checks.append(Check(eyebrow: "Voice", title: "Voice commands are unavailable",
+                                    detail: "Enable Speech Recognition in Settings, or use gestures / on-screen controls.", ok: false))
+            }
+        }
+        if gesturesEnabled {
+            checks.append(Check(eyebrow: "Gesture", title: "Hold an open palm toward the camera",
+                                detail: "Starts, pauses, or resumes. Tap Record to finish a take.", ok: true))
         }
 
         if AVAudioApplication.shared.recordPermission == .denied {
@@ -171,7 +179,15 @@ struct ShootSetupView: View {
         } else {
             let input = AVAudioSession.sharedInstance().currentRoute.inputs.first
             let isHeadset = input.map { [.bluetoothHFP, .headsetMic].contains($0.portType) } ?? false
-            checks.append(Check(eyebrow: "Microphone", title: input?.portName ?? "iPhone microphone",
+            let micName: String
+            switch input?.portType {
+            case .some(.builtInMic): micName = "iPhone microphone"
+            case .some(.bluetoothHFP), .some(.bluetoothLE): micName = "Bluetooth microphone"
+            case .some(.headsetMic): micName = "Headset microphone"
+            case .some(.usbAudio), .some(.lineIn): micName = "External microphone"
+            default: micName = "iPhone microphone"
+            }
+            checks.append(Check(eyebrow: "Microphone", title: micName,
                                 detail: isHeadset ? "" : "Stay near the phone.", ok: true))
         }
 
@@ -209,6 +225,16 @@ struct ShootSetupView: View {
                 Text(sceneTitle).font(.otLargeTitle)
                 Text("Check your reader and microphone before recording this scene.")
                     .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hands-free controls")
+                        .font(.otFootnote.weight(.semibold))
+                    Toggle("Voice: say Action / Cut", isOn: $voiceCommandsEnabled)
+                    Toggle("Gestures: open palm", isOn: $gesturesEnabled)
+                    Text("Choose either control or turn on both. You can change these again in Camera Check.")
+                        .font(.otCaption).foregroundStyle(OT.labelTertiary)
+                }
+                .padding(14)
+                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Speech accent")
                         .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
@@ -223,7 +249,7 @@ struct ShootSetupView: View {
                 }
                 .padding(14)
                 .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                ForEach(rows, id: \.eyebrow) { c in
+                ForEach(rows, id: \.title) { c in
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
                     if c.eyebrow == "Reader", !c.ok {
                         Button { store.push(.recordReader(auditionID, sceneIndex: shootScene)) } label: { Label("Record the reader", systemImage: "mic") }
@@ -270,7 +296,7 @@ struct ShootSetupView: View {
     }
 }
 
-// MARK: - Camera flow: 15 check → 16 slate → 16c full length → 17 scene → 17.5 take saved
+// MARK: - Camera flow: camera check → slate → requested full-body shot → scenes → take saved
 
 struct ShootFlow: View {
     enum Stage { case check, slate, slateDone, fullLength, scene, saved }
@@ -288,6 +314,9 @@ struct ShootFlow: View {
     @State private var stage: Stage = .check
     /// The scene being shot. Takes, reader lines and the checklist piece all follow it.
     @State private var sceneIndex = 0
+    /// Scenes skipped during this camera session are excluded from the wraparound search so Skip
+    /// cannot cycle back to a scene the actor already passed.
+    @State private var skippedSceneIndices: Set<Int> = []
     @State private var countdown: Int?
     @State private var timerSeconds = 3
     @State private var pinchStartZoom: CGFloat?
@@ -308,6 +337,7 @@ struct ShootFlow: View {
     @AppStorage("prompter.followVoice") private var followVoice = true
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
     @AppStorage("camera.voiceGuidanceEnabled") private var voiceGuidanceEnabled = true
+    @AppStorage("camera.voiceCommandsEnabled") private var voiceCommandsEnabled = true
     @AppStorage("camera.poseGuideEnabled") private var poseGuideEnabled = true
     @AppStorage("camera.gesturesEnabled") private var gesturesEnabled = false
     @AppStorage("camera.gestureHoldDuration") private var gestureHoldDuration = 1.2
@@ -315,6 +345,7 @@ struct ShootFlow: View {
     @State private var lastGestureAction = Date.distantPast
     @AppStorage("camera.recordingResolution") private var recordingResolution = CameraResolution.hd1080.rawValue
     @State private var advanceAfterSceneSave = false
+    @State private var deviceOrientation: UIDeviceOrientation = UIDevice.current.orientation
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -361,6 +392,7 @@ struct ShootFlow: View {
         .simultaneousGesture(
             MagnificationGesture()
                 .onChanged { value in
+                    guard stage == .check else { return }
                     let start = pinchStartZoom ?? camera.zoomFactor
                     pinchStartZoom = start
                     camera.setZoomFactor(start * value)
@@ -370,6 +402,16 @@ struct ShootFlow: View {
         .preferredColorScheme(.dark)
         .statusBarHidden(camera.state == .recording)
         .keepScreenAwake()
+        .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            let orientation = UIDevice.current.orientation
+            if orientation.isValidInterfaceOrientation { deviceOrientation = orientation }
+        }
+        .onDisappear { UIDevice.current.endGeneratingDeviceOrientationNotifications() }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            let orientation = UIDevice.current.orientation
+            if orientation.isValidInterfaceOrientation { deviceOrientation = orientation }
+        }
         .task {
             sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
             stage = initialStage == .slate ? .slate : initialStage == .fullLength ? .fullLength : .check
@@ -398,6 +440,7 @@ struct ShootFlow: View {
             }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
+            guard voiceCommandsEnabled else { return }
             if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready,
                [.slate, .fullLength, .scene].contains(stage) { roll() }
             if cmd?.word == "cut", camera.state == .recording { cut() }
@@ -502,8 +545,10 @@ struct ShootFlow: View {
             if camera.state == .recording {
                 Color.clear.frame(width: 44, height: 44)
             } else {
-                HStack(spacing: 5) {
-                    timerMenu
+                if stage == .check {
+                    HStack(spacing: 5) {
+                        timerMenu
+                        handsFreeControlsMenu
                     Button {
                         voiceGuidanceEnabled.toggle()
                         Haptics.tick()
@@ -520,6 +565,9 @@ struct ShootFlow: View {
                             .background(OT.cameraGlass, in: Circle())
                     }
                     .accessibilityLabel(voiceGuidanceEnabled ? "Mute voice guidance" : "Turn on voice guidance")
+                    topBarTrailing
+                    }
+                } else {
                     topBarTrailing
                 }
             }
@@ -585,7 +633,7 @@ struct ShootFlow: View {
             case .slate:
                 Button("Skip") {
                     let a = store.audition(auditionID)
-                    stage = a?.asks.contains("Full length") == true ? .fullLength : .scene
+                    stage = a.map { requiresSeparateFullBodyShot($0) } == true ? .fullLength : .scene
                 }
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(.white)
@@ -610,8 +658,8 @@ struct ShootFlow: View {
                     .padding(.horizontal, 12)
                     .frame(height: 36)
                     .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                } else if let a = store.audition(auditionID), let next = nextUnshotScene(in: a) {
-                    Button("Skip") { moveToScene(next) }
+                } else if let a = store.audition(auditionID) {
+                    Button("Skip") { skipCurrentScene(in: a) }
                         .font(.otFootnote.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
@@ -633,7 +681,7 @@ struct ShootFlow: View {
         switch stage {
         case .check: return "Camera check"
         case .slate, .slateDone: return "Slate  \(time)"
-        case .fullLength: return "Full length  \(time)"
+        case .fullLength: return "Full-body shot  \(time)"
         case .scene: return "SC \(sceneIndex + 1) · TK \(store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex))  \(time)"
         case .saved: return "SC \(sceneIndex + 1) · TK \(takeNumber)  \(time)"
         }
@@ -643,12 +691,16 @@ struct ShootFlow: View {
         switch stage {
         case .check:
             VStack(spacing: 8) {
-                Text(firstStage == .slate ? "Ready to record your slate" : "Ready for \(sceneTitle(in: a))")
+                Text(firstStage == .slate ? "Ready to record your slate" : firstStage == .fullLength ? "Ready for your full-body shot" : "Ready for \(sceneTitle(in: a))")
                     .font(.otHeadline).foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(firstStage == .slate
-                     ? "Keep your face centered and say your name, height, and city."
-                     : "Keep your eyeline near the lens. Your scene and reader cues are ready below.")
+                     ? (a.asks.contains("Full-body shot with slate")
+                        ? "Step back so your head and feet fit in frame, then say your name, height, and city."
+                        : "Keep your face centered and say your name, height, and city.")
+                     : firstStage == .fullLength
+                        ? "Step back until your head and feet are in frame. Hold still for a few seconds."
+                        : "Keep your eyeline near the lens. Your scene and reader cues are ready below.")
                     .font(.otFootnote).foregroundStyle(.white.opacity(0.76))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
@@ -674,11 +726,13 @@ struct ShootFlow: View {
             }
             scenePicker(a)
         case .slate:
-            promptCard(eyebrow: "Slate · say it to the lens · ≈ 5 s", text: store.slate.spoken)
+            let asksForFullBodyWithSlate = a.asks.contains("Full-body shot with slate")
+            promptCard(eyebrow: asksForFullBodyWithSlate ? "Slate + full-body shot · ≈ 5 s" : "Slate · say it to the lens · ≈ 5 s",
+                       text: asksForFullBodyWithSlate ? "\(store.slate.spoken) Keep your head and feet in frame." : store.slate.spoken)
         case .slateDone:
             slateDoneOverlay(for: a)
         case .fullLength:
-            promptCard(eyebrow: "Optional · after the slate", text: "Head to feet, hold still")
+            promptCard(eyebrow: "Requested · after the slate", text: "Head to feet, hold still")
         case .scene:
             if camera.state != .recording { scenePicker(a) }
             let lines = sceneLines ?? []
@@ -725,7 +779,8 @@ struct ShootFlow: View {
             resultCard(title: "Slate’s done.", detail: "\(Int(camera.elapsed)) s · saved · opens every scene in \(a.project)",
                        primary: slateDonePrimaryAction(for: a),
                        secondary: ("Redo slate", { stage = .slate }),
-                       more: hasPreview ? [("Check the tape", { finish(goTo: .tapeCheck(a.id)) })] : [])
+                       more: [("Review slate by itself", { finish(goTo: .elementReview(a.id, element: .slate)) })]
+                            + (hasPreview ? [("Check the tape", { finish(goTo: .tapeCheck(a.id)) })] : []))
         }
     }
 
@@ -744,8 +799,19 @@ struct ShootFlow: View {
         if hasTapeCheck {
             return ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) })
         }
-        if a.asks.contains("Full length") && store.audition(auditionID)?.fullLengthVideoURL == nil {
-            return ("Next: full length", { stage = .fullLength })
+        if let next = (store.audition(a.id) ?? a).nextPiece {
+            switch next.kind {
+            case .fullLength:
+                return ("Next: full-body shot", { stage = .fullLength })
+            case .scene:
+                if let nextScene = a.scenes.firstIndex(where: { $0.title == next.title }) {
+                    return ("Next: \(next.title)", { moveToScene(nextScene) })
+                }
+            case .headshot:
+                return ("Add headshots", { finish(goTo: .headshots(for: a.id)) })
+            case .slate:
+                return ("Continue to slate", { stage = .slate })
+            }
         }
         if let unshot = nextUnshotScene(in: a) {
             return ("Next: \(a.scenes[unshot].title)", { moveToScene(unshot) })
@@ -760,6 +826,11 @@ struct ShootFlow: View {
             }
         }
         return false
+    }
+
+    private func requiresSeparateFullBodyShot(_ audition: Audition) -> Bool {
+        audition.pieces.contains { $0.kind == .fullLength }
+            || audition.asks.contains("Full length") // Legacy saved auditions
     }
 
     private func savedPrimaryAction(for a: Audition) -> (String, () -> Void) {
@@ -796,6 +867,7 @@ struct ShootFlow: View {
             let isOpt = isSceneOptional(title: nextTitle, in: a)
             let primaryTitle = isOpt ? "Next: \(nextTitle) (Optional)" : "Next: \(nextTitle)"
             let moreActions: [(String, () -> Void)] = [
+                ("Review this scene by itself", { finish(goTo: .elementReview(a.id, element: .scene(sceneIndex))) }),
                 ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id, sceneIndex: sceneIndex)) }),
                 hasPreview ? ("Back to preview", { finish(goTo: .preview(a.id)) }) : nil,
                 hasTapeCheck ? ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) }) : nil,
@@ -811,6 +883,7 @@ struct ShootFlow: View {
                        primary: savedPrimaryAction(for: a),
                        secondary: ("Go again", { lineIndex = 0; stage = .scene }),
                        more: [
+                        ("Review this scene by itself", { finish(goTo: .elementReview(a.id, element: .scene(sceneIndex))) }),
                         ("Check the tape", { finish(goTo: .tapeCheck(a.id)) }),
                         ("Done for now", { finish(goTo: nil) })
                        ])
@@ -819,6 +892,13 @@ struct ShootFlow: View {
 
     /// Live pre-shoot check from the camera itself: face found, framing, distance and light.
     private var liveChecks: [(text: String, ok: Bool)] {
+        if case .failed = camera.state {
+            #if targetEnvironment(simulator)
+            return [("Camera unavailable in Simulator · recording works on iPhone", false)]
+            #else
+            return [("Camera unavailable · check camera permission and try again", false)]
+            #endif
+        }
         guard camera.state == .ready else { return [("Starting the camera…", false)] }
         var rows: [(text: String, ok: Bool)] = []
         if let f = camera.face {
@@ -909,7 +989,7 @@ struct ShootFlow: View {
     }
 
     @ViewBuilder private var voiceCommandStatus: some View {
-        if [.slate, .fullLength, .scene].contains(stage), camera.state == .ready {
+        if voiceCommandsEnabled, [.slate, .fullLength, .scene].contains(stage), camera.state == .ready {
             Label(
                 follower.isListening ? "Say Action to start · Cut to stop" : (voiceAllowed ? "Voice commands unavailable" : "Allow speech and microphone access"),
                 systemImage: follower.isListening ? "waveform" : "mic.slash"
@@ -922,40 +1002,121 @@ struct ShootFlow: View {
         }
     }
 
-    private var hud: some View {
-        HStack(spacing: 6) {
-            Menu {
-                ForEach(camera.supportedResolutions) { resolution in
-                    Button {
-                        recordingResolution = resolution.rawValue
-                        camera.setResolution(resolution)
-                        Haptics.tick()
-                    } label: {
-                        if camera.currentResolution == resolution {
-                            Label(resolution.title, systemImage: "checkmark")
-                        } else {
-                            Text(resolution.title)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "video").font(.caption2)
-                    Text("\(camera.currentResolution.title) · 30").font(.otCaption.weight(.semibold))
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 9).frame(height: 26).background(.black.opacity(0.55), in: Capsule())
+    private var handsFreeControlsMenu: some View {
+        Menu {
+            Toggle(isOn: $voiceCommandsEnabled) {
+                Label("Voice commands · Action / Cut", systemImage: "waveform")
             }
-            .disabled(camera.state != .ready || countdown != nil)
-            .accessibilityLabel("Recording resolution, \(camera.currentResolution.title)")
+            Toggle(isOn: $gesturesEnabled) {
+                Label("Hand gestures · open palm", systemImage: "hand.raised")
+            }
+            Text("Turn on either control or both.")
+        } label: {
+            Image(systemName: "hand.raised.fingers.spread")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(voiceCommandsEnabled || gesturesEnabled ? OT.accent : .white)
+                .frame(width: 38, height: 38)
+                .background(OT.cameraGlass, in: Circle())
+        }
+        .accessibilityLabel("Hands-free controls")
+    }
 
-            if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
-                chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
+    private var hud: some View {
+        VStack(spacing: 7) {
+            if let requested = requestedVideoOrientation, orientationMismatch(for: requested),
+               [.check, .slate, .fullLength, .scene].contains(stage) {
+                let direction = requested == "Landscape" ? "sideways" : "upright"
+                Label("Casting requested \(requested) · Turn phone \(direction)", systemImage: "rotate.3d")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(OT.prompterGold)
+                    .padding(.horizontal, 11).frame(height: 28)
+                    .background(OT.cameraGlass, in: Capsule())
+                    .accessibilityLabel("Casting requested \(requested). Turn the phone \(direction) before recording.")
+            }
+            HStack(spacing: 6) {
+                if camera.audioMeterAvailable, [.check, .slate, .fullLength, .scene].contains(stage) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mic.fill").font(.system(size: 10, weight: .semibold))
+                        HStack(alignment: .center, spacing: 2) {
+                            ForEach(0..<8, id: \.self) { index in
+                                Capsule().fill(meterColor(for: index))
+                                    .frame(width: 3, height: CGFloat(4 + (index % 3) * 2))
+                                    .opacity(CGFloat(index) / 8 < CGFloat(camera.audioLevel) ? 1 : 0.28)
+                            }
+                        }
+                        .frame(height: 16)
+                        Text(camera.audioLevel > 0.02 ? "Mic" : "Speak to test")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9).frame(height: 26)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(camera.audioLevel > 0.02 ? "Microphone input detected" : "Microphone ready. Speak to test input")
+                }
+                if stage == .check {
+                    Menu {
+                        ForEach(camera.supportedResolutions) { resolution in
+                            Button {
+                                recordingResolution = resolution.rawValue
+                                camera.setResolution(resolution)
+                                Haptics.tick()
+                            } label: {
+                                if camera.currentResolution == resolution {
+                                    Label(resolution.title, systemImage: "checkmark")
+                                } else {
+                                    Text(resolution.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "video").font(.caption2)
+                            Text("\(camera.currentResolution.title) · 30 fps").font(.otCaption.weight(.semibold))
+                            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9).frame(height: 26).background(.black.opacity(0.55), in: Capsule())
+                    }
+                    .disabled(camera.state == .recording || countdown != nil)
+                    .accessibilityLabel("Recording resolution, \(camera.currentResolution.title)")
+                }
+
+                if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
+                    chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .opacity(stage == .saved || stage == .slateDone ? 0 : 1)
+    }
+
+    private var requestedVideoOrientation: String? {
+        guard let a = store.audition(auditionID) else { return nil }
+        if let value = a.submissionInstructions?.videoOrientation?.lowercased() {
+            if value.contains("landscape") { return "Landscape" }
+            if value.contains("portrait") { return "Portrait" }
+        }
+        if a.asks.contains(where: { $0.localizedCaseInsensitiveContains("landscape") }) { return "Landscape" }
+        if a.asks.contains(where: { $0.localizedCaseInsensitiveContains("portrait") }) { return "Portrait" }
+        return nil
+    }
+
+    private func orientationMismatch(for requested: String) -> Bool {
+        switch deviceOrientation {
+        case .portrait, .portraitUpsideDown:
+            return requested == "Landscape"
+        case .landscapeLeft, .landscapeRight:
+            return requested == "Portrait"
+        default:
+            return false
+        }
+    }
+
+    private func meterColor(for index: Int) -> Color {
+        if index >= 6 { return .red }
+        if index >= 4 { return .yellow }
+        return .green
     }
 
     @ViewBuilder
@@ -998,7 +1159,8 @@ struct ShootFlow: View {
     private var bottomControls: some View {
         ZStack(alignment: .center) {
             // Symmetrical secondary controls layer: 44x44 circular buttons on each side
-            HStack(alignment: .center) {
+            if stage == .check {
+                HStack(alignment: .center) {
                 Button {
                     camera.cycleZoom()
                 } label: {
@@ -1028,22 +1190,30 @@ struct ShootFlow: View {
                 .disabled(camera.state != .ready || countdown != nil)
                 .opacity(camera.state == .recording ? 0 : 1)
                 .accessibilityLabel("Switch camera")
+                }
+            } else {
+                Color.clear.frame(height: 44)
             }
 
             // Primary action: RecordButton or Go to your mark — guaranteed horizontally centered!
             switch stage {
             case .check:
                 VStack(spacing: 10) {
-                    Button("Go to your mark") { start(at: firstStage) }
+                    Button(firstStage == .slate ? "Record your slate" : firstStage == .fullLength ? "Record full-body shot" : "Go to your mark") {
+                        start(at: firstStage)
+                    }
                         .buttonStyle(.otPrimary)
                         .frame(width: 200)
-                    // Once the slate is in, the default skips to the scene — these keep the slate and
-                    // the optional full length reachable without making them part of every reopen.
+                    // The slate remains directly reachable; a separate full-body clip is only shown
+                    // when the notice asks for one (or an existing clip needs retaking).
                     if firstStage == .scene {
                         HStack(spacing: 8) {
                             cameraChoice(store.audition(auditionID)?.slateVideoURL != nil ? "Redo slate" : "Record slate") { start(at: .slate) }
-                            cameraChoice(store.audition(auditionID)?.fullLengthVideoURL != nil ? "Redo full length" : "Add full length") {
-                                start(at: .fullLength)
+                            if let audition = store.audition(auditionID),
+                               requiresSeparateFullBodyShot(audition) || audition.fullLengthVideoURL != nil {
+                                cameraChoice(audition.fullLengthVideoURL != nil ? "Redo full-body shot" : "Add full-body shot") {
+                                    start(at: .fullLength)
+                                }
                             }
                         }
                     }
@@ -1079,13 +1249,12 @@ struct ShootFlow: View {
     /// Picks up where this audition left off: once the slate is in, or if slate is optional,
     /// "Go to your mark" goes straight to the scene rather than forcing the actor into the slate camera.
     private var firstStage: Stage {
-        let slatePiece = store.audition(auditionID)?.pieces.first(where: { $0.kind == .slate })
-        let slateDone = slatePiece?.isDone ?? false
-        let slateRequired = !(slatePiece?.isOptional ?? true)
-        if slateRequired && !slateDone {
-            return .slate
+        guard let audition = store.audition(auditionID) else { return .scene }
+        switch audition.nextPiece?.kind {
+        case .slate: return .slate
+        case .fullLength: return .fullLength
+        default: return .scene
         }
-        return .scene
     }
 
     private func sceneTitle(in audition: Audition) -> String {
@@ -1134,10 +1303,32 @@ struct ShootFlow: View {
         Haptics.tick()
     }
 
-    /// The next scene (after this one, wrapping round) that has no take yet.
+    /// The next scene (after this one, wrapping round) that has no take and has not been skipped
+    /// in this camera session.
     private func nextUnshotScene(in a: Audition) -> Int? {
         let order = a.scenes.indices.filter { $0 > sceneIndex } + a.scenes.indices.filter { $0 < sceneIndex }
-        return order.first { i in !store.takes.contains { $0.auditionID == auditionID && $0.sceneIndex == i } }
+        return order.first { i in
+            !skippedSceneIndices.contains(i)
+                && !store.takes.contains { $0.auditionID == auditionID && $0.sceneIndex == i }
+        }
+    }
+
+    private func skipCurrentScene(in audition: Audition) {
+        skippedSceneIndices.insert(sceneIndex)
+        if audition.scenes.indices.contains(sceneIndex) {
+            let title = audition.scenes[sceneIndex].title
+            if let optionalPiece = audition.pieces.first(where: { $0.kind == .scene && $0.title == title && $0.isOptional }) {
+                store.markPieceDone(auditionID, pieceID: optionalPiece.id)
+            }
+        }
+        reader.stop()
+        readerAdvance?.cancel()
+        timedAdvance?.cancel()
+        if let next = nextUnshotScene(in: audition) {
+            moveToScene(next)
+        } else {
+            finish(goTo: nil)
+        }
     }
 
     /// On to another scene: this one is ticked off (it has a take), the prompter starts from the top.
@@ -1538,6 +1729,7 @@ struct SidesPrompterView: View {
     var readerIsPlaying: Bool = false
     var readerAudioMissing: Bool = false
     var displayMode: StandaloneDisplay = .full
+    var hiddenGapWords: [ScriptLine.ID: Set<Int>] = [:]
     var revealedLines: Set<ScriptLine.ID> = []
     var onAdvance: () -> Void = {}
     var onPrevious: () -> Void = {}
@@ -1647,7 +1839,8 @@ struct SidesPrompterView: View {
                                     } else if line.isMine {
                                         let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
                                         let isRev = revealedLines.contains(line.id)
-                                        attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
+                                        attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode,
+                                                             isRevealed: isRev, hiddenWords: hiddenGapWords[line.id, default: []])
                                             .font(.system(size: fontSize, weight: .bold, design: .monospaced))
                                             .shadow(
                                                 color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
@@ -1785,7 +1978,8 @@ struct SidesPrompterView: View {
         }.joined(separator: " ")
     }
 
-    private func attributedPromptText(_ text: String, matchedIndices: Set<Int>, displayMode: StandaloneDisplay = .full, isRevealed: Bool = false) -> Text {
+    private func attributedPromptText(_ text: String, matchedIndices: Set<Int>, displayMode: StandaloneDisplay = .full,
+                                      isRevealed: Bool = false, hiddenWords: Set<Int> = []) -> Text {
         let words = text.split(separator: " ").map(String.init)
         var result = Text("")
         for (idx, word) in words.enumerated() {
@@ -1801,6 +1995,14 @@ struct SidesPrompterView: View {
                     let first = word.first.map(String.init) ?? ""
                     let punct = word.filter { $0.isPunctuation }
                     displayText = first + "—" + (punct.isEmpty ? "" : String(punct))
+                }
+            case .gaps:
+                if isRevealed || isMatched || !hiddenWords.contains(idx) {
+                    displayText = word
+                } else {
+                    let letters = word.filter(\.isLetter)
+                    let suffix = word.filter { !$0.isLetter && !$0.isNumber }
+                    displayText = String(repeating: "_", count: min(max(2, letters.count), 8)) + suffix
                 }
             case .hideMine:
                 if isRevealed || isMatched {

@@ -64,7 +64,7 @@ targets:
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSCameraUsageDescription: "OneTake films your self-tapes and headshots. Takes stay on this iPhone until you send them."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "OneTake records your voice for takes and reader tracks."
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "OneTake listens so the prompter can follow your lines and hear “Action” and “Cut”."
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "OneTake uses speech recognition to follow your lines and review recorded voice practice against the script."
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Save finished tapes to Photos."
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"

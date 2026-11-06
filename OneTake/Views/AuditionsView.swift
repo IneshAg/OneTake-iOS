@@ -359,12 +359,6 @@ struct SearchView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        if query.isEmpty || "warm-up cold read off-book slate".localizedCaseInsensitiveContains(query) {
-                            Button { store.push(.practiceSetup) } label: {
-                                ScheduleRow(eyebrow: "SETUP", value: "New", title: "Practise a scene", detail: "Cold read, off-book check, or slate run")
-                            }
-                            .buttonStyle(.plain)
-                        }
                     }
                 }
             }

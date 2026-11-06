@@ -10,6 +10,8 @@ struct ProfileView: View {
     @AppStorage("appearance") private var appearance = "system"
     @State private var showSignIn = false
     @State private var showGestureSettings = false
+    @State private var showResumePicker = false
+    @State private var resumeImportError: String?
     @AppStorage("camera.gesturesEnabled") private var showGestures = false
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
@@ -63,6 +65,28 @@ struct ProfileView: View {
                         .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
+
+                    Divider()
+
+                    HStack(spacing: 10) {
+                        Label("Résumé", systemImage: "doc.text")
+                            .font(.otBody).foregroundStyle(OT.labelPrimary)
+                        Spacer(minLength: 8)
+                        if let resumeURL = store.slate.resumeURL {
+                            Text(resumeURL.lastPathComponent)
+                                .font(.otCaption).foregroundStyle(OT.labelSecondary)
+                                .lineLimit(1).truncationMode(.middle)
+                            Button("Replace") { showResumePicker = true }
+                                .font(.otCaption.weight(.semibold)).foregroundStyle(OT.accent)
+                        } else {
+                            Button("Add PDF") { showResumePicker = true }
+                                .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
+                                .padding(.horizontal, 12).frame(height: 34)
+                                .background(OT.accentSoft, in: Capsule())
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .accessibilityElement(children: .contain)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -135,7 +159,7 @@ struct ProfileView: View {
 
                         Button { showGestureSettings = true } label: {
                             HStack {
-                                Label("Hands-free gestures", systemImage: "hand.raised")
+                                Label("Hands-free controls", systemImage: "hand.raised")
                                     .font(.otBody).foregroundStyle(OT.labelPrimary)
                                 Spacer()
                                 Text(showGestures ? "On" : "Off")
@@ -224,6 +248,31 @@ struct ProfileView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+        .fileImporter(isPresented: $showResumePicker, allowedContentTypes: [
+            .pdf, .rtf, .plainText,
+            UTType(filenameExtension: "doc") ?? .data,
+            UTType(filenameExtension: "docx") ?? .data
+        ]) { result in
+            switch result {
+            case .success(let url):
+                do {
+                    store.slate.resumeURL = try ResumeStore.importFile(from: url)
+                    Haptics.success()
+                } catch {
+                    resumeImportError = "Choose a PDF, Word document, RTF, or plain text résumé."
+                }
+            case .failure(let error):
+                resumeImportError = error.localizedDescription
+            }
+        }
+        .alert("Couldn't add résumé", isPresented: Binding(
+            get: { resumeImportError != nil },
+            set: { if !$0 { resumeImportError = nil } }
+        )) {
+            Button("OK", role: .cancel) { resumeImportError = nil }
+        } message: {
+            Text(resumeImportError ?? "Try choosing a résumé file again.")
+        }
         .sheet(isPresented: $showSignIn) {
             SignInView { account in store.account = account; showSignIn = false }
         }
@@ -246,17 +295,19 @@ struct ProfileView: View {
 private struct HandsFreeGestureSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("camera.gesturesEnabled") private var enabled = false
+    @AppStorage("camera.voiceCommandsEnabled") private var voiceCommandsEnabled = true
     @AppStorage("camera.gestureHoldDuration") private var holdDuration = 1.2
 
     var body: some View {
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Hands-free gestures", backLabel: "Done", onBack: { dismiss() })
+            InContentNavHeader(title: "Hands-free controls", backLabel: "Done", onBack: { dismiss() })
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 16)
 
             Form {
                 Section {
-                    Toggle("Use hand gestures", isOn: $enabled)
+                    Toggle("Voice commands (Action / Cut)", isOn: $voiceCommandsEnabled)
+                    Toggle("Hand gestures (open palm)", isOn: $enabled)
                     Picker("Hold gesture for", selection: $holdDuration) {
                         Text("0.8 seconds").tag(0.8)
                         Text("1.2 seconds").tag(1.2)
@@ -264,7 +315,7 @@ private struct HandsFreeGestureSettingsView: View {
                     }
                     .disabled(!enabled)
                 } footer: {
-                    Text("Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on. Tap Record to finish a take.")
+                    Text("Choose voice commands, gestures, or both. Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on; tap Record to finish a take.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -1015,14 +1066,15 @@ struct HeadshotsView: View {
     @State private var showPicker = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var isFraming = false
+    @State private var framingPreset: HeadshotPreset = .cardSlot
 
     /// Counted from the real files on disk for this specific audition or profile
     private var taken: Int {
-        HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key, auditionID: auditionID) }.count
+        HeadshotStore.taken(auditionID: auditionID).count
     }
 
     private var profileTaken: Int {
-        HeadshotStore.angles.prefix { HeadshotStore.exists(key: $0.key, auditionID: nil) }.count
+        HeadshotStore.taken(auditionID: nil).count
     }
 
     var body: some View {
@@ -1037,34 +1089,44 @@ struct HeadshotsView: View {
 
                 if let auditionID {
                     if taken > 0 {
-                        HStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(OT.success)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(taken) photo\(taken == 1 ? "" : "s") attached to this audition")
-                                    .font(.otHeadline)
-                                    .foregroundStyle(OT.labelPrimary)
-                                Text("Independent copy for this audition · sent with this tape.")
-                                    .font(.otFootnote)
-                                    .foregroundStyle(OT.labelSecondary)
-                            }
-                            Spacer()
-                            Button(role: .destructive) {
-                                HeadshotStore.removeAuditionHeadshots(for: auditionID)
-                                store.headshotVersion += 1
-                                store.syncHeadshotPieces()
-                                Haptics.warning()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "trash")
-                                    Text("Remove")
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title3).foregroundStyle(OT.success)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Saved for this audition")
+                                        .font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                                    Text("These photos stay on this iPhone and go with this tape.")
+                                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                                 }
-                                .font(.otFootnote.weight(.semibold))
-                                .foregroundStyle(OT.danger)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                Spacer(minLength: 4)
+                                Button(role: .destructive) {
+                                    HeadshotStore.removeAuditionHeadshots(for: auditionID)
+                                    store.headshotVersion += 1
+                                    store.syncHeadshotPieces()
+                                    Haptics.warning()
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.danger)
+                                        .frame(width: 36, height: 36)
+                                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                }
+                                .accessibilityLabel("Remove audition headshots")
+                            }
+
+                            ForEach(HeadshotStore.taken(auditionID: auditionID), id: \.key) { photo in
+                                HStack(spacing: 10) {
+                                    if let image = HeadshotStore.load(key: photo.key, auditionID: auditionID) {
+                                        Image(uiImage: image).resizable().scaledToFill()
+                                            .frame(width: 42, height: 52).clipShape(RoundedRectangle(cornerRadius: 8))
+                                    }
+                                    Text(photo.title).font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                                    Spacer()
+                                    Text("Crop \(savedCropRatio(for: photo.key, auditionID: auditionID))")
+                                        .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                                }
+                                .padding(8)
+                                .background(OT.bgCanvas.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
                         }
                         .padding(14)
@@ -1124,11 +1186,11 @@ struct HeadshotsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    slot("Front", done: taken >= 1, big: true)
+                    slot("Front", done: HeadshotStore.exists(key: "front", auditionID: auditionID), big: true)
                         .frame(maxWidth: .infinity)
                     VStack(spacing: 10) {
-                        slot("Left profile", done: taken >= 2, big: false)
-                        slot("Right profile", done: taken >= 3, big: false)
+                        slot("Left profile", done: HeadshotStore.exists(key: "left", auditionID: auditionID), big: false)
+                        slot("Right profile", done: HeadshotStore.exists(key: "right", auditionID: auditionID), big: false)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -1139,15 +1201,20 @@ struct HeadshotsView: View {
                         Menu {
                             ForEach(HeadshotPreset.allCases) { preset in
                                 Button {
+                                    framingPreset = preset
                                     autoFrameAllHeadshots(preset: preset)
                                 } label: {
-                                    Label(preset.title, systemImage: preset.icon)
+                                    if framingPreset == preset {
+                                        Label(preset.title, systemImage: "checkmark")
+                                    } else {
+                                        Label(preset.title, systemImage: preset.icon)
+                                    }
                                 }
                             }
                         } label: {
                             HStack(spacing: 8) {
                                 if isFraming { ProgressView() } else { Image(systemName: "sparkles") }
-                                Text(isFraming ? "Framing…" : "Auto-frame headshots")
+                                Text(isFraming ? "Framing…" : "Auto-frame · \(framingPreset.shortTitle)")
                                 Image(systemName: "chevron.up.chevron.down")
                                     .font(.caption2)
                                     .foregroundStyle(OT.labelTertiary)
@@ -1155,28 +1222,6 @@ struct HeadshotsView: View {
                         }
                         .buttonStyle(.otSecondary)
                         .disabled(isFraming)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(HeadshotPreset.allCases) { preset in
-                                    Button {
-                                        autoFrameAllHeadshots(preset: preset)
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Image(systemName: preset.icon)
-                                                .font(.system(size: 11))
-                                            Text(preset.shortTitle)
-                                                .font(.system(size: 12, weight: .semibold))
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(OT.fillField, in: Capsule())
-                                        .foregroundStyle(OT.labelPrimary)
-                                    }
-                                    .disabled(isFraming)
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -1335,6 +1380,15 @@ struct HeadshotsView: View {
         }
     }
 
+    /// The app stores one current crop per headshot; report its real pixel ratio instead of
+    /// suggesting that several export sizes have already been generated.
+    private func savedCropRatio(for key: String, auditionID: Audition.ID) -> String {
+        guard let image = HeadshotStore.load(key: key, auditionID: auditionID), image.size.height > 0 else { return "Unknown" }
+        let ratio = image.size.width / image.size.height
+        let known: [(CGFloat, String)] = [(4.0 / 5.0, "4:5"), (3.0 / 4.0, "3:4"), (1.0, "1:1")]
+        return known.first(where: { abs($0.0 - ratio) < 0.035 })?.1 ?? "Custom"
+    }
+
     private var continueButtonTitle: String {
         guard let auditionID else { return "Continue" }
         let hasPreview = store.currentPath.contains {
@@ -1363,7 +1417,7 @@ struct HeadshotsView: View {
             guard !audition.isPackageReady, let next = audition.nextPiece else { return "Continue to preview" }
             switch next.kind {
             case .slate: return taken > 0 ? "Continue to slate" : "Skip headshots · go to slate"
-            case .fullLength: return taken > 0 ? "Continue to full length" : "Skip headshots · go to full length"
+            case .fullLength: return taken > 0 ? "Continue to full-body shot" : "Skip headshots · go to full-body shot"
             case .scene: return taken > 0 ? "Continue to \(next.title)" : "Skip headshots · go to \(next.title)"
             case .headshot: return taken > 0 ? "Continue" : "Skip & continue"
             }
@@ -1376,7 +1430,7 @@ struct HeadshotsView: View {
         switch next.kind {
         case .headshot: return "more headshots"
         case .slate: return "slate"
-        case .fullLength: return "full length"
+        case .fullLength: return "full-body shot"
         case .scene: return next.title
         }
     }
@@ -2328,61 +2382,42 @@ struct HeadshotAdjustSheet: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Bottom control panel with Preset Options
+            // Bottom control panel: one preset menu, plus direct pinch/drag framing.
             VStack(spacing: 12) {
-                // Preset options selector
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("AUTO-FRAME PRESETS")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(OT.labelTertiary)
-                        Spacer()
-                        Text(selectedPreset.title)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(OT.accent)
-                    }
-                    .padding(.horizontal, OT.gutter)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(HeadshotPreset.allCases) { preset in
-                                let isSelected = (preset == selectedPreset)
-                                Button {
-                                    selectedPreset = preset
-                                    autoFrame(preset: preset, animated: true)
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: preset.icon)
-                                            .font(.system(size: 12, weight: .medium))
-                                        Text(preset.title)
-                                            .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 9)
-                                    .background(
-                                        isSelected ? OT.accent : OT.fillField,
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    )
-                                    .foregroundStyle(isSelected ? Color.white : OT.labelPrimary)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .strokeBorder(isSelected ? Color.clear : Color.white.opacity(0.1), lineWidth: 1)
-                                    )
-                                }
-                                .buttonStyle(.plain)
+                Menu {
+                    ForEach(HeadshotPreset.allCases) { preset in
+                        Button {
+                            selectedPreset = preset
+                            autoFrame(preset: preset, animated: true)
+                        } label: {
+                            if selectedPreset == preset {
+                                Label(preset.title, systemImage: "checkmark")
+                            } else {
+                                Label(preset.title, systemImage: preset.icon)
                             }
                         }
-                        .padding(.horizontal, OT.gutter)
                     }
+                } label: {
+                    HStack {
+                        Image(systemName: "sparkles")
+                        Text("Auto-frame · \(selectedPreset.title)")
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 44)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+                .padding(.horizontal, OT.gutter)
 
                 // Preset description helper
-                Text(selectedPreset.description)
+                Text("Choose a preset, then pinch or drag the photo to fine-tune its size and position.")
                     .font(.otFootnote)
                     .foregroundStyle(OT.labelSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-                    .frame(height: 18)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 // Action buttons
                 HStack(spacing: 12) {

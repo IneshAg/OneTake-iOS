@@ -124,11 +124,20 @@ struct SignInView: View {
     var onSignedIn: (Account) -> Void
     @Environment(AppStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
     @State private var working = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                Spacer()
+            }
+            .padding(.bottom, 18)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Sign in or create an account")
                     .font(.system(size: 40, weight: .bold)).tracking(-0.8)

@@ -53,76 +53,161 @@ enum NoticeOCR {
                 print("[NoticeOCR] no CGImage for this UIImage")
                 return ""
             }
-            // Apply image pre-processing to boost OCR accuracy on coloured / low-contrast notices.
+            // Apply adaptive image pre-processing to boost OCR accuracy on coloured / low-contrast notices.
             let processedImage = enhancedCGImage(cgImage) ?? cgImage
-
-            // .accurate first; if it errors (it does on some Simulators: "Could not create inference
-            // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
-            for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = level
-                request.usesLanguageCorrection = level == .accurate
-                // Support English (Indian), English (US) and Hindi so bilingual casting notices
-                // and Devanagari names are read correctly on all devices.
-                request.recognitionLanguages = recognitionLanguages
-                // The image is already drawn upright by `normalizedCGImage`.
-                let handler = VNImageRequestHandler(cgImage: processedImage, orientation: .up)
-                do {
-                    try handler.perform([request])
-                } catch {
-                    print("[NoticeOCR] \(level == .accurate ? "accurate" : "fast") failed: \(error)")
-                    continue
-                }
-
-                // Extract observations into 2D layout boxes with coordinates and confidence
-                let boxes: [OCRLayoutReconstructor.TextBoundingBox] = (request.results ?? []).compactMap { observation in
-                    let candidates = observation.topCandidates(3)
-                    guard let best = candidates.first else { return nil }
-                    let chosen = (best.confidence >= minimumLineConfidence)
-                        ? best
-                        : candidates.first(where: { $0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2 })
-                    guard let candidate = chosen else { return nil }
-                    return OCRLayoutReconstructor.TextBoundingBox(
-                        text: candidate.string,
-                        rect: observation.boundingBox,
-                        confidence: candidate.confidence
-                    )
-                }
-
-                let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
-                if !reconstructed.isEmpty { return reconstructed }
+            let primaryResult = performVisionOCR(on: processedImage)
+            if looksReadable(primaryResult) {
+                return primaryResult
             }
-            return ""
+
+            // Fallback pass: If primary pass produced unreadable or empty text, try inverting luminance
+            // (handles dark-background flyers with light text or stylized Instagram graphics)
+            if let invertedImage = enhancedCGImage(cgImage, forceInvert: true) {
+                let invertedResult = performVisionOCR(on: invertedImage)
+                if looksReadable(invertedResult) {
+                    return invertedResult
+                }
+            }
+
+            return primaryResult
         }
+    }
+
+    /// Performs Vision OCR across accurate and fast recognition levels.
+    private static func performVisionOCR(on cgImage: CGImage) -> String {
+        // .accurate first; if it errors (it does on some Simulators: "Could not create inference
+        // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
+        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = level == .accurate
+            // Support English (Indian), English (US) and Hindi so bilingual casting notices
+            // and Devanagari names are read correctly on all devices.
+            request.recognitionLanguages = recognitionLanguages
+            // The image is already drawn upright by `normalizedCGImage`.
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
+            do {
+                try handler.perform([request])
+            } catch {
+                print("[NoticeOCR] \(level == .accurate ? "accurate" : "fast") failed: \(error)")
+                continue
+            }
+
+            // Extract observations into 2D layout boxes with coordinates and confidence
+            let boxes: [OCRLayoutReconstructor.TextBoundingBox] = (request.results ?? []).compactMap { observation in
+                let candidates = observation.topCandidates(3)
+                guard let best = candidates.first else { return nil }
+                let chosen = (best.confidence >= minimumLineConfidence)
+                    ? best
+                    : candidates.first(where: { $0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2 })
+                guard let candidate = chosen else { return nil }
+                return OCRLayoutReconstructor.TextBoundingBox(
+                    text: candidate.string,
+                    rect: observation.boundingBox,
+                    confidence: candidate.confidence
+                )
+            }
+
+            let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
+            if !reconstructed.isEmpty { return reconstructed }
+        }
+        return ""
     }
 
     // MARK: - Image pre-processing (Core Image)
 
-    /// Converts to grayscale and boosts contrast before Vision OCR. Grayscale alone improves
-    /// recognition by ~10–15% on coloured flyers (orange/yellow/purple casting-call screenshots).
-    /// Values are conservative to avoid over-processing well-lit scans.
-    private static func enhancedCGImage(_ source: CGImage) -> CGImage? {
+    /// Converts to grayscale, adaptively checks background darkness, and boosts contrast before Vision OCR.
+    /// Grayscale alone improves recognition by ~10–15% on coloured flyers; dark-background inversion
+    /// transforms white-on-dark text into black-on-white text which Apple Vision's neural network resolves best.
+    private static func enhancedCGImage(_ source: CGImage, forceInvert: Bool = false) -> CGImage? {
         let context = CIContext(options: [.useSoftwareRenderer: false])
         var image = CIImage(cgImage: source)
+
+        let profile = luminanceProfile(source)
+        let isDark = forceInvert || profile.mean < 0.38
 
         // Step 1 — convert to greyscale; colours are irrelevant for text recognition
         //          and removing them reduces false-positive detection noise.
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(image, forKey: kCIInputImageKey)
             filter.setValue(0.0, forKey: kCIInputSaturationKey)  // greyscale
-            filter.setValue(1.10, forKey: kCIInputContrastKey)   // slight contrast boost
-            filter.setValue(0.03, forKey: kCIInputBrightnessKey) // lift shadows slightly
+            filter.setValue(1.0, forKey: kCIInputContrastKey)
             if let output = filter.outputImage { image = output }
         }
 
-        // Step 2 — sharpens text edges so Vision's neural net resolves fine glyphs better.
+        // Stretch the useful luminance range from sampled 3rd/97th percentiles. A fixed contrast
+        // boost crushes text in some dark posters and washes out bright social graphics.
+        let low = max(0, profile.low - 0.015)
+        let high = min(1, profile.high + 0.015)
+        let range = max(high - low, 0.12)
+        let scale = min(3.5, max(0.85, 0.94 / range))
+        let bias = 0.03 - low * scale
+        if let filter = CIFilter(name: "CIColorMatrix") {
+            filter.setValue(image, forKey: kCIInputImageKey)
+            filter.setValue(CIVector(x: scale, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            filter.setValue(CIVector(x: 0, y: scale, z: 0, w: 0), forKey: "inputGVector")
+            filter.setValue(CIVector(x: 0, y: 0, z: scale, w: 0), forKey: "inputBVector")
+            filter.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
+            filter.setValue(CIVector(x: bias, y: bias, z: bias, w: 0), forKey: "inputBiasVector")
+            if let output = filter.outputImage { image = output }
+        }
+
+        // Step 2 — if dark background detected, invert colors so light text becomes dark text
+        if isDark, let invertFilter = CIFilter(name: "CIColorInvert") {
+            invertFilter.setValue(image, forKey: kCIInputImageKey)
+            if let output = invertFilter.outputImage { image = output }
+        }
+
+        // Step 3 — sharpens text edges so Vision's neural net resolves fine glyphs better.
         if let filter = CIFilter(name: "CISharpenLuminance") {
             filter.setValue(image, forKey: kCIInputImageKey)
-            filter.setValue(0.55, forKey: kCIInputSharpnessKey)
+            filter.setValue(isDark ? 0.65 : 0.55, forKey: kCIInputSharpnessKey)
             if let output = filter.outputImage { image = output }
         }
 
         return context.createCGImage(image, from: image.extent)
+    }
+
+    private struct LuminanceProfile {
+        var mean: CGFloat
+        var low: CGFloat
+        var high: CGFloat
+    }
+
+    /// Samples a small thumbnail so contrast decisions are cheap even for full-resolution photos.
+    private static func luminanceProfile(_ source: CGImage) -> LuminanceProfile {
+        let width = 32, height = 32, bytesPerRow = 32 * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let rendered = pixels.withUnsafeMutableBytes { raw -> Bool in
+            guard let context = CGContext(
+                data: raw.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else { return LuminanceProfile(mean: 0.5, low: 0.05, high: 0.95) }
+
+        var values: [CGFloat] = []
+        values.reserveCapacity(width * height)
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let r = CGFloat(pixels[offset]) / 255
+            let g = CGFloat(pixels[offset + 1]) / 255
+            let b = CGFloat(pixels[offset + 2]) / 255
+            values.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+        }
+        values.sort()
+        guard !values.isEmpty else { return LuminanceProfile(mean: 0.5, low: 0.05, high: 0.95) }
+        let mean = values.reduce(0, +) / CGFloat(values.count)
+        let low = values[min(values.count - 1, values.count * 3 / 100)]
+        let high = values[min(values.count - 1, values.count * 97 / 100)]
+        return LuminanceProfile(mean: mean, low: low, high: max(low, high))
     }
 
     // MARK: - Normalisation

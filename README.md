@@ -32,7 +32,7 @@ and deterministic guidance.
   role, date, sides, source-page, and submission details when found; anything it can't find, you fill in.
 - **Splits the sides into scenes** at each slugline (`INT.` / `EXT.`) or `SCENE 2` header, and marks
   your lines.
-- **Checklist per audition** — headshot, slate, optional full length and one piece per scene, with a
+- **Checklist per audition** — headshot, slate, requested full-body shot (as part of the slate or a separate clip) and one piece per scene, with a
   single "Next" action that opens whatever's next.
 - Edit details, revised sides, callbacks, and filters for Active / Due this week / Sent / All.
 
@@ -49,7 +49,7 @@ and deterministic guidance.
 - Front or back camera at 1080p, recorded upright however the phone is held and never mirrored.
 - Pinch to zoom or tap the zoom control to cycle through 1×, 1.5× and 2× framing.
 - A visible timer control enables or disables the 3-second countdown before recording.
-- Slate, optional full length, then each scene — with a scene picker and “Next: Scene N”.
+- Slate, a separately requested full-body shot, then each scene — with a scene picker and “Next: Scene N”. A full-body view requested as part of the slate stays in the slate.
 - Hands-free: say "Action" / "Cut" (only when said on their own), or use a volume button, Camera Control
   or an AirPods stem press. The prompter follows your voice and plays your reader lines.
 - Hold-to-stop while rolling, so a stray tap can't end an emotional take.
@@ -144,6 +144,8 @@ Comprehensive engineering documentation and architectural invariants are maintai
 - **[Structure and Working (`docs/STRUCTURE_AND_WORKING.md`)](docs/STRUCTURE_AND_WORKING.md)**: Exhaustive 18-section reference detailing the product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
 - **[Navigation & UX Changes (`docs/NAVIGATION_CHANGES.md`)](docs/NAVIGATION_CHANGES.md)**: Design choices, header/tabbar HIG alignment, real-time audition flow optimization, and Reader Audio integration.
 - **[On-Device Intelligence & ML Pipeline (`docs/ML_PIPELINE.md`)](docs/ML_PIPELINE.md)**: LoRA fine-tuning, Core ML ANE INT4 palettization, pure-Swift BPE tokenizer, and grammar-constrained JSON decoding.
+- **[Implementation Notes — 7 November 2026 (`docs/IMPLEMENTATION_NOTES_2026-11-07.md`)](docs/IMPLEMENTATION_NOTES_2026-11-07.md)**: Detailed status of the current intake, practice, reader-audio, headshot, review, camera, package, glass-button and verification changes.
+- **[Session Changelog (`docs/SESSION_CHANGELOG.md`)](docs/SESSION_CHANGELOG.md)**: Reverse-chronological implementation history and verification notes.
 
 ---
 

@@ -12,7 +12,7 @@ enum MediaExporter {
         var errorDescription: String? {
             switch self {
             case .trackCreationFailed:   "Couldn't set up the export."
-            case .nothingToExport:       "Nothing's been recorded yet for this audition."
+            case .nothingToExport:       "No files are available for the selected delivery format."
             case .sessionCreationFailed: "Couldn't start the export session."
             }
         }
@@ -61,7 +61,7 @@ enum MediaExporter {
     static func clips(for audition: Audition, takes: [Take], slateAtStart: Bool = Self.slateAtStart) -> [Clip] {
         var slate: [Clip] = []
         if let s = audition.slateVideoURL { slate.append(Clip(kind: .slate, label: "Slate", url: s)) }
-        if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full length", url: f)) }
+        if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full-body shot", url: f)) }
         var clips: [Clip] = []
         // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
         // display number, and only this audition's takes are eligible whatever the caller passes in.
@@ -75,11 +75,49 @@ enum MediaExporter {
         return slateAtStart ? slate + clips : clips + slate
     }
 
-    /// Writes the individual finalized clips and headshots beside the merged export so casting
-    /// materials can also be handed off as one ordinary ZIP file.
+    /// Writes the individual finalized clips and headshots to the separate-clips ZIP.
     static func makeSeparateArchive(_ audition: Audition, takes: [Take], slate: SlateInfo) throws -> URL {
         let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
         let archiveURL = MediaStore.directory("Exports").appendingPathComponent("\(baseName)_SEPARATE.zip")
+        let entries = try separatePackageEntries(audition, takes: takes, slate: slate)
+        guard !entries.isEmpty else { throw ExportError.nothingToExport }
+        try ZipArchive.write(entries, to: archiveURL)
+        return archiveURL
+    }
+
+    /// Photos are multiple files, while iCloud publishes one file per link. Make the selected
+    /// photos into a ZIP only when the chosen delivery route needs a single file.
+    static func makeHeadshotsArchive(_ audition: Audition, slate: SlateInfo) throws -> URL {
+        let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+        let photos = HeadshotStore.deliverables(baseName: baseName, auditionID: audition.id)
+        guard !photos.isEmpty else { throw ExportError.nothingToExport }
+        let entries = photos.map { ZipArchive.Entry(name: $0.lastPathComponent, fileURL: $0) }
+        let archiveURL = MediaStore.directory("Exports").appendingPathComponent("\(baseName)_PHOTOS.zip")
+        try ZipArchive.write(entries, to: archiveURL)
+        return archiveURL
+    }
+
+    /// Builds the one-file Hosted Link representation of Full Package. It contains the combined
+    /// MP4 and the individual clips, headshots, and résumé as named entries.
+    static func makeCompletePackageArchive(
+        _ audition: Audition,
+        combinedVideoURL: URL,
+        takes: [Take],
+        slate: SlateInfo
+    ) throws -> URL {
+        guard FileManager.default.fileExists(atPath: combinedVideoURL.path) else {
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: combinedVideoURL.path])
+        }
+        let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+        var entries = [ZipArchive.Entry(name: "Combined Video/\(combinedVideoURL.lastPathComponent)", fileURL: combinedVideoURL)]
+        entries.append(contentsOf: try separatePackageEntries(audition, takes: takes, slate: slate))
+        let archiveURL = MediaStore.directory("Exports").appendingPathComponent("\(baseName)_FULL_PACKAGE.zip")
+        try ZipArchive.write(entries, to: archiveURL)
+        return archiveURL
+    }
+
+    private static func separatePackageEntries(_ audition: Audition, takes: [Take], slate: SlateInfo) throws -> [ZipArchive.Entry] {
+        let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
         var entries: [ZipArchive.Entry] = []
         for clip in clips(for: audition, takes: takes) {
             guard FileManager.default.fileExists(atPath: clip.url.path) else {
@@ -111,9 +149,10 @@ enum MediaExporter {
         for url in HeadshotStore.deliverables(baseName: baseName, auditionID: audition.id) {
             entries.append(ZipArchive.Entry(name: "Headshots/\(url.lastPathComponent)", fileURL: url))
         }
-        guard !entries.isEmpty else { throw ExportError.nothingToExport }
-        try ZipArchive.write(entries, to: archiveURL)
-        return archiveURL
+        if let resumeURL = audition.resumeURL, FileManager.default.fileExists(atPath: resumeURL.path) {
+            entries.append(ZipArchive.Entry(name: "Resume/\(resumeURL.lastPathComponent)", fileURL: resumeURL))
+        }
+        return entries
     }
 
     /// Joins the clips into one composition. Used for the instant Preview and for the export.

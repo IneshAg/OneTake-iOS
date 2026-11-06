@@ -15,7 +15,7 @@ struct BackupSettings: Codable {
 
     private static let stringKeys = ["appearance", "readerVolume"]
     private static let booleanKeys = [
-        "camera.gesturesEnabled", "slateAtStart", "practice.showSample", "prompter.followVoice",
+        "camera.gesturesEnabled", "camera.voiceCommandsEnabled", "slateAtStart", "practice.showSample", "prompter.followVoice",
         "prompter.mirror", "camera.poseGuideEnabled", "n.liveActivity", "n.morning", "n.twoHours",
         "n.delivery", "n.practice"
     ]

@@ -9,11 +9,13 @@ struct LineDrillView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var peeked: ScriptLine.ID?
+    @State private var revealedWords: [ScriptLine.ID: Set<Int>] = [:]
+    @State private var hiddenGapWords: [ScriptLine.ID: Set<Int>] = [:]
 
     init(auditionID: Audition.ID, sceneIndex: Int, mode: LineLearningMode) {
         self.auditionID = auditionID
         self.sceneIndex = sceneIndex
-        _displayMode = State(initialValue: mode == .firstLetter ? .firstLetters : .hideMine)
+        _displayMode = State(initialValue: mode == .firstLetter ? .firstLetters : mode == .gapRecall ? .gaps : .hideMine)
     }
 
     var body: some View {
@@ -43,7 +45,14 @@ struct LineDrillView: View {
             .otCanvas()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
-            .onChange(of: displayMode) { _, _ in peeked = nil }
+            .task(id: displayMode) {
+                guard displayMode == .gaps else { return }
+                await loadGapSelections(scene.lines)
+            }
+            .onChange(of: displayMode) { _, _ in
+                peeked = nil
+                revealedWords.removeAll()
+            }
         }
     }
 
@@ -54,10 +63,35 @@ struct LineDrillView: View {
                 .foregroundStyle(line.isMine ? OT.accent : OT.reader)
             HStack(alignment: .top, spacing: 10) {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
-                Text(otLineDisplay(line, mode: lineDisplayMode, peeked: peeked == line.id))
-                    .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
-                    .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if line.isMine && displayMode == .firstLetters && peeked != line.id {
+                    RecallWordHintText(
+                        text: line.text,
+                        revealedWords: revealedWords[line.id, default: []],
+                        font: .system(size: 19, weight: .semibold),
+                        color: OT.labelPrimary
+                    ) { wordIndex in
+                        var words = revealedWords[line.id, default: []]
+                        if words.contains(wordIndex) { words.remove(wordIndex) }
+                        else { words.insert(wordIndex) }
+                        revealedWords[line.id] = words
+                        Haptics.tick()
+                    }
+                } else if line.isMine && displayMode == .gaps && peeked != line.id {
+                    RecallGapHintText(text: line.text,
+                                      hiddenWords: hiddenGapWords[line.id, default: []],
+                                      revealedWords: revealedWords[line.id, default: []],
+                                      font: .system(size: 19, weight: .semibold), color: OT.labelPrimary) { wordIndex in
+                        var words = revealedWords[line.id, default: []]
+                        if words.contains(wordIndex) { words.remove(wordIndex) } else { words.insert(wordIndex) }
+                        revealedWords[line.id] = words
+                        Haptics.tick()
+                    }
+                } else {
+                    Text(otLineDisplay(line, mode: lineDisplayMode, peeked: peeked == line.id))
+                        .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
+                        .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if line.isMine && displayMode == .hideMine {
                 Button(peeked == line.id ? "Hide line" : "Reveal line") {
@@ -65,6 +99,12 @@ struct LineDrillView: View {
                     Haptics.tick()
                 }
                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
+            } else if line.isMine && displayMode == .firstLetters {
+                Text("Tap any word to reveal it")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+            } else if line.isMine && displayMode == .gaps {
+                Text("Tap a gap to reveal its word")
+                    .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             }
         }
         .padding(.vertical, 4)
@@ -74,14 +114,24 @@ struct LineDrillView: View {
         switch displayMode {
         case .full: .full
         case .firstLetters: .firstLetters
+        case .gaps: .masked(level: 2)
         case .hideMine: .hide
         }
+    }
+
+    private func loadGapSelections(_ lines: [ScriptLine]) async {
+        var selections: [ScriptLine.ID: Set<Int>] = [:]
+        for line in lines where line.isMine && !line.isSilentReactionCue {
+            selections[line.id] = await RecallGapSelectionStore.hiddenWordIndices(for: line.text)
+        }
+        hiddenGapWords = selections
     }
 }
 
 private enum RecallDisplayMode: String, CaseIterable, Hashable {
     case full = "Full lines"
     case firstLetters = "First letters"
+    case gaps = "Gaps"
     case hideMine = "Hide mine"
 }
 

@@ -72,9 +72,7 @@ enum ScriptParser {
     static func parseScenes(from text: String, myRole: String) -> [ScriptScene] {
         // Blank lines are kept: in screenplay format a blank line ends a dialogue block, and whatever
         // follows (action, description) belongs to no one until the next cue.
-        let rawLines = text
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        let rawLines = text.components(separatedBy: .newlines)
 
         let roleName = normalizedName(myRole)
 
@@ -91,9 +89,10 @@ enum ScriptParser {
         var speakerCounts: [String: Int] = [:]
         for raw in rawLines {
             let tr = raw.trimmingCharacters(in: .whitespaces)
+            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
             if let colon = tr.firstIndex(of: ":"), let key = speakerKey(String(tr[..<colon])) {
                 speakerCounts[key, default: 0] += 1
-            } else if isLikelyCue(tr) {
+            } else if isLikelyCue(tr, indentation: indentation) {
                 let key = cueName(tr).uppercased()
                 speakerCounts[key, default: 0] += 1
             }
@@ -105,8 +104,6 @@ enum ScriptParser {
         var heading = "SIDES"
         var lines: [ScriptLine] = []
         var currentCharacter: String?
-        var lastSpeaker: String?
-        var inActionBlock = false
         var currentText = ""
 
         func flush() {
@@ -127,6 +124,7 @@ enum ScriptParser {
 
         for raw in rawLines {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
             let upper = trimmed.uppercased()
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
@@ -258,7 +256,7 @@ enum ScriptParser {
                 flush()
                 currentCharacter = cueName(String(trimmed[..<colon]))
                 currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if isLikelyCue(trimmed) {
+            } else if isLikelyCue(trimmed, indentation: indentation) {
                 flush()
                 currentCharacter = cueName(trimmed)
             } else if currentCharacter != nil {
@@ -511,6 +509,7 @@ enum ScriptParser {
 
         // Clean up line-by-line whitespace while preserving dots/colons in email addresses and URLs
         let lines = text.components(separatedBy: "\n").map { line -> String in
+            let leadingIndentation = String(line.prefix(while: { $0 == " " || $0 == "\t" }))
             var l = line.trimmingCharacters(in: .whitespaces)
             let hasEmailOrURL = l.contains("@") || l.contains("http://") || l.contains("https://") || l.contains("www.") || l.range(of: #"[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(?:/|\b)"#, options: .regularExpression) != nil
             if !hasEmailOrURL {
@@ -530,6 +529,9 @@ enum ScriptParser {
                 if let commaSpace = try? NSRegularExpression(pattern: #"([,;])([A-Za-z])"#) {
                     l = commaSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
                 }
+            }
+            if leadingIndentation.count >= 14, isLikelyCue(l) {
+                return leadingIndentation + l
             }
             return l
         }
@@ -623,6 +625,7 @@ enum ScriptParser {
         "IMPORTANT", "NOTE", "NOTES", "REMINDER", "STATUS", "DATE", "DATES", "TIME", "CITY", "COUNTRY",
         "EXPERIENCE", "LANGUAGE", "LANGUAGES", "INFO", "INFORMATION", "APPLY", "COMPENSATION", "RATE",
         "UNION", "NON-UNION", "NON UNION", "SAG-AFTRA", "EQUITY", "LOCATION", "VENUE", "AGE", "AGES",
+        "RATE OF PAY", "PAY RATE", "VIDEO USAGE", "USAGE", "AGENCY FEE", "PRINCIPAL ROLE", "SECONDARY ROLE",
         "MALE", "FEMALE", "MALE AGE", "FEMALE AGE", "YEARS", "YRS", "ESCAPE PLAN", "ANNOUNCEMENT",
         "SETTING", "SETTINGS", "DIRECTOR NOTE", "DIRECTOR NOTES", "SLATE INSTRUCTION", "SLATE INSTRUCTIONS",
         "HOW TO USE THESE SIDES", "HOW TO USE", "CASTING SIDES", "AUDITION SIDES", "THE CHARACTERS IN THIS DOCUMENT",
@@ -666,8 +669,11 @@ enum ScriptParser {
 
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
     /// one real letter (filters out page numbers, "---", scene-heading punctuation runs, etc).
-    private static func isLikelyCue(_ raw: String) -> Bool {
+    private static func isLikelyCue(_ raw: String, indentation: Int? = nil) -> Bool {
         var trimmed = raw.trimmingCharacters(in: .whitespaces)
+        // OCR may preserve a centered screenplay cue's measured x-position. A short uppercase
+        // line with smaller indentation is more likely an action/dialogue line than a speaker cue.
+        if let indentation, indentation > 0, indentation < 14 { return false }
         // Allow cues with a trailing period, e.g. "HAMLET." or "NORA."
         if trimmed.hasSuffix(".") && !trimmed.contains(" ") {
             trimmed = String(trimmed.dropLast())
@@ -707,7 +713,8 @@ enum ScriptParser {
                              "SCENE", "SUBJECT", "FROM", "TO", "CC", "RE", "DEADLINE", "CASTING", "CASTING DIRECTOR",
                              "DESTINATION", "FORMAT", "LENGTH", "SLATE", "SUBMIT", "CHARACTER", "PART", "PLAYING",
                              "NB", "PS", "P.S.", "STEP", "OPTION", "SENT", "HEIGHT", "AGE", "EMAIL", "PHONE",
-                             "MALE", "FEMALE", "YEARS", "YRS", "CITY", "VENUE", "DETAILS", "REQUIREMENTS"]
+                             "MALE", "FEMALE", "YEARS", "YRS", "CITY", "VENUE", "DETAILS", "REQUIREMENTS",
+                             "RATE", "PAY", "UNION", "STATUS", "USAGE", "FEE", "COMPENSATION", "PRODUCTION", "COMPANY"]
         for lk in labelKeywords {
             if key == lk || key.contains(lk) { return nil }
         }
@@ -819,7 +826,9 @@ enum ScriptParser {
     /// 3. Memory drills (First Letter, Mask & Reveal) operate on digestible chunks.
     /// Works offline deterministically with high accuracy across all iOS versions.
     static func divideIntoThoughtUnits(_ text: String) -> [String] {
-        let cleaned = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip parenthetical/bracketed stage directions like (beat) or [whispering]
+        let stripped = text.replacingOccurrences(of: #"\([^\)]*\)|\[[^\]]*\]"#, with: " ", options: .regularExpression)
+        let cleaned = stripped.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return [] }
 
         // Short lines (under 22 words) stay intact
@@ -952,8 +961,8 @@ enum ScriptParser {
 
     /// Breaks a long sentence (> 28 words) at natural clause boundaries (semicolons, dashes, or conjunction commas)
     private static func splitLongSentenceIntoClauses(_ sentence: String) -> [String] {
-        // First try splitting on semicolons or em-dashes
-        let dashOrSemiSeparators = ["; ", " — ", "—", " -- ", " --"]
+        // First try splitting on semicolons, em-dashes, or ellipses
+        let dashOrSemiSeparators = ["; ", " — ", "—", " -- ", " --", " ... ", "… "]
         for sep in dashOrSemiSeparators {
             if sentence.contains(sep) {
                 let parts = sentence.components(separatedBy: sep)
@@ -965,8 +974,8 @@ enum ScriptParser {
             }
         }
 
-        // Try splitting on conjunction commas (e.g. ", but ", ", so ", ", and ", ", because ", ", which ")
-        let conjunctions = [", but ", ", so ", ", and ", ", because ", ", which ", ", where ", ", though "]
+        // Try splitting on conjunction commas
+        let conjunctions = [", but ", ", so ", ", and ", ", because ", ", which ", ", where ", ", though ", ", although ", ", while ", ", yet ", ", unless "]
         for conj in conjunctions {
             if let range = sentence.range(of: conj) {
                 let first = String(sentence[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)

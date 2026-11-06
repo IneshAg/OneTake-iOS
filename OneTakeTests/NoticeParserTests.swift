@@ -8,7 +8,7 @@ final class NoticeParserTests: XCTestCase {
 
     func testReadsRoleProjectAndAsks() {
 
-        let draft = NoticeParser.parse("Self-tape for MAYA in THE LAST SUMMER (feature). Please slate first, landscape, full length. Send via Actors Access.")
+        let draft = NoticeParser.parse("Self-tape for MAYA in THE LAST SUMMER (feature). Please slate first, landscape, and include a full-body shot with the slate. Send via Actors Access.")
 
         XCTAssertEqual(draft.role, "Maya")
 
@@ -18,7 +18,7 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertEqual(draft.destination, .actorsAccess)
 
-        XCTAssertEqual(Set(draft.asks), ["Slate first", "Landscape", "Full length", "Actors Access"])
+        XCTAssertEqual(Set(draft.asks), ["Slate first", "Landscape", "Full-body shot with slate", "Actors Access"])
 
     }
 
@@ -1991,5 +1991,144 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertNotNil(audition.importantDates)
         XCTAssertNotNil(audition.roleBreakdowns)
         XCTAssertNotNil(audition.fieldEvidence)
+    }
+
+    func testOCRLayoutReconstructorTwoColumnGutterSeparation() {
+        // Multi-column casting flyer simulation:
+        // Top header banner
+        // Left column (x: 0.05 ... 0.45): Roles and character breakdowns
+        // Right column (x: 0.55 ... 0.95): Production dates, location, rates
+        let boxes: [OCRLayoutReconstructor.TextBoundingBox] = [
+            // Top full-width header
+            OCRLayoutReconstructor.TextBoundingBox(text: "NOW CASTING - THE CROWN JEWEL", rect: CGRect(x: 0.10, y: 0.90, width: 0.80, height: 0.05), confidence: 0.99),
+
+            // Left Column (Roles & descriptions) - y goes from 0.80 down to 0.35
+            OCRLayoutReconstructor.TextBoundingBox(text: "CHARACTER BREAKDOWN", rect: CGRect(x: 0.05, y: 0.78, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "ROLE: ARJUN (Lead, 30s)", rect: CGRect(x: 0.05, y: 0.70, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "A sharp cryptographer who uncovers a global ring.", rect: CGRect(x: 0.05, y: 0.63, width: 0.38, height: 0.04), confidence: 0.92),
+            OCRLayoutReconstructor.TextBoundingBox(text: "ROLE: TARA (Supporting, 20s)", rect: CGRect(x: 0.05, y: 0.52, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "A daring field operative who protects Arjun.", rect: CGRect(x: 0.05, y: 0.45, width: 0.38, height: 0.04), confidence: 0.92),
+
+            // Right Column (Production Details) - same vertical range y: 0.80 down to 0.35
+            OCRLayoutReconstructor.TextBoundingBox(text: "PRODUCTION DETAILS", rect: CGRect(x: 0.55, y: 0.78, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Shoot Dates: Dec 1 - Dec 20, 2026", rect: CGRect(x: 0.55, y: 0.70, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Location: London & Vancouver", rect: CGRect(x: 0.55, y: 0.63, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Pay: SAG-AFTRA scale ($1,150/day)", rect: CGRect(x: 0.55, y: 0.52, width: 0.38, height: 0.03), confidence: 0.95),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Deadline: Nov 25 at 5:00 PM EST", rect: CGRect(x: 0.55, y: 0.45, width: 0.38, height: 0.03), confidence: 0.95),
+
+            // Bottom footer banner
+            OCRLayoutReconstructor.TextBoundingBox(text: "Submit tapes to: tapes@crownjewelfilm.com", rect: CGRect(x: 0.15, y: 0.10, width: 0.70, height: 0.04), confidence: 0.98)
+        ]
+
+        let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
+        XCTAssertFalse(reconstructed.isEmpty)
+
+        // Verify that Left Column lines are NOT interleaved with Right Column lines!
+        // "ARJUN" should appear before "London & Vancouver"
+        let arjunRange = reconstructed.range(of: "ROLE: ARJUN (Lead, 30s)")
+        let rightColDateRange = reconstructed.range(of: "Shoot Dates: Dec 1 - Dec 20, 2026")
+        let londonRange = reconstructed.range(of: "Location: London & Vancouver")
+        let cryptographerRange = reconstructed.range(of: "sharp cryptographer")
+
+        XCTAssertNotNil(arjunRange)
+        XCTAssertNotNil(rightColDateRange)
+        XCTAssertNotNil(londonRange)
+        XCTAssertNotNil(cryptographerRange)
+
+        if let arjunRange, let rightColDateRange, let cryptographerRange {
+            // Arjun's description immediately follows Arjun, NOT shoot dates
+            XCTAssertTrue(cryptographerRange.lowerBound > arjunRange.upperBound)
+            XCTAssertTrue(rightColDateRange.lowerBound > cryptographerRange.upperBound, "Left column content must precede right column content in 2-column flyers")
+        }
+
+        // Verify parsing from this reconstructed text succeeds without corruption
+        let draft = NoticeParser.parse(reconstructed)
+        XCTAssertTrue(draft.candidateRoles.contains { $0.caseInsensitiveCompare("Arjun") == .orderedSame }, "Reconstructed flyer roles were: \(draft.candidateRoles)")
+        XCTAssertTrue(draft.candidateRoles.contains { $0.caseInsensitiveCompare("Tara") == .orderedSame }, "Reconstructed flyer roles were: \(draft.candidateRoles)")
+    }
+
+    func testOCRLayoutReconstructorPreservesStandardKeyValueTable() {
+        let boxes: [OCRLayoutReconstructor.TextBoundingBox] = [
+            OCRLayoutReconstructor.TextBoundingBox(text: "Project:", rect: CGRect(x: 0.10, y: 0.80, width: 0.15, height: 0.03), confidence: 0.98),
+            OCRLayoutReconstructor.TextBoundingBox(text: "The Inheritance", rect: CGRect(x: 0.30, y: 0.80, width: 0.30, height: 0.03), confidence: 0.98),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Role:", rect: CGRect(x: 0.10, y: 0.70, width: 0.15, height: 0.03), confidence: 0.98),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Alec", rect: CGRect(x: 0.30, y: 0.70, width: 0.20, height: 0.03), confidence: 0.98),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Due:", rect: CGRect(x: 0.10, y: 0.60, width: 0.15, height: 0.03), confidence: 0.98),
+            OCRLayoutReconstructor.TextBoundingBox(text: "Tomorrow at 5pm", rect: CGRect(x: 0.30, y: 0.60, width: 0.30, height: 0.03), confidence: 0.98)
+        ]
+
+        let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
+        XCTAssertTrue(reconstructed.contains("Project: The Inheritance"))
+        XCTAssertTrue(reconstructed.contains("Role: Alec"))
+        XCTAssertTrue(reconstructed.contains("Due: Tomorrow at 5pm"))
+    }
+
+    func testPosterWithRepeatedRightAlignedBadgesIsNotSplitIntoColumns() {
+        // Casting Buffalo's public flyer places small request labels to the right of role
+        // copy, but there is no continuous blank gutter. Model that visual pattern here.
+        let boxes: [OCRLayoutReconstructor.TextBoundingBox] = [
+            .init(text: "CASTING CALL", rect: CGRect(x: 0.08, y: 0.88, width: 0.52, height: 0.04), confidence: 0.98),
+            .init(text: "MARIA — PRINCIPAL ROLE", rect: CGRect(x: 0.08, y: 0.72, width: 0.57, height: 0.04), confidence: 0.95),
+            .init(text: "Video audition required", rect: CGRect(x: 0.66, y: 0.72, width: 0.27, height: 0.03), confidence: 0.95),
+            .init(text: "CARLOS — SECONDARY ROLE", rect: CGRect(x: 0.08, y: 0.57, width: 0.57, height: 0.04), confidence: 0.95),
+            .init(text: "Video audition required", rect: CGRect(x: 0.66, y: 0.57, width: 0.27, height: 0.03), confidence: 0.95),
+            .init(text: "ROBERT — SUPPORTING ROLE", rect: CGRect(x: 0.08, y: 0.42, width: 0.57, height: 0.04), confidence: 0.95),
+            .init(text: "Video audition required", rect: CGRect(x: 0.66, y: 0.42, width: 0.27, height: 0.03), confidence: 0.95),
+            .init(text: "Submit a self-tape by email", rect: CGRect(x: 0.08, y: 0.22, width: 0.78, height: 0.04), confidence: 0.95)
+        ]
+
+        let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
+        XCTAssertLessThan(reconstructed.range(of: "MARIA")!.lowerBound, reconstructed.range(of: "CARLOS")!.lowerBound)
+        XCTAssertLessThan(reconstructed.range(of: "CARLOS")!.lowerBound, reconstructed.range(of: "ROBERT")!.lowerBound)
+        XCTAssertLessThan(reconstructed.range(of: "ROBERT")!.lowerBound, reconstructed.range(of: "Submit a self-tape")!.lowerBound)
+    }
+
+    func testProseCastingNoticeDoesNotPromoteSectionHeadingOrQuotedDescriptionToFields() {
+        let text = """
+        AUDITION NOTICE
+        CURRENTLY CASTING
+        Share your Talent with the World!
+        Alice is a 12–13-year-old girl who is introverted and emotionally complex, often struggling to connect with others and feeling uncomfortable in her own skin. She is highly intelligent and perceptive, with a sharp, blunt way of speaking that can sometimes come off as unfiltered. As the "black sheep" of her family, she doesn't quite fit in and often pushes boundaries while trying to understand herself and the world around her. Despite her guarded nature, she has moments of subtle humor, revealing a layered personality that blends vulnerability, strength, and quiet individuality.
+        WHAT TO SUBMIT:
+        • A HEADSHOT (OR A CLEAR RECENT PHOTO)
+        • A VIDEO (THIS CAN BE A SELF-TAPE OR INTRODUCTION)
+        • A RESUME (IF AVAILABLE, BUT NOT REQUIRED)
+        ACTORS SHOULD EMAIL THEIR MATERIALS TO ALICESEARCH2026@GMAIL.COM
+        """
+
+        let draft = NoticeParser.parse(text)
+        let roleDescription = NoticeParser.extractCharacterDescription(for: "Alice", in: text)
+
+        XCTAssertEqual(draft.project, "", "A descriptive phrase such as ‘black sheep’ is not a project title")
+        XCTAssertEqual(draft.role, "Alice")
+        XCTAssertEqual(draft.candidateRoles, ["Alice"])
+        XCTAssertFalse(draft.candidateRoles.contains("What To Submit"))
+        XCTAssertFalse(draft.hasSides, "A casting flyer without script pages must not become a scene")
+        XCTAssertEqual(draft.scenes, 0)
+        XCTAssertTrue(draft.asks.contains("Self-tape or introduction video"))
+        XCTAssertTrue(draft.asks.contains("Resume (optional)"))
+        XCTAssertTrue(roleDescription?.contains("quiet individuality") == true)
+        XCTAssertFalse(roleDescription?.localizedCaseInsensitiveContains("what to submit") == true)
+        XCTAssertNil(draft.due)
+        XCTAssertEqual(draft.destinationDetail?.lowercased(), "alicesearch2026@gmail.com")
+        XCTAssertEqual(draft.destination, .email)
+        XCTAssertTrue(draft.destinationWasDetected)
+        XCTAssertFalse(draft.asks.contains { $0.localizedCaseInsensitiveContains("email:") }, "Submission contact is shown as the destination, not as a casting requirement")
+        XCTAssertTrue(draft.includeSlate, "The requested self-tape/introduction video is included")
+        XCTAssertTrue(draft.includeHeadshots, "The requested headshot is included")
+        XCTAssertFalse(draft.isHeadshotOptional, "The notice requests a headshot or recent photo")
+        XCTAssertFalse(draft.missingRequiredDetails.contains("script sides"), "A notice without sides must not require a fictional scene")
+        XCTAssertFalse(draft.projectDetails?.hasReviewableContent ?? true)
+    }
+
+    func testScriptParserThoughtUnitDividerWithLongSentenceAndParentheticals() {
+        let text = "Listen to me, Maryam (beat). I never wanted to tell you this [hesitates], but we were cornered in the basement for three whole days while the tanks rolled right through the city streets."
+        let units = ScriptParser.divideIntoThoughtUnits(text)
+        XCTAssertFalse(units.isEmpty)
+        // Stage directions (beat) and [hesitates] should be stripped from prompter thoughts
+        for unit in units {
+            XCTAssertFalse(unit.contains("(beat)"))
+            XCTAssertFalse(unit.contains("[hesitates]"))
+        }
     }
 }

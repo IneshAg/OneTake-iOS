@@ -7,6 +7,35 @@ A running log of every change made during active development sessions, in revers
 
 ---
 
+## Session — 7 November 2026 (uncommitted workspace changes)
+
+Detailed feature status and verification notes are recorded in
+[`IMPLEMENTATION_NOTES_2026-11-07.md`](IMPLEMENTATION_NOTES_2026-11-07.md).
+
+### Audition intake, rehearsal, recording and packaging update
+
+**Files changed:** `NoticeOCR.swift`, `OCRLayoutReconstructor.swift`, `OnDeviceIntelligence.swift`, `TapeAnalyzer.swift`, `CameraController.swift`, `UIKitBridges.swift`, `Models.swift`, `Persistence.swift`, `LocalBackup.swift`, `ScriptParser.swift`, `AddAuditionFlow.swift`, `AuditionDetailView.swift`, `Components.swift`, `LineLearningViews.swift`, `OnboardingFlow.swift`, `PackageViews.swift`, `PracticeViews.swift`, `PrepareViews.swift`, `ProfileViews.swift`, `ShootViews.swift`, `TakesViews.swift`, `AppStore.swift`, parser/package tests and project configuration.
+
+**What changed:**
+
+- Improved OCR layout reconstruction and notice parsing for page/column order, notice-only pages, role descriptions, required/optional slate, headshot and résumé instructions, separate notice/sides sources, and scene selection only when script sides are present. The OCR review is editable and can show the source image. Résumés can be stored in Profile and included per audition.
+- Refined Edit Details: role choices now include breakdown names and script/scene speakers with an explicit manual-entry explanation when none are detected; the requirements Form no longer leaves an oversized gap; due-time chips remain single-line and consistent; actors can drag pieces into a saved flow order.
+- New audition flow defaults to Headshots → Slate → Scenes. A separately requested head-to-toe clip appears as **Full-body shot** between slate and scenes; when the notice includes that framing in the slate, it stays within the slate instead of becoming another clip. Legacy “Full length” steps are migrated to the new label. Camera Skip now tracks passed scenes and leaves the camera after the final skip instead of wrapping back to Scene 1.
+- Added a locally cached **Gaps** practice display. Foundation Models selects meaning-bearing words on-device when available (iOS 26+); a deterministic fallback is used otherwise. A tap reveals a masked word as a clue.
+- Added voice-practice transcription and line alignment with per-line review suggestions. Added reader cue trimming with original restore.
+- Added saved-headshot confirmation and crop metadata, separate per-element Tape Check/review routes, camera setup audio/orientation feedback, and simulator-selectable resolution preferences.
+- Reworked package choices into format/destination sheets, added a compact submission check and collapsed file specifications, and added recovery from package errors. Sign-in entry exists in Profile and the destination picker; account providers remain unconfigured.
+- Standardized shared glass control compatibility. A disabled-glass text action previously fell into the circular legacy-material fallback, drawing a circle around Cancel/Done. The fallback now applies only to enabled icon controls; Cancel/Done remain plain text actions. Header glass controls use 44-point frames.
+- Camera check now offers independent Voice (Action/Cut) and open-palm Gesture controls, available together or separately and mirrored in Profile. Voice actions respect the preference. Microphone labels now use human-readable input types; reader audio shows cue counts only when reader lines exist, avoiding `0 of 0`. Mirror text is under Advanced teleprompter options with its beam-splitter use explained.
+- Resolution choices continue to come from the active camera's supported session presets; 4K appears only when that camera supports it. Simulator resolution selection is for UI testing and does not produce camera footage.
+- Fixed résumé importer type identifiers by replacing unavailable `UTType.word` with `.doc`/`.docx` filename-extension identifiers in both import locations. Removed unused parser variables and marked the pure original-reader-URL helper `nonisolated` for Swift 6 callback use.
+
+**Verification in this update:** Swift frontend parsing passed for all app and test Swift files after the follow-up UI/flow changes, and `git diff --check` passed. A small Foundation Models API probe type-checked against the installed Simulator SDK. A complete Xcode build was blocked while resolving packages (`sandbox_apply: Operation not permitted`); CoreSimulator was also unavailable. These checks do not represent a full simulator/device workflow test.
+
+**Scope note:** The two-action-only sharing redesign and removal of Combined Video were not included. Combined Video remains a format option. Hosted links are unavailable in this build until an authentication provider is configured and verified. The more detailed feature-by-feature status and remaining caveats are in the linked implementation note.
+
+---
+
 ## Session — 6 November 2026
 
 ### `e4b8a1c` — Full Casting Architecture & Gap Resolution (Material Kinds, Dates, Roles, Terms, Evidence)
