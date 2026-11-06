@@ -1570,6 +1570,77 @@ final class NoticeParserTests: XCTestCase {
 
         // Date should be found (Dec 6 video deadline or Dec 7 in-person)
         XCTAssertNotNil(draft.due, "Date should be detected from 'auditions will be held on December 7, 2026'")
+
+        // aiGuidance must NOT show the generic production announcement blurb
+        XCTAssertFalse(draft.aiGuidance.lowercased().contains("holding auditions"),
+            "aiGuidance should not contain 'holding auditions': '\(draft.aiGuidance)'")
+        XCTAssertFalse(draft.aiGuidance.lowercased().contains("shattered glass project"),
+            "aiGuidance should not contain company name: '\(draft.aiGuidance)'")
+        XCTAssertFalse(draft.aiGuidance.lowercased().contains("world premiere production"),
+            "aiGuidance should not contain announcement boilerplate: '\(draft.aiGuidance)'")
+    }
+
+    func testPilgrimageSidesPacket() {
+        let pilgrimageNotice = """
+        PILGRIMAGE
+        CASTING SIDES
+        Humaira Ghilzai & Bridgette Dutta Portman
+        Director: Khaled Abol Naga (Kal)
+        The Lab at Georgetown University · November 2026
+        HOW TO USE THESE SIDES
+        Each side has been selected to reveal character, range, and presence within 1-2
+        minutes of screen time. Please read all instructions on your character's page before
+        recording.
+        Slate first. At the top of your video, look directly into the camera and state your name,
+        pronouns, the role you are reading for, and your city.
+        Video format. Horizontal (landscape), MP4, 1080p or 720p preferred. Maximum
+        500MB. Good light on your face, quiet background. No production quality required.
+        If reading for multiple roles, submit a separate video per character.
+        Dialogue sides (Nadia). Nadia's sides include a brief dialogue exchange. Simply skip
+        or pause over the other character's lines — the director will read between the lines.
+        Submit your tape via the link at: kalnaga.com/pilgrimage/casting.html
+        THE CHARACTERS IN THIS DOCUMENT
+        NOOR — Page 2
+        MARYAM — Page 3
+        NADIA — Page 4
+        SOSAN — Page 5
+        FATIMA — Page 6
+
+        NOOR · She/her · Early 60s · Afghan American
+        Director note: What I'm looking for: the weight of a woman who has carried this secret for
+        decades, and the terrifying relief of finally putting it down. Let the pauses breathe. Don't rush
+        the confession. The scene lives in what she can barely bring herself to say.
+        SLATE INSTRUCTION Before beginning, look directly into camera and state: your full name · your
+        pronouns · the role you are reading for (NOOR) · your location. Maximum total video: 2 minutes.
+
+        MARYAM · She/her · Mid-30s · Afghan American
+        Director note: What I'm looking for: Maryam's comedy and Maryam's devastation are the same
+        instrument. I want to see both. Side A shows us the armour — the wit, the control, the
+        performance. Side B shows us what's underneath when the armour is ripped off. If you can, do
+        both. If time is tight, choose the one that surprises you more.
+        SLATE INSTRUCTION Before beginning, look directly into camera and state: your full name · your
+        pronouns · the role you are reading for (MARYAM) · your location. Maximum total video: 2 minutes.
+        """
+
+        let draft = NoticeParser.parse(pilgrimageNotice)
+        XCTAssertEqual(draft.project, "Pilgrimage")
+
+        let expectedRoles = ["Noor", "Maryam", "Nadia", "Sosan", "Fatima"]
+        for r in expectedRoles {
+            XCTAssertTrue(draft.candidateRoles.contains(r), "Expected candidate role '\(r)' in \(draft.candidateRoles)")
+        }
+
+        XCTAssertTrue(draft.asks.contains("Slate first") || draft.asks.contains("Slate"), "Expected slate requirement")
+        XCTAssertTrue(draft.asks.contains("Landscape") || draft.asks.contains("Horizontal"), "Expected landscape/horizontal requirement")
+
+        // Role-specific director note extraction
+        let maryamNote = NoticeParser.extractCharacterDescription(for: "Maryam", in: pilgrimageNotice)
+        XCTAssertNotNil(maryamNote)
+        XCTAssertTrue(maryamNote?.contains("comedy and Maryam's devastation") == true, "Maryam note should contain director guidance")
+
+        let noorNote = NoticeParser.extractCharacterDescription(for: "Noor", in: pilgrimageNotice)
+        XCTAssertNotNil(noorNote)
+        XCTAssertTrue(noorNote?.contains("weight of a woman") == true, "Noor note should contain director guidance")
     }
 
     @MainActor

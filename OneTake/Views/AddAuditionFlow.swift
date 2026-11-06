@@ -430,6 +430,7 @@ private struct OCRReviewSheet: View {
                                         roleText = roleOption
                                         if let auto = NoticeParser.extractCharacterDescription(for: roleOption, in: draft.sourceText) {
                                             castingNotesText = auto
+                                            draft.aiGuidance = auto
                                         }
                                         let matching = draft.availablePortions.filter { $0.characters.contains { $0.caseInsensitiveCompare(roleOption) == .orderedSame } }.map(\.id)
                                         if !matching.isEmpty { selectedPortionIDs = Set(matching) }
@@ -1148,21 +1149,53 @@ enum NoticeParser {
                 break
             }
         }
-        // Extract director/character notes for AI guidance
-        let guidancePatterns = [
-            #"(?i)(?:director'?s?\s+note|character\s+(?:note|brief|description|background|overview)|about\s+the\s+(?:role|character|project)|role\s+(?:description|brief|overview)|character\s+details?)[:\-]?\s*\n?([\s\S]{20,400}?)(?=\n\s*\n|\z)"#,
-            #"(?i)(?:the\s+(?:story|film|project|series)\s+(?:is\s+about|follows|centers?\s+on)[:\-]?\s*)([\s\S]{20,300}?)(?=\n\s*\n|\z)"#
-        ]
-        for pattern in guidancePatterns {
-            if let note = firstMatch(pattern, in: text, options: .caseInsensitive) {
-                let trimmed = clean(note).trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.count >= 20 {
-                    d.aiGuidance = trimmed
-                    break
+        // Extract director/character notes for guidance (prioritizing actionable notes over generic announcements)
+        let guidanceRole = d.role.isEmpty ? (d.candidateRoles.first ?? "") : d.role
+        if !guidanceRole.isEmpty, let roleNote = extractCharacterDescription(for: guidanceRole, in: cleaned), isValidGuidance(roleNote) {
+            d.aiGuidance = roleNote
+        }
+
+        if d.aiGuidance.isEmpty {
+            let guidancePatterns = [
+                // Director note / what I'm looking for / acting notes
+                #"(?i)(?:director(?:['’]s)?\s*notes?|what\s+i(?:['’]m)?\s+looking\s+for|what\s+i\s+need\s+to\s+see|acting\s+notes?|tone\s+notes?)[:\-]?\s*([^\n]+(?:\n(?!\s*(?:SLATE|THE\s+SIDE|SIDE\s+[A-Z0-9]|SCENE|INT\.|EXT\.|AUDITION|\z))[^\n]+)*)"#,
+                // How to use these sides / sides instructions / dialogue sides notes
+                #"(?i)(?:how\s+to\s+use\s+these\s+sides|sides?\s+instructions?|dialogue\s+sides?\s*\([^)]*\))[:\-]?\s*([^\n]+(?:\n(?!\s*(?:THE\s+CHARACTERS|SLATE|SIDE|\z))[^\n]+)*)"#,
+                // Notes on casting
+                #"(?i)(?:notes?\s+on\s+casting|casting\s+notes?)[:\-]?\s*([^\n]+(?:\n(?!\s*(?:Audition\s+Dates|Submissions?|\z))[^\n]+)*)"#,
+                // Character brief / role description (NOT generic project description)
+                #"(?i)(?:character\s+(?:note|brief|description|background|overview)|about\s+the\s+(?:role|character)|role\s+(?:description|brief|overview))[:\-]?\s*\n?([^\n]+(?:\n(?!\s*(?:AUDITION|SUBMISSION|DATE|\z))[^\n]+)*)"#
+            ]
+            for pattern in guidancePatterns {
+                if let note = firstMatch(pattern, in: text, options: .caseInsensitive) {
+                    let trimmed = clean(note).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.count >= 20 && isValidGuidance(trimmed) {
+                        d.aiGuidance = trimmed
+                        break
+                    }
                 }
             }
         }
         return d
+    }
+
+    /// Verifies that an extracted guidance block contains genuine director/actor instructions,
+    /// rejecting company PR, boilerplate audition announcements, and generic synopses.
+    private static func isValidGuidance(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("holding audition") || lower.contains("holds audition") || lower.contains("holding a casting call") {
+            return false
+        }
+        if lower.contains("submissions will be accepted") || lower.contains("in-person auditions will be held") {
+            return false
+        }
+        if lower.contains("for the world premiere production") {
+            return false
+        }
+        if lower.contains("the shattered glass project") {
+            return false
+        }
+        return true
     }
 
     /// Detects browser tab headers, repo paths, or window status chrome captured when scanning screen displays
@@ -2811,6 +2844,7 @@ struct MissingDetailsView: View {
                                                 }
                                                 if let notes = NoticeParser.extractCharacterDescription(for: char, in: store.auditionDraft.sourceText) {
                                                     store.auditionDraft.castingNotes = notes
+                                                    store.auditionDraft.aiGuidance = notes
                                                 }
                                                 Haptics.tick()
                                             } label: {
@@ -3423,6 +3457,7 @@ struct NoticeReviewView: View {
                                                 }
                                                 if let notes = NoticeParser.extractCharacterDescription(for: char, in: store.auditionDraft.sourceText) {
                                                     store.auditionDraft.castingNotes = notes
+                                                    store.auditionDraft.aiGuidance = notes
                                                 }
                                                 Haptics.tick()
                                             } label: {
@@ -3769,8 +3804,12 @@ struct NoticeReviewView: View {
         .onChange(of: store.auditionDraft.project) { _, _ in
             if canSave { withAnimation { showValidationErrors = false } }
         }
-        .onChange(of: store.auditionDraft.role) { _, _ in
+        .onChange(of: store.auditionDraft.role) { _, newRole in
             if canSave { withAnimation { showValidationErrors = false } }
+            if !newRole.isEmpty, let note = NoticeParser.extractCharacterDescription(for: newRole, in: store.auditionDraft.sourceText) {
+                store.auditionDraft.aiGuidance = note
+                store.auditionDraft.castingNotes = note
+            }
         }
         .task {
             if store.auditionDraft.aiGuidance.isEmpty && !store.auditionDraft.sourceText.isEmpty {
