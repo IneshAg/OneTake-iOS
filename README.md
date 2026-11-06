@@ -28,7 +28,8 @@ and deterministic guidance.
   text file, type it in, or **Share → OneTake** from Mail, WhatsApp, Safari, Photos or Files.
   Everything is read on-device (Vision OCR, PDFKit).
 - **Reads the notice** — role, project, due date, number of scenes and what casting asked for
-  (slate, full length, landscape, length limit, destination). Anything it can't find, you fill in.
+  (slate, full length, landscape, length limit, destination). It also retains structured project,
+  role, date, sides, source-page, and submission details when found; anything it can't find, you fill in.
 - **Splits the sides into scenes** at each slugline (`INT.` / `EXT.`) or `SCENE 2` header, and marks
   your lines.
 - **Checklist per audition** — headshot, slate, optional full length and one piece per scene, with a

@@ -53,7 +53,7 @@ struct AuditionDetailView: View {
 
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    SectionLabel(text: "\(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
+                    SectionLabel(text: "\(a.resolvedMaterialKind.shortLabel) · \(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
                     Text(a.project).font(.system(size: 40, weight: .bold)).foregroundStyle(OT.labelPrimary)
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         let rem = a.dueRemaining
@@ -107,6 +107,18 @@ struct AuditionDetailView: View {
                 .buttonStyle(.plain)
 
                 upNext(a)
+
+                if let dates = a.importantDates, !dates.isEmpty {
+                    MilestoneDatesListCard(dates: dates)
+                }
+
+                if let details = a.projectDetails {
+                    ProjectDetailsCard(details: details)
+                }
+
+                if let instructions = a.submissionInstructions {
+                    submissionInstructionsCard(instructions)
+                }
 
                 sidesCard(a)
 
@@ -223,62 +235,133 @@ struct AuditionDetailView: View {
     }
 
     @ViewBuilder private func sidesCard(_ a: Audition) -> some View {
-        HStack(spacing: 12) {
-            if a.scenes.isEmpty {
-                Image(systemName: a.sidesLink != nil ? "link.circle.fill" : "doc.badge.plus")
+        if a.resolvedMaterialKind == .slateOnly {
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.rectangle.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(OT.accent)
                     .frame(width: 34, height: 34)
                     .background(OT.accentSoft, in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Sides")
+                    Text("Material Type")
                         .font(.otCaption.weight(.medium))
                         .foregroundStyle(OT.labelTertiary)
-                    if let sidesLink = a.sidesLink, !sidesLink.isEmpty {
-                        Text(sidesLink.contains("drive.google") ? "Google Drive link attached" : "Sides link attached")
-                            .font(.otHeadline)
-                            .foregroundStyle(OT.labelPrimary)
-                    } else {
-                        Text("No sides attached yet")
-                            .font(.otHeadline)
-                            .foregroundStyle(OT.labelPrimary)
-                    }
-                }
-                Spacer()
-                if let sidesLink = a.sidesLink, let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
-                    Link(destination: url) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 16))
-                            .foregroundStyle(OT.accent)
-                            .frame(width: 32, height: 32)
-                            .background(OT.accentSoft, in: Circle())
-                    }
-                }
-                Button(a.sidesLink != nil ? "Import" : "Add sides") {
-                    showSides = true
-                }
-                .font(.otFootnote.weight(.semibold))
-                .foregroundStyle(OT.accent)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(OT.accentSoft, in: Capsule())
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    SectionLabel(text: "Sides")
-                    Text("\(a.scenes.count) scene\(a.scenes.count == 1 ? "" : "s") · \(a.scenes.flatMap(\.lines).count) lines")
+                    Text("Slate & Intro Call Only")
                         .font(.otHeadline)
                         .foregroundStyle(OT.labelPrimary)
                 }
                 Spacer()
-                Button("Edit sides") {
-                    showSides = true
-                }
-                .font(.otFootnote.weight(.semibold))
-                .foregroundStyle(OT.accent)
             }
+            .padding(16)
+            .otCard()
+        } else {
+            HStack(spacing: 12) {
+                if a.scenes.isEmpty {
+                    Image(systemName: a.sidesLink != nil ? "link.circle.fill" : "doc.badge.plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(OT.accent)
+                        .frame(width: 34, height: 34)
+                        .background(OT.accentSoft, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sides")
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelTertiary)
+                        if let sidesLink = a.sidesLink, !sidesLink.isEmpty {
+                            Text(sidesLink.contains("drive.google") ? "Google Drive link attached" : "Sides link attached")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                        } else {
+                            Text("No sides attached yet")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                        }
+                    }
+                    Spacer()
+                    if let sidesLink = a.sidesLink, let url = URL(string: sidesLink.hasPrefix("http") ? sidesLink : "https://\(sidesLink)") {
+                        Link(destination: url) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 16))
+                                .foregroundStyle(OT.accent)
+                                .frame(width: 32, height: 32)
+                                .background(OT.accentSoft, in: Circle())
+                        }
+                    }
+                    Button(a.sidesLink != nil ? "Import" : "Add sides") {
+                        showSides = true
+                    }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(OT.accentSoft, in: Capsule())
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        SectionLabel(text: a.resolvedMaterialKind == .monologue ? "Monologue" : "Sides")
+                        Text("\(a.scenes.count) scene\(a.scenes.count == 1 ? "" : "s") · \(a.scenes.flatMap(\.lines).count) lines")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                    }
+                    Spacer()
+                    Button(a.resolvedMaterialKind == .monologue ? "Edit monologue" : "Edit sides") {
+                        showSides = true
+                    }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
+            }
+            .padding(16)
+            .otCard()
         }
-        .padding(16)
-        .otCard()
+    }
+
+    @ViewBuilder private func submissionInstructionsCard(_ instructions: AuditionSubmissionInstructions) -> some View {
+        let specs = [
+            ("Framing", instructions.videoOrientation, "iphone"),
+            ("Required Clips", instructions.requiredVideoCount.map { "\($0) video\($0 == 1 ? "" : "s")" }, "film.stack"),
+            ("Takes Allowed", instructions.maxTakes.map { "Up to \($0) takes" }, "repeat"),
+            ("File Naming", instructions.fileNamingRule ?? instructions.fileNameTemplate, "doc.text")
+        ].filter { $0.1 != nil && $0.1?.isEmpty == false }
+
+        if !specs.isEmpty || !instructions.slateRequirements.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Filming & Submission Specifications", systemImage: "video.badge.checkmark")
+                    .font(.otCaption.weight(.bold))
+                    .foregroundStyle(OT.labelPrimary)
+
+                if !specs.isEmpty {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                        ForEach(specs, id: \.0) { item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: item.2)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(OT.accent)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.0)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(OT.labelTertiary)
+                                    Text(item.1 ?? "")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(OT.labelPrimary)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !instructions.slateRequirements.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Slate instructions:").font(.system(size: 10, weight: .semibold)).foregroundStyle(OT.labelTertiary)
+                        ForEach(instructions.slateRequirements.prefix(2), id: \.self) {
+                            Text("• \($0)").font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .padding(14)
+            .otCard(radius: 16)
+        }
     }
 
     private func recordedReaderCueCount(for a: Audition) -> Int {
@@ -1157,6 +1240,17 @@ struct EditAuditionSheet: View {
 
             if let audition = store.binding(for: auditionID) {
                 Form {
+                    Section("Audition Type") {
+                        Picker("Type", selection: Binding(
+                            get: { audition.wrappedValue.resolvedMaterialKind },
+                            set: { audition.wrappedValue.materialKind = $0 }
+                        )) {
+                            ForEach(AuditionMaterialKind.allCases) { kind in
+                                Label(kind.rawValue, systemImage: kind.icon).tag(kind)
+                            }
+                        }
+                    }
+
                     Section("Project") {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("Project", text: audition.project)

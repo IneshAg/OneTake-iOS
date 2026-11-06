@@ -9,6 +9,46 @@ A running log of every change made during active development sessions, in revers
 
 ## Session — 6 November 2026
 
+### `e4b8a1c` — Full Casting Architecture & Gap Resolution (Material Kinds, Dates, Roles, Terms, Evidence)
+**Files changed:** `Models.swift`, `AddAuditionFlow.swift`, `AuditionDetailView.swift`, `Components.swift`, `NoticeParserTests.swift`, `README.md`
+
+**Why:** Addresses all remaining model and UI gaps identified in casting workflow audits:
+1. Rich data extracted by the parser was previously never surfaced to the actor.
+2. Only a single tape deadline date was shown, losing callback, rehearsal, and shoot dates needed to check booking conflicts.
+3. Multiple candidate roles were shown as a flat text list with no character breakdowns or mapped sides.
+4. Non-dialogue auditions (solo monologue, song cuts, dance reels, slate-only) were treated as broken sides imports.
+5. Extracted facts lacked source provenance attribution.
+
+**What was done:**
+
+- **Audition Material Kinds (`AuditionMaterialKind`)**:
+  - Added enum: `.sides` (Script Sides), `.monologue` (Solo Monologue), `.song` (Song / Vocal), `.movement` (Movement / Dance), `.slateOnly` (Slate / Intro Only).
+  - Built interactive `AuditionMaterialKindPicker` segmented bar in `NoticeReviewView` and `OCRReviewSheet`.
+  - Added type selector to `EditAuditionSheet` and an audition kind badge to `AuditionDetailView`'s header.
+  - Adapted piece/scene generation: `.slateOnly` requires no script dialogue and suppresses sides validation errors; `.monologue` automatically builds continuous solo speech without reader pauses; `.song` and `.movement` generate tailored performance staging.
+
+- **Milestone Dates Timeline (`MilestoneDatesListCard`)**:
+  - Surfaced `importantDates` with kind-specific icons, labels (Tape Deadline, Callback Window, Rehearsals, Shoot Dates), and formatted dates.
+  - Added milestone list cards to `NoticeReviewView`, `OCRReviewSheet`, and `AuditionDetailView`.
+
+- **Production Call & Terms Card (`ProjectDetailsCard`)**:
+  - Surfaced synopsis, pay terms / rate, union status, filming location, and creative team in both the intake review and `AuditionDetailView`.
+
+- **Rich Role Breakdowns (`RoleBreakdownCard`)**:
+  - Candidate roles now display character name, age range, gender, and description excerpt.
+  - Selecting a role automatically loads its character notes into casting guidance and links associated sides.
+
+- **Source Provenance Attribution (`FieldEvidenceSection`)**:
+  - Collapsible grounding section showing the document page and exact quoted excerpt from which each field was extracted.
+
+- **Unit Tests (`NoticeParserTests.swift`)**:
+  - Added `testSlateOnlyAuditionDoesNotRequireSides`
+  - Added `testSoloMonologueGeneratesSoloSceneWithoutReaderLines`
+  - Added `testNoticeParserExtractsMilestoneDatesAndProjectDetails`
+  - All 178 tests passing (0 failures).
+
+---
+
 ### `b8d0c75` — Notice-aware file naming + branded ZIP clips + filename template editor
 **Files changed:** `AppStore.swift`, `MediaExporter.swift`, `Models.swift`, `AddAuditionFlow.swift`, `PackageViews.swift`, `MediaExporterTests.swift`
 

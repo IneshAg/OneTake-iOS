@@ -410,6 +410,21 @@ private struct OCRReviewSheet: View {
                             .foregroundStyle(OT.labelSecondary)
                     }
 
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Audition Type", systemImage: "theatermasks")
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelSecondary)
+                        AuditionMaterialKindPicker(selected: $draft.materialKind)
+                    }
+
+                    if !draft.importantDates.isEmpty {
+                        MilestoneDatesListCard(dates: draft.importantDates)
+                    }
+
+                    if let details = draft.projectDetails {
+                        ProjectDetailsCard(details: details)
+                    }
+
                     reviewField(
                         icon: "film",
                         label: "Project",
@@ -429,7 +444,28 @@ private struct OCRReviewSheet: View {
                     )
 
                     // Quick-select candidate roles extracted from the notice
-                    if !draft.candidateRoles.isEmpty {
+                    if !draft.roleBreakdowns.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Character Breakdowns")
+                                .font(.otCaption.weight(.bold))
+                                .foregroundStyle(OT.labelSecondary)
+                            VStack(spacing: 8) {
+                                ForEach(draft.roleBreakdowns) { breakdown in
+                                    let isCurrent = roleText.caseInsensitiveCompare(breakdown.name) == .orderedSame
+                                    RoleBreakdownCard(breakdown: breakdown, isSelected: isCurrent) {
+                                        roleText = breakdown.name
+                                        if let desc = breakdown.description {
+                                            castingNotesText = desc
+                                            draft.aiGuidance = desc
+                                        }
+                                        let matching = draft.availablePortions.filter { $0.characters.contains { $0.caseInsensitiveCompare(breakdown.name) == .orderedSame } }.map(\.id)
+                                        if !matching.isEmpty { selectedPortionIDs = Set(matching) }
+                                        Haptics.tick()
+                                    }
+                                }
+                            }
+                        }
+                    } else if !draft.candidateRoles.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(draft.candidateRoles, id: \.self) { roleOption in
@@ -724,6 +760,10 @@ private struct OCRReviewSheet: View {
                         .padding(14)
                         .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
+
+                    if !draft.fieldEvidence.isEmpty {
+                        FieldEvidenceSection(evidence: draft.fieldEvidence, sources: draft.noticeSources)
+                    }
                 }
                 .padding(OT.gutter)
             }
@@ -900,6 +940,7 @@ enum NoticeParser {
         var customScenes: [ScriptScene]? = nil
         var castingNotes: String? = nil
         var actorNotes: String? = nil
+        var materialKind: AuditionMaterialKind = .sides
         var isSlateOptional: Bool = false
         var isHeadshotOptional: Bool = false
         var includeSlate: Bool = true
@@ -918,6 +959,7 @@ enum NoticeParser {
         static let blank = Draft()
 
         var hasSides: Bool {
+            if !materialKind.requiresSides { return true }
             if let customScenes, !customScenes.isEmpty { return true }
             return !ScriptParser.parseScenes(from: sourceText, myRole: role).isEmpty
         }
@@ -925,31 +967,64 @@ enum NoticeParser {
         var missingRequiredDetails: [String] {
             var missing: [String] = []
             if project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("project") }
-            if role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { missing.append("role") }
+            if role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && materialKind != .slateOnly { missing.append("role") }
             if due == nil { missing.append("due date") }
-            if !hasSides && !sidesOnArrival && (sidesLink == nil || sidesLink?.isEmpty == true) { missing.append("script sides") }
+            if materialKind.requiresSides && !hasSides && !sidesOnArrival && (sidesLink == nil || sidesLink?.isEmpty == true) { missing.append("script sides") }
             return missing
         }
 
         func makeAudition() -> Audition {
-            let parsedScenes = (customScenes?.isEmpty == false ? customScenes : nil) ?? ScriptParser.parseScenes(from: sourceText, myRole: role)
+            var parsedScenes = (customScenes?.isEmpty == false ? customScenes : nil) ?? ScriptParser.parseScenes(from: sourceText, myRole: role)
+
+            // Non-dialogue audition types: adapt scenes and pieces accordingly
+            switch materialKind {
+            case .monologue:
+                if parsedScenes.isEmpty {
+                    let cleaned = ScriptParser.cleanPastedText(sourceText)
+                    let monologueLines = cleaned.components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                        .map { ScriptLine(character: role.isEmpty ? "Actor" : role, text: $0, isMine: true) }
+                    if !monologueLines.isEmpty {
+                        parsedScenes = [ScriptScene(number: 1, title: "Monologue", heading: "SOLO MONOLOGUE", lines: monologueLines, estimatedSeconds: max(30, monologueLines.count * 3))]
+                    }
+                }
+            case .song:
+                if parsedScenes.isEmpty {
+                    parsedScenes = [ScriptScene(number: 1, title: "Song Cut", heading: "VOCAL AUDITION", lines: [], estimatedSeconds: 90)]
+                }
+            case .movement:
+                if parsedScenes.isEmpty {
+                    parsedScenes = [ScriptScene(number: 1, title: "Movement / Dance", heading: "PHYSICAL AUDITION", lines: [], estimatedSeconds: 90)]
+                }
+            case .slateOnly:
+                parsedScenes = []
+            case .sides:
+                break
+            }
+
             var pieces: [Piece] = []
-            if includeSlate {
-                pieces.append(.init(kind: .slate, title: isSlateOptional ? "Slate (Optional)" : "Slate", detail: "Name, height, city", isDone: false, isOptional: isSlateOptional))
+            if includeSlate || materialKind == .slateOnly {
+                let slateDetail = materialKind == .slateOnly ? "Direct-to-camera slate & intro" : "Name, height, city"
+                pieces.append(.init(kind: .slate, title: isSlateOptional ? "Slate (Optional)" : "Slate", detail: slateDetail, isDone: false, isOptional: isSlateOptional && materialKind != .slateOnly))
             }
-            if parsedScenes.isEmpty {
-                // No sides could be read from what was captured — be honest about that rather than
-                // filling in a stand-in scene. Pieces still exist so the checklist has something to
-                // point at; "Add sides" is left for the actor to do once they have the real pages.
-                for i in 0..<max(scenes, 1) {
-                    pieces.append(.init(kind: .scene, title: "Scene \(i + 1)", detail: "No sides yet — add them", isDone: false))
-                }
-            } else {
-                for scene in parsedScenes {
-                    let isOpt = NoticeParser.isSceneOptional(scene: scene, in: sourceText)
-                    pieces.append(.init(kind: .scene, title: scene.title, detail: isOpt ? "Optional scene" : "", isDone: false, isOptional: isOpt))
+
+            if materialKind != .slateOnly {
+                if parsedScenes.isEmpty {
+                    // No sides could be read from what was captured — be honest about that rather than
+                    // filling in a stand-in scene. Pieces still exist so the checklist has something to
+                    // point at; "Add sides" is left for the actor to do once they have the real pages.
+                    for i in 0..<max(scenes, 1) {
+                        pieces.append(.init(kind: .scene, title: "Scene \(i + 1)", detail: "No sides yet — add them", isDone: false))
+                    }
+                } else {
+                    for scene in parsedScenes {
+                        let isOpt = NoticeParser.isSceneOptional(scene: scene, in: sourceText)
+                        pieces.append(.init(kind: .scene, title: scene.title, detail: isOpt ? "Optional scene" : "", isDone: false, isOptional: isOpt))
+                    }
                 }
             }
+
             if includeHeadshots {
                 pieces.append(.init(kind: .headshot, title: isHeadshotOptional ? "Headshot (Optional)" : "Headshot", detail: "Photos", isDone: false, isOptional: isHeadshotOptional))
             }
@@ -958,11 +1033,12 @@ enum NoticeParser {
             // notes column unless we have notes explicitly attached to the selected role.
             let resolvedCastingNotes = castingNotes ?? autoNotes
             var audition = Audition(project: project.isEmpty ? "Untitled audition" : project, projectType: projectType,
-                            role: role.isEmpty ? "Role" : role, roleSize: roleSize, castingOffice: castingOffice,
+                            role: role.isEmpty ? (materialKind == .slateOnly ? "Self" : "Role") : role, roleSize: roleSize, castingOffice: castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
                             scriptText: sourceText.isEmpty ? nil : sourceText,
                             destination: destination, status: .due)
+            audition.materialKind = materialKind
             audition.destinationDetail = destinationDetail
             audition.sidesLink = sidesLink
             audition.castingNotes = resolvedCastingNotes
@@ -3567,6 +3643,9 @@ struct NoticeReviewView: View {
                          : "\(store.auditionDraft.asks.count) requirement\(store.auditionDraft.asks.count == 1 ? "" : "s") found in the email. Tap any line to change it, then save.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
 
+                    SectionLabel(text: "Audition Type")
+                    AuditionMaterialKindPicker(selected: $store.auditionDraft.materialKind)
+
                     SectionLabel(text: "Due")
                     if let due = store.auditionDraft.due {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -3577,9 +3656,70 @@ struct NoticeReviewView: View {
                         DatePicker("Due", selection: Binding(get: { store.auditionDraft.due ?? .now.addingTimeInterval(86400) }, set: { store.auditionDraft.due = $0 })).labelsHidden()
                     }
 
+                    if !store.auditionDraft.importantDates.isEmpty {
+                        SectionLabel(text: "Milestone Dates")
+                        MilestoneDatesListCard(dates: store.auditionDraft.importantDates)
+                    }
+
                     SectionLabel(text: "Sides & Scenes")
                     let parsedScenes = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-                    if parsedScenes.isEmpty {
+                    if store.auditionDraft.materialKind == .slateOnly {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.rectangle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Slate & Intro Only")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("No script dialogue required for this casting call")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else if store.auditionDraft.materialKind == .monologue {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.wave.2.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Solo Monologue")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Continuous teleprompter flow without reader audio pauses")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Button("Edit text") {
+                                showSidesSheet = true
+                            }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else if store.auditionDraft.materialKind == .song || store.auditionDraft.materialKind == .movement {
+                        HStack(spacing: 12) {
+                            Image(systemName: store.auditionDraft.materialKind == .song ? "music.note" : "figure.dance")
+                                .font(.system(size: 18))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(store.auditionDraft.materialKind == .song ? "Vocal Audition Track" : "Physical / Dance Audition")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Recorded in full with framing guides and audio monitoring")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else if parsedScenes.isEmpty {
                         HStack(spacing: 12) {
                             Image(systemName: "doc.badge.plus")
                                 .font(.system(size: 16, weight: .semibold))
@@ -3687,7 +3827,25 @@ struct NoticeReviewView: View {
                             Text("Select your character so OneTake knows which lines are yours to speak and which belong to your reader.")
                                 .font(.otFootnote).foregroundStyle(OT.labelSecondary)
 
-                            if !availableRoles.isEmpty {
+                            if !store.auditionDraft.roleBreakdowns.isEmpty {
+                                VStack(spacing: 8) {
+                                    ForEach(store.auditionDraft.roleBreakdowns) { breakdown in
+                                        let isCurrent = store.auditionDraft.role.caseInsensitiveCompare(breakdown.name) == .orderedSame
+                                        RoleBreakdownCard(breakdown: breakdown, isSelected: isCurrent) {
+                                            store.auditionDraft.role = breakdown.name
+                                            let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: breakdown.name)
+                                            if !parsed.isEmpty {
+                                                store.auditionDraft.scenes = parsed.count
+                                            }
+                                            if let desc = breakdown.description {
+                                                store.auditionDraft.castingNotes = desc
+                                                store.auditionDraft.aiGuidance = desc
+                                            }
+                                            Haptics.tick()
+                                        }
+                                    }
+                                }
+                            } else if !availableRoles.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 8) {
                                         ForEach(availableRoles, id: \.self) { char in
@@ -3720,56 +3878,58 @@ struct NoticeReviewView: View {
                                     }
                                     .padding(.vertical, 2)
                                 }
+                            }
 
-                                if !store.auditionDraft.role.isEmpty {
-                                    let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-                                    let myLinesCount = parsed.flatMap(\.lines).filter(\.isMine).count
-                                    let readerLines = parsed.flatMap(\.lines).filter { !$0.isMine }
-                                    let readerLinesCount = readerLines.count
-                                    let readerNames = Array(Set(readerLines.map { $0.character.capitalized })).sorted()
+                            if !store.auditionDraft.role.isEmpty {
+                                let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
+                                let myLinesCount = parsed.flatMap(\.lines).filter(\.isMine).count
+                                let readerLines = parsed.flatMap(\.lines).filter { !$0.isMine }
+                                let readerLinesCount = readerLines.count
+                                let readerNames = Array(Set(readerLines.map { $0.character.capitalized })).sorted()
 
-                                    VStack(alignment: .leading, spacing: 6) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "person.wave.2.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(OT.accent)
+                                        Text("Spoken by you (\(store.auditionDraft.role)):")
+                                            .font(.otFootnote.weight(.semibold))
+                                            .foregroundStyle(OT.accent)
+                                        Spacer()
+                                        Text("\(myLinesCount) line\(myLinesCount == 1 ? "" : "s")")
+                                            .font(.otCaption.weight(.bold))
+                                            .foregroundStyle(OT.labelPrimary)
+                                    }
+
+                                    if readerLinesCount > 0 {
                                         HStack(spacing: 8) {
-                                            Image(systemName: "person.wave.2.fill")
+                                            Image(systemName: "speaker.wave.2.fill")
                                                 .font(.caption)
-                                                .foregroundStyle(OT.accent)
-                                            Text("Spoken by you (\(store.auditionDraft.role)):")
+                                                .foregroundStyle(OT.reader)
+                                            Text("Spoken by reader (\(readerNames.joined(separator: ", "))):")
                                                 .font(.otFootnote.weight(.semibold))
-                                                .foregroundStyle(OT.accent)
+                                                .foregroundStyle(OT.reader)
                                             Spacer()
-                                            Text("\(myLinesCount) line\(myLinesCount == 1 ? "" : "s")")
+                                            Text("\(readerLinesCount) line\(readerLinesCount == 1 ? "" : "s")")
                                                 .font(.otCaption.weight(.bold))
                                                 .foregroundStyle(OT.labelPrimary)
                                         }
-
-                                        if readerLinesCount > 0 {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "speaker.wave.2.fill")
-                                                    .font(.caption)
-                                                    .foregroundStyle(OT.reader)
-                                                Text("Spoken by reader (\(readerNames.joined(separator: ", "))):")
-                                                    .font(.otFootnote.weight(.semibold))
-                                                    .foregroundStyle(OT.reader)
-                                                Spacer()
-                                                Text("\(readerLinesCount) line\(readerLinesCount == 1 ? "" : "s")")
-                                                    .font(.otCaption.weight(.bold))
-                                                    .foregroundStyle(OT.labelPrimary)
-                                            }
-                                        } else if !parsed.isEmpty {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "sparkles")
-                                                    .font(.caption)
-                                                    .foregroundStyle(OT.labelTertiary)
-                                                Text("Solo side · no reader lines needed")
-                                                    .font(.otFootnote)
-                                                    .foregroundStyle(OT.labelSecondary)
-                                            }
+                                    } else if !parsed.isEmpty {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "sparkles")
+                                                .font(.caption)
+                                                .foregroundStyle(OT.labelTertiary)
+                                            Text("Solo side · no reader lines needed")
+                                                .font(.otFootnote)
+                                                .foregroundStyle(OT.labelSecondary)
                                         }
                                     }
-                                    .padding(10)
-                                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 }
-                            } else {
+                                .padding(10)
+                                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+
+                            if availableRoles.isEmpty && store.auditionDraft.roleBreakdowns.isEmpty {
                                 TextField("Your role", text: $store.auditionDraft.role)
                                     .textInputAutocapitalization(.words)
                                     .focused($focusedField, equals: .role)
@@ -3808,6 +3968,11 @@ struct NoticeReviewView: View {
                     }
                     .padding(16)
                     .otCard(radius: 20)
+
+                    if let details = store.auditionDraft.projectDetails {
+                        SectionLabel(text: "Production Call & Terms")
+                        ProjectDetailsCard(details: details)
+                    }
 
                     SectionLabel(text: "Delivery & Destination")
                     VStack(alignment: .leading, spacing: 12) {
@@ -3942,6 +4107,11 @@ struct NoticeReviewView: View {
                             .pickerStyle(.segmented)
                         }
                         .padding(14).background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if !store.auditionDraft.fieldEvidence.isEmpty {
+                        SectionLabel(text: "Source Grounding & Evidence")
+                        FieldEvidenceSection(evidence: store.auditionDraft.fieldEvidence, sources: store.auditionDraft.noticeSources)
                     }
                 }
                 .padding(.horizontal, OT.gutter)

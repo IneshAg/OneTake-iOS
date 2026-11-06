@@ -92,9 +92,80 @@ enum AuditionStatus: String, Codable, Hashable {
 
 // MARK: - Casting notice model
 
+enum AuditionMaterialKind: String, Codable, CaseIterable, Hashable, Identifiable {
+    case sides = "Script Sides"
+    case monologue = "Solo Monologue"
+    case song = "Song / Vocal"
+    case movement = "Movement / Dance"
+    case slateOnly = "Slate / Intro Only"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .sides: return "doc.text.fill"
+        case .monologue: return "person.wave.2.fill"
+        case .song: return "music.note"
+        case .movement: return "figure.dance"
+        case .slateOnly: return "person.crop.rectangle"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .sides: return "Sides"
+        case .monologue: return "Monologue"
+        case .song: return "Song"
+        case .movement: return "Movement"
+        case .slateOnly: return "Slate Only"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .sides: return "Dialogue with reader lines & in-camera teleprompter"
+        case .monologue: return "Continuous solo speech without reader responses"
+        case .song: return "32-bar cut or full vocal performance"
+        case .movement: return "Dance, combat, or physical movement reel"
+        case .slateOnly: return "Direct-to-camera slate or personality chat"
+        }
+    }
+
+    var requiresSides: Bool {
+        self == .sides
+    }
+}
+
 enum AuditionDateKind: String, Codable, CaseIterable, Hashable {
     case submissionDeadline, audition, callback, rehearsalStart, rehearsalEnd
     case productionStart, productionEnd, performanceStart, performanceEnd, other
+
+    var title: String {
+        switch self {
+        case .submissionDeadline: return "Tape Deadline"
+        case .audition: return "Live Audition"
+        case .callback: return "Callback Window"
+        case .rehearsalStart: return "Rehearsals Start"
+        case .rehearsalEnd: return "Rehearsals End"
+        case .productionStart: return "Filming Starts"
+        case .productionEnd: return "Filming Wraps"
+        case .performanceStart: return "Opening Night"
+        case .performanceEnd: return "Closing Night"
+        case .other: return "Milestone"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .submissionDeadline: return "clock.badge.exclamationmark"
+        case .audition: return "person.fill.viewfinder"
+        case .callback: return "arrow.triangle.2.circlepath"
+        case .rehearsalStart, .rehearsalEnd: return "theatermasks.fill"
+        case .productionStart, .productionEnd: return "video.fill"
+        case .performanceStart, .performanceEnd: return "sparkles"
+        case .other: return "calendar"
+        }
+    }
 }
 
 enum AuditionSourceKind: String, Codable, CaseIterable, Hashable {
@@ -127,6 +198,10 @@ struct AuditionDate: Identifiable, Codable, Hashable {
     var sourceID: UUID? = nil
     var pageNumber: Int? = nil
     var sourceText: String? = nil
+
+    var formattedDate: String {
+        date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
+    }
 }
 
 struct AuditionProjectDetails: Codable, Hashable {
@@ -359,6 +434,7 @@ struct Audition: Identifiable, Hashable, Codable {
     /// Private rehearsal notes, subtext, objective, or character choices written by the actor.
     var actorNotes: String?
     /// Structured enrichment kept optional so auditions saved by older app versions still decode.
+    var materialKind: AuditionMaterialKind? = .sides
     var projectDetails: AuditionProjectDetails? = nil
     var importantDates: [AuditionDate]? = nil
     var roleBreakdowns: [AuditionRoleBreakdown]? = nil
@@ -367,6 +443,8 @@ struct Audition: Identifiable, Hashable, Codable {
     var noticeSources: [AuditionSource]? = nil
     var fieldEvidence: [AuditionFieldEvidence]? = nil
     var submissionInstructions: AuditionSubmissionInstructions? = nil
+
+    var resolvedMaterialKind: AuditionMaterialKind { materialKind ?? .sides }
 
     /// "22 days" style remaining lifetime of the sent link, or nil if there's no (live) link.
     var shareLinkTimeLeft: String? {

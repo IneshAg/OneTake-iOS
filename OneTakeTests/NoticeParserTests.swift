@@ -1904,4 +1904,92 @@ final class NoticeParserTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Material Kinds & Structured Casting Gap Tests
+
+    func testSlateOnlyAuditionDoesNotRequireSides() {
+        var draft = NoticeParser.Draft()
+        draft.project = "Commercial Slate"
+        draft.materialKind = .slateOnly
+        draft.due = .now.addingTimeInterval(86400)
+
+        XCTAssertTrue(draft.hasSides, "Slate only auditions should not report missing sides")
+        XCTAssertTrue(draft.missingRequiredDetails.isEmpty, "Slate only auditions should not fail validation on empty role or sides")
+
+        let audition = draft.makeAudition()
+        XCTAssertEqual(audition.resolvedMaterialKind, .slateOnly)
+        XCTAssertTrue(audition.scenes.isEmpty, "Slate only auditions have no script scenes")
+        XCTAssertTrue(audition.pieces.contains { $0.kind == .slate }, "Slate only auditions include slate piece")
+    }
+
+    func testSoloMonologueGeneratesSoloSceneWithoutReaderLines() {
+        var draft = NoticeParser.Draft()
+        draft.project = "Hamlet Monologue"
+        draft.role = "Hamlet"
+        draft.materialKind = .monologue
+        draft.due = .now.addingTimeInterval(86400)
+        draft.sourceText = """
+        To be, or not to be, that is the question:
+        Whether 'tis nobler in the mind to suffer
+        The slings and arrows of outrageous fortune,
+        Or to take arms against a sea of troubles.
+        """
+
+        let audition = draft.makeAudition()
+        XCTAssertEqual(audition.resolvedMaterialKind, .monologue)
+        XCTAssertEqual(audition.scenes.count, 1)
+        let scene = audition.scenes[0]
+        XCTAssertEqual(scene.title, "Monologue")
+        XCTAssertGreaterThan(scene.lines.count, 0)
+        XCTAssertTrue(scene.lines.allSatisfy(\.isMine), "All monologue lines must belong to the actor with no reader cues")
+    }
+
+    func testNoticeParserExtractsMilestoneDatesAndProjectDetails() {
+        let text = """
+        CASTING CALL: THE LAST BARRICADE
+        Director: Christopher Nolan
+        Produced by: Syncopy Pictures
+        Synopsis: In the final winter of 1944, a covert unit makes a daring escape across the Rhine.
+        Union: SAG-AFTRA
+        Rate: SAG scale + 10%
+        Filming Location: Atlanta, GA
+
+        ROLE: CAPTAIN MILLER (Male, 30-40). Hardened tactical commander.
+        ROLE: LIEUTENANT VANCE (Female, 25-32). Brilliant intelligence officer.
+
+        DATES:
+        Self-tape deadline: December 15, 2026
+        Callbacks: January 10, 2027
+        Rehearsals start: February 1, 2027
+        Filming starts: March 15, 2027
+        """
+
+        let draft = NoticeParser.parse(text)
+        XCTAssertEqual(draft.project, "The Last Barricade")
+        XCTAssertNotNil(draft.projectDetails)
+        XCTAssertEqual(draft.projectDetails?.director, "Christopher Nolan")
+        XCTAssertEqual(draft.projectDetails?.productionCompany, "Syncopy Pictures")
+        XCTAssertTrue(draft.projectDetails?.synopsis?.contains("winter of 1944") == true)
+        XCTAssertTrue(draft.projectDetails?.unionStatus?.contains("SAG-AFTRA") == true)
+        XCTAssertTrue(draft.projectDetails?.payTerms?.contains("scale") == true)
+
+        // Verify milestone dates
+        XCTAssertGreaterThan(draft.importantDates.count, 0)
+        XCTAssertTrue(draft.importantDates.contains { $0.kind == .callback || $0.label.lowercased().contains("callback") })
+
+        // Verify role breakdowns
+        XCTAssertGreaterThan(draft.roleBreakdowns.count, 0)
+        let miller = draft.roleBreakdowns.first { $0.name.lowercased().contains("miller") }
+        XCTAssertNotNil(miller)
+
+        // Verify field evidence was captured
+        XCTAssertFalse(draft.fieldEvidence.isEmpty, "Evidence excerpts must be grounded in notice text")
+
+        // Make audition and verify persistence transfer
+        let audition = draft.makeAudition()
+        XCTAssertNotNil(audition.projectDetails)
+        XCTAssertNotNil(audition.importantDates)
+        XCTAssertNotNil(audition.roleBreakdowns)
+        XCTAssertNotNil(audition.fieldEvidence)
+    }
 }

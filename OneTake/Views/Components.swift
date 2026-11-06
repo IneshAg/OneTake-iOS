@@ -747,3 +747,291 @@ struct SidesChip: View {
     }
 }
 
+// MARK: - Audition Material Kind Picker
+
+struct AuditionMaterialKindPicker: View {
+    @Binding var selected: AuditionMaterialKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AuditionMaterialKind.allCases) { kind in
+                        let isSelected = selected == kind
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                selected = kind
+                            }
+                            Haptics.tick()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: kind.icon)
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text(kind.shortLabel)
+                                    .font(.otSubhead.weight(isSelected ? .bold : .medium))
+                            }
+                            .foregroundStyle(isSelected ? Color.white : OT.labelPrimary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                isSelected ? OT.accent : OT.surfaceCard,
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(isSelected ? Color.clear : OT.separator, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            Text(selected.description)
+                .font(.otFootnote)
+                .foregroundStyle(OT.labelSecondary)
+        }
+    }
+}
+
+// MARK: - Milestone Dates List Card
+
+struct MilestoneDatesListCard: View {
+    var dates: [AuditionDate]
+    var onAddDate: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Key Dates & Deadlines", systemImage: "calendar.badge.clock")
+                    .font(.otCaption.weight(.bold))
+                    .foregroundStyle(OT.labelPrimary)
+                Spacer()
+                if let onAddDate {
+                    Button(action: onAddDate) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Add date")
+                        }
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(OT.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if dates.isEmpty {
+                Text("No additional milestone dates detected.")
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelTertiary)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(dates) { item in
+                        HStack(spacing: 10) {
+                            Image(systemName: item.kind.icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(item.kind == .submissionDeadline ? OT.due : OT.accent)
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.label.isEmpty ? item.kind.title : item.label)
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                if let text = item.sourceText, !text.isEmpty {
+                                    Text(text)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(OT.labelTertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer()
+
+                            Text(item.formattedDate)
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .foregroundStyle(item.kind == .submissionDeadline ? OT.due : OT.labelSecondary)
+                        }
+                        .padding(.vertical, 4)
+                        if item.id != dates.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .otCard(radius: 16)
+    }
+}
+
+// MARK: - Project Details & Production Info Card
+
+struct ProjectDetailsCard: View {
+    var details: AuditionProjectDetails
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Project & Production Breakdown", systemImage: "building.2.crop.circle")
+                .font(.otCaption.weight(.bold))
+                .foregroundStyle(OT.labelPrimary)
+
+            if let synopsis = details.synopsis, !synopsis.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Synopsis").font(.system(size: 11, weight: .semibold)).foregroundStyle(OT.labelTertiary)
+                    Text(synopsis)
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+            }
+
+            let terms = [
+                ("Pay & Terms", details.payTerms, "dollarsign.circle.fill"),
+                ("Union Status", details.unionStatus, "person.3.sequence.fill"),
+                ("Location", details.productionLocation ?? details.castingArea, "mappin.circle.fill"),
+                ("Company / Team", [details.productionCompany, details.producer, details.director].compactMap { $0 }.joined(separator: " · "), "film.fill")
+            ].filter { $0.1 != nil && $0.1?.isEmpty == false }
+
+            if !terms.isEmpty {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(terms, id: \.0) { item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: item.2)
+                                .font(.system(size: 13))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.0)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(OT.labelTertiary)
+                                Text(item.1 ?? "")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            } else if details.synopsis == nil || details.synopsis?.isEmpty == true {
+                Text("Standard self-tape production call.")
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelTertiary)
+            }
+        }
+        .padding(14)
+        .otCard(radius: 16)
+    }
+}
+
+// MARK: - Source Evidence & Provenance View
+
+struct FieldEvidenceSection: View {
+    var evidence: [AuditionFieldEvidence]
+    var sources: [AuditionSource]
+    @State private var isExpanded = false
+
+    var body: some View {
+        if !evidence.isEmpty {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Every extracted detail is grounded in the original casting notice or sides:")
+                        .font(.system(size: 11))
+                        .foregroundStyle(OT.labelTertiary)
+
+                    ForEach(evidence) { item in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(item.field.capitalized)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(OT.accent)
+                                Spacer()
+                                Text(sourceName(for: item))
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+
+                            Text("“\(item.excerpt)”")
+                                .font(.system(size: 11, design: .serif))
+                                .italic()
+                                .foregroundStyle(OT.labelSecondary)
+                                .padding(8)
+                                .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
+                        if item.id != evidence.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .foregroundStyle(OT.accent)
+                    Text("Source Evidence & Provenance (\(evidence.count) grounded points)")
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                }
+            }
+            .padding(14)
+            .otCard(radius: 16)
+        }
+    }
+
+    private func sourceName(for item: AuditionFieldEvidence) -> String {
+        if let page = item.pageNumber {
+            return "Page \(page)"
+        }
+        if let source = sources.first(where: { $0.id == item.sourceID }) {
+            return source.name
+        }
+        return "Notice"
+    }
+}
+
+// MARK: - Rich Role Breakdown Card
+
+struct RoleBreakdownCard: View {
+    let breakdown: AuditionRoleBreakdown
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "person.fill")
+                            .font(.system(size: 13, weight: .bold))
+                        Text(breakdown.name)
+                            .font(.otSubhead.weight(isSelected ? .bold : .semibold))
+                    }
+                    .foregroundStyle(isSelected ? Color.white : OT.accent)
+
+                    Spacer(minLength: 4)
+
+                    let tags = [breakdown.gender, breakdown.ageRange].compactMap { $0 }
+                    if !tags.isEmpty {
+                        Text(tags.joined(separator: " · "))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(isSelected ? Color.white.opacity(0.85) : OT.labelTertiary)
+                    }
+                }
+
+                if let desc = breakdown.description, !desc.isEmpty {
+                    Text(desc)
+                        .font(.system(size: 11))
+                        .lineLimit(2)
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.9) : OT.labelSecondary)
+                }
+            }
+            .padding(12)
+            .background(isSelected ? OT.accent : OT.surfaceCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? Color.clear : OT.separator, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
