@@ -500,6 +500,7 @@ final class AppStore {
 
     /// Development reset: removes every OneTake record and preference, then returns the running
     /// app to the same first-launch state a fresh install would show.
+    @MainActor
     func resetAppForTesting() {
         saveTask?.cancel()
         camera = nil
@@ -527,6 +528,7 @@ final class AppStore {
         }
         isOnboarded = false
         tab = .auditions
+        flushPersistence()
     }
 
     /// Replaces local app data from an explicitly selected offline backup. Account credentials stay

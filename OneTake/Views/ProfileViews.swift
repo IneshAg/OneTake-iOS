@@ -501,6 +501,7 @@ struct PrivacyView: View {
                 cloudSection
                 localStorageSection
                 accountSection
+                dataResetSection
                 legalSection
             }
         .id(storageRefreshID)
@@ -562,20 +563,21 @@ struct PrivacyView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Clean local data?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
-            Button("Clean everything", role: .destructive) { deleteAll() }
+        .confirmationDialog("Clean local media files?", isPresented: $showConfirmDeleteAll, titleVisibility: .visible) {
+            Button("Delete media files", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes takes, headshots, reader tracks, and practice pieces. This can’t be undone.")
+            Text("This deletes recorded video takes, headshots, and reader audio to free up disk space. Your audition cards and scripts are kept.")
         }
-        .confirmationDialog("Reset OneTake for testing?", isPresented: $showConfirmResetApp, titleVisibility: .visible) {
-            Button("Reset app", role: .destructive) {
+        .confirmationDialog("Erase all app data and reset?", isPresented: $showConfirmResetApp, titleVisibility: .visible) {
+            Button("Erase all data and reset", role: .destructive) {
                 store.resetAppForTesting()
+                storageRefreshID = UUID()
                 Haptics.success()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes every local audition, take, headshot, setting and sign-in from this iPhone, then returns to Welcome.")
+            Text("This permanently wipes every audition, take, headshot, setting, and preference on this iPhone, returning OneTake to a clean fresh install state for testing.")
         }
     }
 
@@ -687,12 +689,32 @@ struct PrivacyView: View {
     }
 
     @ViewBuilder
+    private var dataResetSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showConfirmDeleteAll = true
+            } label: {
+                Label("Clean local media files", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .accessibilityIdentifier("Clean local data")
+
+            Button(role: .destructive) {
+                showConfirmResetApp = true
+            } label: {
+                Label("Erase entire app data & reset", systemImage: "trash.fill")
+            }
+            .accessibilityIdentifier("Reset app for testing")
+        } header: {
+            Text("Storage & Reset")
+        } footer: {
+            Text("“Clean local media” deletes takes, audio, and headshots to reclaim disk space while preserving your audition cards. “Erase entire app data” wipes all auditions, settings, and files, returning OneTake to a clean fresh-install state for testing.")
+        }
+    }
+
+    @ViewBuilder
     private var legalSection: some View {
         Section {
             NavigationLink("Privacy policy") { PrivacyPolicyView() }
-            Button("Clean local data", role: .destructive) { showConfirmDeleteAll = true }
-                .accessibilityIdentifier("Clean local data")
-            Button("Reset app for testing", role: .destructive) { showConfirmResetApp = true }
         } footer: {
             Text("Sent tapes are not affected.")
         }
