@@ -51,12 +51,12 @@ enum SilenceTrimmer {
               let lastActive = active.indices.dropLast().reversed().first(where: { active[$0] && active[$0 + 1] }) else { return nil }
         let leadingSilence = Double(firstActive) * 0.05
         let trailingSilence = duration - Double(lastActive + 2) * 0.05
-        guard leadingSilence >= 0.45 || trailingSilence >= 0.60 else { return nil }
+        guard leadingSilence >= 0.25 || trailingSilence >= 0.35 else { return nil }
 
-        let padding = 0.22
+        let padding = 0.15
         let start = max(0, leadingSilence - padding)
         let end = min(duration, duration - trailingSilence + padding)
-        guard end - start >= 1.0, end - start < duration - 0.3 else { return nil }
+        guard end - start >= 0.8, end - start < duration - 0.2 else { return nil }
         return Suggestion(start: start, end: end, removedLeading: start, removedTrailing: duration - end)
     }
 
@@ -68,10 +68,12 @@ enum SilenceTrimmer {
         exporter.outputFileType = .mov
         exporter.timeRange = CMTimeRange(start: CMTime(seconds: suggestion.start, preferredTimescale: 600),
                                          duration: CMTime(seconds: suggestion.end - suggestion.start, preferredTimescale: 600))
-        return await withCheckedContinuation { continuation in
-            exporter.exportAsynchronously {
-                continuation.resume(returning: exporter.status == .completed ? output : nil)
-            }
+        do {
+            try await exporter.export(to: output, as: .mov)
+            return output
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            return nil
         }
     }
 }

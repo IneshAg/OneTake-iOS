@@ -204,13 +204,21 @@ enum HeadshotStore {
     }
 
     /// An edit of the current photo (e.g. auto-framing). Keeps the original capture on the first edit.
-    static func replace(_ image: UIImage, key: String, auditionID: UUID? = nil) {
+    @discardableResult
+    static func replace(_ image: UIImage, key: String, auditionID: UUID? = nil) -> Bool {
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return false }
         let original = originalURL(for: key, auditionID: auditionID)
         let mainURL = url(for: key, auditionID: auditionID)
         if !FileManager.default.fileExists(atPath: original.path), exists(key: key, auditionID: auditionID) {
             try? FileManager.default.copyItem(at: mainURL, to: original)
         }
-        write(image, key: key, auditionID: auditionID)
+        do {
+            try data.write(to: mainURL, options: .atomic)
+        } catch {
+            return false
+        }
+        cache.setObject(image, forKey: cacheKey(key: key, auditionID: auditionID))
+        return true
     }
 
     /// The full original capture if the photo has been reframed, otherwise the current photo.

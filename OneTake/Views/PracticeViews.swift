@@ -12,9 +12,14 @@ struct PracticeView: View {
     @State private var sidesAuditionID: Audition.ID?
     @AppStorage("practice.showSample") private var showSample = true
 
+    /// Practice pieces with sample data filtered out when "Show sample scene" is off.
+    private var displayedPractice: [PracticePiece] {
+        showSample ? store.practice : store.practice.filter { !store.isSamplePiece($0) }
+    }
+
     var body: some View {
         Group {
-            if store.practice.isEmpty {
+            if displayedPractice.isEmpty {
                 EmptyPracticeView(showSample: showSample) {
                     store.push(.practiceSample)
                 }
@@ -24,7 +29,7 @@ struct PracticeView: View {
                         // Time/duration tracking is cut for MVP — a real stats view (practice history, time
                         // invested) comes later, rather than a partial number shown ad hoc here.
 
-                        if let piece = store.practice.first {
+                        if let piece = displayedPractice.first {
                             VStack(alignment: .leading, spacing: 10) {
                                 SectionLabel(text: "Pick up where you left off")
                                 Text(piece.title).font(.otTitle)
@@ -57,12 +62,8 @@ struct PracticeView: View {
 
                         if !store.auditions.isEmpty && !store.auditions.contains(where: { !$0.scenes.isEmpty }) { noScenesCard }
 
-                        if store.auditions.contains(where: { !$0.scenes.isEmpty }) {
-                            QuickDrillsGrid { mode in start(mode) }
-                        }
-
                         SectionLabel(text: "Your pieces")
-                        ForEach(store.practice) { p in
+                        ForEach(displayedPractice) { p in
                             Button { open(p) } label: {
                                 HStack {
                                     VStack(alignment: .leading) {
@@ -126,12 +127,9 @@ struct PracticeView: View {
                 .font(.otLargeTitle)
                 .foregroundStyle(OT.labelPrimary)
             Spacer()
-            Button { store.push(.practiceSetup) } label: {
-                Image(systemName: "plus").font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(OT.labelOnAccent)
-                    .frame(width: 44, height: 44).background(OT.accent, in: Circle())
+            GlassIconButton(systemName: "plus", accessibilityLabel: "Practise a new scene") {
+                store.push(.practiceSetup)
             }
-            .accessibilityLabel("Practise a new scene")
             ProfileButton { store.showProfile = true }
         }
         .padding(.horizontal, OT.gutter)
@@ -154,7 +152,7 @@ struct PracticeView: View {
         .padding(18).frame(maxWidth: .infinity, alignment: .leading).otCard()
     }
 
-    /// A piece opens its scene in Prepare — as long as the audition it came from still has it.
+    /// A piece opens its shared Practice options — as long as the audition it came from still has it.
     private func canOpen(_ p: PracticePiece) -> Bool {
         if let scene = p.scene { return !scene.lines.isEmpty }
         guard let id = p.auditionID, let scene = p.sceneIndex else { return false }
@@ -164,36 +162,123 @@ struct PracticeView: View {
     private func open(_ p: PracticePiece) {
         guard canOpen(p) else { return }
         if let id = p.auditionID, let scene = p.sceneIndex {
-            store.push(.prepare(id, sceneIndex: scene))
+            store.push(.practiceOptions(id, sceneIndex: scene))
         } else {
             store.promotePracticePiece(p.id)
             store.push(.standalonePractice(p.id))
         }
     }
 
-    /// Quick Drills need a scene to operate on: prefer the piece currently being picked up, else
-    /// the first upcoming audition's first scene — creating a real `PracticePiece` for it if one
-    /// doesn't exist yet, so progress has somewhere real to be tracked.
-    private func start(_ mode: LineLearningMode) {
-        let auditionID: Audition.ID
-        let sceneIndex: Int
-        if let piece = store.practice.first, let id = piece.auditionID, let scene = piece.sceneIndex {
-            auditionID = id
-            sceneIndex = scene
-        } else if let a = store.auditions.first(where: { !$0.scenes.isEmpty }) {
-            auditionID = a.id
-            sceneIndex = 0
-            store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
-        } else {
-            // No scene to drill: send them to add sides (or an audition) rather than doing nothing.
-            if let first = store.auditions.first { sidesAuditionID = first.id } else { store.showAddAudition = true }
-            return
+}
+
+struct PracticeOptionsView: View {
+    let auditionID: Audition.ID
+    let sceneIndex: Int
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        if let audition = store.audition(auditionID),
+           audition.scenes.indices.contains(sceneIndex) {
+            let scene = audition.scenes[sceneIndex]
+            VStack(alignment: .leading, spacing: 18) {
+                InContentNavHeader(
+                    title: "Practice",
+                    backLabel: "Back",
+                    onBack: { store.pop() }
+                )
+                .padding(.top, 4)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(scene.title).font(.otLargeTitle)
+                    Text("\(audition.project) · \(audition.role)")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelTertiary)
+                }
+
+                Text("Choose how you want to rehearse")
+                    .font(.otHeadline)
+
+                VStack(spacing: 10) {
+                    practiceButton(
+                        title: "Practice the scene",
+                        detail: "Follow the scene and speak your lines",
+                        symbol: "play.fill"
+                    ) {
+                        store.push(.runLines(auditionID, sceneIndex: sceneIndex))
+                    }
+                    practiceButton(
+                        title: "First-letter prompts",
+                        detail: "Use the first letter of each word",
+                        symbol: "textformat"
+                    ) {
+                        store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: .firstLetter))
+                    }
+                    practiceButton(
+                        title: "Cold read",
+                        detail: "Hide your lines and reveal them when needed",
+                        symbol: "eye.slash"
+                    ) {
+                        store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: .maskAndReveal))
+                    }
+                    practiceButton(
+                        title: "Audio gap",
+                        detail: "Hear the reader and answer in the pauses",
+                        symbol: "waveform"
+                    ) {
+                        store.push(.runLines(auditionID, sceneIndex: sceneIndex))
+                    }
+                    practiceButton(
+                        title: "Audio walk",
+                        detail: "Rehearse hands-free with your reader recordings",
+                        symbol: "headphones"
+                    ) {
+                        store.push(.audioWalk(auditionID, sceneIndex: sceneIndex))
+                    }
+                    practiceButton(
+                        title: "Record a practice take",
+                        detail: "Record yourself without submitting a tape",
+                        symbol: "record.circle"
+                    ) {
+                        let piece = store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
+                        store.camera = .practiceTake(pieceID: piece.id)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, OT.gutter)
+            .otCanvas()
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
         }
-        switch mode {
-        case .firstLetter, .maskAndReveal: store.push(.lineDrill(auditionID, sceneIndex: sceneIndex, mode: mode))
-        case .audioGap:                    store.push(.runLines(auditionID, sceneIndex: sceneIndex))
-        case .handsFreeWalk:               store.push(.audioWalk(auditionID, sceneIndex: sceneIndex))
+    }
+
+    private func practiceButton(
+        title: String,
+        detail: String,
+        symbol: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(OT.accent)
+                    .frame(width: 42, height: 42)
+                    .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                    Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.forward")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(OT.labelTertiary)
+            }
+            .padding(12)
+            .otCard(radius: 16)
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -296,18 +381,18 @@ struct PracticeSetupView: View {
                     Button { showFileImporter = true } label: { Label("PDF / File", systemImage: "doc") }
                 }
                 .font(.otFootnote.weight(.medium))
-                TextEditor(text: $sidesText)
-                    .frame(minHeight: 150)
-                    .onChange(of: sidesText) { _, newSides in
-                        autoFillFromSides(newSides)
+                ZStack(alignment: .topLeading) {
+                    if sidesText.isEmpty {
+                        Text("Paste sides with character cues, e.g. MAYA: Hello\nREADER: Hi")
+                            .font(.otFootnote).foregroundStyle(OT.labelTertiary)
+                            .padding(.top, 10).padding(.leading, 12).allowsHitTesting(false)
                     }
-                    .overlay(alignment: .topLeading) {
-                        if sidesText.isEmpty {
-                            Text("Paste sides with character cues, e.g. MAYA: Hello\nREADER: Hi")
-                                .font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                .padding(.top, 8).padding(.leading, 5).allowsHitTesting(false)
+                    ScriptTextEditor(text: $sidesText)
+                        .frame(minHeight: 150)
+                        .onChange(of: sidesText) { _, newSides in
+                            autoFillFromSides(newSides)
                         }
-                    }
+                }
                 if let errorMessage {
                     Text(errorMessage).font(.otFootnote).foregroundStyle(OT.danger)
                 }
@@ -393,7 +478,7 @@ struct PracticeSetupView: View {
     private func start(auditionID: Audition.ID, sceneIndex: Int) {
         store.practicePiece(for: auditionID, sceneIndex: sceneIndex)
         store.pop()
-        store.push(.runLines(auditionID, sceneIndex: sceneIndex))
+        store.push(.practiceOptions(auditionID, sceneIndex: sceneIndex))
     }
 
     private func createStandaloneScene() {
@@ -484,18 +569,32 @@ struct StandalonePracticeView: View {
                                 Text(line.isMine ? "\(line.character) · YOU" : line.character)
                                     .font(.otCaption.weight(.semibold))
                                     .foregroundStyle(line.isMine ? OT.accent : OT.reader)
-                                HStack(alignment: .top, spacing: 10) {
-                                    if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
-                                    Text(displayText(for: line))
-                                        .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
-                                        .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                if line.isSilentReactionCue {
+                                    SilentReactionCue()
+                                } else {
+                                    HStack(alignment: .top, spacing: 10) {
+                                        if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
+                                        Text(displayText(for: line))
+                                            .font(line.isMine ? .system(size: 19, weight: .semibold) : .otBody)
+                                            .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
+                                                guard line.isMine, displayMode != .full else { return }
+                                                if revealed.contains(line.id) { revealed.remove(line.id) }
+                                                else { revealed.insert(line.id) }
+                                                Haptics.tick()
+                                            }
+                                    }
                                 }
-                                if displayMode == .hideMine && line.isMine {
+                                if displayMode == .hideMine && line.isMine && !line.isSilentReactionCue {
                                     Button(revealed.contains(line.id) ? "Hide line" : "Reveal line") {
                                         if revealed.contains(line.id) { revealed.remove(line.id) } else { revealed.insert(line.id) }
                                     }
                                     .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
+                                } else if displayMode == .firstLetters && line.isMine && !line.isSilentReactionCue {
+                                    Text(revealed.contains(line.id) ? "Tap the line to hide the hint" : "Tap the line for a full-line hint")
+                                        .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                                 }
                             }
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading).otCard(radius: 16)
@@ -629,7 +728,7 @@ struct StandalonePracticeView: View {
         guard line.isMine else { return line.text }
         switch displayMode {
         case .full: return line.text
-        case .firstLetters: return otLineDisplay(line, mode: .firstLetters, peeked: false)
+        case .firstLetters: return otLineDisplay(line, mode: .firstLetters, peeked: revealed.contains(line.id))
         case .hideMine:
             return revealed.contains(line.id) ? line.text : String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8))
         }
@@ -743,23 +842,27 @@ struct PracticeTakeView: View {
         ZStack {
             if recordMode == .camera {
                 CameraBackground(controller: camera)
+                    .ignoresSafeArea()
             } else {
                 // Studio Voice Rehearsal Stage (Figma 11.4)
-                ZStack {
-                    LinearGradient(
-                        colors: [Color(red: 0.08, green: 0.06, blue: 0.12), Color(red: 0.04, green: 0.03, blue: 0.06)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .ignoresSafeArea()
-
-                    Circle()
-                        .stroke(OT.reader.opacity(camera.state == .recording ? 0.25 : 0.08), lineWidth: 1)
-                        .frame(width: 320, height: 320)
-                    Circle()
-                        .stroke(OT.accent.opacity(camera.state == .recording ? 0.18 : 0.05), lineWidth: 1)
-                        .frame(width: 480, height: 480)
+                LinearGradient(
+                    colors: [Color(red: 0.08, green: 0.06, blue: 0.12), Color(red: 0.04, green: 0.03, blue: 0.06)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .overlay {
+                    ZStack {
+                        Circle()
+                            .stroke(OT.reader.opacity(camera.state == .recording ? 0.25 : 0.08), lineWidth: 1)
+                            .frame(width: 320, height: 320)
+                        Circle()
+                            .stroke(OT.accent.opacity(camera.state == .recording ? 0.18 : 0.05), lineWidth: 1)
+                            .frame(width: 480, height: 480)
+                    }
+                    .allowsHitTesting(false)
                 }
+                .clipped()
+                .ignoresSafeArea()
             }
 
             VStack {
@@ -938,6 +1041,7 @@ struct PracticeTakeView: View {
                                 Haptics.tick()
                             }
                         )
+                        .padding(.top, 6)
                     } else {
                         HStack(spacing: 8) {
                             Text(lines.indices.contains(lineIndex) ? lines[lineIndex].text : sceneTitle)

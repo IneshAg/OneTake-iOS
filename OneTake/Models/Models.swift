@@ -47,14 +47,19 @@ struct Piece: Identifiable, Hashable, Codable {
     }
 }
 
-struct ScriptLine: Identifiable, Hashable, Codable {
+struct ScriptLine: Identifiable, Hashable, Codable, Sendable {
     var id = UUID()
     var character: String
     var text: String
     var isMine: Bool
+
+    /// A question mark on the actor's cue line represents a silent reaction, not spoken dialogue.
+    var isSilentReactionCue: Bool {
+        isMine && text.trimmingCharacters(in: .whitespacesAndNewlines) == "?"
+    }
 }
 
-struct ScriptScene: Identifiable, Hashable, Codable {
+struct ScriptScene: Identifiable, Hashable, Codable, Sendable {
     var id = UUID()
     var number: Int
     var title: String
@@ -240,6 +245,8 @@ struct Audition: Identifiable, Hashable, Codable {
     /// Original slate is retained when an edge-silence trim is accepted, so it can be restored.
     var slateOriginalVideoURL: URL? = nil
     var fullLengthVideoURL: URL?
+    /// Original full-length recording retained when an edited version is chosen.
+    var fullLengthOriginalVideoURL: URL? = nil
     /// The packaged deliverable, once `MediaExporter` has actually composed one.
     var exportedFileURL: URL?
     /// The separate-clip archive created alongside the merged deliverable.
@@ -398,6 +405,8 @@ struct Take: Identifiable, Hashable, Codable {
     var isCircled: Bool
     var notes: [String]
     var fileURL: URL?
+    /// Kept separately after trimming so the actor can restore the recorded source clip.
+    var originalFileURL: URL? = nil
     /// Which audition/scene this take belongs to. Real takes created by `ShootFlow` always set
     /// both; optional only so `Take` can still be constructed in previews/tests without one.
     var auditionID: Audition.ID?

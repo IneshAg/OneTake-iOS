@@ -26,25 +26,28 @@ struct AuditionDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 // Top controls (back & options)
                 InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() }) {
-                    Menu {
-                        Button { showEdit = true } label: { Label("Edit details", systemImage: "pencil") }
+                    HStack(spacing: 8) {
+                        Button { showEdit = true } label: {
+                            Label("Edit details", systemImage: "pencil")
+                        }
+                        .modifier(GlassCapsuleButtonCompatibility())
+
+                        Menu {
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                         Divider()
                         Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 38, height: 38)
-                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-                            )
-                            .frame(width: 44, height: 44)
-                            .contentShape(Circle())
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(OT.labelPrimary)
+                                .frame(width: 38, height: 38)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Circle())
+                        }
+                        .modifier(GlassButtonCompatibility(enabled: true))
                     }
-                    .buttonStyle(CircularIconPressStyle())
                 }
                 .padding(.top, 4)
 
@@ -109,19 +112,9 @@ struct AuditionDetailView: View {
 
                 readerTrackCard(a)
 
-                headshotsCard(a)
-
-                if let then = thenLine(a) {
-                    Button { showPackage = true } label: {
-                        HStack {
-                            Text("Then").font(.otFootnote.weight(.semibold))
-                            Text(then).font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                            Spacer()
-                            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
-                        }
-                        .frame(minHeight: OT.minTap)
-                    }
-                    .buttonStyle(.plain)
+                // The next-piece card already owns the headshot action when headshots are up next.
+                if a.nextPiece?.kind != .headshot {
+                    headshotsCard(a)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -165,7 +158,10 @@ struct AuditionDetailView: View {
                 Text("Audition headshots").font(.otTitle)
                 quoteLine(isOpt ? "Optional · sent alongside your video tape as photos." : "Required in package · 3 photos (front, left, right profile).")
                 HStack(spacing: 10) {
-                    Button("Manage headshots") { store.push(.headshots(for: a.id)) }.buttonStyle(.otPrimary)
+                    let photoCount = HeadshotStore.taken(auditionID: a.id).count
+                    Button(photoCount == 0 ? "Add headshots" : "Manage headshots") {
+                        store.push(.headshots(for: a.id))
+                    }.buttonStyle(.otPrimary)
                     if isOpt {
                         Button("Skip for now") {
                             if let pieceID = next?.id {
@@ -190,12 +186,18 @@ struct AuditionDetailView: View {
                     .font(.otCaption.weight(.semibold))
                     .foregroundStyle(OT.accent)
                 }
-                Text(next?.kind == .slate ? "Record the slate" : "Full-length shot").font(.otTitle)
-                quoteLine(store.slate.spoken)
+                if next?.kind == .slate {
+                    Text("Record the slate").font(.otTitle)
+                    quoteLine(store.slate.spoken)
+                } else {
+                    Text("Full-length shot").font(.otTitle)
+                    Text("Record your full performance in one uninterrupted take.")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                }
                 HStack(spacing: 10) {
                     Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
                     if isOpt {
-                        Button("Skip slate") {
+                        Button(next?.kind == .slate ? "Skip slate" : "Skip full length") {
                             if let pieceID = next?.id {
                                 store.markPieceDone(a.id, pieceID: pieceID)
                                 Haptics.tick()
@@ -298,7 +300,7 @@ struct AuditionDetailView: View {
                         .foregroundStyle(OT.labelPrimary)
                 }
                 Spacer()
-                Button("Replace / rescan") {
+                Button("Edit sides") {
                     showSides = true
                 }
                 .font(.otFootnote.weight(.semibold))
@@ -309,20 +311,25 @@ struct AuditionDetailView: View {
         .otCard()
     }
 
+    private func recordedReaderCueCount(for a: Audition) -> Int {
+        var count = 0
+        for (sIndex, scene) in a.scenes.enumerated() {
+            let readerIndices = scene.lines.indices.filter { !scene.lines[$0].isMine }
+            for (lineOffset, _) in readerIndices.enumerated() {
+                if ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sIndex, line: lineOffset) {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
     @ViewBuilder private func readerTrackCard(_ a: Audition) -> some View {
         let unownedLines = a.scenes.flatMap(\.lines).filter { !$0.isMine }
         if !unownedLines.isEmpty {
             let readerName = unownedLines.first?.character.capitalized ?? "Reader"
             let totalCues = unownedLines.count
-            var recordedCount = 0
-            for (sIndex, scene) in a.scenes.enumerated() {
-                let readerIndices = scene.lines.indices.filter { !scene.lines[$0].isMine }
-                for (lineOffset, _) in readerIndices.enumerated() {
-                    if ReaderTrackPlayer.hasRecording(auditionID: a.id, sceneIndex: sIndex, line: lineOffset) {
-                        recordedCount += 1
-                    }
-                }
-            }
+            let recordedCount = recordedReaderCueCount(for: a)
             let isComplete = recordedCount == totalCues && totalCues > 0
             let firstSceneIndex = a.scenes.indices.first(where: { !a.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) ?? 0
 
@@ -388,11 +395,6 @@ struct AuditionDetailView: View {
         }
     }
 
-    private func thenLine(_ a: Audition) -> String? {
-        let remaining = a.pieces.filter { !$0.isDone }.dropFirst().map(\.title)
-        guard !remaining.isEmpty else { return nil }
-        return remaining.joined(separator: " · ") + (a.readyCount == 0 ? " — any order after that" : " — any order is fine")
-    }
 }
 
 struct TrailingIconLabelStyle: LabelStyle {
@@ -996,12 +998,8 @@ struct CallbackExtraSidesSheet: View {
                                     .allowsHitTesting(false)
                             }
 
-                            TextEditor(text: $text)
-                                .font(.system(size: 15, design: .monospaced))
+                            ScriptTextEditor(text: $text)
                                 .frame(minHeight: 140, maxHeight: 220)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .scrollContentBackground(.hidden)
                         }
                         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
@@ -1753,11 +1751,11 @@ struct RevisedSidesSheet: View {
         let role = audition?.role ?? ""
         VStack(spacing: 0) {
             InContentNavHeader(
-                title: isNewSides ? "Add sides" : "Revised sides",
+                title: isNewSides ? "Add sides" : "Edit sides",
                 backLabel: "Cancel",
                 onBack: { dismiss() }
             ) {
-                Button(isNewSides ? "Add" : "Replace") {
+                Button(isNewSides ? "Add" : "Save changes") {
                     store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
                     dismiss()
                     if readerAudioPlan == .recordNow,
@@ -1869,12 +1867,8 @@ struct RevisedSidesSheet: View {
                                     .allowsHitTesting(false)
                             }
 
-                            TextEditor(text: $text)
-                                .font(.system(size: 15, design: .monospaced))
+                            ScriptTextEditor(text: $text)
                                 .frame(minHeight: 140, maxHeight: 220)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .scrollContentBackground(.hidden)
                                 .onChange(of: text) { _, newText in
                                     editableScenes = ScriptParser.parseScenes(from: newText, myRole: role)
                                 }
@@ -1954,7 +1948,7 @@ struct RevisedSidesSheet: View {
         }
         .safeAreaInset(edge: .bottom) {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button(isNewSides ? "Add sides" : "Replace sides") {
+                Button(isNewSides ? "Add sides" : "Save changes") {
                     store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
                     dismiss()
                 }

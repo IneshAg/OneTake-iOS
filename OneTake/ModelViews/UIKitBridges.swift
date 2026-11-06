@@ -1,7 +1,8 @@
 import SwiftUI
+import AVKit
 import UIKit
 import VisionKit
-import Speech
+@preconcurrency import Speech
 import AVFoundation
 
 // MARK: - Haptics (UIKit feedback generators)
@@ -36,43 +37,194 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
-// MARK: - Trim (UIVideoEditorController, UIKit-only)
+// MARK: - Video trim editor
 
-/// The system trimmer: drag the ends, tap Save. Reports the trimmed file (in a temporary location),
-/// or nil if the person cancelled or it failed.
-struct VideoTrimmer: UIViewControllerRepresentable {
+/// A compact editor with its close control at the top and the save action safely at the bottom.
+/// It exports a new file so callers can keep the source clip and offer an undo path.
+struct VideoTrimmer: View {
     let url: URL
     var onFinish: (URL?) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
+    @State private var duration: Double = 0
+    @State private var trimStart: Double = 0
+    @State private var trimEnd: Double = 0
+    @State private var playhead: Double = 0
+    @State private var isPlaying = false
+    @State private var isExporting = false
+    @State private var exportError = false
+    @State private var exportSession: AVAssetExportSession?
 
-    static func canTrim(_ url: URL) -> Bool { UIVideoEditorController.canEditVideo(atPath: url.path) }
+    static func canTrim(_ url: URL) -> Bool { url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: cancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .background(OT.fillField, in: Circle())
+                }
+                .accessibilityLabel("Close video editor")
+                Spacer()
+                Text("Edit video").font(.otHeadline)
+                Spacer()
+                Color.clear.frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 8)
 
-    func makeUIViewController(context: Context) -> UIVideoEditorController {
-        let editor = UIVideoEditorController()
-        editor.videoPath = url.path
-        editor.videoQuality = .typeHigh
-        editor.delegate = context.coordinator
-        return editor
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let player {
+                        VideoPlayer(player: player)
+                            .frame(height: 250)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    } else {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.black)
+                            .frame(height: 250)
+                            .overlay(ProgressView().tint(.white))
+                    }
+
+                    if duration > 0.5 {
+                        HStack {
+                            Button {
+                                if isPlaying { player?.pause(); isPlaying = false }
+                                else {
+                                    if playhead < trimStart || playhead >= trimEnd {
+                                        playhead = trimStart
+                                        seek(to: trimStart)
+                                    }
+                                    player?.play()
+                                    isPlaying = true
+                                }
+                            } label: {
+                                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.otFootnote.weight(.semibold))
+                            }
+                            Spacer()
+                            Text("\(timeLabel(playhead)) / \(timeLabel(duration))")
+                                .font(.otCaption.monospacedDigit()).foregroundStyle(OT.labelSecondary)
+                        }
+
+                        Slider(value: $playhead, in: 0...duration) { editing in
+                            if !editing { seek(to: playhead) }
+                        }
+                        .tint(OT.accent)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Trim range").font(.otHeadline)
+                            VStack(spacing: 4) {
+                                HStack {
+                                    Text("Start").foregroundStyle(OT.labelSecondary)
+                                    Spacer()
+                                    Text(timeLabel(trimStart)).monospacedDigit()
+                                }
+                                Slider(value: $trimStart, in: 0...max(0, trimEnd - 0.5))
+                                HStack {
+                                    Text("End").foregroundStyle(OT.labelSecondary)
+                                    Spacer()
+                                    Text(timeLabel(trimEnd)).monospacedDigit()
+                                }
+                                Slider(value: $trimEnd, in: min(duration, trimStart + 0.5)...duration)
+                            }
+                            .font(.otFootnote)
+                            .tint(OT.accent)
+                        }
+                        .padding(14)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        Text("Your original recording will remain available so you can restore it later.")
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                    }
+                }
+                .padding(OT.gutter)
+            }
+        }
+        .background(OT.bgCanvas)
+        .safeAreaInset(edge: .bottom) {
+            Button(action: exportTrim) {
+                HStack(spacing: 8) {
+                    if isExporting { ProgressView().tint(.white) }
+                    Text(isExporting ? "Saving edited clip…" : "Save trimmed clip")
+                }
+            }
+            .buttonStyle(.otPrimary)
+            .disabled(duration <= 0.5 || trimEnd - trimStart < 0.5 || isExporting)
+            .padding(.horizontal, OT.gutter)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+        }
+        .alert("Couldn't save the edit", isPresented: $exportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The original clip is still safe. Please try saving the edit again.")
+        }
+        .task(id: url) {
+            let asset = AVURLAsset(url: url)
+            do {
+                let loadedDuration = try await asset.load(.duration).seconds
+                guard loadedDuration.isFinite, loadedDuration > 0 else { return }
+                duration = loadedDuration
+                trimEnd = loadedDuration
+                player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+            } catch {
+                exportError = true
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
-    func updateUIViewController(_ editor: UIVideoEditorController, context: Context) {}
 
-    final class Coordinator: NSObject, UIVideoEditorControllerDelegate, UINavigationControllerDelegate {
-        let onFinish: (URL?) -> Void
-        /// UIVideoEditorController can call its save callback twice; only the first counts.
-        private var finished = false
-        init(onFinish: @escaping (URL?) -> Void) { self.onFinish = onFinish }
+    private func seek(to seconds: Double) {
+        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
 
-        private func finish(_ url: URL?) {
-            guard !finished else { return }
-            finished = true
-            onFinish(url)
+    private func timeLabel(_ seconds: Double) -> String {
+        let value = max(0, Int(seconds.rounded()))
+        return String(format: "%02d:%02d", value / 60, value % 60)
+    }
+
+    private func cancel() {
+        exportSession?.cancelExport()
+        player?.pause()
+        onFinish(nil)
+        dismiss()
+    }
+
+    private func exportTrim() {
+        guard duration > 0.5,
+              let session = AVAssetExportSession(asset: AVURLAsset(url: url), presetName: AVAssetExportPresetHighestQuality) else {
+            exportError = true
+            return
         }
-        func videoEditorController(_ editor: UIVideoEditorController, didSaveEditedVideoToPath editedVideoPath: String) {
-            finish(URL(fileURLWithPath: editedVideoPath))
+        player?.pause()
+        isPlaying = false
+        isExporting = true
+        exportSession = session
+        let outputType: AVFileType = session.supportedFileTypes.contains(.mov) ? .mov : .mp4
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("onetake-edit-\(UUID().uuidString).\(outputType == .mov ? "mov" : "mp4")")
+        session.outputURL = output
+        session.outputFileType = outputType
+        session.timeRange = CMTimeRange(
+            start: CMTime(seconds: trimStart, preferredTimescale: 600),
+            duration: CMTime(seconds: trimEnd - trimStart, preferredTimescale: 600)
+        )
+        Task {
+            do {
+                try await session.export(to: output, as: outputType)
+                isExporting = false
+                onFinish(output)
+                dismiss()
+            } catch {
+                try? FileManager.default.removeItem(at: output)
+                isExporting = false
+                exportError = true
+            }
         }
-        func videoEditorControllerDidCancel(_ editor: UIVideoEditorController) { finish(nil) }
-        func videoEditorController(_ editor: UIVideoEditorController, didFailWithError error: Error) { finish(nil) }
     }
 }
 
@@ -517,6 +669,36 @@ extension View { func keepScreenAwake() -> some View { modifier(KeepScreenAwake(
 
 @Observable
 final class SpeechFollower {
+    struct AccentOption: Identifiable, Hashable {
+        let id: String
+        let title: String
+    }
+
+    static let availableEnglishAccents: [AccentOption] = {
+        let supported = Set(SFSpeechRecognizer.supportedLocales().map {
+            $0.identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+        })
+        let options = [
+            AccentOption(id: "en-US", title: "US English"),
+            AccentOption(id: "en-IN", title: "Indian English"),
+            AccentOption(id: "en-GB", title: "UK English"),
+            AccentOption(id: "en-AU", title: "Australian English"),
+            AccentOption(id: "en-CA", title: "Canadian English"),
+            AccentOption(id: "en-NZ", title: "New Zealand English"),
+            AccentOption(id: "en-ZA", title: "South African English"),
+            AccentOption(id: "en-IE", title: "Irish English")
+        ]
+        let available = options.filter { supported.contains($0.id.lowercased()) }
+        return available.isEmpty ? [AccentOption(id: "en-US", title: "US English")] : available
+    }()
+
+    static var defaultAccentIdentifier: String {
+        let current = Locale.current.identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+        return availableEnglishAccents.first(where: { $0.id.lowercased() == current })?.id
+            ?? availableEnglishAccents.first(where: { $0.id == "en-US" })?.id
+            ?? availableEnglishAccents[0].id
+    }
+
     /// A spoken command. Each one is distinct (even the same word twice) so `onChange` fires every time.
     struct Command: Equatable {
         let word: String
@@ -529,7 +711,7 @@ final class SpeechFollower {
     private(set) var lastCommand: Command?
     private(set) var isListening = false
 
-    private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let recognizer: SFSpeechRecognizer?
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -537,6 +719,7 @@ final class SpeechFollower {
     /// to zero. `reset()` records where the current line starts instead.
     private var totalWords = 0
     private var wordOffset = 0
+    private var contextualStrings: [String] = []
 
     /// Command words and natural synonyms. A word triggers as a command when followed by a brief
     /// pause or the end of the utterance so dialogue words ("Now listen...") don't misfire.
@@ -550,12 +733,10 @@ final class SpeechFollower {
         switch word {
         case "now", "capture", "shoot", "snap", "cheese", "click", "photo", "picture", "take":
             return "now"
-        case "action", "roll", "rolling":
+        case "action", "roll", "rolling", "start", "begin", "go":
             return "action"
-        case "cut", "stop":
+        case "cut", "stop", "finish", "done":
             return "cut"
-        case "line":
-            return "line"
         default:
             return nil
         }
@@ -575,6 +756,42 @@ final class SpeechFollower {
     private var generation = 0
     private var configurationObserver: NSObjectProtocol?
 
+    init() {
+        let stored = UserDefaults.standard.string(forKey: "speech.recognitionLocale")
+        let selected = Self.availableEnglishAccents.first(where: { $0.id == stored })?.id ?? Self.defaultAccentIdentifier
+        recognizer = SFSpeechRecognizer(locale: Locale(identifier: selected))
+            ?? SFSpeechRecognizer(locale: Locale.current)
+            ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    }
+
+    /// Adds short script-specific words and names to Speech's vocabulary for the current line.
+    @MainActor
+    func setContextualStrings(_ strings: [String]) {
+        var seen = Set<String>()
+        let cleaned = Array(strings.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .prefix(100))
+        guard cleaned != contextualStrings else { return }
+        contextualStrings = cleaned
+        guard isListening else { return }
+
+        // A fresh request is needed for Speech to use the new context. Keep the audio engine and
+        // microphone tap running so this only happens at a line or scene boundary.
+        generation += 1
+        request?.endAudio()
+        task?.cancel()
+        totalWords = 0
+        wordOffset = 0
+        transcript = ""
+        spokenWordCount = 0
+        lastFiredIndex = -1
+        pendingWord = nil
+        pendingIndex = -1
+        pendingTask?.cancel()
+        pendingTask = nil
+        beginRecognition()
+    }
+
     func start() {
         guard !isListening, let recognizer, recognizer.isAvailable else { return }
         // The input node only has a usable format once the audio session allows recording. On a
@@ -582,7 +799,7 @@ final class SpeechFollower {
         // that empty format raises an exception.
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try session.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
         } catch { return }
         guard startEngine() else { return }
@@ -621,6 +838,7 @@ final class SpeechFollower {
         guard let recognizer else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        request.contextualStrings = contextualStrings
         self.request = request
         let generation = self.generation
 
@@ -716,7 +934,9 @@ final class SpeechFollower {
         pendingIndex = currentIndex
         pendingTask?.cancel()
         pendingTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
+            // Give Speech a little longer to settle on the final word. Shorter pauses made a
+            // command disappear when recognition appended a correction immediately afterward.
+            try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled else { return }
             self.fireCommand(cmd, at: currentIndex)
         }
@@ -760,23 +980,15 @@ final class CameraGuidanceSpeaker {
     private var lastSpokenAt = Date.distantPast
     private var lastMessage = ""
 
-    /// Prefer the clearest installed US English system voice. Enhanced and Premium voices are
-    /// downloaded through iOS settings; use the built-in voice if neither is installed.
-    private var preferredVoice: AVSpeechSynthesisVoice? {
-        let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "en-US" }
-        func qualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
-            switch voice.quality {
-            case .premium: 2
-            case .enhanced: 1
-            default: 0
-            }
-        }
-        return voices.max { qualityRank($0) < qualityRank($1) }
-            ?? AVSpeechSynthesisVoice(language: "en-US")
-    }
+    /// Use the system's familiar default English voice. Selecting the highest downloaded voice
+    /// quality often picked an unexpectedly emphatic premium voice.
+    private var preferredVoice: AVSpeechSynthesisVoice? { AVSpeechSynthesisVoice(language: "en-US") }
 
     func speak(_ message: String, minInterval: TimeInterval = 2.0, repeatInterval: TimeInterval = 4.5) {
         guard !message.isEmpty else { return }
+        // Camera guidance changes as the actor moves. Let the current short prompt finish instead
+        // of cutting it off and restarting with each new face-detection update.
+        guard !synthesizer.isSpeaking else { return }
         let now = Date()
         let elapsed = now.timeIntervalSince(lastSpokenAt)
         if message == lastMessage {
@@ -786,11 +998,10 @@ final class CameraGuidanceSpeaker {
         }
         lastMessage = message
         lastSpokenAt = now
-        synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: message)
-        utterance.rate = 0.43
-        utterance.pitchMultiplier = 0.98
-        utterance.volume = 0.88
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 0.34
         utterance.voice = preferredVoice
         synthesizer.speak(utterance)
     }
@@ -963,14 +1174,37 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     }
 }
 
-enum ReaderRecordResult {
+enum ReaderRecordResult: Equatable {
     case success(duration: TimeInterval)
     case tooShort(duration: TimeInterval)
     case noSpeechDetected
     case recordingFailed(String)
 }
 
-/// Records one reader line to disk with speech verification and acoustic voice activity detection.
+enum AudioQualityIssue: String, CaseIterable, Identifiable, Sendable {
+    case clipped = "Audio was slightly distorted / clipped"
+    case tooQuiet = "Voice was quiet — speak closer to mic"
+    case noisyBackground = "Background room noise detected"
+    case cutOffAtEnd = "Line may have cut off at end"
+
+    var id: String { rawValue }
+
+    var userAdvice: String {
+        switch self {
+        case .clipped:
+            return "Audio was loud or distorted. Consider speaking slightly further from the microphone."
+        case .tooQuiet:
+            return "Volume was quiet. Consider speaking louder or moving closer to the phone."
+        case .noisyBackground:
+            return "Noticeable background noise detected. Consider recording in a quieter room."
+        case .cutOffAtEnd:
+            return "Speech was still active when recording stopped. Pause briefly after speaking before tapping stop."
+        }
+    }
+}
+
+/// Records one reader line to disk with speech verification, acoustic voice activity detection,
+/// automatic leading/trailing noise trimming, and audio quality analysis.
 @Observable
 final class ReaderLineRecorder {
     private var recorder: AVAudioRecorder?
@@ -981,11 +1215,18 @@ final class ReaderLineRecorder {
     private var totalFramesCount: Int = 0
     private var startTime: Date = .now
 
+    var lastAudioAnalysis: AudioAnalysisResult?
+    var lastAudioIssues: [AudioQualityIssue] = []
+
     @discardableResult
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
         let session = AVAudioSession.sharedInstance()
         #if !targetEnvironment(simulator)
-        guard session.recordPermission == .granted else { return false }
+        if #available(iOS 17.0, *) {
+            guard AVAudioApplication.shared.recordPermission == .granted else { return false }
+        } else {
+            guard session.recordPermission == .granted else { return false }
+        }
         #endif
         do {
             try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
@@ -1002,6 +1243,7 @@ final class ReaderLineRecorder {
         try? FileManager.default.removeItem(at: url)
         guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
         recorder.isMeteringEnabled = true
+        recorder.prepareToRecord()
         self.recorder = recorder
         guard recorder.record() else { self.recorder = nil; return false }
 
@@ -1010,9 +1252,11 @@ final class ReaderLineRecorder {
         speechFramesCount = 0
         totalFramesCount = 0
         liveAudioLevel = 0.0
+        lastAudioAnalysis = nil
+        lastAudioIssues = []
 
         meterTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
             guard let self, let rec = self.recorder, rec.isRecording else { return }
             rec.updateMeters()
             let peak = rec.peakPower(forChannel: 0)
@@ -1049,28 +1293,243 @@ final class ReaderLineRecorder {
             return .recordingFailed("No audio file was created.")
         }
 
-        // Accidental quick click and stop: less than 0.4s cannot be a valid spoken dialogue cue
-        if duration < 0.4 {
-            try? fm.removeItem(at: url)
-            return .tooShort(duration: duration)
+        // 1. Inspect actual audio file and perform noise/silence trimming
+        let analysis = await Self.inspectAndTrim(url: url)
+
+        // 2. Determine voice activity
+        let hasAcousticSpeech = analysis?.hasSpeech == true
+        let hasMeteredSpeech = (maxPeakPower > -38.0 && speechFramesCount >= 2) || maxPeakPower > -28.0
+
+        var hasSpeech = hasAcousticSpeech || hasMeteredSpeech
+        if !hasSpeech && duration >= 0.4 {
+            // Check speech recognizer fallback for low-energy speech
+            hasSpeech = await checkSpeechWords(in: url)
         }
 
-        // Check 1: Acoustic Voice Activity Detection (VAD) from live metering
-        // Peak power of speech into iPhone microphone: silence is < -55dB, normal speech is -38dB to -15dB
-        let hasAcousticVoice = (maxPeakPower > -40.0 && speechFramesCount >= 2) || maxPeakPower > -30.0
-        if hasAcousticVoice {
-            return .success(duration: duration)
+        if hasSpeech {
+            // Speech detected! Accept it even if short (e.g. 0.25s-0.5s cue)
+            let finalDuration = analysis?.trimmedDuration ?? duration
+            self.lastAudioAnalysis = analysis
+            self.lastAudioIssues = analysis?.issues ?? []
+            return .success(duration: finalDuration)
         }
 
-        // Check 2: Speech recognition verification (transcribed words) from recorded file
-        let recognizedSpeech = await checkSpeechWords(in: url)
-        if recognizedSpeech {
-            return .success(duration: duration)
-        }
-
-        // Neither acoustic vocal energy nor transcribed speech detected: quiet or empty tap
+        // 3. No speech detected: audio is blank / quiet room noise
         try? fm.removeItem(at: url)
-        return .noSpeechDetected
+        self.lastAudioAnalysis = analysis
+        self.lastAudioIssues = []
+        // Blank threshold: if blank and shorter than 1.0s (increased from 0.3s/0.7s), flag as too short / blank tap
+        if duration < 1.0 {
+            return .tooShort(duration: duration)
+        } else {
+            return .noSpeechDetected
+        }
+    }
+
+    struct AudioAnalysisResult: Sendable {
+        var hasSpeech: Bool
+        var originalDuration: Double
+        var trimmedDuration: Double
+        var peakDB: Float
+        var averageSpeechRMS: Float
+        var noiseFloorRMS: Float
+        var snrDB: Float
+        var issues: [AudioQualityIssue]
+        var speechStart: Double
+        var speechEnd: Double
+    }
+
+    /// Inspects recorded PCM samples, checks acoustic speech energy against room noise,
+    /// catches quality issues (clipping, quiet, noisy, cut off), and trims leading/trailing silence and background noise.
+    static func inspectAndTrim(url: URL) async -> AudioAnalysisResult? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let format = file.processingFormat
+        let sampleRate = format.sampleRate
+        guard sampleRate > 0 else { return nil }
+        let totalFrames = AVAudioFrameCount(file.length)
+        guard totalFrames > 0 else { return nil }
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else { return nil }
+        do {
+            try file.read(into: buffer)
+        } catch {
+            return nil
+        }
+        guard let channels = buffer.floatChannelData else { return nil }
+        let channelCount = Int(format.channelCount)
+        let frameCount = Int(buffer.frameLength)
+        guard frameCount > 0 else { return nil }
+
+        let originalDuration = Double(frameCount) / sampleRate
+
+        // 10ms analysis windows (100 windows per second)
+        let windowFrames = max(1, Int(sampleRate * 0.010))
+        var windowRMS: [Float] = []
+        var windowPeak: [Float] = []
+        var maxPeak: Float = 0.0
+
+        var offset = 0
+        while offset < frameCount {
+            let nextLimit = min(offset + windowFrames, frameCount)
+            let count = nextLimit - offset
+            var sumSquares: Float = 0.0
+            var wPeak: Float = 0.0
+            for f in offset..<nextLimit {
+                for c in 0..<channelCount {
+                    let val = abs(channels[c][f])
+                    if val > maxPeak { maxPeak = val }
+                    if val > wPeak { wPeak = val }
+                    sumSquares += val * val
+                }
+            }
+            let rms = sqrt(sumSquares / Float(max(1, count * channelCount)))
+            windowRMS.append(rms)
+            windowPeak.append(wPeak)
+            offset = nextLimit
+        }
+
+        let peakDB = maxPeak > 0 ? 20 * log10(maxPeak) : -160.0
+
+        // Estimate background noise floor without being skewed by clips where the speaker starts immediately
+        let sortedRMS = windowRMS.sorted()
+        let estimatedNoiseFloor: Float
+        if originalDuration <= 0.9 {
+            // For short recordings (e.g. 0.3s-0.9s), the entire clip might be speech.
+            // Natural room noise baseline is ~0.001 - 0.0035 (-60 to -49 dBFS).
+            estimatedNoiseFloor = min(0.0035, sortedRMS.first ?? 0.002)
+        } else {
+            let p15Index = max(0, min(sortedRMS.count - 1, Int(Double(sortedRMS.count) * 0.15)))
+            estimatedNoiseFloor = min(0.015, sortedRMS[p15Index])
+        }
+
+        // Speech detection threshold:
+        // Spoken vocalization reaches at least 0.005 RMS or 0.02 peak.
+        let speechThresholdRMS = max(estimatedNoiseFloor * 2.2, 0.005)
+        var speechWindows: [Int] = []
+        for (idx, energy) in windowRMS.enumerated() {
+            let p = windowPeak[idx]
+            if energy >= speechThresholdRMS || (p >= 0.022 && energy >= 0.003) {
+                speechWindows.append(idx)
+            }
+        }
+
+        // Voice presence check:
+        // At least 2 active windows (>= 20ms) with peak > -38 dB, or a strong vocal peak > -28 dB
+        let hasSpeech = (speechWindows.count >= 2 && peakDB > -38.0) || peakDB > -28.0
+
+        var issues: [AudioQualityIssue] = []
+
+        if !hasSpeech {
+            return AudioAnalysisResult(
+                hasSpeech: false,
+                originalDuration: originalDuration,
+                trimmedDuration: originalDuration,
+                peakDB: peakDB,
+                averageSpeechRMS: 0.0,
+                noiseFloorRMS: estimatedNoiseFloor,
+                snrDB: 0.0,
+                issues: [],
+                speechStart: 0.0,
+                speechEnd: originalDuration
+            )
+        }
+
+        // Detect Issues:
+        // 1. Clipping (too loud / distorted)
+        if maxPeak >= 0.95 || peakDB >= -0.45 {
+            issues.append(.clipped)
+        }
+
+        // Compute average speech RMS
+        var speechRMSSum: Float = 0.0
+        for idx in speechWindows {
+            speechRMSSum += windowRMS[idx]
+        }
+        let avgSpeechRMS = speechRMSSum / Float(max(1, speechWindows.count))
+
+        // 2. Too quiet
+        if peakDB < -25.0 || avgSpeechRMS < 0.010 {
+            issues.append(.tooQuiet)
+        }
+
+        // 3. Background noise / low SNR
+        let snrDB = 20 * log10(max(1e-5, avgSpeechRMS) / max(1e-5, estimatedNoiseFloor))
+        if estimatedNoiseFloor > 0.022 || (snrDB < 11.0 && avgSpeechRMS > 0.018) {
+            issues.append(.noisyBackground)
+        }
+
+        // 4. Cut off at end: speaker was still vocalizing when stop was tapped
+        if windowRMS.count >= 3 {
+            let last3RMS = Array(windowRMS.suffix(3))
+            let allActive = last3RMS.allSatisfy { $0 >= max(estimatedNoiseFloor * 2.5, 0.010) }
+            if allActive {
+                issues.append(.cutOffAtEnd)
+            }
+        }
+
+        guard let firstWindow = speechWindows.first, let lastWindow = speechWindows.last else {
+            return AudioAnalysisResult(
+                hasSpeech: true,
+                originalDuration: originalDuration,
+                trimmedDuration: originalDuration,
+                peakDB: peakDB,
+                averageSpeechRMS: avgSpeechRMS,
+                noiseFloorRMS: estimatedNoiseFloor,
+                snrDB: snrDB,
+                issues: issues,
+                speechStart: 0.0,
+                speechEnd: originalDuration
+            )
+        }
+
+        // Padding: 60ms before speech, 80ms after speech
+        let prePadding = 0.06
+        let postPadding = 0.08
+        let startTime = max(0.0, Double(firstWindow * windowFrames) / sampleRate - prePadding)
+        let endTime = min(originalDuration, Double(min(frameCount, (lastWindow + 1) * windowFrames)) / sampleRate + postPadding)
+        let trimmedDuration = max(0.18, endTime - startTime)
+
+        // Trim leading and trailing dead air/noise if more than 35ms of silence exists at an edge
+        let shouldTrim = (startTime >= 0.035 || (originalDuration - endTime) >= 0.040) && trimmedDuration < (originalDuration - 0.02)
+
+        if shouldTrim {
+            let asset = AVURLAsset(url: url)
+            if let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) {
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("reader-trim-\(UUID().uuidString).m4a")
+                exporter.outputURL = tempURL
+                exporter.outputFileType = .m4a
+                exporter.timeRange = CMTimeRange(
+                    start: CMTime(seconds: startTime, preferredTimescale: 44100),
+                    duration: CMTime(seconds: trimmedDuration, preferredTimescale: 44100)
+                )
+                let success: Bool
+                do {
+                    try await exporter.export(to: tempURL, as: .m4a)
+                    success = true
+                } catch {
+                    success = false
+                }
+                if success {
+                    _ = try? FileManager.default.removeItem(at: url)
+                    try? FileManager.default.moveItem(at: tempURL, to: url)
+                } else {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+            }
+        }
+
+        return AudioAnalysisResult(
+            hasSpeech: true,
+            originalDuration: originalDuration,
+            trimmedDuration: trimmedDuration,
+            peakDB: peakDB,
+            averageSpeechRMS: avgSpeechRMS,
+            noiseFloorRMS: estimatedNoiseFloor,
+            snrDB: snrDB,
+            issues: issues,
+            speechStart: startTime,
+            speechEnd: endTime
+        )
     }
 
     func cancel() {
@@ -1129,7 +1588,7 @@ final class ReaderLineRecorder {
 
 // MARK: - Enable swipe back when navigation bar is hidden
 
-extension UINavigationController: UIGestureRecognizerDelegate {
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
         super.viewDidLoad()
         interactivePopGestureRecognizer?.delegate = self
@@ -1137,5 +1596,73 @@ extension UINavigationController: UIGestureRecognizerDelegate {
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         viewControllers.count > 1
+    }
+}
+
+// MARK: - ScriptTextEditor (Stable, flicker-free text editor that doesn't blank out on view updates)
+
+struct ScriptTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    var font: UIFont = .monospacedSystemFont(ofSize: 15, weight: .regular)
+    var isEditable: Bool = true
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = font
+        textView.textColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor(red: 0xF3/255.0, green: 0xEE/255.0, blue: 0xF5/255.0, alpha: 1.0)
+                : UIColor(red: 0x1E/255.0, green: 0x1A/255.0, blue: 0x22/255.0, alpha: 1.0)
+        }
+        textView.tintColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor(red: 0xC8/255.0, green: 0xA8/255.0, blue: 0xE0/255.0, alpha: 1.0)
+                : UIColor(red: 0x5B/255.0, green: 0x3E/255.0, blue: 0x73/255.0, alpha: 1.0)
+        }
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        textView.isScrollEnabled = true
+        textView.keyboardDismissMode = .interactive
+        textView.autocorrectionType = .no
+        textView.autocapitalizationType = .sentences
+        textView.isEditable = isEditable
+        textView.text = text
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        updateTextView(uiView)
+    }
+
+    func updateTextView(_ uiView: UITextView) {
+        if uiView.text != text {
+            let selectedRange = uiView.selectedRange
+            uiView.text = text
+            if selectedRange.location + selectedRange.length <= text.utf16.count {
+                uiView.selectedRange = selectedRange
+            }
+        }
+        uiView.font = font
+        uiView.isEditable = isEditable
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        var parent: ScriptTextEditor
+
+        init(_ parent: ScriptTextEditor) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            let newText = textView.text ?? ""
+            if parent.text != newText {
+                parent.text = newText
+            }
+        }
     }
 }

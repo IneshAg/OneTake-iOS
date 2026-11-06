@@ -25,6 +25,12 @@ enum NoticeOCR {
     /// scanned) and concatenates the result. Processes pages sequentially within an autoreleasepool to
     /// avoid memory jetsam and inference crashes on devices with tighter memory limits (e.g. A12 Bionic on iOS 18).
     static func recognizeText(in images: [UIImage]) async -> String {
+        let pages = await recognizePages(in: images)
+        return pages.joined(separator: "\n\n")
+    }
+
+    /// Same OCR path as `recognizeText`, retaining page boundaries for role and side selection.
+    static func recognizePages(in images: [UIImage]) async -> [String] {
         var results: [String] = []
         for image in images {
             let text = await Task.detached(priority: .userInitiated) {
@@ -36,7 +42,7 @@ enum NoticeOCR {
                 results.append(text)
             }
         }
-        return results.joined(separator: "\n\n")
+        return results
     }
 
     // MARK: - Single-image recognition
@@ -233,38 +239,24 @@ enum NoticeOCR {
             guard let doc else { return nil }
             var pages: [String] = []
             for i in 0..<doc.pageCount {
-                if let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !pageStr.isEmpty {
-                    pages.append(pageStr)
+                guard let page = doc.page(at: i) else {
+                    pages.append("")
+                    continue
+                }
+                let extractedText = page.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if looksReadable(extractedText) {
+                    pages.append(extractedText)
+                } else if let image = renderPDFPage(page) {
+                    // PDFs can mix selectable text and scanned/image-only pages. OCR each page
+                    // independently so a readable first page doesn't hide missing later pages.
+                    let recognized = await recognizeText(in: [image]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    pages.append(looksReadable(recognized) ? recognized : extractedText)
+                } else {
+                    pages.append(extractedText)
                 }
             }
-            if !pages.isEmpty && looksReadable(pages.joined(separator: "\n")) {
-                return ExtractedDocument(pages: pages)
-            }
-
-            // Scanned PDF fallback: render pages to high-res images and run on-device Apple Vision OCR
-            var images: [UIImage] = []
-            let pageLimit = min(doc.pageCount, 30)
-            if doc.pageCount > 30 {
-                #if DEBUG
-                print("[NoticeOCR] Note: Scanned PDF has \(doc.pageCount) pages; processing first \(pageLimit) pages to protect memory.")
-                #endif
-            }
-            for i in 0..<pageLimit {
-                if let page = doc.page(at: i), let img = renderPDFPage(page) {
-                    images.append(img)
-                }
-            }
-            if !images.isEmpty {
-                var ocrPages: [String] = []
-                for img in images {
-                    let pageText = await recognizeText(in: [img]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !pageText.isEmpty { ocrPages.append(pageText) }
-                }
-                if !ocrPages.isEmpty && looksReadable(ocrPages.joined(separator: "\n")) {
-                    return ExtractedDocument(pages: ocrPages)
-                }
-            }
-            return pages.isEmpty ? nil : ExtractedDocument(pages: pages)
+            let document = ExtractedDocument(pages: pages)
+            return looksReadable(document.fullText) ? document : nil
         case "rtf":
             guard let data = try? Data(contentsOf: url),
                   let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
@@ -301,6 +293,9 @@ enum NoticeOCR {
     /// without selectable text, automatically rasterizes its pages and runs Apple Vision OCR.
     /// Caller is responsible for the security-scoped resource around `url`.
     static func extractText(fromFileAt url: URL) async -> String? {
+        if url.pathExtension.lowercased() == "pdf" {
+            return await extractDocument(fromFileAt: url)?.fullText
+        }
         switch url.pathExtension.lowercased() {
         case "pdf":
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }

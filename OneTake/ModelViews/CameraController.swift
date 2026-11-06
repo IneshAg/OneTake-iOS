@@ -3,6 +3,28 @@ import SwiftUI
 import UIKit
 import Vision
 
+enum CameraResolution: String, CaseIterable, Identifiable {
+    case hd720
+    case hd1080
+    case uhd4K
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .hd720: "720p"
+        case .hd1080: "1080p"
+        case .uhd4K: "4K"
+        }
+    }
+    var preset: AVCaptureSession.Preset {
+        switch self {
+        case .hd720: .hd1280x720
+        case .hd1080: .hd1920x1080
+        case .uhd4K: .hd4K3840x2160
+        }
+    }
+}
+
 /// AVFoundation capture pipeline for takes and headshots.
 /// SwiftUI has no camera view, so this is the main place OneTake drops to UIKit/AVFoundation.
 @Observable
@@ -17,6 +39,8 @@ final class CameraController: NSObject {
     private(set) var openPalmDetected = false
     private(set) var isExposureLocked = false
     private(set) var zoomFactor: CGFloat = 1
+    private(set) var currentResolution: CameraResolution = .hd1080
+    private(set) var supportedResolutions: [CameraResolution] = [.hd720, .hd1080]
 
     /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
     struct FaceReading: Equatable {
@@ -95,7 +119,7 @@ final class CameraController: NSObject {
 
     // MARK: Session
 
-    func configure(position: Position = .front) {
+    func configure(position: Position = .front, resolution: CameraResolution = .hd1080) {
         self.position = position
         isExposureLocked = false
         zoomFactor = 1
@@ -103,7 +127,6 @@ final class CameraController: NSObject {
             guard let self else { return }
             self.requestedZoomFactor = 1
             session.beginConfiguration()
-            session.sessionPreset = .hd1920x1080
             session.inputs.forEach { self.session.removeInput($0) }
 
             let devicePosition: AVCaptureDevice.Position = position == .front ? .front : .back
@@ -117,6 +140,10 @@ final class CameraController: NSObject {
                 return
             }
             session.addInput(videoInput)
+
+            let supported = CameraResolution.allCases.filter { self.session.canSetSessionPreset($0.preset) }
+            let selected = supported.contains(resolution) ? resolution : (supported.contains(.hd1080) ? .hd1080 : supported.first ?? .hd1080)
+            if session.canSetSessionPreset(selected.preset) { session.sessionPreset = selected.preset }
 
             if let mic = AVCaptureDevice.default(for: .audio),
                let audioInput = try? AVCaptureDeviceInput(device: mic),
@@ -172,6 +199,11 @@ final class CameraController: NSObject {
             session.commitConfiguration()
             session.startRunning()
 
+            Task { @MainActor in
+                self.supportedResolutions = supported
+                self.currentResolution = selected
+            }
+
             if self.subjectAreaChangeObserver == nil {
                 self.subjectAreaChangeObserver = NotificationCenter.default.addObserver(
                     forName: AVCaptureDevice.subjectAreaDidChangeNotification,
@@ -185,6 +217,23 @@ final class CameraController: NSObject {
                 self.videoDevice = camera
                 self.updateRotationCoordinator()
                 self.state = .ready
+            }
+        }
+    }
+
+    func setResolution(_ resolution: CameraResolution) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            session.beginConfiguration()
+            let canSet = session.canSetSessionPreset(resolution.preset)
+            if canSet { session.sessionPreset = resolution.preset }
+            session.commitConfiguration()
+            Task { @MainActor in
+                if canSet {
+                    self.currentResolution = resolution
+                } else {
+                    self.supportedResolutions.removeAll { $0 == resolution }
+                }
             }
         }
     }
@@ -245,17 +294,29 @@ final class CameraController: NSObject {
     }
 
     func lockExposure() {
-        queue.async { [weak self] in
-            guard let self,
+        lockExposure(at: nil)
+    }
+
+    func lockExposure(at viewPoint: CGPoint?) {
+        let devicePoint: CGPoint
+        if let viewPoint, let layer = previewLayer {
+            devicePoint = layer.captureDevicePointConverted(fromLayerPoint: viewPoint)
+        } else {
+            devicePoint = CGPoint(x: 0.5, y: 0.5)
+        }
+        let controllerReference = WeakCameraControllerReference(self)
+        queue.async { [controllerReference] in
+            guard let self = controllerReference.value,
                   let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
                   (try? device.lockForConfiguration()) != nil
             else { return }
+            if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = devicePoint }
+            if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = devicePoint }
+            if device.isFocusModeSupported(.locked) {
+                device.focusMode = .locked
+            }
             if device.isExposureModeSupported(.locked) {
                 device.exposureMode = .locked
-            }
-            // Retain continuous autofocus so the actor stays sharp when delivering lines or shifting weight:
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
             }
             if device.isWhiteBalanceModeSupported(.locked) {
                 device.whiteBalanceMode = .locked
@@ -266,8 +327,9 @@ final class CameraController: NSObject {
     }
 
     func unlockExposure() {
-        queue.async { [weak self] in
-            guard let self,
+        let controllerReference = WeakCameraControllerReference(self)
+        queue.async { [controllerReference] in
+            guard let self = controllerReference.value,
                   let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
                   (try? device.lockForConfiguration()) != nil
             else { return }
@@ -324,8 +386,9 @@ final class CameraController: NSObject {
             devicePoint = CGPoint(x: 0.5, y: 0.5)
         }
 
-        queue.async { [weak self] in
-            guard let self,
+        let controllerReference = WeakCameraControllerReference(self)
+        queue.async { [controllerReference] in
+            guard let self = controllerReference.value,
                   let device = self.session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first(where: { $0.hasMediaType(.video) }),
                   (try? device.lockForConfiguration()) != nil
             else { return }
@@ -388,14 +451,7 @@ final class CameraController: NSObject {
     /// Flips between the front and back camera — never mid-take, which would end the recording.
     func switchCamera() {
         guard state == .ready else { return }
-        configure(position: position == .front ? .back : .front)
-    }
-
-    /// Roughly how many minutes of 1080p30 video still fit on this iPhone (~120 MB a minute).
-    static var recordingMinutesLeft: Int? {
-        let values = try? FileManager.default.temporaryDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        guard let bytes = values?.volumeAvailableCapacityForImportantUsage else { return nil }
-        return Int(bytes / 120_000_000)
+        configure(position: position == .front ? .back : .front, resolution: currentResolution)
     }
 
     func stop() {
@@ -505,10 +561,9 @@ final class CameraController: NSObject {
     #endif
 }
 
-/// A main-actor-isolated weak handle lets AVFoundation's Sendable KVO callback hop back to the UI
-/// actor without capturing the non-Sendable camera controller in that callback.
-@MainActor
-private final class WeakCameraControllerReference {
+/// Weak sendable handle used to access the controller from AVFoundation's queue callbacks.
+/// Camera session work remains serialized on the controller's capture queue.
+private final class WeakCameraControllerReference: @unchecked Sendable {
     weak var value: CameraController?
     init(_ value: CameraController) { self.value = value }
 }
@@ -573,16 +628,33 @@ struct CameraBackground: View {
     @State private var focusPoint: CGPoint?
     @State private var focusRingScale: CGFloat = 1.3
     @State private var focusRingOpacity: Double = 0
+    @State private var lastFocusPoint: CGPoint?
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 OT.cameraBg
                 #if targetEnvironment(simulator)
-                HeadshotImage(onDark: true)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .opacity(0.85)
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(white: 0.14), Color(white: 0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 13))
+                            Text("SIMULATOR CAMERA")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        }
+                        .foregroundStyle(Color.white.opacity(0.18))
+                        .padding(.bottom, 130)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
                 #else
                 CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
                 #endif
@@ -604,6 +676,10 @@ struct CameraBackground: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
+                if controller.isExposureLocked {
+                    controller.unlockExposure()
+                }
+                lastFocusPoint = location
                 focusPoint = location
                 focusRingScale = 1.3
                 focusRingOpacity = 1.0
@@ -616,6 +692,19 @@ struct CameraBackground: View {
                     focusRingOpacity = 0
                 }
             }
+            .onLongPressGesture(minimumDuration: 0.65) {
+                let point = lastFocusPoint ?? CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+                focusPoint = point
+                focusRingOpacity = 1
+                focusRingScale = 1
+                controller.lockExposure(at: point)
+                Haptics.success()
+                withAnimation(.easeOut(duration: 0.35).delay(1.2)) { focusRingOpacity = 0 }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { lastFocusPoint = $0.location }
+            )
         }
         .ignoresSafeArea()
     }

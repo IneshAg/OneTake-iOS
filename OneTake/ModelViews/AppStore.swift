@@ -24,6 +24,7 @@ enum Route: Hashable {
     case privacy
     case notifications
     case practiceSetup
+    case practiceOptions(Audition.ID, sceneIndex: Int)
     case standalonePractice(PracticePiece.ID)
     case practiceSample
     /// Practice's Quick Drills: First-Letter Prompts and Mask & Reveal Lines (Audio Gap reuses `.runLines`).
@@ -135,7 +136,7 @@ final class AppStore {
         showAddAudition = false
         tab = .auditions
         if readerAudioPlan == .recordNow,
-           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[].lines.filter({ !.isMine }).isEmpty }) {
+           let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
             pendingRouteAfterAdd = .reader(audition.id, sceneIndex: firstScene)
         } else {
             pendingRouteAfterAdd = .auditionDetail(audition.id)
@@ -162,6 +163,7 @@ final class AppStore {
                 a.slateVideoURL = MediaStore.rebased(a.slateVideoURL)
                 a.slateOriginalVideoURL = MediaStore.rebased(a.slateOriginalVideoURL)
                 a.fullLengthVideoURL = MediaStore.rebased(a.fullLengthVideoURL)
+                a.fullLengthOriginalVideoURL = MediaStore.rebased(a.fullLengthOriginalVideoURL)
                 a.exportedFileURL = MediaStore.rebased(a.exportedFileURL)
                 a.separateArchiveURL = MediaStore.rebased(a.separateArchiveURL)
                 return a
@@ -169,6 +171,7 @@ final class AppStore {
             takes = saved.takes.map { t in
                 var t = t
                 t.fileURL = MediaStore.rebased(t.fileURL)
+                t.originalFileURL = MediaStore.rebased(t.originalFileURL)
                 return t
             }
             practice = saved.practice
@@ -202,6 +205,15 @@ final class AppStore {
                 removedLegacyDemoData = true
             }
         }
+        // If the user previously turned off "Show sample scene", purge any persisted sample pieces.
+        if UserDefaults.standard.object(forKey: "practice.showSample") as? Bool == false {
+            let samples = practice.filter { isSamplePiece($0) }
+            if !samples.isEmpty {
+                let dirs = samples.map { "practice-\($0.id.uuidString)" }
+                MediaStore.deleteAll(dirs)
+                practice.removeAll { isSamplePiece($0) }
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("-practice") {
             tab = .practice
         }
@@ -231,6 +243,20 @@ final class AppStore {
             showProfile = true
             profilePath = [.editSlate]
         }
+        if ProcessInfo.processInfo.arguments.contains("-testHeadshots") {
+            isOnboarded = true
+            showProfile = true
+            profilePath = [.headshots(for: nil)]
+            if !HeadshotStore.exists(key: "front") {
+                let img = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 1000)).image { ctx in
+                    UIColor.systemIndigo.setFill()
+                    ctx.fill(CGRect(x: 0, y: 0, width: 800, height: 1000))
+                    UIColor.systemOrange.setFill()
+                    ctx.fill(CGRect(x: 250, y: 200, width: 300, height: 400))
+                }
+                HeadshotStore.save(img, key: "front")
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("-search") {
             isOnboarded = true
             tab = .search
@@ -239,6 +265,16 @@ final class AppStore {
             isOnboarded = true
             auditionDraft = NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))
             auditionsPath = [.testSides]
+        }
+        if ProcessInfo.processInfo.arguments.contains("-testVoiceRehearsal"), let first = auditions.first {
+            isOnboarded = true
+            let piece = practicePiece(for: first.id, sceneIndex: 0)
+            camera = .practiceTake(pieceID: piece.id, initialDisplayMode: .full, initialRecordMode: .voiceOnly)
+        }
+        if ProcessInfo.processInfo.arguments.contains("-testCameraRehearsal"), let first = auditions.first {
+            isOnboarded = true
+            let piece = practicePiece(for: first.id, sceneIndex: 0)
+            camera = .practiceTake(pieceID: piece.id, initialDisplayMode: .full, initialRecordMode: .camera)
         }
         isLoading = false
         syncPieces()
@@ -390,6 +426,36 @@ final class AppStore {
 
     func readerTracksDidChange() { readerTrackVersion += 1 }
 
+    // MARK: Sample Data
+
+    /// Returns `true` when `piece` is the built-in sample ("A late goodbye" / "Sample scene").
+    /// Standalone pieces tied to no real audition and carrying the sample fingerprint are matched.
+    func isSamplePiece(_ piece: PracticePiece) -> Bool {
+        guard piece.auditionID == nil else { return false }
+        return piece.title.caseInsensitiveCompare("A late goodbye") == .orderedSame
+            || piece.detail.localizedCaseInsensitiveContains("sample")
+    }
+
+    /// Removes sample practice pieces and their associated disk folders.
+    /// Call when the user turns off "Show sample scene" in Settings.
+    func removeSampleData() {
+        let samples = practice.filter { isSamplePiece($0) }
+        guard !samples.isEmpty else { return }
+        let dirs = samples.map { "practice-\($0.id.uuidString)" }
+        MediaStore.deleteAll(dirs)
+        practice.removeAll { isSamplePiece($0) }
+        // Clear practice navigation if it points into a now-deleted piece.
+        practicePath.removeAll { route in
+            if case .practiceSample = route { return true }
+            return false
+        }
+        if case .practiceTake(let pieceID, _, _) = camera,
+           let pid = pieceID, samples.contains(where: { $0.id == pid }) {
+            camera = nil
+        }
+        persist()
+    }
+
     /// Cleans all practice pieces, progress, active practice navigation, and associated practice takes.
     func clearPracticeData() {
         let practiceDirs = practice.map { "practice-\($0.id.uuidString)" }
@@ -418,6 +484,7 @@ final class AppStore {
             auditions[i].slateVideoURL = nil
             auditions[i].slateOriginalVideoURL = nil
             auditions[i].fullLengthVideoURL = nil
+            auditions[i].fullLengthOriginalVideoURL = nil
             auditions[i].exportedFileURL = nil
             guard auditions[i].status != .sent else { continue }
             for j in auditions[i].pieces.indices { auditions[i].pieces[j].isDone = false }
@@ -431,6 +498,37 @@ final class AppStore {
         persist()
     }
 
+    /// Development reset: removes every OneTake record and preference, then returns the running
+    /// app to the same first-launch state a fresh install would show.
+    func resetAppForTesting() {
+        saveTask?.cancel()
+        camera = nil
+        auditionsPath.removeAll()
+        practicePath.removeAll()
+        profilePath.removeAll()
+        searchPath.removeAll()
+        incomingShare = nil
+
+        let manager = FileManager.default
+        let documentContents = (try? manager.contentsOfDirectory(at: MediaStore.documentsURL, includingPropertiesForKeys: nil)) ?? []
+        for url in documentContents { try? manager.removeItem(at: url) }
+        HeadshotStore.clearCache()
+        AccountAuth.deleteAccount(account)
+
+        auditions.removeAll()
+        takes.removeAll()
+        practice.removeAll()
+        slate = SlateInfo()
+        account = nil
+        headshotVersion += 1
+        readerTracksDidChange()
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+        isOnboarded = false
+        tab = .auditions
+    }
+
     /// Replaces local app data from an explicitly selected offline backup. Account credentials stay
     /// on this device and are never restored from an archive.
     func restoreLocalBackup(_ state: PersistedState) {
@@ -439,6 +537,7 @@ final class AppStore {
             audition.slateVideoURL = MediaStore.rebased(audition.slateVideoURL)
             audition.slateOriginalVideoURL = MediaStore.rebased(audition.slateOriginalVideoURL)
             audition.fullLengthVideoURL = MediaStore.rebased(audition.fullLengthVideoURL)
+            audition.fullLengthOriginalVideoURL = MediaStore.rebased(audition.fullLengthOriginalVideoURL)
             audition.exportedFileURL = MediaStore.rebased(audition.exportedFileURL)
             audition.separateArchiveURL = MediaStore.rebased(audition.separateArchiveURL)
             return audition
@@ -446,6 +545,7 @@ final class AppStore {
         takes = state.takes.map { take in
             var take = take
             take.fileURL = MediaStore.rebased(take.fileURL)
+            take.originalFileURL = MediaStore.rebased(take.originalFileURL)
             return take
         }
         practice = state.practice
@@ -809,14 +909,21 @@ final class AppStore {
 
     func setFullLengthVideo(_ url: URL, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if let previous = auditions[i].fullLengthVideoURL, previous != url { try? FileManager.default.removeItem(at: previous) }
+        if let original = auditions[i].fullLengthOriginalVideoURL, original != url { try? FileManager.default.removeItem(at: original) }
         auditions[i].fullLengthVideoURL = url
+        auditions[i].fullLengthOriginalVideoURL = nil
         syncPieces()
     }
 
     func replaceSlateVideo(for id: Audition.ID, with edited: URL) {
         guard let i = auditions.firstIndex(where: { $0.id == id }), let old = auditions[i].slateVideoURL,
               let replacement = moveEditedClip(edited, beside: old, stem: "slate") else { return }
-        try? FileManager.default.removeItem(at: old)
+        if let original = auditions[i].slateOriginalVideoURL {
+            if old != original { try? FileManager.default.removeItem(at: old) }
+        } else {
+            auditions[i].slateOriginalVideoURL = old
+        }
         auditions[i].slateVideoURL = replacement
         invalidateExport(for: id)
     }
@@ -824,8 +931,22 @@ final class AppStore {
     func replaceFullLengthVideo(for id: Audition.ID, with edited: URL) {
         guard let i = auditions.firstIndex(where: { $0.id == id }), let old = auditions[i].fullLengthVideoURL,
               let replacement = moveEditedClip(edited, beside: old, stem: "full-length") else { return }
-        try? FileManager.default.removeItem(at: old)
+        if let original = auditions[i].fullLengthOriginalVideoURL {
+            if old != original { try? FileManager.default.removeItem(at: old) }
+        } else {
+            auditions[i].fullLengthOriginalVideoURL = old
+        }
         auditions[i].fullLengthVideoURL = replacement
+        invalidateExport(for: id)
+    }
+
+    func restoreOriginalFullLengthVideo(for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }),
+              let original = auditions[i].fullLengthOriginalVideoURL,
+              FileManager.default.fileExists(atPath: original.path) else { return }
+        if let current = auditions[i].fullLengthVideoURL, current != original { try? FileManager.default.removeItem(at: current) }
+        auditions[i].fullLengthVideoURL = original
+        auditions[i].fullLengthOriginalVideoURL = nil
         invalidateExport(for: id)
     }
 
@@ -885,13 +1006,32 @@ final class AppStore {
     /// Tape Check (which key off the URL) pick up the change.
     func replaceTakeFile(_ id: Take.ID, with edited: URL) {
         guard let i = takes.firstIndex(where: { $0.id == id }), let old = takes[i].fileURL else { return }
-        let dest = old.deletingLastPathComponent().appendingPathComponent("take-\(takes[i].number)-\(UUID().uuidString).mov")
+        let ext = edited.pathExtension.isEmpty ? (old.pathExtension.isEmpty ? "mov" : old.pathExtension) : edited.pathExtension
+        let dest = old.deletingLastPathComponent().appendingPathComponent("take-\(takes[i].number)-\(UUID().uuidString).\(ext)")
         do { try FileManager.default.moveItem(at: edited, to: dest) } catch { return }
-        try? FileManager.default.removeItem(at: old)
+        let original = takes[i].originalFileURL ?? old
+        if old != original { try? FileManager.default.removeItem(at: old) }
         takes[i].fileURL = dest
+        takes[i].originalFileURL = original
         if let auditionID = takes[i].auditionID { invalidateExport(for: auditionID) }
         Task { @MainActor in
             guard let seconds = try? await AVURLAsset(url: dest).load(.duration).seconds,
+                  let j = self.takes.firstIndex(where: { $0.id == id }) else { return }
+            self.takes[j].duration = seconds
+        }
+    }
+
+    func restoreOriginalTakeFile(_ id: Take.ID) {
+        guard let i = takes.firstIndex(where: { $0.id == id }),
+              let original = takes[i].originalFileURL,
+              FileManager.default.fileExists(atPath: original.path) else { return }
+        let edited = takes[i].fileURL
+        takes[i].fileURL = original
+        takes[i].originalFileURL = nil
+        if let edited, edited != original { try? FileManager.default.removeItem(at: edited) }
+        if let auditionID = takes[i].auditionID { invalidateExport(for: auditionID) }
+        Task { @MainActor in
+            guard let seconds = try? await AVURLAsset(url: original).load(.duration).seconds,
                   let j = self.takes.firstIndex(where: { $0.id == id }) else { return }
             self.takes[j].duration = seconds
         }
@@ -1114,4 +1254,3 @@ extension AppStore {
         return list
     }
 }
-

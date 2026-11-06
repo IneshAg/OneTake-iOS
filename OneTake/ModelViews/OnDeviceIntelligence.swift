@@ -230,7 +230,9 @@ enum OnDeviceIntelligence {
                 }
             } else if trimmed.uppercased().hasPrefix("ROLE:") {
                 let val = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                if refined.role.isEmpty && !val.isEmpty && val.lowercased() != "none" && val.count <= 35 {
+                let normalizedRole = val.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " \t.,:;!?()[]{}\"'"))
+                let vagueRole = ["your choice", "character of your choice", "a character of your choice", "any character", "multiple roles"].contains(normalizedRole)
+                if refined.role.isEmpty && !vagueRole && !val.isEmpty && normalizedRole != "none" && val.count <= 35 {
                     refined.role = val
                     if !refined.candidateRoles.contains(val) { refined.candidateRoles.append(val) }
                 }

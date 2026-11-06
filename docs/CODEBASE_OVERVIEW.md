@@ -326,11 +326,13 @@ next piece (headshot / slate / full length / scene / everything in), and a "Then
 revised sides, edit details, start a callback, delete. Sheets: package list, callback, edit, revised
 sides. Tapping a piece opens the right screen rather than a generic flow.
 
-### Prepare, Run lines, Reader (`Views/PrepareViews.swift`)
+### Prepare, Practice, Reader (`Views/PrepareViews.swift`, `Views/PracticeViews.swift`)
 
 - **Prepare**: full lines / first letters / hide mine, tap-to-peek, casting notes, prompter settings,
-  and entry points to Run lines / Reader / Shoot.
-- **Run lines**: speech recognition follows the actor; a line advances when its word count is said.
+  and entry points to Practice / Reader / Shoot.
+- **Practice**: the single user-facing rehearsal entry point for an audition scene. Its options menu
+  contains full-scene practice, first-letter prompts, cold read, audio gap, and audio walk.
+- **Full-scene practice**: speech recognition follows the actor; a line advances when its word count is said.
   "Line?" (tap or spoken) shows the first few words. Reader lines play the actor's own recordings and
   auto-advance after a duration proportional to text length. A completed run records the count of
   lines said unprompted as `linesLearned`; pausing does not.
@@ -346,10 +348,10 @@ Speech/recognition details live in `SpeechFollower` (below).
   the same setup screen. The example scene is opt-in and off by default; recording from it saves a
   real practice piece only after the actor chooses to record.
 - "Pick up where you left off" card (most recent `PracticePiece`), display modes / Record a take.
-- Quick Drills grid: First-Letter Prompts and Mask & Reveal reuse `otLineDisplay` in
-  `LineDrillView`; Audio Gap reuses `RunLinesView`; Hands-Free Audio Walk has its own screen that
-  loops the scene's audio hands-free.
-- "Your pieces" list; linked pieces open Prepare, standalone pieces open their saved scene.
+- The Practice options menu launches First-Letter Prompts and Cold Read through `LineDrillView`,
+  Audio Gap through `RunLinesView`, and Hands-Free Audio Walk through its own screen that loops the
+  scene's audio hands-free.
+- "Your pieces" list; linked pieces open the shared Practice options, standalone pieces open their saved scene.
 - Audition details offer a direct Practise action for the next parsed scene.
 - `PracticeTakeView` is a no-slate take that is never sent; recording one increments
   `takesRecorded`.
@@ -357,8 +359,8 @@ Speech/recognition details live in `SpeechFollower` (below).
 ### Shoot (`Views/ShootViews.swift`)
 
 `ShootSetupView` ("Before you roll") reflects real device state: camera, speech authorisation,
-microphone route, how many reader lines are recorded, free recording minutes, and the actor's own
-Do Not Disturb tick. Solo-only for MVP (multi-device pairing was cut).
+microphone route, how many reader lines are recorded, and the actor's own Do Not Disturb tick.
+Solo-only for MVP (multi-device pairing was cut).
 
 `ShootFlow` stage machine: `.check` → `.slate` → `.slateDone` → `.fullLength` → `.scene` → `.saved`.
 It resumes at `.scene` if the slate piece is already done. Controls:
@@ -736,7 +738,7 @@ Command Line Tools, so `xcodebuild` from the terminal fails until Xcode is selec
 Add audition (paste/photo/scan/file/share)
   → NoticeParser draft → review → Audition with real parsed scenes
   → Headshot (front/left/right, done once for all auditions)
-  → Prepare (full / first letters / hide) → Run lines / drills
+  → Prepare (full / first letters / hide) → Practice options
   → Shoot: camera check → 3-2-1 → slate → (full length) → each scene
            (prompter + recorded reader + speech "Action"/"Cut")
   → Takes: circle the send take, trim, notes

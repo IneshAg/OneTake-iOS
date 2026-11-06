@@ -86,15 +86,12 @@ struct TakesView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OT.labelPrimary)
                             .frame(width: 38, height: 38)
-                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-                            )
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
                     }
-                    .buttonStyle(CircularIconPressStyle())
+                    .modifier(GlassButtonCompatibility(enabled: true))
                     .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
                     .opacity((current?.fileURL.map(VideoTrimmer.canTrim) ?? false) ? 1.0 : 0.4)
                     .accessibilityLabel("Trim")
@@ -109,6 +106,17 @@ struct TakesView: View {
                 }
                 PlayerCard(url: current?.fileURL)
                     .padding(.top, 4)
+                if let current, current.originalFileURL != nil {
+                    Button {
+                        store.restoreOriginalTakeFile(current.id)
+                        Haptics.success()
+                    } label: {
+                        Label("Restore original clip", systemImage: "arrow.uturn.backward")
+                            .font(.otFootnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(OT.accent)
+                }
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -196,7 +204,6 @@ struct TakesView: View {
                     trimming = nil
                     if let edited { store.replaceTakeFile(take.id, with: edited); Haptics.success() }
                 }
-                .ignoresSafeArea()
             }
         }
         .sheet(isPresented: $showOneMore) {

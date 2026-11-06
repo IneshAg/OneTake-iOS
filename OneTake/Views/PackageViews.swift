@@ -93,7 +93,6 @@ struct PackageView: View {
                     }
                     Haptics.success()
                 }
-                .ignoresSafeArea()
             }
         }
     }

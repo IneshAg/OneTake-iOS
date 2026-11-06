@@ -142,7 +142,7 @@ share-inbox state
 Routes are represented by the `Route` enum. Important routes include:
 - audition detail
 - prepare lines
-- run lines
+- practice options (full-scene practice, prompts, cold read, audio gap, audio walk)
 - record reader
 - shoot setup
 - takes

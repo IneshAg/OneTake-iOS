@@ -148,12 +148,9 @@ struct AuditionsView: View {
                 .font(.otLargeTitle)
                 .foregroundStyle(OT.labelPrimary)
             Spacer()
-            Button { store.showAddAudition = true } label: {
-                Image(systemName: "plus").font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(OT.labelOnAccent)
-                    .frame(width: 44, height: 44).background(OT.accent, in: Circle())
+            GlassIconButton(systemName: "plus", accessibilityLabel: "Add an audition") {
+                store.showAddAudition = true
             }
-            .accessibilityLabel("Add an audition")
             ProfileButton { store.showProfile = true }
         }
         .padding(.horizontal, OT.gutter)

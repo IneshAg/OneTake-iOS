@@ -81,17 +81,22 @@ enum ScriptParser {
         let characterHeaderRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\s*[·•|\-—]\s*(?:(?:He|She|They)/|[0-9]{1,2}s?\b|Early|Mid|Late)"#)
         let slateInstructionRegex = try? NSRegularExpression(pattern: #"(?i)reading\s+for\s*\(([A-Za-z]{2,20})\)"#)
         let periodCueRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\.\s+(.*)$"#)
+        var inParenthetical = false
         var activeCharacter: String? = nil
         var inSettingOrNoteBlock = false
         var hasExplicitHeading = false
 
-        // Mixed-case "Maya: Hello" cues (emails, Word files, OCR) aren't all-caps, so they used to be
-        // skipped and the sides came out empty. A name counts as a speaker when it speaks more than
-        // once or is the actor's own role, so one-off labels ("Note: …") stay out.
+        // Mixed-case "Maya: Hello" cues (emails, Word files, OCR) and standard all-caps cues (e.g. "FRANCIS")
+        // are indexed so stage directions can identify character actions ("Maggie tosses the satchel...").
         var speakerCounts: [String: Int] = [:]
         for raw in rawLines {
-            guard let colon = raw.firstIndex(of: ":"), let key = speakerKey(String(raw[..<colon])) else { continue }
-            speakerCounts[key, default: 0] += 1
+            let tr = raw.trimmingCharacters(in: .whitespaces)
+            if let colon = tr.firstIndex(of: ":"), let key = speakerKey(String(tr[..<colon])) {
+                speakerCounts[key, default: 0] += 1
+            } else if isLikelyCue(tr) {
+                let key = cueName(tr).uppercased()
+                speakerCounts[key, default: 0] += 1
+            }
         }
         let speakers = Set(speakerCounts.filter { $0.value >= 2 || isSameCharacter(normalizedName($0.key), roleName) }.keys)
         // Sides often hold more than one scene, each opening on a slugline ("INT. KITCHEN — NIGHT")
@@ -100,6 +105,8 @@ enum ScriptParser {
         var heading = "SIDES"
         var lines: [ScriptLine] = []
         var currentCharacter: String?
+        var lastSpeaker: String?
+        var inActionBlock = false
         var currentText = ""
 
         func flush() {
@@ -123,10 +130,13 @@ enum ScriptParser {
             let upper = trimmed.uppercased()
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
-                // End of the dialogue block
-                if !currentText.isEmpty {
-                    flush()
-                    currentCharacter = nil
+                inParenthetical = false
+                continue
+            }
+
+            if inParenthetical {
+                if trimmed.contains(")") || trimmed.contains("]") {
+                    inParenthetical = false
                 }
                 continue
             }
@@ -169,6 +179,9 @@ enum ScriptParser {
                     heading = "Side " + trimmed.dropFirst(5)
                 } else if trimmed.uppercased().hasPrefix("THE SIDE") {
                     heading = "The Side" + trimmed.dropFirst(8)
+                } else if trimmed.uppercased().hasPrefix("START") || trimmed.uppercased().hasPrefix("[START") {
+                    let nextNum = scenes.count + (lines.isEmpty ? 1 : 2)
+                    heading = "Scene \(nextNum)"
                 } else {
                     heading = trimmed
                 }
@@ -179,7 +192,19 @@ enum ScriptParser {
             } else if isLineOrPageNumber(trimmed) {
                 // Line numbers or page numbers (e.g. "91", "92", "Page 4") - ignore without ending dialogue
                 continue
-            } else if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
+            } else if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                let inner = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                if isLikelyCue(inner) {
+                    flush()
+                    currentCharacter = cueName(inner)
+                    continue
+                } else {
+                    continue
+                }
+            } else if trimmed.hasPrefix("(") && !trimmed.contains(")") {
+                inParenthetical = true
+                continue
+            } else if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
                 // Standalone parenthetical stage direction (e.g. "(whispering)") — ignore without flushing speaker
                 continue
             } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
@@ -280,11 +305,25 @@ enum ScriptParser {
         let line = raw.trimmingCharacters(in: .whitespaces)
         guard !line.isEmpty, line.count < 80 else { return false }
         let upper = line.uppercased()
+
+        // Casting side start/stop markers
+        let startMarkers: Set<String> = ["START", "[START]", "START SCENE", "START OF SCENE", "START SIDE", "START SIDES", "START OF SIDES"]
+        if startMarkers.contains(upper) || upper.hasPrefix("START SIDE ") || upper.hasPrefix("START SCENE ") || upper.hasPrefix("[START ") {
+            return true
+        }
+
         let sluglinePrefixes = ["INT.", "EXT.", "INT/EXT", "EXT/INT", "INT./EXT", "EXT./INT", "I/E", "INT ", "EXT "]
         if line == upper, sluglinePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        let sidePrefixes = ["THE SIDE", "SIDE A", "SIDE B", "SIDE C", "SIDE D", "SIDE 1", "SIDE 2", "SIDE 3"]
+        let sidePrefixes = ["THE SIDE", "SIDE A", "SIDE B", "SIDE C", "SIDE D", "SIDE 1", "SIDE 2", "SIDE 3", "SIDE 4", "SIDE I", "SIDE II", "SIDE III", "SIDE IV"]
         if sidePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
+
+        // Roman numeral act/scene headers: "ACT I", "ACT II", "ACT 1", "ACT 2", "SCENE I", "SCENE II"
+        // Must be the whole line or followed by a separator (e.g. "SCENE 2 — KITCHEN") not prose ("Scene 2 was better.")
+        if let actSceneRegex = try? NSRegularExpression(pattern: #"^(?:ACT|SCENE)\s+(?:[IVXLCDM]+|\d+[A-Z]?)\s*(?:$|[\-–—:.(])"#, options: [.caseInsensitive]),
+           actSceneRegex.firstMatch(in: upper, options: [], range: NSRange(location: 0, length: (upper as NSString).length)) != nil {
+            return true
+        }
 
         guard let regex = sceneHeaderRegex,
               let match = regex.firstMatch(in: upper, options: [], range: NSRange(location: 0, length: (upper as NSString).length)),
@@ -300,8 +339,9 @@ enum ScriptParser {
 
         let upper = trimmed.uppercased()
 
-        // Setting / Director / Slate note lines and commercial metadata
+        // Setting / Director / Slate note lines, theatrical transitions, and commercial metadata
         let notePrefixes = [
+            "TRANSITION:", "TRANSITION ", "BLACKOUT", "CURTAIN", "LIGHTS FADE", "FADE TO BLACK",
             "SETTING:", "SETTINGS:", "DIRECTOR NOTE:", "DIRECTOR NOTES:", "SLATE INSTRUCTION",
             "HOW TO USE THESE SIDES", "THE CHARACTERS IN THIS DOCUMENT", "THE CHARACTERS:",
             "WHAT I'M LOOKING FOR:", "WHAT I NEED TO SEE:", "NOTE: H&B", "SLATE INSTRUCTION:",
@@ -324,6 +364,7 @@ enum ScriptParser {
         // Common standalone stage directions and scene time/setting markers
         let directions: Set<String> = [
             "BEAT", "BEAT.", "A BEAT.", "PAUSE", "PAUSE.", "SILENCE", "SILENCE.",
+            "SLIGHT PAUSE", "SLIGHT PAUSE.", "SHORT PAUSE", "SHORT PAUSE.",
             "MOMENT", "MOMENT.", "LONG PAUSE.", "CONTINUOUS", "LATER", "MOMENTS LATER",
             "SAME TIME", "FLASHBACK", "DAY", "NIGHT", "DUSK", "DAWN", "MORNING", "EVENING"
         ]
@@ -337,7 +378,7 @@ enum ScriptParser {
         let narrationPrefixes = ["HE ", "SHE ", "THEY ", "BOTH ", "THE DOOR ", "THE PHONE ", "A CAR ", "SUDDENLY ", "HER EYES ", "HIS EYES "]
         if narrationPrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        // Character action verbs: e.g. "Maya looks at him", "Arjun walks to the door"
+        // Character action verbs: e.g. "Maya looks at him", "Arjun walks to the door", "Maggie tosses..."
         let words = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         if words.count >= 2 {
             let firstWordKey = words[0].trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—,")) .uppercased()
@@ -347,7 +388,8 @@ enum ScriptParser {
                 "pauses", "smiles", "laughs", "sighs", "stares", "crosses", "moves", "picks",
                 "puts", "reaches", "opens", "closes", "glances", "nods", "shakes", "pulls",
                 "pushes", "drops", "stops", "begins", "waits", "watches", "runs", "steps",
-                "hurries", "freezes", "leaves", "approaches", "rises", "falls", "leans", "checks"
+                "hurries", "freezes", "leaves", "approaches", "rises", "falls", "leans", "checks",
+                "busies", "tosses", "touches", "starts", "gestures"
             ]
             if actionVerbs.contains(secondWord) {
                 if knownSpeakers.contains(firstWordKey) || ["HE", "SHE", "THEY", "MAYA", "ARJUN"].contains(firstWordKey) {
@@ -357,6 +399,27 @@ enum ScriptParser {
         }
 
         return false
+    }
+
+    /// Checks if a line following stage directions/actions is likely dialogue spoken by the active character
+    /// (e.g. "Hey!", "-Always less busy on a Sunday.", "Come back.", "So. What did you come for?")
+    static func isLikelyDialogueAfterAction(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.hasPrefix("-") || trimmed.hasPrefix("–") || trimmed.hasPrefix("—") || trimmed.hasPrefix("\"") || trimmed.hasPrefix("“") {
+            return true
+        }
+        if trimmed.hasSuffix("?") || trimmed.hasSuffix("!") {
+            return true
+        }
+        let lower = trimmed.lowercased()
+        let dialogueWords: Set<String> = [
+            "i", "i'm", "i've", "i'd", "i'll", "you", "you're", "you've", "you'd", "you'll",
+            "me", "my", "myself", "we", "we're", "we've", "us", "our", "why", "what", "how",
+            "where", "when", "who", "hey", "well", "so", "oh", "come", "look", "listen", "no", "yes"
+        ]
+        let tokens = lower.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        return tokens.contains(where: { dialogueWords.contains($0) })
     }
 
     /// Strips parentheticals like "(whispering)" or "[laughing]" from dialogue lines so actor/reader
@@ -386,8 +449,18 @@ enum ScriptParser {
         if upper.contains("NOT FOR DISTRIBUTION") || upper.contains("DO NOT DISTRIBUTE") {
             return true
         }
-        // Page numbering: "Page 1", "PAGE 1 OF 4", "1 of 5"
-        if let pageRegex = try? NSRegularExpression(pattern: #"^(PAGE\s+)?\d+(\s+OF\s+\d+)?$"#, options: [.caseInsensitive]),
+        // Running script header/footer with page number (e.g. "Eve's Ale - Shanna Allman (7.28.26) - p.39", "PILOT - p. 12")
+        if let scriptHeaderRegex = try? NSRegularExpression(pattern: #"^.+[\-–—|•·]\s*(?:p\.|page|pg\.)\s*\d+\.?$"#, options: [.caseInsensitive]),
+           scriptHeaderRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        // Running header ending in a dash number like "SHOW TITLE - 39"
+        if let scriptHeaderDashNumRegex = try? NSRegularExpression(pattern: #"^.+[\-–—]\s*\d+\s*$"#),
+           scriptHeaderDashNumRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        // Page numbering: "Page 1", "PAGE 1 OF 4", "1 of 5", "p. 39", "p.39"
+        if let pageRegex = try? NSRegularExpression(pattern: #"^(?:PAGE|P\.|PG\.)\s*\d+(\s+OF\s+\d+)?$"#, options: [.caseInsensitive]),
            pageRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
             return true
         }
@@ -643,9 +716,15 @@ enum ScriptParser {
 
     /// The speaker's name with screenplay extensions dropped: "ARJUN (CONT'D)" / "ARJUN (V.O.)" → "ARJUN".
     private static func cueName(_ raw: String) -> String {
-        var name = raw
+        var name = raw.trimmingCharacters(in: .whitespaces)
+        if name.hasPrefix("[") && name.hasSuffix("]") {
+            name = String(name.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+        }
         while let open = name.firstIndex(of: "("), let close = name[open...].firstIndex(of: ")") {
             name.removeSubrange(open...close)
+        }
+        if let contRange = name.range(of: #"\s*[-–—]\s*CONT['’]?D\b"#, options: [.regularExpression, .caseInsensitive]) {
+            name = String(name[..<contRange.lowerBound])
         }
         var cleaned = name.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespaces)
         if cleaned.hasSuffix(".") {
@@ -684,8 +763,9 @@ enum ScriptParser {
         let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "#.-–— "))
         if !stripped.isEmpty && stripped.allSatisfy(\.isNumber) { return true }
         let lower = trimmed.lowercased()
-        if lower.hasPrefix("page ") || lower.hasPrefix("p. ") || lower.hasPrefix("pg. ") {
-            let after = lower.dropFirst(lower.hasPrefix("page ") ? 5 : 3).trimmingCharacters(in: .whitespaces)
+        if lower.hasPrefix("page ") || lower.hasPrefix("p. ") || lower.hasPrefix("pg. ") || lower.hasPrefix("p.") {
+            let prefixLen = lower.hasPrefix("page ") ? 5 : (lower.hasPrefix("pg. ") ? 4 : (lower.hasPrefix("p. ") ? 3 : 2))
+            let after = lower.dropFirst(prefixLen).trimmingCharacters(in: .whitespaces)
             if after.allSatisfy(\.isNumber) { return true }
         }
         return false
@@ -928,8 +1008,12 @@ enum ScriptParser {
             let rawChunk = currentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !rawChunk.isEmpty, rawChunk.count > 40 else { return }
 
+            let chars = extractCharacters(from: rawChunk).map { $0.uppercased() }
+            // A heading alone (or a casting notice page) is not a selectable scene. Require
+            // actual dialogue cues so page chunks cannot create empty/fake scene checklist items.
+            guard !chars.isEmpty else { return }
+
             let heading = currentHeading ?? "Scene \(sceneCounter)"
-            let chars = extractCharacters(from: rawChunk)
             let estimatedLines = rawChunk.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
 
             let portion = ScenePortion(
@@ -974,7 +1058,8 @@ enum ScriptParser {
             for (idx, pageText) in pages[startIdx...].enumerated() {
                 let trimmed = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
-                let chars = extractCharacters(from: trimmed)
+                let chars = extractCharacters(from: trimmed).map { $0.uppercased() }
+                guard !chars.isEmpty else { continue }
                 let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespaces) ?? "Page \(idx + startIdx + 1)"
                 portions.append(
                     ScenePortion(

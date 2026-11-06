@@ -108,6 +108,9 @@ struct ProfileView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .otCard(radius: 18)
+                    .onChange(of: showSampleScene) { _, enabled in
+                        if !enabled { store.removeSampleData(); Haptics.tick() }
+                    }
                 }
 
                 // More section
@@ -450,6 +453,7 @@ struct PrivacyView: View {
     @State private var showConfirmClearExports = false
     @State private var showConfirmClearReader = false
     @State private var showConfirmClearPractice = false
+    @State private var showConfirmResetApp = false
     @State private var storageRefreshID = UUID()
     @State private var showBackupImporter = false
     @State private var showBackupShare = false
@@ -563,6 +567,15 @@ struct PrivacyView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This deletes takes, headshots, reader tracks, and practice pieces. This can’t be undone.")
+        }
+        .confirmationDialog("Reset OneTake for testing?", isPresented: $showConfirmResetApp, titleVisibility: .visible) {
+            Button("Reset app", role: .destructive) {
+                store.resetAppForTesting()
+                Haptics.success()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every local audition, take, headshot, setting and sign-in from this iPhone, then returns to Welcome.")
         }
     }
 
@@ -679,6 +692,7 @@ struct PrivacyView: View {
             NavigationLink("Privacy policy") { PrivacyPolicyView() }
             Button("Clean local data", role: .destructive) { showConfirmDeleteAll = true }
                 .accessibilityIdentifier("Clean local data")
+            Button("Reset app for testing", role: .destructive) { showConfirmResetApp = true }
         } footer: {
             Text("Sent tapes are not affected.")
         }
@@ -1099,16 +1113,49 @@ struct HeadshotsView: View {
                 .frame(height: 300)
 
                 if taken > 0 {
-                    Button {
-                        autoFrameAllHeadshots()
-                    } label: {
-                        HStack(spacing: 8) {
-                            if isFraming { ProgressView() }
-                            Text(isFraming ? "Framing…" : "Auto-frame headshots")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Menu {
+                            ForEach(HeadshotPreset.allCases) { preset in
+                                Button {
+                                    autoFrameAllHeadshots(preset: preset)
+                                } label: {
+                                    Label(preset.title, systemImage: preset.icon)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isFraming { ProgressView() } else { Image(systemName: "sparkles") }
+                                Text(isFraming ? "Framing…" : "Auto-frame headshots")
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                        }
+                        .buttonStyle(.otSecondary)
+                        .disabled(isFraming)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(HeadshotPreset.allCases) { preset in
+                                    Button {
+                                        autoFrameAllHeadshots(preset: preset)
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: preset.icon)
+                                                .font(.system(size: 11))
+                                            Text(preset.shortTitle)
+                                                .font(.system(size: 12, weight: .semibold))
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(OT.fillField, in: Capsule())
+                                        .foregroundStyle(OT.labelPrimary)
+                                    }
+                                    .disabled(isFraming)
+                                }
+                            }
                         }
                     }
-                    .buttonStyle(.otSecondary)
-                    .disabled(isFraming)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -1121,6 +1168,18 @@ struct HeadshotsView: View {
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 if let auditionID {
+                    if taken > 0 {
+                        HStack(spacing: 6) {
+                            Label("Headshots saved on this iPhone", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(OT.success)
+                            if let next = nextStepAfterHeadshots {
+                                Text("· Next: \(next)")
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                        }
+                        .font(.otFootnote.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     Button(continueButtonTitle) {
                         handleContinue(auditionID)
                     }
@@ -1199,7 +1258,12 @@ struct HeadshotsView: View {
             }
             .padding(OT.gutter)
         }
-        .onAppear { store.syncHeadshotPieces() }
+        .onAppear {
+            store.syncHeadshotPieces()
+            if ProcessInfo.processInfo.arguments.contains("-testHeadshotAdjust") {
+                adjustItem = HeadshotAdjustItem(key: "front", title: "Front", isProfile: false, auditionID: auditionID)
+            }
+        }
         .photosPicker(isPresented: $showPicker, selection: $pickerItem, matching: .images)
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem, let key = pickAngle else { return }
@@ -1231,17 +1295,14 @@ struct HeadshotsView: View {
         }
     }
 
-    private func autoFrameAllHeadshots() {
+    private func autoFrameAllHeadshots(preset: HeadshotPreset = .cardSlot) {
         isFraming = true
         let keys = HeadshotStore.taken(auditionID: auditionID).map(\.key)
         let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key, auditionID: auditionID).map { (key, $0) } }
         Task.detached(priority: .userInitiated) {
             let framed = originals.compactMap { key, image in
                 let isProfile = (key == "left" || key == "right")
-                // Front slot has aspect ratio 171.5 / 300 = 0.5716 (height 300 pt)
-                // Profile slot has aspect ratio 171.5 / 145 = 1.1827 (height 145 pt)
-                let ratio: CGFloat = isProfile ? (171.5 / 145.0) : (171.5 / 300.0)
-                return ImageFramer.crop(image, ratio: ratio, isProfile: isProfile).map { (key, $0) }
+                return ImageFramer.crop(image, preset: preset, isProfile: isProfile).map { (key, $0) }
             }
             await MainActor.run {
                 for (key, image) in framed { HeadshotStore.replace(image, key: key, auditionID: auditionID) }
@@ -1274,7 +1335,27 @@ struct HeadshotsView: View {
         } else if hasPackage {
             return taken > 0 ? "Back to package" : "Skip & back to package"
         } else {
-            return taken > 0 ? "Continue" : "Skip & continue"
+            guard let audition = store.audition(auditionID) else {
+                return taken > 0 ? "Continue" : "Skip & continue"
+            }
+            guard !audition.isPackageReady, let next = audition.nextPiece else { return "Continue to preview" }
+            switch next.kind {
+            case .slate: return taken > 0 ? "Continue to slate" : "Skip headshots · go to slate"
+            case .fullLength: return taken > 0 ? "Continue to full length" : "Skip headshots · go to full length"
+            case .scene: return taken > 0 ? "Continue to \(next.title)" : "Skip headshots · go to \(next.title)"
+            case .headshot: return taken > 0 ? "Continue" : "Skip & continue"
+            }
+        }
+    }
+
+    private var nextStepAfterHeadshots: String? {
+        guard let auditionID, let audition = store.audition(auditionID) else { return nil }
+        guard !audition.isPackageReady, let next = audition.nextPiece else { return "Preview" }
+        switch next.kind {
+        case .headshot: return "more headshots"
+        case .slate: return "slate"
+        case .fullLength: return "full length"
+        case .scene: return next.title
         }
     }
 
@@ -1311,6 +1392,13 @@ struct HeadshotsView: View {
         // If all required pieces are completed, advance to Preview
         guard let a = store.audition(id) else { return }
         if a.isPackageReady {
+            // Leave the camera/photo editing route behind the audition overview. Otherwise Back
+            // from Preview can land on Headshots even though that editing task is complete.
+            if store.currentPath.contains(.auditionDetail(id)) {
+                store.popTo(.auditionDetail(id))
+            } else {
+                store.popToRoot()
+            }
             store.push(.preview(id))
             return
         }
@@ -1410,6 +1498,9 @@ struct HeadshotFlow: View {
     @State private var angle: Angle = .front
     @State private var justCaptured = false
     @State private var captureFailed = false
+    @State private var comparisonPhotos: [UIImage] = []
+    @State private var selectedComparisonPhoto = 1
+    @State private var showingComparison = false
 
     var body: some View {
         ZStack {
@@ -1450,7 +1541,7 @@ struct HeadshotFlow: View {
                 statusChips
                     .padding(.bottom, 6)
 
-                Text(guide.message)
+                Text(comparisonPhotos.isEmpty ? guide.message : "Take one more to compare")
                     .font(.otHeadline).foregroundStyle(guide.aligned ? OT.success : .white)
                 Text(follower.isListening ? "Tap, or say “Now”" : "Voice is off — tap the shutter")
                     .font(.otFootnote).foregroundStyle(.white.opacity(0.7))
@@ -1496,6 +1587,18 @@ struct HeadshotFlow: View {
                 .padding(.bottom, 12)
             }
             .padding(.horizontal, OT.gutter)
+
+            if showingComparison {
+                HeadshotComparisonView(
+                    title: angle.rawValue,
+                    photos: comparisonPhotos,
+                    selectedIndex: $selectedComparisonPhoto,
+                    onKeep: keepSelectedComparisonPhoto,
+                    onRetry: retryComparisonPhoto
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(2)
+            }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showMatchGuide) {
@@ -1776,31 +1879,147 @@ struct HeadshotFlow: View {
     }
 
     private func capture() {
-        guard !justCaptured else { return }
+        guard !justCaptured, !showingComparison else { return }
         justCaptured = true
         cameraSpeaker.stop()
         camera.capturePhoto { image in
             justCaptured = false
             guard let image else { captureFailed = true; Haptics.warning(); return }
-            HeadshotStore.save(image, key: angle.rawValue, auditionID: auditionID)
-            store.headshotVersion += 1
-            store.syncHeadshotPieces()
             Haptics.success()
-            if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
-                let saved = angle.rawValue
-                let nextName = next.rawValue
-                angle = next
-                follower.reset()
-                if voiceGuidanceEnabled {
-                    let prompt = next == .left ? "\(saved) photo saved. Now turn to your left profile." : "\(saved) photo saved. Now turn to your right profile."
-                    cameraSpeaker.speak(prompt, minInterval: 0.1)
-                }
+            if comparisonPhotos.isEmpty, let prior = HeadshotStore.load(key: angle.rawValue, auditionID: auditionID) {
+                comparisonPhotos = [prior, image]
+                selectedComparisonPhoto = 1
+                showingComparison = true
             } else {
-                if voiceGuidanceEnabled {
-                    cameraSpeaker.speak("All headshots saved!", minInterval: 0.1)
+                comparisonPhotos.append(image)
+                if comparisonPhotos.count >= 2 {
+                    selectedComparisonPhoto = comparisonPhotos.count - 1
+                    showingComparison = true
+                } else if voiceGuidanceEnabled {
+                    cameraSpeaker.speak("Good. Take one more so you can compare.", minInterval: 0.1)
                 }
-                dismiss()
             }
+        }
+    }
+
+    private func keepSelectedComparisonPhoto() {
+        guard comparisonPhotos.indices.contains(selectedComparisonPhoto) else { return }
+        HeadshotStore.save(comparisonPhotos[selectedComparisonPhoto], key: angle.rawValue, auditionID: auditionID)
+        store.headshotVersion += 1
+        store.syncHeadshotPieces()
+        comparisonPhotos.removeAll()
+        showingComparison = false
+        Haptics.success()
+        if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
+            let saved = angle.rawValue
+            angle = next
+            follower.reset()
+            if voiceGuidanceEnabled {
+                let prompt = next == .left ? "\(saved) photo saved. Now turn to your left profile." : "\(saved) photo saved. Now turn to your right profile."
+                cameraSpeaker.speak(prompt, minInterval: 0.1)
+            }
+        } else {
+            if voiceGuidanceEnabled { cameraSpeaker.speak("All headshots saved!", minInterval: 0.1) }
+            dismiss()
+        }
+    }
+
+    private func retryComparisonPhoto() {
+        if comparisonPhotos.count > 1 { comparisonPhotos = [comparisonPhotos[selectedComparisonPhoto]] }
+        selectedComparisonPhoto = 0
+        showingComparison = false
+        Haptics.tick()
+    }
+}
+
+/// Lets the actor compare two captures for one headshot angle before saving either one.
+private struct HeadshotComparisonView: View {
+    let title: String
+    let photos: [UIImage]
+    @Binding var selectedIndex: Int
+    let onKeep: () -> Void
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: onRetry) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(OT.cameraLabel)
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.85), in: Circle())
+                }
+                .accessibilityLabel("Return to camera")
+                Spacer()
+                Text("\(title) · \(photos.count) shots")
+                    .font(.otHeadline).foregroundStyle(OT.cameraLabel)
+                Spacer()
+                Color.clear.frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, 20).padding(.top, 12)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Keep the better one").font(.system(size: 22, weight: .semibold)).foregroundStyle(OT.cameraLabel)
+                Text("Compare the headshots side by side").font(.otCallout).foregroundStyle(OT.cameraLabel2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 18)
+
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(photos.indices, id: \.self) { index in
+                    Button { selectedIndex = index } label: {
+                        VStack(spacing: 8) {
+                            Image(uiImage: photos[index])
+                                .resizable().scaledToFill()
+                                .frame(maxWidth: .infinity).frame(height: 219)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(alignment: .topTrailing) {
+                                    Image(systemName: selectedIndex == index ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3.weight(.semibold))
+                                        .foregroundStyle(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : OT.cameraLabel2)
+                                        .padding(8)
+                                }
+                                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : Color.clear, lineWidth: 2))
+                            Text("Take \(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Select take \(index + 1)")
+                }
+            }
+            .padding(.horizontal, 20)
+
+            VStack(alignment: .leading, spacing: 9) {
+                comparisonNote("sun.max", "Compare for soft, even light")
+                comparisonNote("viewfinder", "Check that your face is centred")
+                comparisonNote("exclamationmark.circle", "Look for a plain background and eye-level camera")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24).padding(.top, 18)
+
+            Spacer(minLength: 16)
+            VStack(spacing: 10) {
+                Button("Keep take \(selectedIndex + 1)", action: onKeep)
+                    .buttonStyle(.otPrimary)
+                Button("Try again", action: onRetry)
+                    .font(.otHeadline).foregroundStyle(OT.accent)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(Color(red: 0.91, green: 0.85, blue: 0.95), in: Capsule())
+            }
+            .padding(.horizontal, 20).padding(.bottom, 18)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(red: 0.965, green: 0.957, blue: 0.972).ignoresSafeArea())
+    }
+
+    private func comparisonNote(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(symbol == "exclamationmark.circle" ? OT.due : OT.success)
+            Text(text).font(.otFootnote).foregroundStyle(OT.cameraLabel2)
         }
     }
 }
@@ -1986,22 +2205,29 @@ struct HeadshotAdjustSheet: View {
     @Environment(AppStore.self) private var store
 
     @State private var originalImage: UIImage?
+    @State private var selectedPreset: HeadshotPreset = .cardSlot
     @State private var zoom: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
     @State private var pinchScale: CGFloat = 1.0
     @State private var photoItem: PhotosPickerItem?
     @State private var isAutoFraming = false
+    @State private var saveError = false
 
-    /// Display frame dimensions inside the sheet matching slot proportions.
-    /// Front slot is 171.5 x 300 (ratio 0.5716).
-    /// Profile slots are 171.5 x 145 (ratio 1.1827).
-    private var frameSize: CGSize {
-        if item.isProfile {
-            return CGSize(width: 300, height: 254)
+    /// Display frame dimensions inside the sheet matching slot proportions or selected preset ratio.
+    private func targetFrameSize(for preset: HeadshotPreset) -> CGSize {
+        let maxW: CGFloat = 300
+        let maxH: CGFloat = 380
+        let r = preset.ratio(isProfile: item.isProfile)
+        if r > (maxW / maxH) {
+            return CGSize(width: maxW, height: maxW / r)
         } else {
-            return CGSize(width: 216, height: 378)
+            return CGSize(width: maxH * r, height: maxH)
         }
+    }
+
+    private var frameSize: CGSize {
+        targetFrameSize(for: selectedPreset)
     }
 
     var body: some View {
@@ -2080,32 +2306,70 @@ struct HeadshotAdjustSheet: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Bottom control panel
-            VStack(spacing: 16) {
-                // Zoom slider
-                HStack(spacing: 12) {
-                    Image(systemName: "minus.magnifyingglass")
-                        .font(.system(size: 14))
-                        .foregroundStyle(OT.labelTertiary)
-                    Slider(value: $zoom, in: 1.0...3.5)
-                        .tint(OT.accent)
-                        .onChange(of: zoom) { _, newZoom in
-                            offset = clampOffset(offset, zoomFactor: newZoom)
+            // Bottom control panel with Preset Options
+            VStack(spacing: 12) {
+                // Preset options selector
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("AUTO-FRAME PRESETS")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(OT.labelTertiary)
+                        Spacer()
+                        Text(selectedPreset.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(OT.accent)
+                    }
+                    .padding(.horizontal, OT.gutter)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(HeadshotPreset.allCases) { preset in
+                                let isSelected = (preset == selectedPreset)
+                                Button {
+                                    selectedPreset = preset
+                                    autoFrame(preset: preset, animated: true)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: preset.icon)
+                                            .font(.system(size: 12, weight: .medium))
+                                        Text(preset.title)
+                                            .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 9)
+                                    .background(
+                                        isSelected ? OT.accent : OT.fillField,
+                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    )
+                                    .foregroundStyle(isSelected ? Color.white : OT.labelPrimary)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .strokeBorder(isSelected ? Color.clear : Color.white.opacity(0.1), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                    Image(systemName: "plus.magnifyingglass")
-                        .font(.system(size: 14))
-                        .foregroundStyle(OT.labelTertiary)
+                        .padding(.horizontal, OT.gutter)
+                    }
                 }
-                .padding(.horizontal, 24)
+
+                // Preset description helper
+                Text(selectedPreset.description)
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .frame(height: 18)
 
                 // Action buttons
                 HStack(spacing: 12) {
                     Button {
-                        autoFrame()
+                        autoFrame(preset: selectedPreset, animated: true)
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "sparkles")
-                            Text("Auto-frame")
+                            Text("Re-frame")
                         }
                         .font(.otSubhead.weight(.semibold))
                         .foregroundStyle(OT.accent)
@@ -2154,15 +2418,7 @@ struct HeadshotAdjustSheet: View {
                     }
                 }
                 .padding(.horizontal, OT.gutter)
-
-                Text(item.isProfile
-                     ? "Drag to pan, pinch or slide to resize. Auto-frame keeps hair, jawline, and chin within profile bounds."
-                     : "Drag to pan, pinch or slide to resize. Auto-frame centers head and shoulders with generous headroom.")
-                    .font(.otCaption)
-                    .foregroundStyle(OT.labelTertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
+                .padding(.bottom, 8)
             }
             .padding(.top, 14)
             .background(OT.surfaceRaised)
@@ -2185,10 +2441,15 @@ struct HeadshotAdjustSheet: View {
                         pinchScale = 1.0
                         store.headshotVersion += 1
                         store.syncHeadshotPieces()
-                        autoFrame()
+                        autoFrame(preset: selectedPreset)
                     }
                 }
             }
+        }
+        .alert("Couldn't save this headshot crop", isPresented: $saveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The original photo is still saved. Try adjusting the crop and saving again.")
         }
     }
 
@@ -2196,34 +2457,37 @@ struct HeadshotAdjustSheet: View {
         if let raw = HeadshotStore.loadOriginal(key: item.key, auditionID: item.auditionID) ?? HeadshotStore.load(key: item.key, auditionID: item.auditionID),
            let upright = ImageFramer.normalized(raw) {
             originalImage = upright
-            autoFrame(animated: false)
+            autoFrame(preset: selectedPreset, animated: false)
         }
     }
 
-    private func clampOffset(_ raw: CGSize, zoomFactor: CGFloat) -> CGSize {
+    private func clampOffset(_ raw: CGSize, zoomFactor: CGFloat, customFrame: CGSize? = nil) -> CGSize {
         guard let img = originalImage else { return .zero }
-        let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+        let target = customFrame ?? frameSize
+        let base = max(target.width / img.size.width, target.height / img.size.height)
         let z = max(1.0, min(zoomFactor, 4.0))
-        let maxOffX = max(0, (img.size.width * base * z - frameSize.width) / 2)
-        let maxOffY = max(0, (img.size.height * base * z - frameSize.height) / 2)
+        let maxOffX = max(0, (img.size.width * base * z - target.width) / 2)
+        let maxOffY = max(0, (img.size.height * base * z - target.height) / 2)
         return CGSize(
             width: min(max(raw.width, -maxOffX), maxOffX),
             height: min(max(raw.height, -maxOffY), maxOffY)
         )
     }
 
-    private func autoFrame(animated: Bool = true) {
+    private func autoFrame(preset: HeadshotPreset? = nil, animated: Bool = true) {
+        let targetPreset = preset ?? selectedPreset
         guard let img = originalImage, let cg = img.cgImage else { return }
         let imgSize = CGSize(width: cg.width, height: cg.height)
         let face = ImageFramer.detectSubject(in: cg, size: imgSize, isProfile: item.isProfile)
-        let ratio = frameSize.width / frameSize.height
-        let rect = ImageFramer.cropRect(imageSize: imgSize, subject: face, ratio: ratio, isProfile: item.isProfile)
+        let ratio = targetPreset.ratio(isProfile: item.isProfile)
+        let rect = ImageFramer.cropRect(imageSize: imgSize, subject: face, ratio: ratio, preset: targetPreset, isProfile: item.isProfile)
         guard rect.width > 0, rect.height > 0 else { return }
 
-        let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
+        let targetFrame = targetFrameSize(for: targetPreset)
+        let base = max(targetFrame.width / img.size.width, targetFrame.height / img.size.height)
         let pointsToPixels = CGFloat(cg.width) / img.size.width
         let targetCropWInPoints = rect.width / pointsToPixels
-        let targetZoom = max(1.0, min(frameSize.width / (targetCropWInPoints * base), 4.0))
+        let targetZoom = max(1.0, min(targetFrame.width / (targetCropWInPoints * base), 4.0))
 
         let cropCenterInPoints = CGPoint(x: rect.midX / pointsToPixels, y: rect.midY / pointsToPixels)
         let imageCenterInPoints = CGPoint(x: img.size.width / 2, y: img.size.height / 2)
@@ -2233,7 +2497,7 @@ struct HeadshotAdjustSheet: View {
 
         let applyTransform = {
             zoom = targetZoom
-            offset = clampOffset(CGSize(width: requiredOffsetX, height: requiredOffsetY), zoomFactor: targetZoom)
+            offset = clampOffset(CGSize(width: requiredOffsetX, height: requiredOffsetY), zoomFactor: targetZoom, customFrame: targetFrame)
             dragOffset = .zero
             pinchScale = 1.0
         }
@@ -2249,7 +2513,7 @@ struct HeadshotAdjustSheet: View {
     }
 
     private func saveCrop() {
-        guard let img = originalImage, let cg = img.cgImage else { dismiss(); return }
+        guard let img = originalImage, let cg = img.cgImage else { saveError = true; return }
         let base = max(frameSize.width / img.size.width, frameSize.height / img.size.height)
         let z = max(1.0, min(zoom, 4.0))
         let effectiveOffset = clampOffset(offset, zoomFactor: z)
@@ -2274,12 +2538,15 @@ struct HeadshotAdjustSheet: View {
         ).integral.intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
 
         guard pixelRect.width > 0, pixelRect.height > 0, let croppedCG = cg.cropping(to: pixelRect) else {
-            dismiss()
+            saveError = true
             return
         }
 
         let croppedImage = UIImage(cgImage: croppedCG, scale: 1, orientation: .up)
-        HeadshotStore.replace(croppedImage, key: item.key, auditionID: item.auditionID)
+        guard HeadshotStore.replace(croppedImage, key: item.key, auditionID: item.auditionID) else {
+            saveError = true
+            return
+        }
         store.headshotVersion += 1
         store.syncHeadshotPieces()
         Haptics.success()

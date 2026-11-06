@@ -1,75 +1,5 @@
 import SwiftUI
 
-// MARK: - Quick Drills — Practice tab's 2×2 grid
-
-/// Four separate, deliberately-launched exercises — distinct from Prepare's own lightweight
-/// Full lines / First letters / Hide mine toggle, which is a passive display filter for reading
-/// straight through a scene. These are active, structured drills with their own mechanics:
-/// First-Letter Prompts and Mask & Reveal reuse the same line-display transform Prepare uses
-/// (`otLineDisplay`), Audio Gap Rehearsal reuses Run Lines exactly as-is, and Hands-Free Audio Walk
-/// is the only one with a dedicated screen.
-struct QuickDrillsGrid: View {
-    var onSelect: (LineLearningMode) -> Void
-
-    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: "Quick Drills")
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(LineLearningMode.allCases) { mode in
-                    DrillTile(mode: mode) { onSelect(mode) }
-                }
-            }
-        }
-    }
-}
-
-struct DrillTile: View {
-    let mode: LineLearningMode
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(OT.accentSoft)
-                    Image(systemName: mode.symbol).font(.system(size: 17, weight: .medium)).foregroundStyle(OT.accent)
-                }
-                .frame(width: 38, height: 38)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(shortTitle).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                    Text(shortSubtitle).font(.otCaption).foregroundStyle(OT.labelTertiary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .frame(height: 68)
-            .otCard(radius: 16)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(mode.title). \(mode.subtitle)")
-    }
-
-    private var shortTitle: String {
-        switch mode {
-        case .firstLetter:   "First-Letter"
-        case .maskAndReveal: "Cold Read"
-        case .audioGap:      "Partner"
-        case .handsFreeWalk: "Audio Walk"
-        }
-    }
-    private var shortSubtitle: String {
-        switch mode {
-        case .firstLetter:   "Mnemonic"
-        case .maskAndReveal: "Vanishing lines"
-        case .audioGap:      "On-cue voice"
-        case .handsFreeWalk: "Loop run"
-        }
-    }
-}
-
 // MARK: - First-Letter Prompts / Mask & Reveal — same mechanic as Prepare's toggle, run as a drill
 
 struct LineDrillView: View {
@@ -219,6 +149,7 @@ struct AudioWalkView: View {
 
 /// Loops a scene's reader tracks and your own line timings continuously, hands-free.
 /// Reuses the same on-device reader recordings as Run Lines — no synthetic voice.
+@MainActor
 @Observable
 final class AudioWalkPlayer {
     private var task: Task<Void, Never>?

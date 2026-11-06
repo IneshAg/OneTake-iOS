@@ -1,5 +1,5 @@
 import XCTest
-
+import SwiftUI
 @testable import OneTake
 
 
@@ -1276,7 +1276,7 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertEqual(sandyLines.count, 2)
 
-        XCTAssertEqual(sandyLines[0].text, "Do a split, give a yell Throw a fit for old Rydell")
+        XCTAssertEqual(sandyLines[0].text, "Do a split, give a yell Throw a fit for old Rydell.")
 
         XCTAssertEqual(sandyLines[1].text, "Oh. Hi.")
 
@@ -1370,6 +1370,22 @@ final class NoticeParserTests: XCTestCase {
 
 
 
+    func testLoneQuestionMarkForActorRemainsASilentReactionCue() {
+        let scenes = ScriptParser.parseScenes(from: """
+        MAGGIE
+        ?
+        FRANCIS
+        The other then?
+        """, myRole: "Maggie")
+
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "?")
+        XCTAssertTrue(scenes[0].lines[0].isSilentReactionCue)
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+    }
+
     func testParsesInstagramFlyerWithDemographicsAndDeadline() {
 
         let text = """
@@ -1426,9 +1442,9 @@ final class NoticeParserTests: XCTestCase {
     @MainActor
     func testAppStoreAutofillSuggestions() {
         let store = AppStore()
-        var a1 = Audition(project: "The White Lotus", role: "Tanya McQuoid")
+        var a1 = NoticeParser.Draft(project: "The White Lotus", role: "Tanya McQuoid").makeAudition()
         a1.castingOffice = "Meredith Tucker"
-        var a2 = Audition(project: "Succession", role: "Shiv Roy")
+        var a2 = NoticeParser.Draft(project: "Succession", role: "Shiv Roy").makeAudition()
         a2.castingOffice = "Francine Maisler"
         store.auditions = [a1, a2]
 
@@ -1447,6 +1463,7 @@ final class NoticeParserTests: XCTestCase {
     @MainActor
     func testAppStoreCommitAuditionDraftDirectTransition() {
         let store = AppStore()
+        store.auditions.removeAll()
         var draft = NoticeParser.Draft(project: "Severance", role: "Mark Scout", due: .now.addingTimeInterval(86400))
         draft.castingOffice = "Rachel Tenner"
 
@@ -1476,7 +1493,7 @@ final class NoticeParserTests: XCTestCase {
         store.commitAuditionDraft(draftWithReader, readerAudioPlan: .recordNow)
         XCTAssertEqual(store.auditions.count, 2)
         if case .reader(let id, let sceneIndex) = store.pendingRouteAfterAdd {
-            XCTAssertEqual(id, store.auditions.last?.id)
+            XCTAssertEqual(id, store.auditions.first?.id)
             XCTAssertEqual(sceneIndex, 0)
         } else {
             XCTFail("Expected pendingRouteAfterAdd to be .reader for recordNow plan")
@@ -1486,7 +1503,7 @@ final class NoticeParserTests: XCTestCase {
     @MainActor
     func testReplaceSidesReaderAudioDetectionAndRouting() {
         let store = AppStore()
-        var audition = Audition(project: "Succession", role: "Tom Wambsgans")
+        var audition = NoticeParser.Draft(project: "Succession", role: "Tom Wambsgans").makeAudition()
         store.add(audition)
 
         let script = """
@@ -1513,5 +1530,290 @@ final class NoticeParserTests: XCTestCase {
         // Test reader cue routing
         let firstSceneWithReader = updated.scenes.indices.first(where: { !updated.scenes[$0].lines.filter({ !$0.isMine }).isEmpty })
         XCTAssertEqual(firstSceneWithReader, 0)
+    }
+
+    func testShatteredGlassProjectNotice() {
+        // Regression: parser was picking "A Small Western Town In 1886 As Two Women" as the project
+        // (from the synopsis sentence), "Your Choice" as the role (from "character of your choice"),
+        // and "Note On Casting" as the casting office.
+        let notice = """
+        About The Project
+        The Shattered Glass Project is holding auditions for the world premiere production of Eve's Ale, Shanna Allman's fiercely and unapologetically female story set to the tune of a classic western.
+        Synopsis: Self-reliance battles desire in a small western town in 1886 as two women, compromised by a world built by and for men, fight for agency, self-preservation, and ultimately, one another.
+        Character Breakdowns
+        Maggie - F, 40s. a prostitute; nimble, pragmatic; 'three-card monte incarnate'
+        Francis - F, 40s. a rancher; aloof, hostile; 'the crunch of gravel underfoot'
+        Caroline - F, 17. a prostitute; unassuming; chipper; 'brightly colored candy in a glass dish'
+        Note on casting: Character gender plays an essential element in this play and may not be changed. Likewise, actors should identify as female, female identifying, or femme nonbinary.
+        Audition Dates and Times
+        In-person auditions will be held on December 7, 2026 from 6:30-9:30
+        Video submissions will be accepted until 11:59 pm on December 6, 2026
+        """
+        let draft = NoticeParser.parse(notice)
+
+        // Project should be the show title, not the synopsis sentence
+        XCTAssertEqual(draft.project, "Eve's Ale",
+            "Expected project 'Eve's Ale' but got '\(draft.project)'")
+
+        // Roles should be the named characters
+        XCTAssertFalse(draft.candidateRoles.map { $0.lowercased() }.contains("your choice"),
+            "Role 'Your Choice' (from video-submission phrasing) should be blocked")
+        let namedRoles = ["Maggie", "Francis", "Caroline"]
+        for r in namedRoles {
+            XCTAssertTrue(draft.candidateRoles.contains(r),
+                "Expected '\(r)' in candidateRoles but got \(draft.candidateRoles)")
+        }
+
+        // Casting office must NOT be "Note On Casting"
+        XCTAssertFalse(draft.castingOffice.lowercased().hasPrefix("note on casting"),
+            "Casting office should not be 'Note On Casting', got '\(draft.castingOffice)'")
+
+        // Date should be found (Dec 6 video deadline or Dec 7 in-person)
+        XCTAssertNotNil(draft.due, "Date should be detected from 'auditions will be held on December 7, 2026'")
+    }
+
+    @MainActor
+    func testScriptTextEditorPreservesTextAcrossUpdates() {
+        var text = "FRANCIS: You asked me to come."
+        let editor = ScriptTextEditor(text: Binding(get: { text }, set: { text = $0 }))
+        let context = editor.makeCoordinator()
+
+        // Create the underlying UITextView
+        let textView = UITextView()
+        textView.delegate = context
+        textView.text = text
+
+        // Simulate typing more dialogue
+        textView.text = "FRANCIS: You asked me to come.\nMAGGIE: I know the train leaves at six."
+        context.textViewDidChange(textView)
+        XCTAssertEqual(text, "FRANCIS: You asked me to come.\nMAGGIE: I know the train leaves at six.")
+
+        // Simulate parent view re-evaluating body (e.g. editableScenes async debounce completing)
+        // updateTextView should NOT clear or alter text if identical
+        editor.updateTextView(textView)
+        XCTAssertEqual(textView.text, text)
+        XCTAssertFalse(textView.text.isEmpty, "TextView text should never blank out during parent view re-renders")
+    }
+
+    func testEvesAleSidesParseIntoTwoScenes() {
+        let script = """
+        Eve's Ale - Shanna Allman (7.28.26) - p.39
+
+        FRANCIS
+        The other then?
+
+        MAGGIE
+        ?
+
+        FRANCIS
+        I used a lot your whiskey the other night.
+
+        MAGGIE
+        Naw, we square on that, too.
+
+        FRANCIS
+        Well, alright then.
+
+        MAGGIE
+        Well, alright.
+
+        Francis turns to leave. Stops.
+
+        FRANCIS
+        Am I supposed to pay you?
+
+        MAGGIE
+        (scoffs)
+
+        FRANCIS
+        Simple question.
+
+        MAGGIE
+        Is it?
+
+        FRANCIS
+        Is it not?
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.39
+
+        Start
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.40
+
+        MAGGIE
+        Why’d it take you so long to ask it then?
+
+        FRANCIS
+        You still ain’t answered it. My Daddy used to say the truth is simple. If you’re saying a
+        lotta words you’re dancing with the truth ‘stead of speaking it.
+
+        MAGGIE
+        Is that so?
+        Well my daddy used to say there’s no such thing as a gift, there’s only barterin’.
+
+        Maggie tosses the satchel of lavender at
+        Francis.
+        So. What exactly did you come here for then?
+
+        FRANCIS
+        (setting the satchel aside) Were you askin me to stay?
+
+        MAGGIE
+        Now who’s got twinkle toes?
+
+        FRANCIS
+        Were you?
+
+        MAGGIE
+        (shrugs) I’s just makin conversation. Ain’t all that unusual for us to ask people to stay
+        around here, so I can see how you got confused.
+
+        FRANCIS
+        .
+
+        MAGGIE
+        Why did you come here?
+
+        FRANCIS
+        Get my watch.
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.40
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.41
+
+        MAGGIE
+        Glad I could help.
+
+        Pause.
+
+        FRANCIS
+        (gesture towards the satchel then turning to leave) Just toss the satchel if you don’t want
+        it. I don’t need it back.
+
+        MAGGIE
+        Catch more bees with honey you know!
+
+        FRANCIS
+        (turning back)And you catch more flies with shit.
+
+        MAGGIE
+        Ain’t that the truth.
+
+        Slight pause.
+
+        It seems it was me that was confused. I didn’t think of you as a customer. My mistake.
+        Maggie busies herself at the bar.
+
+        FRANCIS
+        I do have somewhere I need to be.
+
+        MAGGIE
+        So you said.
+
+        FRANCIS
+        Stayed too long as it is.
+
+        MAGGIE
+        Well boo-hoo to you then. I gave you your damn watch back, what do you want from me
+
+        about it if you don’t know how to use it / proper-
+        Eve's Ale - Shanna Allman (7.28.26) - p.41
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.42
+
+        FRANCIS
+        What did you think of me as?
+
+        MAGGIE
+        What?
+
+        FRANCIS
+        You didn’t think of me as a customer. What did you think of me as?
+
+        MAGGIE
+        (shrugs) Curiosity.
+        Why?
+        What did you think of me as?
+
+        FRANCIS
+        (shrugs) Curiosity.
+
+        MAGGIE
+        Well, then. Curiosity satisfied?
+
+        Pause. They stand looking at one another.
+        Are you gonna say anything? Or am I just supposed to stand here holding up both sides
+        of this conversation?
+
+        FRANCIS
+        Never stopped you before.
+
+        MAGGIE
+        Aw, haha, ain’t you clever.
+
+        Francis touches her hat, Maggie starts to
+        return the gesture then waves it off.
+
+        FRANCIS
+        (stopping at the entrance) Maybe... I come back sometime.
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.42
+
+        Eve's Ale - Shanna Allman (7.28.26) - p.43
+
+        MAGGIE
+        Why, you missin another watch?
+
+        FRANCIS
+        (shrugs) Just particularly fond of that satchel.
+
+        MAGGIE
+        (fingering the worn out satchel) Oh, yes. I can see why you would be.
+        Francis turns to leave.
+
+        Hey!
+
+        Francis stops, turns back.
+        -Always less busy on a Sunday. People seem to think sins count double that day.
+
+        Francis touches her hat, turns to exit.
+
+        Hey!
+
+        Francis turns back.
+
+        Come back.
+
+        Francis turns and exits.
+        Maggie watches after her then pulls the
+        drawstring bag from her pocket. Glancing
+        towards the door, she opens it, reaches
+        in, and pulls out a gold heart shaped
+        locket.
+
+        Transition: The amber and gold light of
+        sunset fills the stage as a gust
+        """
+
+        let scenes = ScriptParser.parseScenes(from: script, myRole: "Maggie")
+        print("SCENES COUNT: \(scenes.count)")
+        for (i, s) in scenes.enumerated() {
+            print("Scene \(i+1): \(s.heading), title: \(s.title), lines: \(s.lines.count)")
+            for l in s.lines {
+                print("   [\(l.character)] \(l.text)")
+            }
+        }
+
+        XCTAssertEqual(scenes.count, 2, "Expected 2 scenes from sides separated by 'Start'")
+        XCTAssertGreaterThan(scenes[0].lines.count, 0)
+        XCTAssertGreaterThan(scenes[1].lines.count, 0)
+
+        // Ensure running headers were stripped
+        for s in scenes {
+            for l in s.lines {
+                XCTAssertFalse(l.text.contains("Eve's Ale"), "Header line should not be included in dialogue: \(l.text)")
+                XCTAssertFalse(l.text.contains("p.39") || l.text.contains("p.40") || l.text.contains("p.41"), "Page numbers should not be in dialogue: \(l.text)")
+            }
+        }
     }
 }

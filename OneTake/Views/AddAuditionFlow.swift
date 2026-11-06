@@ -28,11 +28,12 @@ struct AddAuditionFlow: View {
                     showScanner = false
                     guard !pages.isEmpty else { return }
                     Task {
-                        let text = await NoticeOCR.recognizeText(in: pages)
+                        let pageTexts = await NoticeOCR.recognizePages(in: pages)
+                        let text = pageTexts.joined(separator: "\n\n")
                         if !NoticeOCR.looksReadable(text) {
                             await MainActor.run { unreadableNoticeError = true }
                         } else {
-                            let draft = await NoticeParser.parseAsync(text)
+                            let draft = await NoticeParser.parseAsync(text, pages: pageTexts)
                             await MainActor.run { pendingReviewDraft = draft }
                         }
                     }
@@ -102,7 +103,7 @@ struct AddAuditionFlow: View {
                     if !NoticeOCR.looksReadable(text) {
                         await MainActor.run { unreadableNoticeError = true }
                     } else {
-                        let draft = await NoticeParser.parseAsync(text)
+                        let draft = await NoticeParser.parseAsync(text, pages: [text])
                         await MainActor.run { pendingReviewDraft = draft }
                     }
                 }
@@ -117,14 +118,26 @@ struct AddAuditionFlow: View {
         guard let item = store.incomingShare else { return }
         store.incomingShare = nil
         var parts: [String] = []
-        if let text = item.text, !text.isEmpty { parts.append(text) }
+        var pageTexts: [String] = []
+        if let text = item.text, !text.isEmpty {
+            parts.append(text)
+            pageTexts.append(text)
+        }
         for pdfURL in item.pdfs {
-            if let extracted = await NoticeOCR.extractText(fromFileAt: pdfURL) {
+            if let document = await NoticeOCR.extractDocument(fromFileAt: pdfURL) {
+                parts.append(document.fullText)
+                pageTexts.append(contentsOf: document.pages)
+            } else if let extracted = await NoticeOCR.extractText(fromFileAt: pdfURL) {
                 parts.append(extracted)
+                pageTexts.append(extracted)
             }
         }
         let images = item.images.compactMap { UIImage(contentsOfFile: $0.path) }
-        if !images.isEmpty { parts.append(await NoticeOCR.recognizeText(in: images)) }
+        if !images.isEmpty {
+            let pages = await NoticeOCR.recognizePages(in: images)
+            pageTexts.append(contentsOf: pages)
+            parts.append(pages.joined(separator: "\n\n"))
+        }
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         if !NoticeOCR.looksReadable(text) {
@@ -132,7 +145,7 @@ struct AddAuditionFlow: View {
         } else {
             // Route through OCR Review sheet so the actor can verify what was read
             // from the shared notice before it is committed to the audition draft.
-            let draft = await NoticeParser.parseAsync(text)
+            let draft = await NoticeParser.parseAsync(text, pages: pageTexts)
             await MainActor.run { pendingReviewDraft = draft }
         }
     }
@@ -240,40 +253,66 @@ struct AddAuditionFlow: View {
 /// Shown after every scan, photo import, file import, and share-sheet import so the actor
 /// can verify what OneTake read before it is committed to an audition draft.
 /// The actor can correct individual fields inline; tapping "Use this" proceeds.
-/// Interactive autofill suggestion chip bar for personalized typing help
+/// Interactive autofill keyboard toolbar bar that renders suggestions dynamically
+/// above the software keyboard when the user is editing an audition field.
+struct KeyboardAutofillBar: View {
+    let suggestions: [String]
+    let onSelect: (String) -> Void
+    var onDismiss: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if !suggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(suggestions.prefix(6), id: \.self) { item in
+                            Button {
+                                Haptics.tick()
+                                onSelect(item)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(OT.accent)
+                                    Text(item)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(OT.labelPrimary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                                .overlay(
+                                    Capsule().stroke(OT.separator, lineWidth: 0.8)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } else {
+                Spacer()
+            }
+
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(OT.accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Kept for backward compatibility
 struct SuggestionChipBar: View {
     let suggestions: [String]
     let onSelect: (String) -> Void
 
     var body: some View {
-        if !suggestions.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(suggestions.prefix(6), id: \.self) { item in
-                        Button {
-                            Haptics.tick()
-                            onSelect(item)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 10, weight: .semibold))
-                                Text(item)
-                                    .font(.otCaption.weight(.medium))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(OT.surfaceCard, in: Capsule())
-                            .overlay(
-                                Capsule().stroke(OT.borderSubtle, lineWidth: 1)
-                            )
-                            .foregroundStyle(OT.labelPrimary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-        }
+        EmptyView()
     }
 }
 
@@ -283,6 +322,11 @@ private struct OCRReviewSheet: View {
     @State var draft: NoticeParser.Draft
     let onConfirm: (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void
     let onDiscard: () -> Void
+
+    private enum FocusField: Hashable {
+        case project, role, castingOffice
+    }
+    @FocusState private var focusedField: FocusField?
 
     @State private var projectText: String
     @State private var roleText: String
@@ -304,19 +348,24 @@ private struct OCRReviewSheet: View {
         let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !effective.isEmpty else { return false }
         let scenes = (draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective)
-        return (scenes ?? []).contains { $0.lines.contains { !$0.isMine } }
+        return scenes.contains { $0.lines.contains { !$0.isMine } }
     }
 
     private var detectedReaderName: String {
         let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
         let scenes = (draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective)
-        let unowned = (scenes ?? []).flatMap(\.lines).filter { !$0.isMine }
+        let unowned = scenes.flatMap(\.lines).filter { !$0.isMine }
         return unowned.first?.character.capitalized ?? "Reader"
     }
 
     private var canUseThis: Bool {
         !projectText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (draft.availablePortions.count <= 1 || !selectedPortionIDs.isEmpty)
+    }
+
+    private var portionsArePages: Bool {
+        !draft.availablePortions.isEmpty && draft.availablePortions.allSatisfy { $0.pageNumber != nil }
     }
 
     init(draft: NoticeParser.Draft, onConfirm: @escaping (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void, onDiscard: @escaping () -> Void) {
@@ -354,33 +403,22 @@ private struct OCRReviewSheet: View {
                             .foregroundStyle(OT.labelSecondary)
                     }
 
-                    let matchingProjects = store.projectSuggestions.filter {
-                        projectText.isEmpty || $0.localizedCaseInsensitiveContains(projectText)
-                    }
                     reviewField(
                         icon: "film",
                         label: "Project",
                         placeholder: "e.g. The White Lotus",
                         text: $projectText,
                         isRequired: true,
-                        suggestions: matchingProjects
+                        field: .project
                     )
 
-                    let matchingRoles = store.roleSuggestions.filter {
-                        roleText.isEmpty || $0.localizedCaseInsensitiveContains(roleText)
-                    }
                     reviewField(
                         icon: "person",
                         label: "Role",
                         placeholder: "e.g. Detective Roy",
                         text: $roleText,
                         isRequired: true,
-                        suggestions: matchingRoles,
-                        onSelectSuggestion: { chosen in
-                            if let auto = NoticeParser.extractCharacterDescription(for: chosen, in: draft.sourceText) {
-                                castingNotesText = auto
-                            }
-                        }
+                        field: .role
                     )
 
                     // Quick-select candidate roles extracted from the notice
@@ -414,16 +452,13 @@ private struct OCRReviewSheet: View {
                         }
                     }
 
-                    let matchingOffices = store.castingOfficeSuggestions.filter {
-                        castingOfficeText.isEmpty || $0.localizedCaseInsensitiveContains(castingOfficeText)
-                    }
                     reviewField(
                         icon: "building.2",
                         label: "Casting office",
                         placeholder: "Optional",
                         text: $castingOfficeText,
                         isRequired: false,
-                        suggestions: matchingOffices
+                        field: .castingOffice
                     )
 
                     // Sides link (Google Drive / Dropbox / Cloud link for script sides)
@@ -462,11 +497,11 @@ private struct OCRReviewSheet: View {
                     }
 
 
-                    // Which scene(s) are you taping? (Hierarchical Scene Chunker UI)
+                    // Choose script scenes, or pages when OCR could only identify page boundaries.
                     if !draft.availablePortions.isEmpty && draft.availablePortions.count > 1 {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Label("Which scene(s) are you taping?", systemImage: "film.stack")
+                                Label(portionsArePages ? "Which pages contain your sides?" : "Which scene(s) are you taping?", systemImage: "film.stack")
                                     .font(.otHeadline)
                                     .foregroundStyle(OT.labelPrimary)
                                 Spacer()
@@ -482,7 +517,7 @@ private struct OCRReviewSheet: View {
                                 .foregroundStyle(OT.accent)
                             }
 
-                            Text("This packet contains \(draft.availablePortions.count) scenes. Pick the portion you want in your self-tape sides.")
+                            Text("Choose the relevant \(portionsArePages ? "pages" : "scenes") for \(roleText.isEmpty ? "your role" : roleText).")
                                 .font(.otFootnote)
                                 .foregroundStyle(OT.labelSecondary)
 
@@ -713,10 +748,13 @@ private struct OCRReviewSheet: View {
                         if !draft.availablePortions.isEmpty {
                             let chosen = draft.availablePortions.filter { selectedPortionIDs.contains($0.id) }
                             if !chosen.isEmpty {
-                                let parsedScenes = ScriptParser.parseSelectedPortions(chosen, myRole: confirmed.role)
+                                let selectedText = chosen.map(\.rawText).joined(separator: "\n\n")
+                                let parsedScenes = portionsArePages
+                                    ? ScriptParser.parseScenes(from: selectedText, myRole: confirmed.role)
+                                    : ScriptParser.parseSelectedPortions(chosen, myRole: confirmed.role)
                                 confirmed.customScenes = parsedScenes
                                 confirmed.scenes = parsedScenes.count
-                                confirmed.sourceText = chosen.map(\.rawText).joined(separator: "\n\n")
+                                confirmed.sourceText = selectedText
                             }
                         }
                         onConfirm(confirmed, readerAudioPlan)
@@ -727,6 +765,58 @@ private struct OCRReviewSheet: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    let suggestions: [String] = {
+                        switch focusedField {
+                        case .project:
+                            return store.projectSuggestions.filter {
+                                projectText.isEmpty || $0.localizedCaseInsensitiveContains(projectText)
+                            }
+                        case .role:
+                            return store.roleSuggestions.filter {
+                                roleText.isEmpty || $0.localizedCaseInsensitiveContains(roleText)
+                            }
+                        case .castingOffice:
+                            return store.castingOfficeSuggestions.filter {
+                                castingOfficeText.isEmpty || $0.localizedCaseInsensitiveContains(castingOfficeText)
+                            }
+                        case nil:
+                            return []
+                        }
+                    }()
+
+                    KeyboardAutofillBar(
+                        suggestions: suggestions,
+                        onSelect: { selected in
+                            switch focusedField {
+                            case .project:
+                                projectText = selected
+                            case .role:
+                                roleText = selected
+                                if let auto = NoticeParser.extractCharacterDescription(for: selected, in: draft.sourceText) {
+                                    castingNotesText = auto
+                                }
+                            case .castingOffice:
+                                castingOfficeText = selected
+                            case nil:
+                                break
+                            }
+                        },
+                        onDismiss: {
+                            focusedField = nil
+                        }
+                    )
+                }
+            }
+        }
+        .onChange(of: roleText) { _, newRole in
+            let matching = draft.availablePortions
+                .filter { portion in portion.characters.contains { $0.caseInsensitiveCompare(newRole) == .orderedSame } }
+                .map(\.id)
+            if !matching.isEmpty {
+                selectedPortionIDs = Set(matching)
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -739,8 +829,7 @@ private struct OCRReviewSheet: View {
         placeholder: String,
         text: Binding<String>,
         isRequired: Bool,
-        suggestions: [String] = [],
-        onSelectSuggestion: ((String) -> Void)? = nil
+        field: FocusField? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -759,6 +848,7 @@ private struct OCRReviewSheet: View {
             }
             TextField(placeholder, text: text)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: field)
                 .padding(12)
                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
@@ -769,13 +859,6 @@ private struct OCRReviewSheet: View {
                             lineWidth: 1.5
                         )
                 )
-
-            if !suggestions.isEmpty {
-                SuggestionChipBar(suggestions: suggestions) { chosen in
-                    text.wrappedValue = chosen
-                    onSelectSuggestion?(chosen)
-                }
-            }
         }
     }
 }
@@ -872,8 +955,8 @@ enum NoticeParser {
 
     /// Asynchronous parsing pipeline: runs deterministic regex/anchor extraction first,
     /// then enriches with the on-device Foundation Model when supported on this iPhone.
-    static func parseAsync(_ rawText: String) async -> Draft {
-        let base = parse(rawText)
+    static func parseAsync(_ rawText: String, pages: [String] = []) async -> Draft {
+        let base = parse(rawText, pages: pages)
         return await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
     }
 
@@ -889,7 +972,6 @@ enum NoticeParser {
             : (rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned)
 
         let text = tidy(noticeSource)
-        let fullTidied = isLongPacket ? tidy(cleaned) : text
         let lower = text.lowercased()
 
         d.due = detectDate(in: text)
@@ -1146,10 +1228,26 @@ enum NoticeParser {
     private static func detectDate(in text: String) -> Date? {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return nil }
         let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+        // OCR often drops the punctuation around times in lines such as
+        // “Video submissions will be accepted until 11:59 pm on December 6, 2026”.
+        // Anchor on that explicit submission wording before scanning other event dates.
+        let acceptedUntil = #"(?i)\b(?:video|self[- ]?tape|tape)\s+submissions?\s+(?:will\s+be\s+)?accepted\s+(?:until|through)\s+(?:(?:by|at)\s+)?(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\s+)?(?:on\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})"#
+        if let value = firstMatch(acceptedUntil, in: text) {
+            let normalized = value.replacingOccurrences(of: ",", with: "")
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = .current
+            formatter.dateFormat = "MMMM d yyyy"
+            if let date = formatter.date(from: normalized) { return date }
+        }
         let submissionKeywords = [
             "due", "deadline", "submit by", "submit before", "submission deadline", "tape due",
             "self-tape due", "send tape by", "send submissions by", "no later than", "submissions due",
-            "due date", "submit no later", "turn in by"
+            "due date", "submit no later", "turn in by",
+            "accepted until", "submissions will be accepted", "video submissions", "accepted through",
+            "submissions accepted", "submit your tape by", "submit by", "last day to submit",
+            "last day to apply", "accept submissions until", "close on", "closes on"
         ]
         let nonDueKeywords = [
             "shoot", "shooting", "filming", "production", "principal photography", "rehearsal",
@@ -1168,7 +1266,7 @@ enum NoticeParser {
                 // NSDataDetector has a quirk where "due by November 5" can offset the parsed date.
                 // Strip the preposition and evaluate the date substring directly when available.
                 let matchedSub = String(text[r])
-                if let stripped = firstMatch(#"(?i)(?:due\s+by|due|by|before|on)\s+([A-Za-z0-9,\s]+)"#, in: matchedSub) {
+                if let stripped = firstMatch(#"(?i)(?:due\s+by|due|by|before|on|until)\s+([A-Za-z0-9,\s]+)"#, in: matchedSub) {
                     if let refinedMatch = detector.matches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped)).first, let refinedDate = refinedMatch.date {
                         return refinedDate
                     }
@@ -1177,8 +1275,24 @@ enum NoticeParser {
             }
         }
 
+        // Secondary pass: pick the earliest date mentioned in lines about auditions/submissions
+        // when no explicit "due"/"deadline" keyword is present (e.g. "Auditions: December 7, 2026").
+        var auditionDates: [Date] = []
+        for match in matches {
+            guard let r = Range(match.range, in: text), let d = match.date else { continue }
+            let line = text.lineRange(for: r)
+            let context = text[line].lowercased()
+            // Skip scheduling/non-submission lines (rehearsals, callbacks, opening/closing)
+            let scheduleOnly = ["rehearsal", "callback", "opening", "closing", "tech", "strike", "load-in", "meet & greet"]
+            if scheduleOnly.contains(where: { context.contains($0) }) { continue }
+            if context.contains("audition") || context.contains("submission") || context.contains("video") || context.contains("accepted") {
+                auditionDates.append(d)
+            }
+        }
+        if let earliest = auditionDates.min() { return earliest }
+
         // Support day-first formats like "5 November 2026" or "5th Nov 2026"
-        let dayFirstPattern = #"(?i)\b(?:deadline|due date|submission deadline|last date to apply|submit(?:ting)? by|tape due)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})\b"#
+        let dayFirstPattern = #"(?i)\b(?:deadline|due date|submission deadline|last date to apply|submit(?:ting)? by|tape due|self-tape due(?: by)?|due by|due)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})\b"#
         if let value = firstMatch(dayFirstPattern, in: text) {
             let normalized = value.replacingOccurrences(
                 of: #"(?i)(\d)(st|nd|rd|th)\b"#,
@@ -1195,7 +1309,7 @@ enum NoticeParser {
 
         // NSDataDetector can miss dates copied from HTML where the label and date are
         // separated by non-breaking spaces or punctuation.
-        let labeledDatePattern = #"(?i)\b(?:deadline|due date|submission deadline|submit(?:ting)? by|tape due)\s*[:\-]?\s*([A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"#
+        let labeledDatePattern = #"(?i)\b(?:deadline|due date|submission deadline|submit(?:ting)? by|tape due|self-tape due(?: by)?|due by|due)\s*[:\-]?\s*([A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"#
         guard let value = firstMatch(labeledDatePattern, in: text) else { return nil }
         let normalized = value.replacingOccurrences(
             of: #"(?i)(\d)(st|nd|rd|th)\b"#,
@@ -1315,7 +1429,9 @@ enum NoticeParser {
             "multiple roles", "multiple role", "each character", "separate video", "a separate video",
             "all roles", "any role", "both roles", "various roles", "other characters", "the role",
             "your role", "this role", "character", "cast", "setting", "settings", "director note", "slate instruction",
-            "how to use these sides", "casting sides", "audition sides", "dialogue sides", "sides"
+            "how to use these sides", "casting sides", "audition sides", "dialogue sides", "sides",
+            "female identifying", "male identifying", "for female identifying", "for male identifying", "for any gender", "any gender",
+            "your choice", "character of your choice", "the character of your choice", "a character of your choice"
         ]
 
         func addRole(_ r: String) {
@@ -1339,9 +1455,16 @@ enum NoticeParser {
             for line in block.components(separatedBy: .newlines) {
                 let trimmed = clean(line)
                 if trimmed.isEmpty || trimmed.lowercased().contains("please familiarise") { continue }
-                let parts = trimmed.components(separatedBy: CharacterSet(charactersIn: "-–—"))
-                if let firstPart = parts.first?.trimmingCharacters(in: .whitespaces), !firstPart.isEmpty {
-                    let name = firstPart.components(separatedBy: .whitespaces).first ?? firstPart
+                let charSection: String
+                if let actRange = trimmed.range(of: #"\bACT\b"#, options: [.caseInsensitive, .regularExpression]) {
+                    charSection = String(trimmed[..<actRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                } else if let pageRange = trimmed.range(of: #"\bPAGE\b"#, options: [.caseInsensitive, .regularExpression]) {
+                    charSection = String(trimmed[..<pageRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                } else {
+                    charSection = trimmed
+                }
+                for piece in charSection.components(separatedBy: CharacterSet(charactersIn: ",&/")) {
+                    let name = clean(piece)
                     if name.count >= 2 && !invalidRoleNames.contains(name.lowercased()) {
                         addRole(name.capitalized)
                     }
@@ -1350,16 +1473,36 @@ enum NoticeParser {
         }
 
         // 1. Character index list in sides packet: "THE CHARACTERS IN THIS DOCUMENT\nNOOR — Page 2\n..."
-        let indexPattern = #"(?i)CHARACTERS(?:\s+IN\s+THIS\s+DOCUMENT)?\s*[:\n]([\s\S]*?)(?=\n\s*\n|\n==|\z)"#
-        if let r = try? NSRegularExpression(pattern: indexPattern),
-           let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-           let range = Range(m.range(at: 1), in: text) {
-            let block = text[range]
-            for line in block.components(separatedBy: .newlines) {
-                let trimmed = clean(line)
-                if let match = trimmed.range(of: #"^([A-Z][A-Za-z0-9'\-]{1,20})\s*[-–—]\s*(?:Page|Pg\.?)\s*\d+"#, options: .regularExpression) {
-                    let name = trimmed[match].components(separatedBy: CharacterSet(charactersIn: "-–—")).first?.trimmingCharacters(in: .whitespaces) ?? ""
-                    addRole(name.capitalized)
+        let pageListPattern = #"(?m)^([A-Z][A-Za-z0-9'\-]{1,20})\s*[-–—]\s*(?:Page|Pg\.?)\s*\d+"#
+        if let pageRegex = try? NSRegularExpression(pattern: pageListPattern) {
+            let matches = pageRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let r = Range(m.range(at: 1), in: text) {
+                    let name = clean(String(text[r]))
+                    if !invalidRoleNames.contains(name.lowercased()) {
+                        addRole(name.capitalized)
+                    }
+                }
+            }
+        }
+
+        // Monologue / character sides cues: e.g. "Roxie:\n", "Velma:\n", "Mama Morton:\n"
+        let cueLinesPattern = #"(?m)^([A-Z][A-Za-z\s'\-]{1,24}):\s*$"#
+        if let r = try? NSRegularExpression(pattern: cueLinesPattern) {
+            let matches = r.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            let nonCueTitles: Set<String> = [
+                "audition sides", "for female identifying", "for male identifying", "for any gender",
+                "setting", "settings", "director note", "note", "slate", "instructions",
+                "stage reading event", "reading event", "event", "dates", "date", "shoot dates", "shoot date",
+                "production dates", "rehearsal dates", "submission specs", "specs", "location", "deadline"
+            ]
+            for m in matches {
+                if let range = Range(m.range(at: 1), in: text) {
+                    let candidate = clean(String(text[range]))
+                    let lower = candidate.lowercased()
+                    if !nonCueTitles.contains(lower) && !invalidRoleNames.contains(lower) && !lower.contains("event") && !lower.contains("dates") && !lower.contains("specs") {
+                        addRole(candidate.capitalized)
+                    }
                 }
             }
         }
@@ -1371,6 +1514,44 @@ enum NoticeParser {
             for m in matches {
                 if let range = Range(m.range(at: 1), in: text) {
                     addRole(String(text[range]).capitalized)
+                }
+            }
+        }
+
+        // 2b. Theatre/stage character breakdown format (Title Case names):
+        //     "Maggie - F, 40s. a prostitute; ..."
+        //     "Francis - F, 40s. a rancher; ..."
+        //     Matches: Name - [M|F|NB|Male|Female|Non-binary], [age] [description]
+        //     Also matches "Character Breakdowns" section lists like "Maggie\nF, 40s. ..."
+        let theatreBreakdownPattern = #"(?m)^([A-Z][a-z]{1,22}(?:\s+[A-Z][a-z]{1,22})?)\s*[-–—]\s*(?:[FfMmNn][A-Za-z]*(?:on-binary)?)[,.]?\s*(?:\d{1,2}s?\b|Early|Mid|Late|teens?|\d{1,2})"#
+        if let r = try? NSRegularExpression(pattern: theatreBreakdownPattern) {
+            let matches = r.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for m in matches {
+                if let range = Range(m.range(at: 1), in: text) {
+                    let name = clean(String(text[range]))
+                    if name.count >= 2 && !invalidRoleNames.contains(name.lowercased()) {
+                        addRole(name.capitalized)
+                    }
+                }
+            }
+        }
+
+        // 2c. "Character Breakdowns" section: standalone role name lines followed by demographics on the next line
+        //     e.g. "Character Breakdowns\nMaggie\nF, 40s. ..."
+        let breakdownSectionPattern = #"(?is)(?:character\s+breakdowns?|breakdowns?|characters?)\s*\n(.*?)(?=\n\s*(?:note|production|audition|submission|when|how|deadline|\z))"#
+        if let r = try? NSRegularExpression(pattern: breakdownSectionPattern),
+           let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(m.range(at: 1), in: text) {
+            let block = String(text[range])
+            // Within the section pick lines that look like character names (Title Case, 2-20 chars)
+            for line in block.components(separatedBy: .newlines) {
+                let candidate = clean(line)
+                guard candidate.count >= 2, candidate.count <= 25 else { continue }
+                // Must be a simple Title Case word or two words
+                if candidate.range(of: #"^[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?$"#, options: .regularExpression) != nil {
+                    if !invalidRoleNames.contains(candidate.lowercased()) {
+                        addRole(candidate)
+                    }
                 }
             }
         }
@@ -1417,12 +1598,17 @@ enum NoticeParser {
         if let v = firstMatch(lead + name + stop, in: text, options: [.caseInsensitive, .anchorsMatchLines]) {
             let cleaned = clean(v)
             let lower = cleaned.lowercased()
-            if !cleaned.isEmpty, !lower.hasPrefix("age"), !lower.hasPrefix("a ") {
+            // Skip generic/vague phrases like "your choice", "a character of your choice"
+            let isVague = lower.contains("your choice") || lower.contains("any character") || lower.contains("the character")
+            if !cleaned.isEmpty, !lower.hasPrefix("age"), !lower.hasPrefix("a "), !isVague {
                 addRole(cleaned.capitalized)
             }
         }
         if let v = firstMatch(#"\bfor\s+(?:the\s+role\s+of\s+)?([A-Z][A-Z\-]{1,22})\b"#, in: text) {
-            addRole(v.capitalized)
+            let lowerV = v.lowercased()
+            if !invalidRoleNames.contains(lowerV) && lowerV != "female" && lowerV != "male" && lowerV != "any" {
+                addRole(v.capitalized)
+            }
         }
 
         // 6. Standard industry role tiers (Lead, Supporting, Series Regular)
@@ -1585,12 +1771,37 @@ enum NoticeParser {
             if let idx = title.range(of: #"\s*[-–—]\s*(?:Role|Part|Character)\b.*"#, options: .regularExpression) {
                 title = String(title[..<idx.lowerBound]).trimmingCharacters(in: .whitespaces)
             }
-            return title.isEmpty ? nil : title.capitalized
+            return title.isEmpty ? nil : title.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
+        }
+
+        // Resolve the play title before a generic “in …” match can mistake its synopsis
+        // (“in a small western town…”) for the project name.
+        if let title = firstMatch(#"(?i)\bworld\s+premiere\s+production\s+of\s+([^,\n.]{2,50})"#, in: text),
+           let valid = cleanTitle(title) {
+            return valid
+        }
+
+        // Premier/world-premiere phrasing: e.g. "world premiere production of Eve's Ale"
+        // Also handles: "premiere of X", "production of X", "staging of X"
+        let premierePhrases = [
+            #"(?i)\b(?:world\s+premiere|world\s+premiere\s+production|premiere\s+production|premiere)\s+of\s+([A-Za-z0-9'&,\s\-]{2,45}?)(?=\s*[,.\n(]|\s+by\b|\s*$)"#,
+            #"(?i)\b(?:production\s+of|staging\s+of|adaptation\s+of|revival\s+of)\s+([A-Za-z0-9'&,\s\-]{2,45}?)(?=\s*[,.\n(]|\s+by\b|\s+a\b|\s*$)"#,
+        ]
+        for pattern in premierePhrases {
+            if let v = firstMatch(pattern, in: text), let valid = cleanTitle(v.trimmingCharacters(in: .whitespaces)) {
+                return valid
+            }
         }
 
         // Show / musical / production phrasing: e.g. "GREASE is such a fun production"
-        let showPattern = #"(?i)\b([A-Z][A-Za-z0-9\s'\-]{2,25})\s+is\s+(?:a|an|such\s+a)\s+(?:fun\s+)?(?:production|musical|play|film|movie|show|series|theatrical)\b"#
+        let showPattern = #"(?i)\b([A-Z][A-Za-z0-9 '\-]{2,25})\s+is\s+(?:a|an|such\s+a)\s+(?:fun\s+)?(?:production|musical|play|film|movie|show|series|theatrical)\b"#
         if let showMatch = firstMatch(showPattern, in: text), let valid = cleanTitle(showMatch) {
+            return valid
+        }
+
+        // Catchy banner phrasing: e.g. "ROXIE ROCKS CHICAGO."
+        let bannerPattern = #"(?i)\b[A-Za-z]+\s+ROCKS\s+([A-Za-z0-9'\-]{2,30})\b"#
+        if let bannerMatch = firstMatch(bannerPattern, in: text), let valid = cleanTitle(bannerMatch) {
             return valid
         }
 
@@ -1698,17 +1909,21 @@ enum NoticeParser {
             "self-tape casting", "sides casting", "audition casting", "actors casting", "acting", "audition",
             "casting call bengaluru", "casting call mumbai", "casting call delhi", "bengaluru casting",
             "mumbai casting", "delhi casting", "london casting", "nyc casting", "la casting", "los angeles casting",
-            "history casting", "now casting", "casting now"
+            "history casting", "now casting", "casting now",
+            // Section-header phrases that contain "casting" but are not company names:
+            "note on casting", "a note on casting", "casting note", "note casting"
         ]
 
         // Acronym or compound casting companies like Mukesh Chhabra Casting Company (MCCC)
-        if let m = firstMatch(#"(?i)\b(Mukesh\s+Chhabra\s+Casting\s+Company(?:\s*\(MCCC\))?|MCCC)\b"#, in: text) {
+        if firstMatch(#"(?i)\b(Mukesh\s+Chhabra\s+Casting\s+Company(?:\s*\(MCCC\))?|MCCC)\b"#, in: text) != nil {
             return "Mukesh Chhabra Casting Company (MCCC)"
         }
 
         if let office = labeled(["casting director", "casting office", "casting company", "casting agency", "casting by"], in: text) {
             let cleaned = clean(office)
-            if !cleaned.isEmpty && !genericCastingWords.contains(cleaned.lowercased()) && !isNoiseLine(cleaned) {
+            let lower = cleaned.lowercased()
+            let isEditorialNote = lower.hasPrefix("note on casting") || lower.hasPrefix("a note on casting")
+            if !cleaned.isEmpty && !isEditorialNote && !genericCastingWords.contains(lower) && !isNoiseLine(cleaned) {
                 return cleaned.capitalized
             }
         }
@@ -1739,6 +1954,9 @@ enum NoticeParser {
                 !lower.contains("theater lab") &&
                 !lower.contains("the lab") &&
                 !lower.contains("pilgrimage casting") &&
+                !lower.hasPrefix("note on") &&
+                !lower.hasPrefix("a note on") &&
+                !lower.hasPrefix("note:") &&
                 !isNoiseLine(line) &&
                 line.count <= 45 {
                 return line.capitalized
@@ -1747,7 +1965,8 @@ enum NoticeParser {
         if let v = firstMatch(#"\b((?:[A-Z][A-Za-z0-9\-]+[ \t]+){1,2}Casting)\b"#, in: text, options: .caseInsensitive) {
             let cleaned = clean(v).replacingOccurrences(of: ".", with: "-")
             let lower = cleaned.lowercased()
-            if !genericCastingWords.contains(lower) &&
+            if !lower.hasPrefix("note on casting") && !lower.hasPrefix("a note on casting") &&
+                !genericCastingWords.contains(lower) &&
                 !lower.contains("casting call") &&
                 !lower.contains("casting sides") &&
                 !lower.contains("download casting") &&
@@ -1820,7 +2039,6 @@ enum NoticeParser {
 
             // 1. Inspect text immediately preceding this link (same line + preceding line, up to 160 characters)
             let lineRange = text.lineRange(for: r)
-            let lineBefore = String(text[lineRange.lowerBound..<r.lowerBound]).lowercased()
 
             var priorLine = ""
             if lineRange.lowerBound > text.startIndex {
@@ -1934,20 +2152,20 @@ struct ScriptReviewAndEditView: View {
                                 } label: {
                                     HStack(spacing: 4) {
                                         Image(systemName: line.isMine ? "person.crop.circle.fill" : "person.2.fill")
-                                            .font(.system(size: 10, weight: .bold))
-                                        Text(line.isMine ? "\(line.character) (YOU)" : "\(line.character)")
                                             .font(.system(size: 11, weight: .bold))
+                                        Text(line.isMine ? "\(line.character) (YOU)" : "\(line.character)")
+                                            .font(.system(size: 12, weight: .bold))
                                     }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
                                     .background(
                                         Capsule()
-                                            .fill(line.isMine ? OT.prompterGold.opacity(0.2) : OT.reader.opacity(0.18))
+                                            .fill(line.isMine ? OT.accentSoft : OT.reader.opacity(0.15))
                                             .overlay(
-                                                Capsule().stroke(line.isMine ? OT.prompterGold.opacity(0.5) : OT.reader.opacity(0.4), lineWidth: 1)
+                                                Capsule().stroke(line.isMine ? OT.accent.opacity(0.35) : OT.reader.opacity(0.35), lineWidth: 1)
                                             )
                                     )
-                                    .foregroundStyle(line.isMine ? OT.prompterGold : OT.reader)
+                                    .foregroundStyle(line.isMine ? OT.accent : OT.reader)
                                 }
                                 .buttonStyle(.plain)
 
@@ -1983,24 +2201,34 @@ struct ScriptReviewAndEditView: View {
                             // Editable Line Text
                             Text(line.text)
                                 .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(line.isMine ? .white : OT.labelPrimary)
+                                .foregroundStyle(OT.labelPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(8)
+                                .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(line.isMine ? Color.white.opacity(0.06) : Color.white.opacity(0.03))
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(line.isMine ? OT.accentSoft.opacity(0.35) : OT.fillField)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(line.isMine ? OT.accent.opacity(0.25) : OT.separator.opacity(0.5), lineWidth: 1)
                                 )
                                 .onTapGesture {
                                     editingLine = (sIdx, lIdx)
                                     editedText = line.text
                                 }
+                            if line.isSilentReactionCue {
+                                Label("Silent reaction · react in character, no reader audio", systemImage: "face.smiling")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
                         }
                         .padding(.vertical, 3)
                     }
                 }
-                .padding(12)
-                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+                .padding(14)
+                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(OT.separator, lineWidth: 1))
             }
         }
         .sheet(item: Binding(
@@ -2014,8 +2242,11 @@ struct ScriptReviewAndEditView: View {
                         .padding(.top, 16)
 
                     TextEditor(text: $editedText)
+                        .foregroundStyle(OT.labelPrimary)
+                        .tint(OT.accent)
                         .padding(10)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .scrollContentBackground(.hidden)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 12))
                         .frame(minHeight: 120)
 
                     HStack(spacing: 12) {
@@ -2085,15 +2316,14 @@ struct AddDraftSidesSheet: View {
     @State private var scannerUnavailable = false
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var sidesParseTask: Task<Void, Never>?
     @State private var importError = false
     @State private var emptyClipboardAlert = false
 
-    private var parsed: [ScriptScene] {
-        ScriptParser.parseScenes(from: text, myRole: draft.role)
-    }
-
     private var activeScenes: [ScriptScene] {
-        editableScenes.isEmpty ? parsed : editableScenes
+        // `editableScenes` is refreshed after a short debounce. Calling the parser as a
+        // computed fallback here would still parse the whole packet during every keystroke.
+        editableScenes
     }
 
     var body: some View {
@@ -2210,14 +2440,20 @@ struct AddDraftSidesSheet: View {
                                     .allowsHitTesting(false)
                             }
 
-                            TextEditor(text: $text)
-                                .font(.system(size: 15, design: .monospaced))
+                            ScriptTextEditor(text: $text)
                                 .frame(minHeight: 140, maxHeight: 220)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .scrollContentBackground(.hidden)
                                 .onChange(of: text) { _, newText in
-                                    editableScenes = ScriptParser.parseScenes(from: newText, myRole: draft.role)
+                                    sidesParseTask?.cancel()
+                                    let role = draft.role
+                                    sidesParseTask = Task {
+                                        try? await Task.sleep(for: .milliseconds(220))
+                                        guard !Task.isCancelled else { return }
+                                        let scenes = await Task.detached(priority: .userInitiated) {
+                                            ScriptParser.parseScenes(from: newText, myRole: role)
+                                        }.value
+                                        guard !Task.isCancelled else { return }
+                                        editableScenes = scenes
+                                    }
                                 }
                         }
                         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2298,6 +2534,7 @@ struct AddDraftSidesSheet: View {
                 editableScenes = []
             }
         }
+        .onDisappear { sidesParseTask?.cancel() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
             switch result {
             case .success(let url):
@@ -2456,6 +2693,11 @@ struct MissingDetailsView: View {
     @State private var showSidesSheet = false
     @State private var showValidationErrors = false
 
+    private enum FocusField: Hashable {
+        case project, role, castingOffice
+    }
+    @FocusState private var focusedField: FocusField?
+
     private var isProjectEmpty: Bool {
         store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -2503,7 +2745,12 @@ struct MissingDetailsView: View {
     var body: some View {
         @Bindable var store = store
         VStack(spacing: 0) {
-            InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() })
+            InContentNavHeader(backLabel: "Back", onBack: {
+                store.popToRoot()
+                store.pendingRouteAfterAdd = nil
+                store.continueAfterAdd = nil
+                store.showAddAudition = true
+            })
                 .padding(.horizontal, OT.gutter)
                 .padding(.top, 4)
 
@@ -2525,6 +2772,7 @@ struct MissingDetailsView: View {
                             }
                             TextField("e.g. The White Lotus", text: $store.auditionDraft.project)
                                 .textInputAutocapitalization(.words)
+                                .focused($focusedField, equals: .project)
                                 .padding(12)
                                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .overlay(
@@ -2532,12 +2780,6 @@ struct MissingDetailsView: View {
                                         .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                 )
 
-                            let matchingProjects = store.projectSuggestions.filter {
-                                store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
-                            }
-                            SuggestionChipBar(suggestions: matchingProjects) { selected in
-                                store.auditionDraft.project = selected
-                            }
                             if showValidationErrors && isProjectEmpty {
                                 Label("Please enter the project name to continue", systemImage: "exclamationmark.circle.fill")
                                     .font(.otFootnote)
@@ -2640,26 +2882,13 @@ struct MissingDetailsView: View {
                             } else {
                                 TextField("e.g. Maya", text: $store.auditionDraft.role)
                                     .textInputAutocapitalization(.words)
+                                    .focused($focusedField, equals: .role)
                                     .padding(12)
                                     .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                                             .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                     )
-
-                                let matchingRoles = store.roleSuggestions.filter {
-                                    store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
-                                }
-                                SuggestionChipBar(suggestions: matchingRoles) { selected in
-                                    store.auditionDraft.role = selected
-                                    let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
-                                    if !parsed.isEmpty {
-                                        store.auditionDraft.scenes = parsed.count
-                                    }
-                                    if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
-                                        store.auditionDraft.castingNotes = notes
-                                    }
-                                }
                             }
 
                             if showValidationErrors && isRoleEmpty {
@@ -2673,15 +2902,9 @@ struct MissingDetailsView: View {
                             Text("Casting office (optional)").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
                             TextField("e.g. Anti-Casting, Telsey + Co", text: $store.auditionDraft.castingOffice)
                                 .textInputAutocapitalization(.words)
+                                .focused($focusedField, equals: .castingOffice)
                                 .padding(12)
                                 .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                            let matchingOffices = store.castingOfficeSuggestions.filter {
-                                store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
-                            }
-                            SuggestionChipBar(suggestions: matchingOffices) { selected in
-                                store.auditionDraft.castingOffice = selected
-                            }
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -2874,11 +3097,65 @@ struct MissingDetailsView: View {
         .sheet(isPresented: $showSidesSheet) {
             AddDraftSidesSheet(draft: $store.auditionDraft)
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                let suggestions: [String] = {
+                    switch focusedField {
+                    case .project:
+                        return store.projectSuggestions.filter {
+                            store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
+                        }
+                    case .role:
+                        return store.roleSuggestions.filter {
+                            store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
+                        }
+                    case .castingOffice:
+                        return store.castingOfficeSuggestions.filter {
+                            store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
+                        }
+                    case nil:
+                        return []
+                    }
+                }()
+
+                KeyboardAutofillBar(
+                    suggestions: suggestions,
+                    onSelect: { selected in
+                        switch focusedField {
+                        case .project:
+                            store.auditionDraft.project = selected
+                        case .role:
+                            store.auditionDraft.role = selected
+                            let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
+                            if !parsed.isEmpty {
+                                store.auditionDraft.scenes = parsed.count
+                            }
+                            if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
+                                store.auditionDraft.castingNotes = notes
+                            }
+                        case .castingOffice:
+                            store.auditionDraft.castingOffice = selected
+                        case nil:
+                            break
+                        }
+                    },
+                    onDismiss: {
+                        focusedField = nil
+                    }
+                )
+            }
+        }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-openSidesSheet") {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     showSidesSheet = true
+                }
+            }
+            if ProcessInfo.processInfo.arguments.contains("-focusProject") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    focusedField = .project
                 }
             }
         }
@@ -2938,6 +3215,11 @@ struct NoticeReviewView: View {
     @State private var showSidesSheet = false
     @State private var showValidationErrors = false
     @State private var createdAuditionID: Audition.ID? = nil
+
+    private enum FocusField: Hashable {
+        case project, role, castingOffice
+    }
+    @FocusState private var focusedField: FocusField?
 
     private var isProjectEmpty: Bool {
         store.auditionDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -3102,21 +3384,13 @@ struct NoticeReviewView: View {
                             }
                             TextField("Project name", text: $store.auditionDraft.project)
                                 .textInputAutocapitalization(.words)
+                                .focused($focusedField, equals: .project)
                                 .padding(12)
                                 .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                                         .stroke(showValidationErrors && isProjectEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                 )
-
-                            let matchingProjects = store.projectSuggestions.filter {
-                                store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
-                            }
-                            if !matchingProjects.isEmpty {
-                                SuggestionChipBar(suggestions: matchingProjects) { chosen in
-                                    store.auditionDraft.project = chosen
-                                }
-                            }
 
                             if showValidationErrors && isProjectEmpty {
                                 Label("Please enter the project name", systemImage: "exclamationmark.circle.fill")
@@ -3220,24 +3494,13 @@ struct NoticeReviewView: View {
                             } else {
                                 TextField("Your role", text: $store.auditionDraft.role)
                                     .textInputAutocapitalization(.words)
+                                    .focused($focusedField, equals: .role)
                                     .padding(12)
                                     .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                                             .stroke(showValidationErrors && isRoleEmpty ? Color.red.opacity(0.8) : Color.clear, lineWidth: 1.5)
                                     )
-
-                                let matchingRoles = store.roleSuggestions.filter {
-                                    store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
-                                }
-                                if !matchingRoles.isEmpty {
-                                    SuggestionChipBar(suggestions: matchingRoles) { chosen in
-                                        store.auditionDraft.role = chosen
-                                        if let notes = NoticeParser.extractCharacterDescription(for: chosen, in: store.auditionDraft.sourceText) {
-                                            store.auditionDraft.castingNotes = notes
-                                        }
-                                    }
-                                }
                             }
 
                             if showValidationErrors && isRoleEmpty {
@@ -3251,21 +3514,19 @@ struct NoticeReviewView: View {
                             Text("Casting office").font(.otCaption.weight(.medium)).foregroundStyle(OT.labelSecondary)
                             TextField("Casting office", text: $store.auditionDraft.castingOffice)
                                 .textInputAutocapitalization(.words)
+                                .focused($focusedField, equals: .castingOffice)
                                 .padding(12)
                                 .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                            let matchingOffices = store.castingOfficeSuggestions.filter {
-                                store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
-                            }
-                            if !matchingOffices.isEmpty {
-                                SuggestionChipBar(suggestions: matchingOffices) { chosen in
-                                    store.auditionDraft.castingOffice = chosen
-                                }
-                            }
                         }
 
-                        Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
-                            .padding(.top, 4)
+                        if let selectedScenes = store.auditionDraft.customScenes, !selectedScenes.isEmpty {
+                            Label("\(selectedScenes.count) scene\(selectedScenes.count == 1 ? "" : "s") selected", systemImage: "checkmark.circle.fill")
+                                .font(.otFootnote.weight(.medium))
+                                .foregroundStyle(OT.success)
+                        } else {
+                            Stepper("Scenes: \(store.auditionDraft.scenes)", value: $store.auditionDraft.scenes, in: 0...6)
+                                .padding(.top, 4)
+                        }
                     }
                     .padding(16)
                     .otCard(radius: 20)
@@ -3443,11 +3704,65 @@ struct NoticeReviewView: View {
         .sheet(isPresented: $showSidesSheet) {
             AddDraftSidesSheet(draft: $store.auditionDraft)
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                let suggestions: [String] = {
+                    switch focusedField {
+                    case .project:
+                        return store.projectSuggestions.filter {
+                            store.auditionDraft.project.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.project)
+                        }
+                    case .role:
+                        return store.roleSuggestions.filter {
+                            store.auditionDraft.role.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.role)
+                        }
+                    case .castingOffice:
+                        return store.castingOfficeSuggestions.filter {
+                            store.auditionDraft.castingOffice.isEmpty || $0.localizedCaseInsensitiveContains(store.auditionDraft.castingOffice)
+                        }
+                    case nil:
+                        return []
+                    }
+                }()
+
+                KeyboardAutofillBar(
+                    suggestions: suggestions,
+                    onSelect: { selected in
+                        switch focusedField {
+                        case .project:
+                            store.auditionDraft.project = selected
+                        case .role:
+                            store.auditionDraft.role = selected
+                            let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
+                            if !parsed.isEmpty {
+                                store.auditionDraft.scenes = parsed.count
+                            }
+                            if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
+                                store.auditionDraft.castingNotes = notes
+                            }
+                        case .castingOffice:
+                            store.auditionDraft.castingOffice = selected
+                        case nil:
+                            break
+                        }
+                    },
+                    onDismiss: {
+                        focusedField = nil
+                    }
+                )
+            }
+        }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-openSidesSheet") {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     showSidesSheet = true
+                }
+            }
+            if ProcessInfo.processInfo.arguments.contains("-focusProject") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    focusedField = .project
                 }
             }
         }
@@ -3505,7 +3820,7 @@ struct NoticeReviewView: View {
                 updated.actorNotes = actorNotes
             }
             let parsedScenes = (store.auditionDraft.customScenes?.isEmpty == false ? store.auditionDraft.customScenes : nil) ?? ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-            if let parsedScenes, !parsedScenes.isEmpty { updated.scenes = parsedScenes }
+            if !parsedScenes.isEmpty { updated.scenes = parsedScenes }
             store.auditions[idx] = updated
             auditionID = existingID
         } else {

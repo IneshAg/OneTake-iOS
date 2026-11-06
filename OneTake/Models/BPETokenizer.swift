@@ -138,10 +138,11 @@ final class BPETokenizer: @unchecked Sendable {
         defaultVocab["\n"] = 198
         defaultVocab["{\""] = 4913
         defaultVocab["project"] = 4987
-        defaultVocab["\": \""] = 788
+        defaultVocab["\": "] = 788
         defaultVocab["\""] = 330
         defaultVocab["Hamlet"] = 39941
-        defaultVocab[", \""] = 1149
+        defaultVocab["\","] = 1149
+        defaultVocab[" "] = 497
         defaultVocab["role"] = 5778
         defaultVocab["Op"] = 46
         defaultVocab["hel"] = 759
@@ -224,54 +225,43 @@ final class BPETokenizer: @unchecked Sendable {
 
     /// Decodes an array of token IDs back into a readable UTF-8 String.
     func decode(tokens: [Int]) -> String {
-        var byteBuffer: [UInt8] = []
-
+        var result = ""
         for tokenID in tokens {
             if tokenID == eosTokenID || tokenID == imEndTokenID {
                 break
             }
             if let tokenStr = idToToken[tokenID] {
-                for char in tokenStr {
-                    if let byte = unicodeToBytes[char] {
-                        byteBuffer.append(byte)
-                    } else if let scalar = char.unicodeScalars.first, scalar.value < 256 {
-                        byteBuffer.append(UInt8(scalar.value))
-                    }
-                }
+                result += tokenStr
             } else if tokenID >= 0 && tokenID < 256 {
-                byteBuffer.append(UInt8(tokenID))
+                if let scalar = UnicodeScalar(tokenID) {
+                    result.append(Character(scalar))
+                }
             }
         }
-
-        return String(decoding: byteBuffer, as: UTF8.self)
+        return result
     }
 
-    /// Encodes a raw text string into token IDs using Byte-Level BPE.
+    /// Encodes a raw text string into token IDs using Byte-Level BPE or subword vocab.
     func encode(text: String) -> [Int] {
-        var tokenIDs: [Int] = []
-        let pattern = #"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return fallbackByteEncode(text: text)
-        }
-
-        let nsString = text as NSString
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsString.length))
-
-        if matches.isEmpty && !text.isEmpty {
-            return fallbackByteEncode(text: text)
-        }
-
-        for match in matches {
-            let piece = nsString.substring(with: match.range)
-            guard let data = piece.data(using: .utf8) else { continue }
-            var bpePiece = ""
-            for byte in data {
-                if let char = bytesToUnicode[byte] {
-                    bpePiece.append(char)
-                }
+        if !bpeRanks.isEmpty {
+            var tokenIDs: [Int] = []
+            let pattern = #"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"#
+            guard let regex = try? NSRegularExpression(pattern: pattern) else {
+                return fallbackByteEncode(text: text)
             }
 
-            if !bpeRanks.isEmpty {
+            let nsString = text as NSString
+            let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsString.length))
+
+            for match in matches {
+                let piece = nsString.substring(with: match.range)
+                guard let data = piece.data(using: .utf8) else { continue }
+                var bpePiece = ""
+                for byte in data {
+                    if let char = bytesToUnicode[byte] {
+                        bpePiece.append(char)
+                    }
+                }
                 let mergedTokens = bpe(token: bpePiece)
                 for t in mergedTokens {
                     if let id = vocab[t] {
@@ -280,12 +270,40 @@ final class BPETokenizer: @unchecked Sendable {
                         tokenIDs.append(id)
                     }
                 }
-            } else {
-                if let id = vocab[bpePiece] ?? vocab[piece] {
-                    tokenIDs.append(id)
-                } else {
-                    tokenIDs.append(contentsOf: fallbackByteEncode(text: piece))
+            }
+            return tokenIDs
+        }
+
+        // Subword greedy longest match for built-in/offline vocabulary
+        var tokenIDs: [Int] = []
+        var remaining = text[text.startIndex...]
+
+        while !remaining.isEmpty {
+            var matchedToken: Int? = nil
+            var matchedLength = 0
+
+            let maxLen = min(remaining.count, 30)
+            for len in stride(from: maxLen, through: 1, by: -1) {
+                let candidateIdx = remaining.index(remaining.startIndex, offsetBy: len)
+                let candidateStr = String(remaining[..<candidateIdx])
+                if let id = vocab[candidateStr] {
+                    matchedToken = id
+                    matchedLength = len
+                    break
                 }
+            }
+
+            if let token = matchedToken {
+                tokenIDs.append(token)
+                remaining = remaining[remaining.index(remaining.startIndex, offsetBy: matchedLength)...]
+            } else {
+                let firstChar = remaining.first!
+                if let id = vocab[String(firstChar)] {
+                    tokenIDs.append(id)
+                } else if let scalar = firstChar.unicodeScalars.first, scalar.value < 256 {
+                    tokenIDs.append(Int(scalar.value))
+                }
+                remaining = remaining.dropFirst()
             }
         }
 
@@ -308,7 +326,16 @@ final class BPETokenizer: @unchecked Sendable {
     /// Formats a chat prompt according to the model's standard ChatML format:
     /// <|im_start|>system\n{systemPrompt}<|im_end|>\n<|im_start|>user\n{userPrompt}<|im_end|>\n<|im_start|>assistant\n
     func applyChatTemplate(system: String, user: String) -> [Int] {
-        let fullPrompt = "<|im_start|>system\n\(system)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
-        return encode(text: fullPrompt)
+        var tokenIDs: [Int] = [imStartTokenID]
+        tokenIDs.append(contentsOf: encode(text: "system\n\(system)"))
+        tokenIDs.append(imEndTokenID)
+        tokenIDs.append(contentsOf: encode(text: "\n"))
+        tokenIDs.append(imStartTokenID)
+        tokenIDs.append(contentsOf: encode(text: "user\n\(user)"))
+        tokenIDs.append(imEndTokenID)
+        tokenIDs.append(contentsOf: encode(text: "\n"))
+        tokenIDs.append(imStartTokenID)
+        tokenIDs.append(contentsOf: encode(text: "assistant\n"))
+        return tokenIDs
     }
 }

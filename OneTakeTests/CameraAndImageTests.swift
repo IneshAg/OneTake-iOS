@@ -297,6 +297,50 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertTrue(rect.contains(face), "Contains the face")
     }
 
+    func testHeadshotPresetsDefinedAndConsistent() {
+        XCTAssertEqual(HeadshotPreset.allCases.count, 6)
+        let titles = Set(HeadshotPreset.allCases.map(\.title))
+        XCTAssertTrue(titles.contains("Card Slot Fit"))
+        XCTAssertTrue(titles.contains("Theatrical (4:5)"))
+        XCTAssertTrue(titles.contains("Commercial (3:4)"))
+        XCTAssertTrue(titles.contains("Square (1:1)"))
+        XCTAssertTrue(titles.contains("Tight Close-Up"))
+        XCTAssertTrue(titles.contains("Head & Shoulders"))
+
+        for preset in HeadshotPreset.allCases {
+            XCTAssertFalse(preset.shortTitle.isEmpty)
+            XCTAssertFalse(preset.icon.isEmpty)
+            XCTAssertFalse(preset.description.isEmpty)
+            XCTAssertGreaterThan(preset.ratio(isProfile: false), 0)
+            XCTAssertGreaterThan(preset.ratio(isProfile: true), 0)
+            XCTAssertGreaterThan(preset.faceFraction(isProfile: false), 0)
+            XCTAssertGreaterThan(preset.faceFraction(isProfile: true), 0)
+            XCTAssertGreaterThan(preset.faceCenterFromTop(isProfile: false), 0)
+            XCTAssertGreaterThan(preset.faceCenterFromTop(isProfile: true), 0)
+        }
+    }
+
+    func testImageFramerAutoFrameWithPresets() {
+        let testImage = createTestImage(width: 1200, height: 1600)
+        for preset in HeadshotPreset.allCases {
+            let cropped = ImageFramer.crop(testImage, preset: preset, isProfile: false)
+            XCTAssertNotNil(cropped, "Crop for preset \(preset.title) should succeed")
+            if let cg = cropped?.cgImage {
+                let actualRatio = CGFloat(cg.width) / CGFloat(cg.height)
+                let expectedRatio = preset.ratio(isProfile: false)
+                XCTAssertEqual(actualRatio, expectedRatio, accuracy: 0.05, "Ratio for \(preset.title) matches expected")
+            }
+
+            let profileCrop = ImageFramer.crop(testImage, preset: preset, isProfile: true)
+            XCTAssertNotNil(profileCrop, "Profile crop for preset \(preset.title) should succeed")
+            if let cg = profileCrop?.cgImage {
+                let actualRatio = CGFloat(cg.width) / CGFloat(cg.height)
+                let expectedRatio = preset.ratio(isProfile: true)
+                XCTAssertEqual(actualRatio, expectedRatio, accuracy: 0.05, "Profile ratio for \(preset.title) matches expected")
+            }
+        }
+    }
+
     // MARK: - Empirical Stress Tests: Zoom & Timer State Machine
 
     func testStressCycleZoomProgressionArbitraryFloats() {

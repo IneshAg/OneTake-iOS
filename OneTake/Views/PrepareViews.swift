@@ -29,15 +29,12 @@ struct PrepareView: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(OT.labelPrimary)
                                 .frame(width: 38, height: 38)
-                                .background(Color(uiColor: .secondarySystemFill), in: Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-                                )
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
                         }
-                        .buttonStyle(CircularIconPressStyle())
+                        .modifier(GlassButtonCompatibility(enabled: true))
                         .accessibilityLabel("Text size")
                     }
                     .padding(.top, 4)
@@ -48,35 +45,6 @@ struct PrepareView: View {
                     }
                     .pickerStyle(.segmented)
                     HStack {
-                        let totalMine = scene.lines.filter(\.isMine).count
-                        Menu {
-                            if learned(scene) > 0 {
-                                Button(role: .destructive) {
-                                    store.recordRun(auditionID: a.id, sceneIndex: sceneIndex, linesOnYourOwn: 0)
-                                    Haptics.tick()
-                                } label: {
-                                    Label("Mark unlearned", systemImage: "arrow.counterclockwise")
-                                }
-                            }
-                            if learned(scene) < totalMine {
-                                Button {
-                                    store.recordRun(auditionID: a.id, sceneIndex: sceneIndex, linesOnYourOwn: totalMine)
-                                    Haptics.success()
-                                } label: {
-                                    Label("Mark all lines learned", systemImage: "checkmark.circle")
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("\(learned(scene)) of \(totalMine) lines learned")
-                                    .font(.otFootnote)
-                                    .foregroundStyle(learned(scene) == totalMine && totalMine > 0 ? OT.accent : OT.labelTertiary)
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(OT.labelTertiary)
-                            }
-                        }
-                        .buttonStyle(.plain)
                         Spacer()
                         HStack(spacing: 8) {
                             Button { store.push(.sceneAudioFlow(a.id, sceneIndex: sceneIndex)) } label: {
@@ -174,11 +142,6 @@ struct PrepareView: View {
         }
     }
 
-    /// Real progress from the matching Practice piece, if one exists for this scene — not a constant.
-    private func learned(_ s: ScriptScene) -> Int {
-        store.practice.first(where: { $0.scene?.id == s.id })?.linesLearned ?? 0
-    }
-
     @ViewBuilder private func lineView(_ line: ScriptLine) -> some View {
         let textSize = [19, 25, 32][min(max(prompterSize, 0), 2)]
         VStack(alignment: .leading, spacing: 4) {
@@ -187,12 +150,16 @@ struct PrepareView: View {
                 .foregroundStyle(line.isMine ? OT.accent : OT.reader)
             HStack(alignment: .top, spacing: 10) {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
-                Text(display(line))
-                    .font(line.isMine ? .system(size: CGFloat(textSize), weight: .semibold) : .system(size: CGFloat(textSize - 2)))
-                    .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
-                    .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onTapGesture { if line.isMine && mode != .full { peeked = peeked == line.id ? nil : line.id; Haptics.tick() } }
+                if line.isSilentReactionCue {
+                    SilentReactionCue()
+                } else {
+                    Text(display(line))
+                        .font(line.isMine ? .system(size: CGFloat(textSize), weight: .semibold) : .system(size: CGFloat(textSize - 2)))
+                        .foregroundStyle(line.isMine ? OT.labelPrimary : OT.labelSecondary)
+                        .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onTapGesture { if line.isMine && mode != .full { peeked = peeked == line.id ? nil : line.id; Haptics.tick() } }
+                }
             }
         }
         .padding(.vertical, 4)
@@ -206,8 +173,8 @@ struct PrepareView: View {
 
     private func bottomBar(_ a: Audition) -> some View {
         HStack(spacing: 12) {
-            Button { store.push(.runLines(a.id, sceneIndex: sceneIndex)) } label: {
-                Label("Run lines", systemImage: "play.fill").labelStyle(TrailingIconLabelStyle())
+            Button { store.push(.practiceOptions(a.id, sceneIndex: sceneIndex)) } label: {
+                Label("Practice", systemImage: "play.fill").labelStyle(TrailingIconLabelStyle())
             }
             .buttonStyle(.otSecondary)
             Button { store.push(.shootSetup(a.id, scene: sceneIndex)) } label: {
@@ -262,12 +229,10 @@ struct RunLinesView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var index = 0
-    @State private var prompted = false
     @State private var finished = false
-    /// What this run actually showed: your lines said out loud without a prompt, and the ones that
-    /// needed "Line?". Lines skipped with the forward button count as neither.
+    /// What this run actually showed: your lines said out loud without a prompt. Skipped lines
+    /// count as neither.
     @State private var onYourOwn: Set<Int> = []
-    @State private var neededStart: Set<Int> = []
     @State private var reachedEnd = false
     @State private var follower = SpeechFollower()
     /// Plays the reader lines you recorded yourself (Record Maya). No synthetic or second-device voices.
@@ -281,7 +246,7 @@ struct RunLinesView: View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
             let lines = a.scenes[sceneIndex].lines
             VStack(alignment: .leading, spacing: 18) {
-                InContentNavHeader(title: "Run lines", backLabel: "Back", onBack: { store.pop() })
+                InContentNavHeader(title: "Practice", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
 
                 // progress
@@ -293,25 +258,30 @@ struct RunLinesView: View {
                 Text("Line \(index + 1) of \(lines.count)").font(.otFootnote).foregroundStyle(OT.labelTertiary)
 
                 if finished {
-                    RunFinishedView(lines: lines, onYourOwn: onYourOwn, neededStart: neededStart,
+                    RunFinishedView(lines: lines, onYourOwn: onYourOwn,
                                     reachedEnd: reachedEnd, heardYou: follower.isListening) {
-                        index = 0; finished = false; reachedEnd = false; onYourOwn = []; neededStart = []
+                        index = 0; finished = false; reachedEnd = false; onYourOwn = []
                         follower.reset()
                         speakIfReader(lines)
                     } onClose: { store.pop() }
                 } else {
                     if index > 0 {
                         SectionLabel(text: lines[index - 1].isMine ? "You said" : "\(lines[index - 1].character.capitalized) said")
-                        Text(lines[index - 1].text).font(.otCallout).foregroundStyle(OT.labelTertiary)
+                        if lines[index - 1].isSilentReactionCue { SilentReactionCue() }
+                        else { Text(lines[index - 1].text).font(.otCallout).foregroundStyle(OT.labelTertiary) }
                     }
                     let line = lines[index]
                     if line.isMine {
-                        Label(prompted ? "Your line · quiet for 3 s" : "Your line · listening", systemImage: "waveform")
-                            .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
-                        Text(prompted ? AttributedString(firstWords(line.text)) : highlighted(line.text))
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundStyle(OT.labelPrimary)
-                        Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
+                        if line.isSilentReactionCue {
+                            SilentReactionCue()
+                        } else {
+                            Label("Your line · listening", systemImage: "waveform")
+                                .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
+                            Text(highlighted(line.text))
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(OT.labelPrimary)
+                            Label("The highlight follows your voice", systemImage: "line.3.horizontal").font(.otFootnote).foregroundStyle(OT.accent)
+                        }
                     } else {
                         Label(readerAudioMissing ? "\(line.character.capitalized) · no recording" : "\(line.character.capitalized) · your recording", systemImage: readerAudioMissing ? "mic.slash" : "waveform")
                             .font(.otCaption.weight(.semibold)).foregroundStyle(OT.reader)
@@ -320,8 +290,10 @@ struct RunLinesView: View {
                     Spacer()
                     HStack(spacing: 12) {
                         Button { stopReader(); finished = true } label: { Image(systemName: "pause.fill").frame(width: 52, height: 52).background(OT.fillField, in: Circle()) }
-                        if line.isMine {
-                            Button(prompted ? "Whole line" : "Line?") { prompted.toggle(); Haptics.tick() }.buttonStyle(.otPrimary)
+                        if line.isSilentReactionCue {
+                            Button("Done reacting") { advance(lines) }.buttonStyle(.otPrimary)
+                        } else if line.isMine {
+                            Spacer(minLength: 0)
                         } else if readerAudioMissing {
                             Button("Continue") { advance(lines) }.buttonStyle(.otPrimary)
                         } else {
@@ -343,12 +315,8 @@ struct RunLinesView: View {
             .onChange(of: follower.transcript) { _, transcript in
                 guard !finished, lines[index].isMine,
                       SpokenLineMatcher.matchedWordIndices(in: lines[index].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[index].text) else { return }
-                if !prompted { onYourOwn.insert(index) }
+                onYourOwn.insert(index)
                 advance(lines)
-            }
-            // "Line?" out loud — same as tapping the button, so you never have to touch the phone.
-            .onChange(of: follower.lastCommand) { _, cmd in
-                if cmd?.word == "line", lines[index].isMine, !prompted { prompted = true; Haptics.tick() }
             }
             .task { if await SpeechFollower.requestAccess() { follower.start() } }
             .onDisappear { follower.stop(); stopReader() }
@@ -357,8 +325,6 @@ struct RunLinesView: View {
 
     private func advance(_ lines: [ScriptLine]) {
         stopReader()
-        if prompted, lines[index].isMine { neededStart.insert(index) }
-        prompted = false
         follower.reset()
         if index + 1 < lines.count {
             index += 1
@@ -382,7 +348,7 @@ struct RunLinesView: View {
             readerAudioMissing = true
             return
         }
-        let delay = (readerPlayer.duration ?? (Double(lines[index].text.count) * 0.06)) + 0.45
+        let delay = readerPlayer.duration + 0.45
         readerAdvance = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
@@ -395,8 +361,6 @@ struct RunLinesView: View {
         readerAdvance = nil
         readerPlayer.stop()
     }
-
-    private func firstWords(_ text: String) -> String { text.split(separator: " ").prefix(3).joined(separator: " ") + "…" }
 
     private func highlighted(_ text: String) -> AttributedString {
         var out = AttributedString()
@@ -419,7 +383,6 @@ struct RunFinishedView: View {
     let lines: [ScriptLine]
     /// Indices into `lines`.
     let onYourOwn: Set<Int>
-    let neededStart: Set<Int>
     /// False when the run was paused before the last line.
     let reachedEnd: Bool
     /// Whether speech recognition was listening; without it nothing can count as said on your own.
@@ -429,13 +392,7 @@ struct RunFinishedView: View {
 
     private var summary: String {
         guard heardYou else { return "on your own. Voice listening was off, so lines you skipped past can't count — turn on Speech Recognition for OneTake in Settings." }
-        var text = reachedEnd ? "on your own" : "on your own before you paused"
-        switch neededStart.count {
-        case 0: text += "."
-        case 1: text += ". You needed a start on one line."
-        default: text += ". You needed a start on \(neededStart.count) lines."
-        }
-        return text
+        return reachedEnd ? "Lines you said without a prompt." : "Lines you said without a prompt before you paused."
     }
 
     var body: some View {
@@ -448,11 +405,12 @@ struct RunFinishedView: View {
             Text(summary).font(.otCallout).foregroundStyle(OT.labelSecondary)
             ForEach(Array(lines.enumerated()), id: \.element.id) { i, l in
                 HStack(alignment: .top) {
-                    Image(systemName: symbol(i, l)).foregroundStyle(onYourOwn.contains(i) ? OT.accent : neededStart.contains(i) ? OT.warning : OT.labelTertiary)
-                    Text(l.text).font(l.isMine ? .otHeadline : .otCallout).foregroundStyle(l.isMine ? OT.labelPrimary : OT.labelTertiary)
+                    Image(systemName: symbol(i, l)).foregroundStyle(onYourOwn.contains(i) ? OT.accent : OT.labelTertiary)
+                    if l.isSilentReactionCue { SilentReactionCue() }
+                    else { Text(l.text).font(l.isMine ? .otHeadline : .otCallout).foregroundStyle(l.isMine ? OT.labelPrimary : OT.labelTertiary) }
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(l.isMine ? "\(onYourOwn.contains(i) ? "Said on your own" : neededStart.contains(i) ? "Needed a start" : "Not said"): \(l.text)" : "Reader: \(l.text)")
+                .accessibilityLabel(l.isMine ? "\(onYourOwn.contains(i) ? "Said on your own" : "Not said"): \(l.text)" : "Reader: \(l.text)")
             }
             Spacer()
             Button("Run again", action: onAgain).buttonStyle(.otPrimary)
@@ -463,7 +421,6 @@ struct RunFinishedView: View {
     private func symbol(_ i: Int, _ line: ScriptLine) -> String {
         guard line.isMine else { return "text.bubble" }
         if onYourOwn.contains(i) { return "checkmark.square.fill" }
-        if neededStart.contains(i) { return "questionmark.square" }
         return "square"
     }
 }
@@ -967,7 +924,6 @@ struct RecordReaderView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(allSceneLines) { sLine in
-                                let isTargetReader = sLine.character.caseInsensitiveCompare(readerName) == .orderedSame
                                 let matchedReaderIdx = readerLines.firstIndex(where: { $0.id == sLine.id })
                                 let isCurrentActive = matchedReaderIdx == lineIndex
 
@@ -975,7 +931,7 @@ struct RecordReaderView: View {
                                     HStack(spacing: 6) {
                                         Text(sLine.isMine ? "\(sLine.character.uppercased()) (YOU)" : sLine.character.uppercased())
                                             .font(.otCaption.weight(.bold))
-                                            .foregroundStyle(sLine.isMine ? OT.prompterGold : OT.reader)
+                                            .foregroundStyle(sLine.isMine ? OT.accent : OT.reader)
 
                                         if isCurrentActive {
                                             Text("RECORDING CUE")
@@ -1006,11 +962,11 @@ struct RecordReaderView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     RoundedRectangle(cornerRadius: 14)
-                                        .fill(isCurrentActive ? OT.reader.opacity(0.18) : (sLine.isMine ? Color.white.opacity(0.04) : OT.fillField))
+                                        .fill(isCurrentActive ? OT.reader.opacity(0.18) : (sLine.isMine ? OT.accentSoft.opacity(0.35) : OT.fillField))
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 14)
-                                        .stroke(isCurrentActive ? OT.reader : Color.clear, lineWidth: 1.5)
+                                        .stroke(isCurrentActive ? OT.reader : (sLine.isMine ? OT.accent.opacity(0.2) : Color.clear), lineWidth: 1.5)
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture {
@@ -1050,7 +1006,7 @@ struct RecordReaderView: View {
                                 Text("CUE: \(prev.isMine ? "\(prev.character.uppercased()) (YOU)" : prev.character.uppercased())")
                                     .font(.otCaption.weight(.bold))
                             }
-                            .foregroundStyle(prev.isMine ? OT.prompterGold : OT.reader)
+                            .foregroundStyle(prev.isMine ? OT.accent : OT.reader)
 
                             Text(prev.text)
                                 .font(.otCallout)
@@ -1059,7 +1015,8 @@ struct RecordReaderView: View {
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(OT.separator, lineWidth: 1))
                     }
 
                     HStack {
@@ -1111,7 +1068,7 @@ struct RecordReaderView: View {
                         HStack(spacing: 6) {
                             Text("NEXT:")
                                 .font(.otCaption.weight(.bold))
-                                .foregroundStyle(next.isMine ? OT.prompterGold : OT.reader)
+                                .foregroundStyle(next.isMine ? OT.accent : OT.reader)
                             Text("\(next.isMine ? "\(next.character.uppercased()) (YOU)" : next.character.uppercased()): \(next.text)")
                                 .font(.otCaption)
                                 .foregroundStyle(OT.labelTertiary)
@@ -1390,14 +1347,19 @@ struct RecordReaderView: View {
                 let result = await recorder.stop(expectedText: currentLineText)
                 isProcessing = false
                 switch result {
-                case .success:
+                case .success(let duration):
                     store.readerTracksDidChange()
                     Haptics.success()
-                    successBanner = isCurrentRecorded ? "Retake saved for Line \(recordedIndex + 1)" : "Line \(recordedIndex + 1) recorded"
+                    let baseMsg = isCurrentRecorded ? "Retake saved for Line \(recordedIndex + 1)" : "Line \(recordedIndex + 1) recorded"
+                    if let issue = recorder.lastAudioIssues.first {
+                        successBanner = "\(baseMsg) (\(String(format: "%.1f", duration))s) · \(issue.rawValue)"
+                    } else {
+                        successBanner = "\(baseMsg) (\(String(format: "%.1f", duration))s)"
+                    }
                     recordingError = nil
 
                     Task {
-                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
                         if successBanner != nil { successBanner = nil }
                     }
 
@@ -1409,11 +1371,11 @@ struct RecordReaderView: View {
 
                 case .tooShort(let duration):
                     Haptics.warning()
-                    recordingError = "Recording was too short (\(String(format: "%.1f", duration))s). Please speak the line clearly before stopping."
+                    recordingError = "No speech detected (recording was blank, only \(String(format: "%.1f", duration))s). Please speak your line clearly before tapping stop."
 
                 case .noSpeechDetected:
                     Haptics.warning()
-                    recordingError = "No speech detected. Please speak the line clearly before tapping stop."
+                    recordingError = "No speech detected. The microphone didn't pick up audio. Please check your microphone or speak louder."
 
                 case .recordingFailed(let message):
                     Haptics.warning()

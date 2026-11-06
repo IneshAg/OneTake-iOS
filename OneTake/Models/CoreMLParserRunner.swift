@@ -101,7 +101,7 @@ actor CoreMLParserRunner {
 
             let inputFeature = DictionaryFeatureProvider(values: ["input_ids": MLFeatureValue(multiArray: inputArray)])
 
-            guard let output = try? model.prediction(from: inputFeature),
+            guard let output = try? await model.prediction(from: inputFeature),
                   let logits = output.featureValue(for: "logits")?.multiArrayValue else {
                 break
             }

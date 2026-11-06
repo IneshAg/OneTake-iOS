@@ -21,6 +21,106 @@ enum FramingRatio: String, CaseIterable, Identifiable {
     }
 }
 
+/// Standard industry presets for auto-framing headshots.
+enum HeadshotPreset: String, CaseIterable, Identifiable {
+    case cardSlot = "Card Slot Fit"
+    case theatrical = "Theatrical (4:5)"
+    case commercial = "Commercial (3:4)"
+    case square = "Square (1:1)"
+    case tight = "Tight Close-Up"
+    case headAndShoulders = "Head & Shoulders"
+
+    var id: String { rawValue }
+
+    var title: String { rawValue }
+
+    var shortTitle: String {
+        switch self {
+        case .cardSlot: return "Card Fit"
+        case .theatrical: return "4:5"
+        case .commercial: return "3:4"
+        case .square: return "1:1"
+        case .tight: return "Tight"
+        case .headAndShoulders: return "H & S"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .cardSlot: return "rectangle.split.2x1"
+        case .theatrical: return "rectangle.portrait"
+        case .commercial: return "rectangle.portrait.fill"
+        case .square: return "square"
+        case .tight: return "face.smiling"
+        case .headAndShoulders: return "person.crop.rectangle"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .cardSlot: return "Matched to OneTake audition submission cards"
+        case .theatrical: return "Standard 8×10 theatrical print & casting format"
+        case .commercial: return "Commercial & print audition portrait ratio"
+        case .square: return "Actors Access & casting directory profile icon"
+        case .tight: return "Expression & eye focus close-up"
+        case .headAndShoulders: return "Balanced chest-up with comfortable headroom"
+        }
+    }
+
+    func ratio(isProfile: Bool) -> CGFloat {
+        if isProfile {
+            switch self {
+            case .cardSlot: return 171.5 / 145.0
+            case .theatrical: return 4.0 / 5.0
+            case .commercial: return 3.0 / 4.0
+            case .square: return 1.0
+            case .tight, .headAndShoulders: return 171.5 / 145.0
+            }
+        } else {
+            switch self {
+            case .cardSlot: return 171.5 / 300.0
+            case .theatrical: return 4.0 / 5.0
+            case .commercial: return 3.0 / 4.0
+            case .square: return 1.0
+            case .tight, .headAndShoulders: return 4.0 / 5.0
+            }
+        }
+    }
+
+    func faceFraction(isProfile: Bool) -> CGFloat {
+        if isProfile {
+            switch self {
+            case .tight: return 0.55
+            case .headAndShoulders, .theatrical, .commercial, .square: return 0.42
+            case .cardSlot: return 0.45
+            }
+        } else {
+            switch self {
+            case .tight: return 0.35
+            case .headAndShoulders: return 0.24
+            case .theatrical: return 0.25
+            case .commercial: return 0.28
+            case .square: return 0.30
+            case .cardSlot: return 0.21
+            }
+        }
+    }
+
+    func faceCenterFromTop(isProfile: Bool) -> CGFloat {
+        if isProfile {
+            return 0.42
+        } else {
+            switch self {
+            case .tight: return 0.42
+            case .headAndShoulders, .theatrical: return 0.39
+            case .commercial: return 0.38
+            case .square: return 0.40
+            case .cardSlot: return 0.35
+            }
+        }
+    }
+}
+
 /// Reframes a headshot as head-and-shoulders around the detected face.
 ///
 /// Two things made the old version "pan in" instead of reframing:
@@ -49,9 +149,19 @@ enum ImageFramer {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
+    static func crop(_ image: UIImage, preset: HeadshotPreset, isProfile: Bool = false) -> UIImage? {
+        let ratio = preset.ratio(isProfile: isProfile)
+        guard ratio > 0, let upright = normalized(image), let cgImage = upright.cgImage else { return nil }
+        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let face = detectSubject(in: cgImage, size: size, isProfile: isProfile)
+        let rect = cropRect(imageSize: size, subject: face, ratio: ratio, preset: preset, isProfile: isProfile)
+        guard let cropped = cgImage.cropping(to: rect) else { return nil }
+        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+
     /// The crop, in pixel space of the upright image (top-left origin). Pure, so it can be tested.
     /// - Parameter subject: the face box, or `nil` to fall back to an upper-biased centre crop.
-    static func cropRect(imageSize: CGSize, subject: CGRect?, ratio: CGFloat, isProfile: Bool = false) -> CGRect {
+    static func cropRect(imageSize: CGSize, subject: CGRect?, ratio: CGFloat, preset: HeadshotPreset? = nil, isProfile: Bool = false) -> CGRect {
         let imageW = imageSize.width, imageH = imageSize.height
         guard imageW > 0, imageH > 0, ratio > 0 else { return .zero }
 
@@ -59,7 +169,11 @@ enum ImageFramer {
         let targetAnchorFromTop: CGFloat
         let targetMinFaceWidths: CGFloat
 
-        if isProfile {
+        if let preset {
+            targetFaceHeightFraction = preset.faceFraction(isProfile: isProfile)
+            targetAnchorFromTop = preset.faceCenterFromTop(isProfile: isProfile)
+            targetMinFaceWidths = isProfile ? 2.0 : (preset == .tight ? 1.8 : 2.5)
+        } else if isProfile {
             // Profile shots live in wide cards (~1.18 ratio, height ~145 pt).
             // Head needs to fill ~45% of the frame height with proper headroom,
             // avoiding tiny heads with vast ceilings.

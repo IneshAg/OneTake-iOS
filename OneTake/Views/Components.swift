@@ -13,6 +13,29 @@ struct SectionLabel: View {
     }
 }
 
+/// Makes a printed `?` cue read as a playable silent reaction while retaining its script meaning.
+struct SilentReactionCue: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("?")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(OT.accent)
+                .frame(width: 34, height: 34)
+                .background(OT.accent.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Silent reaction").font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                Text("React in character. No words or reader audio.")
+                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Progress ring / readiness dial (v2/Progress Ring)
 
 /// Segmented dial: one segment per package piece. Done = accent, next = soft accent, todo = quiet track.
@@ -185,6 +208,22 @@ struct CompactSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// Figma's compact glass action for secondary controls. Primary actions keep their solid accent fill.
+struct GlassLabelButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.otSubhead.weight(.semibold))
+            .foregroundStyle(OT.accent)
+            .padding(.horizontal, 13)
+            .frame(minHeight: 40)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
+            .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 extension ButtonStyle where Self == PrimaryButtonStyle { static var otPrimary: PrimaryButtonStyle { .init() } }
 extension ButtonStyle where Self == SecondaryButtonStyle {
     static var otSecondary: SecondaryButtonStyle { .init() }
@@ -194,6 +233,7 @@ extension ButtonStyle where Self == CompactSecondaryButtonStyle {
     static var otCompact: CompactSecondaryButtonStyle { .init() }
     static var otCompactDark: CompactSecondaryButtonStyle { .init(onDark: true) }
 }
+extension ButtonStyle where Self == GlassLabelButtonStyle { static var otGlass: GlassLabelButtonStyle { .init() } }
 
 // MARK: - Schedule row (v2/Schedule Row)
 
@@ -439,51 +479,90 @@ struct GlassBackButton: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(onDark ? .white : OT.labelPrimary)
                         .frame(width: 38, height: 38)
-                        .background(
-                            onDark
-                            ? AnyShapeStyle(Color.white.opacity(0.16))
-                            : AnyShapeStyle(Color(uiColor: .secondarySystemFill)),
-                            in: Circle()
-                        )
+                        .background(.ultraThinMaterial, in: Circle())
                         .overlay(
                             Circle()
-                                .stroke(onDark ? Color.white.opacity(0.22) : Color.white.opacity(0.35), lineWidth: 0.5)
+                                .stroke(Color.white.opacity(onDark ? 0.28 : 0.55), lineWidth: 0.7)
                         )
                         .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                } else if onDark {
-                    // Circular glass back button on live camera viewports
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(
-                            Color.white.opacity(0.16),
-                            in: Circle()
-                        )
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
-                        )
-                        .frame(width: 44, height: 44)
+                        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
                         .contentShape(Rectangle())
                 } else {
-                    // Standard Apple iOS UINavigationBar back button (chevron + destination label)
-                    HStack(spacing: 5) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text(label.isEmpty ? "Back" : label)
-                            .font(.system(size: 17, weight: .regular))
-                    }
-                    .foregroundStyle(OT.accent)
-                    .frame(height: 44)
-                    .contentShape(Rectangle())
+                    // Back is an icon-only glass control throughout the app. Context is kept
+                    // accessible without making the visual control look like a text link.
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(onDark ? Color.white : OT.accent)
+                        .frame(width: 38, height: 38)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(onDark ? 0.28 : 0.62), lineWidth: 0.7))
+                        .frame(width: 44, height: 44)
+                        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+                        .contentShape(Circle())
                 }
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(NativeNavPressStyle())
+        .modifier(GlassButtonCompatibility(enabled: !isDismissStyle))
         .accessibilityLabel(label.isEmpty ? "Back" : label)
+    }
+}
+
+/// Shared circular glass control for floating header actions such as Add and Close.
+struct GlassIconButton: View {
+    let systemName: String
+    let accessibilityLabel: String
+    var onDark = false
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tick()
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(onDark ? Color.white : OT.labelPrimary)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(onDark ? 0.28 : 0.62), lineWidth: 0.7))
+                .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+                .contentShape(Circle())
+        }
+        .modifier(GlassButtonCompatibility(enabled: true))
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+struct GlassButtonCompatibility: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if enabled, #available(iOS 26.0, *) {
+            content.buttonStyle(.glass).buttonBorderShape(.circle)
+        } else {
+            content.buttonStyle(NativeNavPressStyle())
+        }
+        #else
+        content.buttonStyle(NativeNavPressStyle())
+        #endif
+    }
+}
+
+struct GlassCapsuleButtonCompatibility: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glass).buttonBorderShape(.capsule)
+        } else {
+            content.buttonStyle(.otGlass)
+        }
+        #else
+        content.buttonStyle(.otGlass)
+        #endif
     }
 }
 

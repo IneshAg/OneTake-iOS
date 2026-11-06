@@ -194,6 +194,7 @@ private struct RouteDestinations: ViewModifier {
         case .privacy:                           PrivacyView()
         case .notifications:                     NotificationSettingsView()
         case .practiceSetup:                     PracticeSetupView()
+        case .practiceOptions(let id, let scene): PracticeOptionsView(auditionID: id, sceneIndex: scene)
         case .standalonePractice(let id):        StandalonePracticeView(pieceID: id)
         case .practiceSample:                    StandalonePracticeView(pieceID: nil, isSample: true)
         case .lineDrill(let id, let scene, let mode): LineDrillView(auditionID: id, sceneIndex: scene, mode: mode)

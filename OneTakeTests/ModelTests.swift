@@ -1,3 +1,4 @@
+import AVFoundation
 import VisionKit
 import XCTest
 @testable import OneTake
@@ -311,6 +312,112 @@ final class ModelTests: XCTestCase {
         } else {
             XCTFail("Expected success result")
         }
+    }
+
+    func testAudioInspectionShortSpeechCueAccepted() async throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-cue-\(UUID().uuidString).caf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        let file = try AVAudioFile(forWriting: tempURL, settings: settings)
+        let sampleRate = 44100.0
+        let duration = 0.35 // 350ms quick reader response
+        let totalFrames = AVAudioFrameCount(duration * sampleRate)
+        let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames)!
+        buffer.frameLength = totalFrames
+        let data = buffer.floatChannelData![0]
+
+        // Human vocal tone (~300 Hz) with conversational amplitude
+        for i in 0..<Int(totalFrames) {
+            let t = Float(i) / Float(sampleRate)
+            data[i] = 0.25 * sin(2.0 * .pi * 300.0 * t)
+        }
+        try file.write(from: buffer)
+
+        let analysis = await ReaderLineRecorder.inspectAndTrim(url: tempURL)
+        XCTAssertNotNil(analysis)
+        XCTAssertTrue(analysis?.hasSpeech == true, "Quick 0.35s speech cue must be detected as speech")
+        XCTAssertEqual(analysis?.issues.contains(.clipped), false)
+    }
+
+    func testAudioInspectionBlankSilenceRejected() async throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-blank-\(UUID().uuidString).caf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        let file = try AVAudioFile(forWriting: tempURL, settings: settings)
+        let sampleRate = 44100.0
+        let duration = 0.30
+        let totalFrames = AVAudioFrameCount(duration * sampleRate)
+        let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames)!
+        buffer.frameLength = totalFrames
+        let data = buffer.floatChannelData![0]
+
+        // Room noise floor (micro-level ambient noise, < 0.001)
+        for i in 0..<Int(totalFrames) {
+            data[i] = 0.0003 * sin(Float(i) * 0.05)
+        }
+        try file.write(from: buffer)
+
+        let analysis = await ReaderLineRecorder.inspectAndTrim(url: tempURL)
+        XCTAssertNotNil(analysis)
+        XCTAssertFalse(analysis?.hasSpeech == true, "Blank silence must NOT be detected as speech")
+    }
+
+    func testAudioInspectionCatchesClippingAndQuietIssues() async throws {
+        let tempClipped = FileManager.default.temporaryDirectory.appendingPathComponent("test-clipped-\(UUID().uuidString).caf")
+        let tempQuiet = FileManager.default.temporaryDirectory.appendingPathComponent("test-quiet-\(UUID().uuidString).caf")
+        defer {
+            try? FileManager.default.removeItem(at: tempClipped)
+            try? FileManager.default.removeItem(at: tempQuiet)
+        }
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+
+        // 1. Clipped file (peak >= 0.98)
+        let fileClipped = try AVAudioFile(forWriting: tempClipped, settings: settings)
+        let frames1 = AVAudioFrameCount(0.5 * 44100.0)
+        let buf1 = AVAudioPCMBuffer(pcmFormat: fileClipped.processingFormat, frameCapacity: frames1)!
+        buf1.frameLength = frames1
+        for i in 0..<Int(frames1) {
+            buf1.floatChannelData![0][i] = 0.98 * sin(Float(i) * 0.1)
+        }
+        try fileClipped.write(from: buf1)
+        let analysisClipped = await ReaderLineRecorder.inspectAndTrim(url: tempClipped)
+        XCTAssertTrue(analysisClipped?.issues.contains(.clipped) == true, "Should flag clipped audio")
+
+        // 2. Very quiet file (peak around 0.012)
+        let fileQuiet = try AVAudioFile(forWriting: tempQuiet, settings: settings)
+        let frames2 = AVAudioFrameCount(0.5 * 44100.0)
+        let buf2 = AVAudioPCMBuffer(pcmFormat: fileQuiet.processingFormat, frameCapacity: frames2)!
+        buf2.frameLength = frames2
+        for i in 0..<Int(frames2) {
+            buf2.floatChannelData![0][i] = 0.015 * sin(Float(i) * 0.1)
+        }
+        try fileQuiet.write(from: buf2)
+        let analysisQuiet = await ReaderLineRecorder.inspectAndTrim(url: tempQuiet)
+        XCTAssertTrue(analysisQuiet?.issues.contains(.tooQuiet) == true, "Should flag too quiet audio")
     }
 
     @MainActor

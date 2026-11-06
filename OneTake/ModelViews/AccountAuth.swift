@@ -79,7 +79,7 @@ enum AccountAuth {
                 throw AuthError.failed("Sign in with Apple has to be started from inside OneTake.")
             case .failed:
                 throw AuthError.failed(authError.localizedDescription)
-            @unknown default:
+            default:
                 throw AuthError.failed(authError.localizedDescription)
             }
         }

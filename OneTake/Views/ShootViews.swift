@@ -141,6 +141,7 @@ struct ShootSetupView: View {
     /// The scene to shoot, when the actor came from a particular one; otherwise the next one due.
     var scene: Int? = nil
     @Environment(AppStore.self) private var store
+    @AppStorage("speech.recognitionLocale") private var speechRecognitionLocale = SpeechFollower.defaultAccentIdentifier
 
     private var shootScene: Int { scene ?? store.sceneToShoot(auditionID) }
     /// Focus/Do Not Disturb can't be read or set by an app, so this one is the actor's own tick.
@@ -151,8 +152,6 @@ struct ShootSetupView: View {
     /// Every row reflects the real state of this iPhone right now — nothing is assumed.
     private var checks: [Check] {
         var checks: [Check] = []
-        checks.append(Check(eyebrow: "Camera", title: "Front camera ready",
-                            detail: "", ok: true))
 
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -191,11 +190,6 @@ struct ShootSetupView: View {
             }
         }
 
-        if let minutes = CameraController.recordingMinutesLeft {
-            checks.append(Check(eyebrow: "Storage", title: "About \(minutes) minutes of video free",
-                                detail: minutes < 10 ? "Free up space before shooting." : "", ok: minutes >= 10))
-        }
-
         checks.append(Check(eyebrow: "Interruptions", title: silenced ? "Silenced for this shoot" : "Calls and alerts can cut in",
                             detail: silenced ? "" : "Turn on Do Not Disturb in Control Centre.", ok: silenced))
         return checks
@@ -203,12 +197,32 @@ struct ShootSetupView: View {
 
     var body: some View {
         let rows = checks
+        let audition = store.audition(auditionID)
+        let sceneTitle = audition.flatMap {
+            $0.scenes.indices.contains(shootScene) ? $0.scenes[shootScene].title : nil
+        } ?? "Scene \(shootScene + 1)"
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                InContentNavHeader(title: "Shoot setup", backLabel: "Back", onBack: { store.pop() })
+                InContentNavHeader(title: "Scene setup", backLabel: "Back", onBack: { store.pop() })
                     .padding(.top, 4)
 
-                Text("Before you roll").font(.otLargeTitle)
+                Text(sceneTitle).font(.otLargeTitle)
+                Text("Check your reader and microphone before recording this scene.")
+                    .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Speech accent")
+                        .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
+                    Picker("Speech accent", selection: $speechRecognitionLocale) {
+                        ForEach(SpeechFollower.availableEnglishAccents) { accent in
+                            Text(accent.title).tag(accent.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Text("Choose the English accent closest to your pronunciation.")
+                        .font(.otCaption).foregroundStyle(OT.labelTertiary)
+                }
+                .padding(14)
+                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 ForEach(rows, id: \.eyebrow) { c in
                     check(c.eyebrow, c.title, c.detail, ok: c.ok)
                     if c.eyebrow == "Reader", !c.ok {
@@ -227,6 +241,11 @@ struct ShootSetupView: View {
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            if !SpeechFollower.availableEnglishAccents.contains(where: { $0.id == speechRecognitionLocale }) {
+                speechRecognitionLocale = SpeechFollower.defaultAccentIdentifier
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Button { store.camera = .shoot(auditionID, scene: shootScene) } label: { Label("Open the camera", systemImage: "camera.fill") }
                 .buttonStyle(.otPrimary)
@@ -288,11 +307,14 @@ struct ShootFlow: View {
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.followVoice") private var followVoice = true
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
+    @AppStorage("camera.voiceGuidanceEnabled") private var voiceGuidanceEnabled = true
     @AppStorage("camera.poseGuideEnabled") private var poseGuideEnabled = true
     @AppStorage("camera.gesturesEnabled") private var gesturesEnabled = false
     @AppStorage("camera.gestureHoldDuration") private var gestureHoldDuration = 1.2
     @State private var gestureHoldTask: Task<Void, Never>?
     @State private var lastGestureAction = Date.distantPast
+    @AppStorage("camera.recordingResolution") private var recordingResolution = CameraResolution.hd1080.rawValue
+    @State private var advanceAfterSceneSave = false
 
     var body: some View {
         let a = store.audition(auditionID)
@@ -303,6 +325,13 @@ struct ShootFlow: View {
 
             VStack(spacing: 12) {
                 topBar
+                if camera.isExposureLocked && camera.state == .ready {
+                    Label("AE/AF LOCKED · Tap to unlock", systemImage: "lock.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(OT.prompterGold)
+                        .padding(.horizontal, 10).frame(height: 28)
+                        .background(OT.cameraGlass, in: Capsule())
+                }
                 if camera.state == .recording {
                     HStack(spacing: 5) {
                         Capsule().fill(OT.prompterGold).frame(width: 3, height: 14)
@@ -322,6 +351,7 @@ struct ShootFlow: View {
                     Spacer()
                 }
                 voiceStatusPill
+                voiceCommandStatus
                 sceneActionBar
                 hud
                 bottomControls
@@ -343,10 +373,14 @@ struct ShootFlow: View {
         .task {
             sceneIndex = initialScene ?? store.sceneToShoot(auditionID)
             stage = initialStage == .slate ? .slate : initialStage == .fullLength ? .fullLength : .check
+            follower.setContextualStrings(speechContext(for: 0))
             camera.wantsFaceGuidance = true   // live framing + light check on the "Camera check" screen
             camera.wantsBodyPoseGuidance = poseGuideEnabled
             camera.wantsHandGesture = gesturesEnabled && stage != .check
-            if await CameraController.requestAccess() { camera.configure(position: .front) }
+            if await CameraController.requestAccess() {
+                let resolution = CameraResolution(rawValue: recordingResolution) ?? .hd1080
+                camera.configure(position: .front, resolution: resolution)
+            }
             voiceAllowed = await SpeechFollower.requestAccess()
             if voiceAllowed { follower.start() }
         }
@@ -356,15 +390,16 @@ struct ShootFlow: View {
             if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
         }
         .onChange(of: cameraGuidanceKey) { _, key in
-            guard stage == .check, camera.state == .ready, let key else { return }
+            guard voiceGuidanceEnabled, stage == .check, camera.state == .ready, let key else { return }
             Task { @MainActor in
                 let spoken = await OnDeviceIntelligence.cameraGuidance(fact: key) ?? key
-                guard stage == .check, camera.state == .ready else { return }
+                guard voiceGuidanceEnabled, stage == .check, camera.state == .ready else { return }
                 cameraSpeaker.speak(spoken)
             }
         }
         .onChange(of: follower.lastCommand) { _, cmd in
-            if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready { roll() }
+            if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready,
+               [.slate, .fullLength, .scene].contains(stage) { roll() }
             if cmd?.word == "cut", camera.state == .recording { cut() }
         }
         // Volume buttons, Camera Control, and AirPods stem presses (camera remote) start and stop a
@@ -462,9 +497,57 @@ struct ShootFlow: View {
             if camera.state == .recording {
                 Color.clear.frame(width: 44, height: 44)
             } else {
-                topBarTrailing
+                HStack(spacing: 5) {
+                    timerMenu
+                    Button {
+                        voiceGuidanceEnabled.toggle()
+                        Haptics.tick()
+                        if voiceGuidanceEnabled {
+                            cameraSpeaker.speak("Voice guidance on", minInterval: 0.1)
+                        } else {
+                            cameraSpeaker.stop()
+                        }
+                    } label: {
+                        Image(systemName: voiceGuidanceEnabled ? "speaker.wave.2" : "speaker.slash")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 38, height: 38)
+                            .background(OT.cameraGlass, in: Circle())
+                    }
+                    .accessibilityLabel(voiceGuidanceEnabled ? "Mute voice guidance" : "Turn on voice guidance")
+                    topBarTrailing
+                }
             }
         }
+    }
+
+    private var timerMenu: some View {
+        Menu {
+            ForEach([0, 3, 5, 10], id: \.self) { seconds in
+                Button {
+                    timerSeconds = seconds
+                    Haptics.tick()
+                } label: {
+                    if timerSeconds == seconds {
+                        Label(seconds == 0 ? "Timer off" : "\(seconds) seconds", systemImage: "checkmark")
+                    } else {
+                        Text(seconds == 0 ? "Timer off" : "\(seconds) seconds")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "timer")
+                if timerSeconds > 0 { Text("\(timerSeconds)s").font(.system(size: 11, weight: .bold)) }
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
+            .frame(width: 44, height: 44)
+            .background(OT.cameraGlass, in: Circle())
+            .contentShape(Circle())
+        }
+        .disabled(camera.state == .recording || countdown != nil)
+        .accessibilityLabel(timerSeconds == 0 ? "Set recording countdown" : "Recording countdown, \(timerSeconds) seconds")
     }
 
     @ViewBuilder
@@ -555,6 +638,14 @@ struct ShootFlow: View {
         switch stage {
         case .check:
             VStack(spacing: 8) {
+                Text(firstStage == .slate ? "Ready to record your slate" : "Ready for \(sceneTitle(in: a))")
+                    .font(.otHeadline).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(firstStage == .slate
+                     ? "Keep your face centered and say your name, height, and city."
+                     : "Keep your eyeline near the lens. Your scene and reader cues are ready below.")
+                    .font(.otFootnote).foregroundStyle(.white.opacity(0.76))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
                     Label("Pose guide", systemImage: "figure.stand").font(.otCaption.weight(.semibold)).foregroundStyle(.white)
                     Spacer()
@@ -806,54 +897,48 @@ struct ShootFlow: View {
         }
     }
 
+    @ViewBuilder private var voiceCommandStatus: some View {
+        if [.slate, .fullLength, .scene].contains(stage), camera.state == .ready {
+            Label(
+                follower.isListening ? "Say Action to start · Cut to stop" : (voiceAllowed ? "Voice commands unavailable" : "Allow speech and microphone access"),
+                systemImage: follower.isListening ? "waveform" : "mic.slash"
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(follower.isListening ? OT.success : OT.due)
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(.black.opacity(0.58), in: Capsule())
+            .accessibilityAddTraits(.updatesFrequently)
+        }
+    }
+
     private var hud: some View {
         HStack(spacing: 6) {
-            // Dedicated technical camera parameters: preset, AE/AF lock, storage, gesture coach.
-            chip(nil, "1080p · 30")
-            Button {
-                camera.toggleExposureLock()
-                Haptics.tick()
-            } label: {
-                chip(camera.isExposureLocked ? "lock.fill" : "lock.open", camera.isExposureLocked ? "Exposure locked" : "Lock exposure")
-            }
-            .buttonStyle(.plain)
-
             Menu {
-                Button { timerSeconds = 0; Haptics.tick() } label: {
-                    HStack {
-                        Text("Timer off")
-                        if timerSeconds == 0 { Image(systemName: "checkmark") }
-                    }
-                }
-                Button { timerSeconds = 3; Haptics.tick() } label: {
-                    HStack {
-                        Text("3 seconds")
-                        if timerSeconds == 3 { Image(systemName: "checkmark") }
-                    }
-                }
-                Button { timerSeconds = 5; Haptics.tick() } label: {
-                    HStack {
-                        Text("5 seconds (walk to mark)")
-                        if timerSeconds == 5 { Image(systemName: "checkmark") }
-                    }
-                }
-                Button { timerSeconds = 10; Haptics.tick() } label: {
-                    HStack {
-                        Text("10 seconds (room setup)")
-                        if timerSeconds == 10 { Image(systemName: "checkmark") }
+                ForEach(camera.supportedResolutions) { resolution in
+                    Button {
+                        recordingResolution = resolution.rawValue
+                        camera.setResolution(resolution)
+                        Haptics.tick()
+                    } label: {
+                        if camera.currentResolution == resolution {
+                            Label(resolution.title, systemImage: "checkmark")
+                        } else {
+                            Text(resolution.title)
+                        }
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "timer").font(.caption2)
-                    Text(timerSeconds == 0 ? "Timer off" : "Timer \(timerSeconds)s").font(.otCaption.weight(.semibold))
+                    Image(systemName: "video").font(.caption2)
+                    Text("\(camera.currentResolution.title) · 30").font(.otCaption.weight(.semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
-                .foregroundStyle(timerSeconds > 0 ? OT.prompterGold : .white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 9).frame(height: 26).background(.black.opacity(0.55), in: Capsule())
             }
-            .disabled(camera.state == .recording || countdown != nil)
+            .disabled(camera.state != .ready || countdown != nil)
+            .accessibilityLabel("Recording resolution, \(camera.currentResolution.title)")
 
-            if let minutes = CameraController.recordingMinutesLeft { chip("internaldrive", "\(minutes) min") }
             if gesturesEnabled && [.slate, .fullLength, .scene].contains(stage) {
                 chip("hand.raised.fill", camera.state == .recording ? "Palm: pause" : "Palm: start / resume")
             }
@@ -990,6 +1075,11 @@ struct ShootFlow: View {
         return .scene
     }
 
+    private func sceneTitle(in audition: Audition) -> String {
+        guard audition.scenes.indices.contains(sceneIndex) else { return "Scene \(sceneIndex + 1)" }
+        return audition.scenes[sceneIndex].title
+    }
+
     // MARK: Actions
 
     private var sceneLines: [ScriptLine]? {
@@ -1027,6 +1117,7 @@ struct ShootFlow: View {
         sceneIndex = i
         lineIndex = 0
         follower.reset()
+        follower.setContextualStrings(speechContext(for: 0))
         Haptics.tick()
     }
 
@@ -1042,6 +1133,7 @@ struct ShootFlow: View {
         sceneIndex = next
         lineIndex = 0
         follower.reset()
+        follower.setContextualStrings(speechContext(for: 0))
         stage = .scene
     }
 
@@ -1063,7 +1155,9 @@ struct ShootFlow: View {
     /// Rolling on a scene: start from the top, and if the scene opens on the reader, play them in.
     private func startScene() {
         lineIndex = 0
+        advanceAfterSceneSave = false
         follower.reset()
+        follower.setContextualStrings(speechContext(for: 0))
         speakIfReader()
         scheduleTimedAdvance()
     }
@@ -1085,12 +1179,35 @@ struct ShootFlow: View {
         timedAdvance = nil
         readerAudioMissing = false
         follower.reset()
-        guard let lines = sceneLines, lineIndex + 1 < lines.count else { return }
+        guard let lines = sceneLines, lines.indices.contains(lineIndex) else { return }
+        guard lineIndex + 1 < lines.count else {
+            guard camera.state == .recording else { return }
+            advanceAfterSceneSave = true
+            cut()
+            return
+        }
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
             lineIndex += 1
         }
+        follower.setContextualStrings(speechContext(for: lineIndex))
         speakIfReader()
         scheduleTimedAdvance()
+    }
+
+    /// Speech gets the current and adjacent script wording as vocabulary hints, which helps it
+    /// recognize character names and less common dialogue across different English accents.
+    private func speechContext(for index: Int) -> [String] {
+        guard let lines = sceneLines, !lines.isEmpty else { return [] }
+        let lower = max(0, index - 1)
+        let upper = min(lines.count - 1, index + 1)
+        let words = lines[lower...upper].flatMap { line in
+            line.text.components(separatedBy: CharacterSet.letters.inverted).filter { $0.count > 1 }
+        }
+        var hints = words
+        if words.count > 1 {
+            hints.append(contentsOf: zip(words, words.dropFirst()).map { "\($0) \($1)" })
+        }
+        return Array(hints.prefix(100))
     }
 
     private func interpretTalkback(_ line: ScriptLine) {
@@ -1125,7 +1242,7 @@ struct ShootFlow: View {
             scheduleTimedAdvance()
             return
         }
-        let delay = (reader.duration ?? (Double(lines[lineIndex].text.count) * 0.06)) + 0.45
+        let delay = reader.duration + 0.45
         readerAdvance = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
@@ -1235,6 +1352,13 @@ struct ShootFlow: View {
             store.addTake(take)
             takeNumber = number
             Haptics.success()
+            if advanceAfterSceneSave, let audition = store.audition(auditionID),
+               let next = nextUnshotScene(in: audition) {
+                advanceAfterSceneSave = false
+                moveToScene(next)
+                return
+            }
+            advanceAfterSceneSave = false
             stage = .saved
         default: break
         }
@@ -1375,7 +1499,7 @@ struct SidesPrompterView: View {
     let lines: [ScriptLine]
     let currentIndex: Int
     var spokenTranscript: String = ""
-    var prompterSize: Int = 1 // 0: Regular (22), 1: Big (27), 2: Huge (34)
+    var prompterSize: Int = 1 // 0: Regular, 1: Big, 2: Huge
     var mirror: Bool = false
     var readerIsPlaying: Bool = false
     var readerAudioMissing: Bool = false
@@ -1399,9 +1523,9 @@ struct SidesPrompterView: View {
 
     private var fontSize: CGFloat {
         switch prompterSize {
-        case 0: return 22
-        case 2: return 34
-        default: return 27
+        case 0: return 20
+        case 2: return 36
+        default: return 28
         }
     }
 
@@ -1418,10 +1542,10 @@ struct SidesPrompterView: View {
                         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                             let isCurrent = (index == currentIndex)
                             let isPast = (index < currentIndex)
-                            let isUpcoming = (index > currentIndex)
 
-                            // Render window: 1 past line, current active line, and all upcoming lines below it
-                            if index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 5) {
+                            // Keep the reader focused: the last cue, the line being said, and one
+                            // upcoming cue. The active line itself grows with the selected size.
+                            if index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 1) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     // Header tag
                                     HStack(spacing: 8) {
@@ -1462,18 +1586,26 @@ struct SidesPrompterView: View {
                                         if line.isMine {
                                             let matchedIndices = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: spokenTranscript)
                                             let isRev = revealedLines.contains(line.id)
-                                            attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
-                                                .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                                .scaleEffect(x: mirror ? -1 : 1, y: 1)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            if line.isSilentReactionCue {
+                                                SilentReactionCue()
+                                            } else {
+                                                attributedPromptText(line.text, matchedIndices: matchedIndices, displayMode: displayMode, isRevealed: isRev)
+                                                    .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+                                                    .shadow(
+                                                        color: matchedIndices.isEmpty ? .clear : OT.prompterGold.opacity(0.65),
+                                                        radius: matchedIndices.isEmpty ? 0 : 7
+                                                    )
+                                                    .scaleEffect(x: mirror ? -1 : 1, y: 1)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
 
-                                            if displayMode == .hideMine {
+                                            if displayMode != .full && !line.isSilentReactionCue {
                                                 Button {
                                                     onToggleReveal?(line.id)
                                                 } label: {
                                                     HStack(spacing: 4) {
                                                         Image(systemName: isRev ? "eye.slash" : "eye")
-                                                        Text(isRev ? "Hide line" : "Peek line")
+                                                        Text(isRev ? "Hide hint" : displayMode == .firstLetters ? "Show full line hint" : "Reveal line hint")
                                                     }
                                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                                     .foregroundStyle(OT.prompterGold)
@@ -1493,7 +1625,7 @@ struct SidesPrompterView: View {
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                         }
                                     } else if isPast {
-                                        Text(line.text)
+                                        Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
                                             .font(.system(size: 13, weight: .regular, design: .monospaced))
                                             .foregroundStyle(Color.white.opacity(0.35))
                                             .lineLimit(2)
@@ -1510,7 +1642,7 @@ struct SidesPrompterView: View {
                                                 .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.45 : 0.25))
                                                 .lineLimit(1)
                                         } else {
-                                            Text(line.text)
+                                            Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
                                                 .font(.system(size: 14, weight: .medium, design: .monospaced))
                                                 .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
                                                 .lineLimit(index == currentIndex + 1 ? 3 : 2)
@@ -1522,12 +1654,30 @@ struct SidesPrompterView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
                 }
-                .frame(maxHeight: 250)
+                .frame(maxHeight: prompterSize == 2 ? 260 : prompterSize == 1 ? 220 : 190)
+                .clipped()
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.02),
+                            .init(color: .black, location: 0.88),
+                            .init(color: .clear, location: 1.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .onChange(of: currentIndex) { _, newIndex in
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                        proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
+                    // Schedule after the new active row enters the render window; otherwise a
+                    // fast spoken-line advance can ask ScrollViewReader for an ID not laid out yet.
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            proxy.scrollTo("prompter_line_\(newIndex)", anchor: .center)
+                        }
                     }
                 }
                 .onAppear {
@@ -1544,7 +1694,7 @@ struct SidesPrompterView: View {
                 }
             }
             .frame(height: 3)
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
         .padding(18)
         .background(
