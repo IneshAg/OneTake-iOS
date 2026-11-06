@@ -960,14 +960,29 @@ struct PracticeTakeView: View {
 
                         // Text Size Menu
                         Menu {
-                            Button { prompterSize = 0; Haptics.tick() } label: {
-                                Label("Regular text (22pt)", systemImage: prompterSize == 0 ? "checkmark" : "")
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                    prompterSize = 0
+                                }
+                                Haptics.tick()
+                            } label: {
+                                Label("Regular text (18pt)", systemImage: prompterSize == 0 ? "checkmark" : "")
                             }
-                            Button { prompterSize = 1; Haptics.tick() } label: {
-                                Label("Big text (27pt)", systemImage: prompterSize == 1 ? "checkmark" : "")
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                    prompterSize = 1
+                                }
+                                Haptics.tick()
+                            } label: {
+                                Label("Big text (26pt)", systemImage: prompterSize == 1 ? "checkmark" : "")
                             }
-                            Button { prompterSize = 2; Haptics.tick() } label: {
-                                Label("Huge text (34pt)", systemImage: prompterSize == 2 ? "checkmark" : "")
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                    prompterSize = 2
+                                }
+                                Haptics.tick()
+                            } label: {
+                                Label("Huge text (38pt)", systemImage: prompterSize == 2 ? "checkmark" : "")
                             }
                         } label: {
                             Image(systemName: "textformat.size")
@@ -1037,6 +1052,12 @@ struct PracticeTakeView: View {
                                     revealedLines.remove(id)
                                 } else {
                                     revealedLines.insert(id)
+                                }
+                                Haptics.tick()
+                            },
+                            onCycleSize: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                    prompterSize = (prompterSize + 1) % 3
                                 }
                                 Haptics.tick()
                             }
@@ -1219,7 +1240,9 @@ struct PracticeTakeView: View {
                         }
 
                         Button {
-                            prompterSize = (prompterSize + 1) % 3
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                prompterSize = (prompterSize + 1) % 3
+                            }
                             Haptics.tick()
                         } label: {
                             HStack(spacing: 4) {

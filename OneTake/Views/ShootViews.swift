@@ -691,6 +691,12 @@ struct ShootFlow: View {
                         stopReader()
                         lineIndex = max(0, lineIndex - 1)
                         follower.reset()
+                    },
+                    onCycleSize: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            prompterSize = (prompterSize + 1) % 3
+                        }
+                        Haptics.tick()
                     }
                 )
             }
@@ -966,7 +972,9 @@ struct ShootFlow: View {
                 }
 
                 Button {
-                    prompterSize = (prompterSize + 1) % 3
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                        prompterSize = (prompterSize + 1) % 3
+                    }
                     Haptics.tick()
                 } label: {
                     HStack(spacing: 4) {
@@ -1508,6 +1516,7 @@ struct SidesPrompterView: View {
     var onAdvance: () -> Void = {}
     var onPrevious: () -> Void = {}
     var onToggleReveal: ((ScriptLine.ID) -> Void)? = nil
+    var onCycleSize: (() -> Void)? = nil
 
     private var currentLine: ScriptLine? {
         lines.indices.contains(currentIndex) ? lines[currentIndex] : nil
@@ -1523,9 +1532,17 @@ struct SidesPrompterView: View {
 
     private var fontSize: CGFloat {
         switch prompterSize {
-        case 0: return 20
-        case 2: return 36
-        default: return 28
+        case 0: return 18  // Regular: compact, clean & focused
+        case 2: return 38  // Huge: massive font for tripod / distance reading
+        default: return 26 // Big: standard comfortable prompter
+        }
+    }
+
+    private var prompterMaxHeight: CGFloat {
+        switch prompterSize {
+        case 0: return 118  // Regular: ultra-compact, leaves camera framing completely clear
+        case 2: return 280  // Huge: spacious box to fit large 38pt text without cramping
+        default: return 195 // Big: standard height
         }
     }
 
@@ -1535,22 +1552,31 @@ struct SidesPrompterView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: prompterSize == 0 ? 6 : 10) {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: prompterSize == 0 ? 6 : 12) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                             let isCurrent = (index == currentIndex)
                             let isPast = (index < currentIndex)
 
-                            // Keep the reader focused: the last cue, the line being said, and one
-                            // upcoming cue. The active line itself grows with the selected size.
-                            if index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 1) {
-                                VStack(alignment: .leading, spacing: 6) {
+                            // Regular: only current line & compact peek of the next line (no past lines cluttering).
+                            // Huge: current line with massive text & subtle next peek.
+                            // Big: includes previous cue for context, active line, and upcoming line.
+                            let shouldShow: Bool = {
+                                if prompterSize == 0 || prompterSize == 2 {
+                                    return index == currentIndex || index == currentIndex + 1
+                                } else {
+                                    return index >= max(0, currentIndex - 1) && index <= min(lines.count - 1, currentIndex + 1)
+                                }
+                            }()
+
+                            if shouldShow {
+                                VStack(alignment: .leading, spacing: prompterSize == 0 ? 3 : 6) {
                                     // Header tag
                                     HStack(spacing: 8) {
                                         Text(line.isMine ? "\(line.character.uppercased()) · YOU" : line.character.uppercased())
-                                            .font(.system(size: isCurrent ? 13 : 11, weight: .bold, design: .monospaced))
+                                            .font(.system(size: isCurrent ? (prompterSize == 0 ? 12 : 13) : 11, weight: .bold, design: .monospaced))
                                             .tracking(0.8)
                                             .foregroundStyle(isCurrent ? (line.isMine ? OT.prompterGold : OT.reader) : Color.white.opacity(0.40))
 
@@ -1575,8 +1601,27 @@ struct SidesPrompterView: View {
                                         Spacer()
 
                                         if isCurrent {
+                                            // Clickable prompter size badge right on the prompter line header
+                                            if let onCycleSize {
+                                                Button {
+                                                    onCycleSize()
+                                                } label: {
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "textformat.size")
+                                                            .font(.system(size: 9, weight: .bold))
+                                                        Text(["Regular", "Big", "Huge"][min(max(prompterSize, 0), 2)])
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                    }
+                                                    .foregroundStyle(Color.white.opacity(0.88))
+                                                    .padding(.horizontal, 7)
+                                                    .padding(.vertical, 3)
+                                                    .background(Color.white.opacity(0.16), in: Capsule())
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+
                                             Text("\(index + 1) of \(lines.count)")
-                                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                                .font(.system(size: prompterSize == 0 ? 11 : 12, weight: .semibold, design: .monospaced))
                                                 .foregroundStyle(Color.white.opacity(0.50))
                                         }
                                     }
@@ -1626,38 +1671,39 @@ struct SidesPrompterView: View {
                                         }
                                     } else if isPast {
                                         Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
-                                            .font(.system(size: 13, weight: .regular, design: .monospaced))
-                                            .foregroundStyle(Color.white.opacity(0.35))
-                                            .lineLimit(2)
+                                            .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                            .foregroundStyle(Color.white.opacity(0.30))
+                                            .lineLimit(1)
                                     } else {
-                                        // Upcoming lines left below the active line
+                                        // Upcoming lines left below the active line (compact peek)
+                                        let nextLimit = (prompterSize == 0 || prompterSize == 2) ? 1 : 2
                                         if line.isMine && displayMode == .firstLetters {
                                             Text(promptFirstLettersString(line.text))
-                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
-                                                .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.60 : 0.30))
+                                                .lineLimit(nextLimit)
                                         } else if line.isMine && displayMode == .hideMine && !revealedLines.contains(line.id) {
                                             Text(String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8)))
-                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.45 : 0.25))
+                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.40 : 0.20))
                                                 .lineLimit(1)
                                         } else {
                                             Text(line.isSilentReactionCue ? "Silent reaction" : line.text)
-                                                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.65 : 0.35))
-                                                .lineLimit(index == currentIndex + 1 ? 3 : 2)
+                                                .font(.system(size: prompterSize == 0 ? 12 : 13, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(Color.white.opacity(index == currentIndex + 1 ? 0.60 : 0.30))
+                                                .lineLimit(nextLimit)
                                         }
                                     }
                                 }
                                 .id("prompter_line_\(index)")
-                                .padding(.vertical, isCurrent ? 4 : 1)
+                                .padding(.vertical, isCurrent ? (prompterSize == 0 ? 2 : 4) : 1)
                             }
                         }
                     }
                     .padding(.top, 4)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 8)
                 }
-                .frame(maxHeight: prompterSize == 2 ? 260 : prompterSize == 1 ? 220 : 190)
+                .frame(maxHeight: prompterMaxHeight)
                 .clipped()
                 .mask(
                     LinearGradient(

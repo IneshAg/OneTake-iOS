@@ -143,20 +143,9 @@ struct AuditionDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             if next?.kind == .headshot {
                 let isOpt = next?.isOptional ?? false
-                HStack {
-                    SectionLabel(text: isOpt ? "Up next · Headshots (Optional)" : "Up next · Headshots")
-                    Spacer()
-                    Button(isOpt ? "Make required" : "Make optional") {
-                        if let pieceID = next?.id {
-                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
-                            Haptics.tick()
-                        }
-                    }
-                    .font(.otCaption.weight(.semibold))
-                    .foregroundStyle(OT.accent)
-                }
+                SectionLabel(text: isOpt ? "Up next · Headshots (Optional)" : "Up next · Headshots")
                 Text("Audition headshots").font(.otTitle)
-                quoteLine(isOpt ? "Optional · sent alongside your video tape as photos." : "Required in package · 3 photos (front, left, right profile).")
+                quoteLine(isOpt ? "Sent alongside your video tape as photos." : "Required in package · 3 photos (front, left, right profile).")
                 HStack(spacing: 10) {
                     let photoCount = HeadshotStore.taken(auditionID: a.id).count
                     Button(photoCount == 0 ? "Add headshots" : "Manage headshots") {
@@ -174,18 +163,8 @@ struct AuditionDetailView: View {
                 }
             } else if next?.kind == .slate || next?.kind == .fullLength {
                 let isOpt = next?.isOptional ?? false
-                HStack {
-                    SectionLabel(text: isOpt ? "Up next · \(next?.title ?? "Slate")" : "Up next · \(next?.title ?? "Slate")")
-                    Spacer()
-                    Button(isOpt ? "Make required" : "Make optional") {
-                        if let pieceID = next?.id {
-                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
-                            Haptics.tick()
-                        }
-                    }
-                    .font(.otCaption.weight(.semibold))
-                    .foregroundStyle(OT.accent)
-                }
+                let title = next?.kind == .slate ? "Slate" : "Full-length shot"
+                SectionLabel(text: isOpt ? "Up next · \(title) (Optional)" : "Up next · \(title)")
                 if next?.kind == .slate {
                     Text("Record the slate").font(.otTitle)
                     quoteLine(store.slate.spoken)
@@ -209,16 +188,7 @@ struct AuditionDetailView: View {
             } else if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
                 let scene = a.scenes[sceneIndex]
                 let isOpt = next.isOptional
-                HStack {
-                    SectionLabel(text: isOpt ? "Up next · scene \(scene.number) of \(a.scenes.count) (Optional)" : "Up next · scene \(scene.number) of \(a.scenes.count)")
-                    Spacer()
-                    Button(isOpt ? "Make required" : "Make optional") {
-                        store.togglePieceOptional(for: a.id, pieceID: next.id)
-                        Haptics.tick()
-                    }
-                    .font(.otCaption.weight(.semibold))
-                    .foregroundStyle(OT.accent)
-                }
+                SectionLabel(text: isOpt ? "Up next · scene \(scene.number) of \(a.scenes.count) (Optional)" : "Up next · scene \(scene.number) of \(a.scenes.count)")
                 Text(scene.title).font(.otTitle)
                 Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
@@ -374,7 +344,7 @@ struct AuditionDetailView: View {
                 .background(OT.accentSoft, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 SectionLabel(text: isOpt ? "Headshots (Optional)" : "Headshots")
-                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : (isOpt ? "None attached · optional" : "Required in flow · tap Add"))
+                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : (isOpt ? "No photos attached" : "Required in flow · tap Add"))
                     .font(.otHeadline)
                     .foregroundStyle(OT.labelPrimary)
             }
@@ -447,16 +417,6 @@ struct PackageSheet: View {
                         .buttonStyle(.plain)
 
                         Spacer()
-
-                        if piece.kind == .slate || piece.kind == .headshot || piece.kind == .scene {
-                            Button {
-                                store.togglePieceOptional(for: a.id, pieceID: piece.id)
-                                Haptics.tick()
-                            } label: {
-                                Text(piece.isOptional ? "Make required" : "Make optional")
-                            }
-                            .buttonStyle(.otCompact)
-                        }
 
                         if piece.id == a.nextPiece?.id { Text("Next").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent) }
                         Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
