@@ -112,6 +112,9 @@ enum LocalBackup {
     }
 
     static func extract(from archiveURL: URL) throws -> URL {
+        guard FileManager.default.fileExists(atPath: archiveURL.path) else {
+            throw ZipArchive.ArchiveError.invalid("Backup archive not found at \(archiveURL.path)")
+        }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("onetake-restore-\(UUID().uuidString)", isDirectory: true)
         do {
@@ -125,9 +128,26 @@ enum LocalBackup {
 
     static func readPayload(in directory: URL) throws -> LocalBackupPayload {
         let payloadURL = directory.appendingPathComponent(payloadName)
-        let payload = try JSONDecoder().decode(LocalBackupPayload.self, from: Data(contentsOf: payloadURL))
-        guard payload.formatVersion == 1, payload.state.droppedRecords == 0 else {
-            throw ZipArchive.ArchiveError.invalid("unsupported version or unreadable records")
+        guard FileManager.default.fileExists(atPath: payloadURL.path) else {
+            throw ZipArchive.ArchiveError.invalid("Backup manifest is missing (\(payloadName) not found)")
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: payloadURL)
+        } catch {
+            throw ZipArchive.ArchiveError.invalid("Failed to read backup manifest: \(error.localizedDescription)")
+        }
+        let payload: LocalBackupPayload
+        do {
+            payload = try JSONDecoder().decode(LocalBackupPayload.self, from: data)
+        } catch {
+            throw ZipArchive.ArchiveError.invalid("Corrupted backup manifest: \(error.localizedDescription)")
+        }
+        guard payload.formatVersion == 1 else {
+            throw ZipArchive.ArchiveError.invalid("Unsupported backup format version (\(payload.formatVersion))")
+        }
+        guard payload.state.droppedRecords == 0 else {
+            throw ZipArchive.ArchiveError.invalid("Backup contains unreadable or corrupted audition records")
         }
         let documents = directory.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -135,28 +155,81 @@ enum LocalBackup {
     }
 
     static func discardStaging(_ directory: URL?) {
-        if let directory { try? FileManager.default.removeItem(at: directory) }
+        guard let directory else { return }
+        try? FileManager.default.removeItem(at: directory)
     }
 
+    /// Safely replaces the contents of the application's root Documents directory without ever
+    /// renaming, unlinking, or moving the root container directory itself (preventing iOS sandbox violations).
+    /// Preserves a full rollback copy in isolated temporary storage, ensuring that any failure or interruption
+    /// cleanly rolls back to the previous data state.
     static func replaceDocuments(with stagedDirectory: URL) throws {
         let manager = FileManager.default
         let destination = MediaStore.documentsURL
-        let parent = destination.deletingLastPathComponent()
-        let replacement = parent.appendingPathComponent(".onetake-documents-new-\(UUID().uuidString)", isDirectory: true)
-        let previous = parent.appendingPathComponent(".onetake-documents-old-\(UUID().uuidString)", isDirectory: true)
+        
+        // 1. Pre-flight validation before touching any live data
+        guard manager.fileExists(atPath: destination.path) else {
+            try manager.createDirectory(at: destination, withIntermediateDirectories: true)
+            return
+        }
         let source = stagedDirectory.appendingPathComponent("Documents", isDirectory: true)
+        guard manager.fileExists(atPath: source.path) else {
+            throw ZipArchive.ArchiveError.invalid("Staged backup Documents directory missing")
+        }
 
-        try manager.copyItem(at: source, to: replacement)
-        let hadCurrent = manager.fileExists(atPath: destination.path)
-        if hadCurrent { try manager.moveItem(at: destination, to: previous) }
+        // 2. Prepare isolated rollback staging directory in temporary space
+        let rollbackDir = manager.temporaryDirectory
+            .appendingPathComponent("onetake-restore-rollback-\(UUID().uuidString)", isDirectory: true)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // 3. Move existing live items from Documents into rollback directory (preserving root Documents container)
+        let existingItems = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: nil)) ?? []
+        var movedToRollback: [URL] = []
+        
         do {
-            try manager.moveItem(at: replacement, to: destination)
-            if hadCurrent { try? manager.removeItem(at: previous) }
-        } catch {
-            if hadCurrent, !manager.fileExists(atPath: destination.path) {
-                try? manager.moveItem(at: previous, to: destination)
+            for item in existingItems {
+                let rollbackTarget = rollbackDir.appendingPathComponent(item.lastPathComponent)
+                try manager.moveItem(at: item, to: rollbackTarget)
+                movedToRollback.append(rollbackTarget)
             }
-            try? manager.removeItem(at: replacement)
+        } catch {
+            // Revert any items already moved to rollback back to destination
+            for rollbackItem in movedToRollback {
+                let restoreTarget = destination.appendingPathComponent(rollbackItem.lastPathComponent)
+                try? manager.moveItem(at: rollbackItem, to: restoreTarget)
+            }
+            try? manager.removeItem(at: rollbackDir)
+            throw error
+        }
+
+        // 4. Copy new staged items into destination (root Documents)
+        let newItems = (try? manager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)) ?? []
+        var copiedToDestination: [URL] = []
+
+        do {
+            for item in newItems {
+                let destTarget = destination.appendingPathComponent(item.lastPathComponent)
+                if manager.fileExists(atPath: destTarget.path) {
+                    try manager.removeItem(at: destTarget)
+                }
+                try manager.copyItem(at: item, to: destTarget)
+                copiedToDestination.append(destTarget)
+            }
+            // 5. Success: safely discard rollback directory
+            try? manager.removeItem(at: rollbackDir)
+        } catch {
+            // 6. Rollback on failure: remove partially copied items and restore original items from rollback directory
+            for copiedItem in copiedToDestination {
+                try? manager.removeItem(at: copiedItem)
+            }
+            for rollbackItem in movedToRollback {
+                let originalDest = destination.appendingPathComponent(rollbackItem.lastPathComponent)
+                if manager.fileExists(atPath: originalDest.path) {
+                    try? manager.removeItem(at: originalDest)
+                }
+                try? manager.moveItem(at: rollbackItem, to: originalDest)
+            }
+            try? manager.removeItem(at: rollbackDir)
             throw error
         }
     }
