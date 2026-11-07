@@ -315,5 +315,46 @@ final class PackageAndSentTests: XCTestCase {
         // Overdue by 10 hours -> "Right on time."
         XCTAssertEqual(computeEarlyText(due: baseDate.addingTimeInterval(-36000), sent: baseDate), "Right on time.")
     }
+
+    // MARK: - Phase 6 CloudLink Share Lifecycle & Revocation Tests (AUDIT-007)
+
+    @MainActor
+    func testCloudLinkShareLifecycleAndRevocation() async throws {
+        let store = AppStore()
+        let auditionID = UUID()
+        var audition = Audition(
+            id: auditionID,
+            project: "Sharing Project",
+            projectType: "Feature film",
+            role: "Lead",
+            roleSize: "Lead",
+            castingOffice: "Paramount",
+            due: Date().addingTimeInterval(86400 * 3),
+            asks: [],
+            pieces: [],
+            scenes: [],
+            destination: .emailOrLink,
+            status: .ready
+        )
+        store.auditions = [audition]
+
+        let shareURL = URL(string: "https://www.icloud.com/iclouddrive/0123testshare")!
+        let expires = Date().addingTimeInterval(86400 * 14)
+        let ubiquityFolder = URL(fileURLWithPath: "/tmp/Documents/Tapes/test-folder")
+        let published = CloudLink.Published(url: shareURL, expires: expires, ubiquityFolderURL: ubiquityFolder)
+
+        store.setShareLink(published, for: auditionID)
+        let updated = try XCTUnwrap(store.audition(auditionID))
+        XCTAssertEqual(updated.shareLink, shareURL)
+        XCTAssertEqual(updated.shareLinkExpires, expires)
+        XCTAssertEqual(updated.shareUbiquityFolderURL, ubiquityFolder)
+
+        // Revoke share link
+        store.clearShareLink(for: auditionID)
+        let cleared = try XCTUnwrap(store.audition(auditionID))
+        XCTAssertNil(cleared.shareLink, "Share link must be cleared")
+        XCTAssertNil(cleared.shareLinkExpires, "Share link expiration must be cleared")
+        XCTAssertNil(cleared.shareUbiquityFolderURL, "Ubiquity folder URL must be cleared")
+    }
 }
 

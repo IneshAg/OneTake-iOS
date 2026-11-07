@@ -24,6 +24,14 @@ enum CloudLink {
         let url: URL
         /// When iCloud stops serving the link. iCloud sets this, not the app.
         let expires: Date?
+        /// The ubiquitous folder URL in iCloud Drive where this item is hosted.
+        let ubiquityFolderURL: URL?
+
+        init(url: URL, expires: Date?, ubiquityFolderURL: URL? = nil) {
+            self.url = url
+            self.expires = expires
+            self.ubiquityFolderURL = ubiquityFolderURL
+        }
     }
 
     /// True when the person is signed in to iCloud on this iPhone. Cheap; safe on the main thread.
@@ -59,7 +67,7 @@ enum CloudLink {
                 try await waitForUpload(of: destination, timeout: uploadTimeout)
                 var expiration: NSDate?
                 let link = try fm.url(forPublishingUbiquitousItemAt: destination, expiration: &expiration)
-                return Published(url: link, expires: expiration as Date?)
+                return Published(url: link, expires: expiration as Date?, ubiquityFolderURL: dir)
             } catch {
                 // Cancelled or failed after the file went to iCloud: take it back out, so no
                 // unshared copy sits in the actor's iCloud Drive.
@@ -70,6 +78,32 @@ enum CloudLink {
         // A detached task doesn't inherit cancellation, so forward it — Cancel on the progress screen
         // must stop the upload wait too.
         return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+    }
+
+    /// Revokes an active public download link by deleting its ubiquitous folder from iCloud Drive.
+    @discardableResult
+    static func revoke(url: URL?, ubiquityFolderURL: URL? = nil) async throws -> Bool {
+        let work = Task.detached(priority: .userInitiated) { () -> Bool in
+            let fm = FileManager.default
+            if let ubiquityFolderURL, fm.fileExists(atPath: ubiquityFolderURL.path) {
+                try? fm.removeItem(at: ubiquityFolderURL)
+                return true
+            }
+            guard let container = fm.url(forUbiquityContainerIdentifier: nil) else { return false }
+            let tapesDir = container.appendingPathComponent("Documents/Tapes", isDirectory: true)
+            guard let contents = try? fm.contentsOfDirectory(at: tapesDir, includingPropertiesForKeys: nil) else {
+                return false
+            }
+            var didRemove = false
+            for item in contents {
+                if let url, item.lastPathComponent == url.lastPathComponent {
+                    try? fm.removeItem(at: item)
+                    didRemove = true
+                }
+            }
+            return didRemove
+        }
+        return await work.value
     }
 
     /// iCloud uploads in the background; a link can only be published for an item that's uploaded.

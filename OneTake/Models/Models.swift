@@ -458,6 +458,7 @@ struct Audition: Identifiable, Hashable, Codable {
     /// The iCloud download link sent for "Email or link", and when iCloud stops serving it.
     var shareLink: URL?
     var shareLinkExpires: Date?
+    var shareUbiquityFolderURL: URL? = nil
     /// Callback round (nil = the first audition) and casting's adjustment notes for it. Optional so
     /// state saved before these existed still decodes.
     var round: Int?

@@ -41,6 +41,14 @@ struct AuditionsView: View {
                             }
                         }
                         .contextMenu {
+                            if audition.shareLink != nil {
+                                Button(role: .destructive) {
+                                    store.clearShareLink(for: audition.id)
+                                    Haptics.warning()
+                                } label: {
+                                    Label("Revoke share link", systemImage: "link.badge.plus")
+                                }
+                            }
                             if audition.status != .sent {
                                 Button { store.markSent(audition.id); Haptics.success() } label: {
                                     Label("Mark sent", systemImage: "paperplane.fill")

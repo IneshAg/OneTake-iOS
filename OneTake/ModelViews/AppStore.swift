@@ -697,6 +697,13 @@ final class AppStore {
     /// length, reader tracks, practice pieces made from its scenes, its exported tape, and its
     /// audition-specific headshots. Profile default headshots are left untouched.
     func deleteAudition(_ id: Audition.ID) {
+        if let target = audition(id), (target.shareLink != nil || target.shareUbiquityFolderURL != nil) {
+            let link = target.shareLink
+            let folder = target.shareUbiquityFolderURL
+            Task.detached(priority: .background) {
+                try? await CloudLink.revoke(url: link, ubiquityFolderURL: folder)
+            }
+        }
         guard let audition = audition(id) else { return }
         HeadshotStore.removeAuditionHeadshots(for: id)
         let fm = FileManager.default
@@ -1076,12 +1083,21 @@ final class AppStore {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].shareLink = link.url
         auditions[i].shareLinkExpires = link.expires
+        auditions[i].shareUbiquityFolderURL = link.ubiquityFolderURL
     }
 
     func clearShareLink(for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        let oldLink = auditions[i].shareLink
+        let folder = auditions[i].shareUbiquityFolderURL
         auditions[i].shareLink = nil
         auditions[i].shareLinkExpires = nil
+        auditions[i].shareUbiquityFolderURL = nil
+        if oldLink != nil || folder != nil {
+            Task.detached(priority: .background) {
+                try? await CloudLink.revoke(url: oldLink, ubiquityFolderURL: folder)
+            }
+        }
     }
 
     /// Saves a custom filename template for this audition's deliverables.
