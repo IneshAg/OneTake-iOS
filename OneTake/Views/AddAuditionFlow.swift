@@ -13,6 +13,18 @@ struct AddAuditionFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var photoItem: PhotosPickerItem?
     @State private var pendingReviewImage: UIImage?
+    enum ImportDocumentTarget: String, Identifiable {
+        case castingCall, scriptSides
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .castingCall: return "Casting Call PDF"
+            case .scriptSides: return "Script Sides PDF"
+            }
+        }
+    }
+
+    @State private var activeImportTarget: ImportDocumentTarget? = nil
     @State private var showFileImporter = false
     @State private var showScanner = false
     @State private var scannerUnavailable = false
@@ -65,6 +77,8 @@ struct AddAuditionFlow: View {
                 }
             }
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+                let target = activeImportTarget ?? .castingCall
+                activeImportTarget = nil
                 switch result {
                 case .success(let url):
                     pendingReviewImage = nil
@@ -74,20 +88,50 @@ struct AddAuditionFlow: View {
                         : nil
                     Task {
                         defer { resolved.cleanup() }
+                        let extractedText: String?
+                        let pages: [String]
+                        let pageCount: Int
                         if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
-                            let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)])
-                            await MainActor.run {
-                                pendingReviewImage = pdfPreview
-                                pendingReviewDraft = draft
-                            }
+                            extractedText = doc.fullText
+                            pages = doc.pages
+                            pageCount = doc.pageCount
                         } else if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
-                            let draft = await NoticeParser.parseAsync(text, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: 1)])
+                            extractedText = text
+                            pages = [text]
+                            pageCount = 1
+                        } else {
+                            extractedText = nil
+                            pages = []
+                            pageCount = 0
+                        }
+
+                        guard let text = extractedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            await MainActor.run { unreadableNoticeError = true }
+                            return
+                        }
+
+                        let source = AuditionSource(
+                            name: resolved.url.lastPathComponent,
+                            kind: target == .castingCall ? .castingNotice : .scriptSides,
+                            url: resolved.url,
+                            pageCount: pageCount
+                        )
+
+                        if target == .castingCall {
+                            let parsedNotice = await NoticeParser.parseAsync(text, pages: pages, sourceDocuments: [source])
                             await MainActor.run {
+                                var currentDraft = pendingReviewDraft ?? NoticeParser.Draft.blank
+                                currentDraft.mergeCastingNotice(from: parsedNotice, source: source)
                                 pendingReviewImage = pdfPreview
-                                pendingReviewDraft = draft
+                                pendingReviewDraft = currentDraft
                             }
                         } else {
-                            await MainActor.run { unreadableNoticeError = true }
+                            await MainActor.run {
+                                var currentDraft = pendingReviewDraft ?? NoticeParser.Draft.blank
+                                currentDraft.mergeScriptSides(text: text, source: source)
+                                pendingReviewImage = pdfPreview
+                                pendingReviewDraft = currentDraft
+                            }
                         }
                     }
                 case .failure:
@@ -254,6 +298,7 @@ struct AddAuditionFlow: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 12) {
                         Button {
+                            activeImportTarget = .castingCall
                             showFileImporter = true
                         } label: {
                             HStack(spacing: 10) {
@@ -277,6 +322,7 @@ struct AddAuditionFlow: View {
                         }
 
                         Button {
+                            activeImportTarget = .scriptSides
                             showFileImporter = true
                         } label: {
                             HStack(spacing: 10) {
@@ -428,6 +474,8 @@ private struct OCRReviewSheet: View {
     @State private var includeHeadshots: Bool
     @State private var selectedPortionIDs: Set<String>
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
+    @State private var showCastingNoticePicker: Bool = false
+    @State private var showScriptSidesPicker: Bool = false
 
     private var hasReaderLines: Bool {
         let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -504,6 +552,103 @@ private struct OCRReviewSheet: View {
 
                     if let details = draft.projectDetails, details.hasReviewableContent {
                         ProjectDetailsCard(details: details)
+                    }
+
+                    // Independent Document Sources: Casting Call & Script Sides
+                    HStack(spacing: 12) {
+                        // Casting Call Document Card
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.text.fill")
+                                    .foregroundStyle(OT.accent)
+                                Text("Casting Call")
+                                    .font(.otCaption.weight(.bold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                Spacer()
+                                Button {
+                                    showCastingNoticePicker = true
+                                } label: {
+                                    Text(draft.castingCallSource != nil || !draft.noticeText.isEmpty ? "Replace" : "Import")
+                                        .font(.otCaption2.weight(.bold))
+                                        .foregroundStyle(OT.accent)
+                                }
+                            }
+                            if let source = draft.castingCallSource {
+                                Text(source.name)
+                                    .font(.otFootnote.weight(.medium))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(1)
+                                Text("\(source.pageCount ?? 1) page\(source.pageCount == 1 ? "" : "s") read")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            } else if !draft.noticeText.isEmpty {
+                                Text("Pasted / Scanned")
+                                    .font(.otFootnote.weight(.medium))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(1)
+                                Text("Casting notice text")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            } else {
+                                Text("No notice imported")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelTertiary)
+                                Text("Optional")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                        // Script Sides Document Card
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "theatermasks.fill")
+                                    .foregroundStyle(OT.prompterGold)
+                                Text("Script Sides")
+                                    .font(.otCaption.weight(.bold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                Spacer()
+                                Button {
+                                    showScriptSidesPicker = true
+                                } label: {
+                                    Text(draft.scriptSidesSource != nil || !draft.scriptText.isEmpty || (draft.customScenes?.isEmpty == false) ? "Replace" : "Import")
+                                        .font(.otCaption2.weight(.bold))
+                                        .foregroundStyle(OT.prompterGold)
+                                }
+                            }
+                            if let source = draft.scriptSidesSource {
+                                Text(source.name)
+                                    .font(.otFootnote.weight(.medium))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(1)
+                                let sc = draft.customScenes?.count ?? draft.scenes
+                                Text("\(sc) scene\(sc == 1 ? "" : "s") ready")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            } else if !draft.scriptText.isEmpty || (draft.customScenes?.isEmpty == false) {
+                                let sc = draft.customScenes?.count ?? draft.scenes
+                                Text("\(sc) scene\(sc == 1 ? "" : "s") attached")
+                                    .font(.otFootnote.weight(.medium))
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(1)
+                                Text("Dialogue ready")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            } else {
+                                Text("No sides imported")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelTertiary)
+                                Text("Optional")
+                                    .font(.otCaption2)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
 
                     reviewField(
@@ -963,6 +1108,57 @@ private struct OCRReviewSheet: View {
                 selectedPortionIDs = Set(matching)
             }
         }
+        .fileImporter(isPresented: $showCastingNoticePicker, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+            guard case .success(let url) = result else { return }
+            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+            Task {
+                defer { resolved.cleanup() }
+                var extractedText: String? = nil
+                var pages: [String] = []
+                var pageCount = 1
+                if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
+                    extractedText = doc.fullText
+                    pages = doc.pages
+                    pageCount = doc.pageCount
+                } else if let raw = await NoticeOCR.extractText(fromFileAt: resolved.url) {
+                    extractedText = raw
+                }
+                guard let text = extractedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                let source = AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: pageCount)
+                let parsed = await NoticeParser.parseAsync(text, pages: pages, sourceDocuments: [source])
+                await MainActor.run {
+                    draft.mergeCastingNotice(from: parsed, source: source)
+                    projectText = draft.project
+                    if !draft.role.isEmpty { roleText = draft.role }
+                    if !draft.castingOffice.isEmpty { castingOfficeText = draft.castingOffice }
+                    if let due = draft.due { dueDate = due; hasDueDate = true }
+                    if let notes = draft.castingNotes { castingNotesText = notes }
+                    Haptics.success()
+                }
+            }
+        }
+        .fileImporter(isPresented: $showScriptSidesPicker, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+            guard case .success(let url) = result else { return }
+            let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+            Task {
+                defer { resolved.cleanup() }
+                var extractedText: String? = nil
+                var pageCount = 1
+                if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
+                    extractedText = doc.fullText
+                    pageCount = doc.pageCount
+                } else if let raw = await NoticeOCR.extractText(fromFileAt: resolved.url) {
+                    extractedText = raw
+                }
+                guard let text = extractedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                let source = AuditionSource(name: resolved.url.lastPathComponent, kind: .scriptSides, url: resolved.url, pageCount: pageCount)
+                await MainActor.run {
+                    draft.mergeScriptSides(text: text, source: source, forcedRole: roleText)
+                    if projectText.isEmpty && !draft.project.isEmpty { projectText = draft.project }
+                    Haptics.success()
+                }
+            }
+        }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
@@ -1160,9 +1356,26 @@ enum NoticeParser {
         var destination: Destination = .actorsAccess
         var destinationDetail: String? = nil
         var destinationWasDetected = false
-        /// The real recognised text this draft came from — kept so `makeAudition()` can parse real
-        /// sides out of it instead of substituting a canned scene.
-        var sourceText = ""
+        /// Distinct raw text storage for the casting call and script sides
+        var noticeText: String = ""
+        var scriptText: String = ""
+
+        /// Kept for backward compatibility with views reading sourceText
+        var sourceText: String {
+            get {
+                if !scriptText.isEmpty { return scriptText }
+                return noticeText
+            }
+            set {
+                if scriptText.isEmpty && noticeText.isEmpty {
+                    noticeText = newValue
+                } else if !scriptText.isEmpty {
+                    scriptText = newValue
+                } else {
+                    noticeText = newValue
+                }
+            }
+        }
         var customScenes: [ScriptScene]? = nil
         var castingNotes: String? = nil
         var actorNotes: String? = nil
@@ -1185,11 +1398,103 @@ enum NoticeParser {
         var submissionInstructions: AuditionSubmissionInstructions? = nil
         var sourceDocuments: [AuditionSource] = []
 
+        var castingCallSource: AuditionSource? {
+            noticeSources.first(where: { $0.kind == .castingNotice })
+        }
+        var scriptSidesSource: AuditionSource? {
+            sourceDocuments.first(where: { $0.kind == .scriptSides })
+        }
+
         static let blank = Draft()
+
+        mutating func mergeCastingNotice(from incoming: Draft, source: AuditionSource?) {
+            let incomingNotice = !incoming.noticeText.isEmpty ? incoming.noticeText : incoming.sourceText
+            self.noticeText = incomingNotice
+            if let source {
+                self.noticeSources = [source]
+            } else if !incoming.noticeSources.isEmpty {
+                self.noticeSources = incoming.noticeSources
+            }
+            if !incoming.project.isEmpty { self.project = incoming.project }
+            if !incoming.role.isEmpty { self.role = incoming.role }
+            if !incoming.candidateRoles.isEmpty {
+                var merged = self.candidateRoles
+                for r in incoming.candidateRoles where !merged.contains(r) {
+                    merged.append(r)
+                }
+                self.candidateRoles = merged
+            }
+            if !incoming.castingOffice.isEmpty { self.castingOffice = incoming.castingOffice }
+            if !incoming.projectType.isEmpty { self.projectType = incoming.projectType }
+            if let due = incoming.due { self.due = due }
+            if !incoming.asks.isEmpty { self.asks = incoming.asks }
+            if !incoming.aiGuidance.isEmpty { self.aiGuidance = incoming.aiGuidance }
+            if !incoming.roleSize.isEmpty { self.roleSize = incoming.roleSize }
+            if incoming.sidesOnArrival { self.sidesOnArrival = true }
+            if let link = incoming.sidesLink { self.sidesLink = link }
+            if incoming.destinationWasDetected {
+                self.destination = incoming.destination
+                self.destinationDetail = incoming.destinationDetail
+                self.destinationWasDetected = true
+            }
+            if let notes = incoming.castingNotes { self.castingNotes = notes }
+            if incoming.materialKind == .slateOnly && (customScenes == nil || customScenes?.isEmpty == true) && scriptText.isEmpty {
+                self.materialKind = .slateOnly
+            } else if self.materialKind == .slateOnly && (!scriptText.isEmpty || (customScenes != nil && customScenes?.isEmpty == false)) {
+                self.materialKind = .sides
+            }
+            self.isSlateOptional = incoming.isSlateOptional
+            self.isFullBodyShotOptional = incoming.isFullBodyShotOptional
+            self.isHeadshotOptional = incoming.isHeadshotOptional
+            self.projectDetails = incoming.projectDetails ?? self.projectDetails
+            if !incoming.importantDates.isEmpty { self.importantDates = incoming.importantDates }
+            if !incoming.roleBreakdowns.isEmpty { self.roleBreakdowns = incoming.roleBreakdowns }
+            if !incoming.sideMaterials.isEmpty { self.sideMaterials = incoming.sideMaterials }
+            if let inst = incoming.submissionInstructions { self.submissionInstructions = inst }
+
+            // Re-evaluate script cues for the new role if sides already existed
+            if !self.scriptText.isEmpty && !self.role.isEmpty {
+                let remapped = ScriptParser.parseScenes(from: self.scriptText, myRole: self.role)
+                if !remapped.isEmpty {
+                    self.customScenes = remapped
+                    self.scenes = remapped.count
+                }
+            }
+        }
+
+        mutating func mergeScriptSides(text: String, source: AuditionSource?, forcedRole: String? = nil) {
+            let cleaned = ScriptParser.cleanPastedText(text)
+            self.scriptText = cleaned
+            if let source {
+                self.sourceDocuments = [source]
+            }
+            let effectiveRole = (forcedRole?.isEmpty == false ? forcedRole : (self.role.isEmpty ? nil : self.role)) ?? ""
+            let parsed = ScriptParser.parseScenes(from: cleaned, myRole: effectiveRole)
+            self.customScenes = parsed
+            self.scenes = parsed.count
+            if self.materialKind == .slateOnly {
+                self.materialKind = .sides
+            }
+            if self.project.isEmpty, let title = NoticeParser.detectProject(in: cleaned) {
+                self.project = title
+            }
+            let characters = ScriptParser.extractCharacters(from: cleaned)
+            var merged = self.candidateRoles
+            for c in characters where !merged.contains(c) && !ScriptParser.isBlacklistedNoticeWord(c) {
+                merged.append(c)
+            }
+            self.candidateRoles = merged
+            if self.role.isEmpty && characters.count == 1 {
+                self.role = characters[0]
+            }
+        }
 
         var hasSides: Bool {
             if !materialKind.requiresSides { return true }
             if let customScenes, !customScenes.isEmpty { return true }
+            if !scriptText.isEmpty {
+                return !ScriptParser.parseScenes(from: scriptText, myRole: role).isEmpty
+            }
             return !NoticeParser.isNoticeOnly(sourceText) && !ScriptParser.parseScenes(from: sourceText, myRole: role).isEmpty
         }
 
@@ -1288,8 +1593,9 @@ enum NoticeParser {
                             role: role.isEmpty ? (materialKind == .slateOnly ? "Self" : "Role") : role, roleSize: roleSize, castingOffice: castingOffice,
                             due: due ?? .now.addingTimeInterval(3 * 86400),
                             asks: asks, pieces: pieces, scenes: parsedScenes,
-                            scriptText: sourceText.isEmpty ? nil : sourceText,
+                            scriptText: scriptText.isEmpty ? (sourceText.isEmpty ? nil : sourceText) : scriptText,
                             destination: destination, status: .due)
+            audition.noticeText = noticeText.isEmpty ? nil : noticeText
             audition.materialKind = materialKind
             audition.destinationWasChosen = destinationWasDetected
             audition.destinationDetail = destinationDetail
@@ -1321,8 +1627,14 @@ enum NoticeParser {
     static func parse(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) -> Draft {
         var d = Draft()
         let cleaned = ScriptParser.cleanPastedText(rawText)
-        d.sourceText = cleaned
-        d.sourceDocuments = sourceDocuments
+        let isNotice = sourceDocuments.contains { $0.kind == .castingNotice }
+        if isNotice {
+            d.noticeText = cleaned
+            d.noticeSources = sourceDocuments
+        } else {
+            d.sourceText = cleaned
+            d.sourceDocuments = sourceDocuments
+        }
 
         // Pass 1 (Notice Extractor): If multi-page packet, focus notice field extraction on Pages 1–2
         let isLongPacket = pages.count >= 2 || rawText.count > 3500
@@ -3352,10 +3664,13 @@ struct AddDraftSidesSheet: View {
     }
 
     private func commitSides() {
-        draft.sourceText = text
+        draft.scriptText = text
         draft.customScenes = activeScenes
         if !activeScenes.isEmpty {
             draft.scenes = max(activeScenes.count, draft.scenes)
+        }
+        if draft.materialKind == .slateOnly {
+            draft.materialKind = .sides
         }
         dismiss()
     }

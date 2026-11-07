@@ -424,6 +424,8 @@ struct Audition: Identifiable, Hashable, Codable {
     var asks: [String]
     var pieces: [Piece]
     var scenes: [ScriptScene]
+    /// Original notice text from the casting call breakdown / notice document.
+    var noticeText: String? = nil
     /// Original sides text lets role edits re-identify the actor's cues without losing lines that
     /// were initially treated as one-off speakers. Optional for older saved auditions.
     var scriptText: String? = nil
