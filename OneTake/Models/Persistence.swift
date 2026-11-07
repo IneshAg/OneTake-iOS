@@ -99,9 +99,80 @@ enum Persistence {
         try? data.write(to: directory.appendingPathComponent("state-unreadable-\(stamp).json"), options: .atomic)
     }
 
-    static func save(_ state: PersistedState) {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+    /// Synchronously writes state to disk, throwing classified errors on failure.
+    @discardableResult
+    static func save(_ state: PersistedState) throws -> URL {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(state)
+        } catch {
+            throw PersistenceError.encodingFailed(error.localizedDescription)
+        }
+        let target = fileURL
+        do {
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch {
+            throw PersistenceError.writeFailed(error.localizedDescription)
+        }
+    }
+}
+
+/// Classified errors for persistence operations
+enum PersistenceError: LocalizedError, Equatable {
+    case encodingFailed(String)
+    case writeFailed(String)
+    case staleSnapshot(sequence: Int, latest: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .encodingFailed(let msg):
+            return "Failed to encode state: \(msg)"
+        case .writeFailed(let msg):
+            return "Failed to save state to disk: \(msg)"
+        case .staleSnapshot(let seq, let latest):
+            return "Snapshot \(seq) was superseded by newer snapshot \(latest)."
+        }
+    }
+}
+
+/// An isolated actor that offloads JSON state serialization and atomic disk writes off the main actor,
+/// enforcing monotonic sequence numbering so older snapshots can never overwrite newer ones.
+actor StateStorage {
+    static let shared = StateStorage()
+
+    private var lastCommittedSequence: Int = 0
+
+    /// Serializes and writes state in the background, enforcing monotonic sequence ordering.
+    /// Returns true if committed, false if discarded because a newer snapshot was already committed.
+    @discardableResult
+    func writeSnapshot(_ snapshot: PersistedState, sequence: Int) throws -> Bool {
+        guard sequence > lastCommittedSequence else {
+            return false
+        }
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(snapshot)
+        } catch {
+            throw PersistenceError.encodingFailed(error.localizedDescription)
+        }
+
+        let target = Persistence.fileURL
+        do {
+            try data.write(to: target, options: .atomic)
+            lastCommittedSequence = sequence
+            return true
+        } catch {
+            throw PersistenceError.writeFailed(error.localizedDescription)
+        }
+    }
+
+    func getLastCommittedSequence() -> Int {
+        lastCommittedSequence
+    }
+
+    func resetSequenceForTesting() {
+        lastCommittedSequence = 0
     }
 }
 

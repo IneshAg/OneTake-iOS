@@ -166,6 +166,11 @@ final class AppStore {
     // MARK: Persistence
 
     private var saveTask: Task<Void, Never>?
+    /// Monotonically increasing counter ensuring older async snapshots never overwrite newer ones.
+    private var saveSequence: Int = 0
+    /// Surface persistent write errors to the UI
+    @Published var persistenceError: String? = nil
+    @Published var lastSaveSucceeded: Bool = true
     /// True while `init` is still applying a loaded snapshot, so that pass doesn't immediately
     /// re-trigger its own save.
     private var isLoading = false
@@ -332,16 +337,31 @@ final class AppStore {
     }
 
     /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke.
+    /// Offloads JSON serialization and disk writing completely off @MainActor to StateStorage.
     private func persist() {
         guard !isLoading else { return }
+        saveSequence += 1
+        let currentSeq = saveSequence
         saveTask?.cancel()
         let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
-        saveTask = Task.detached(priority: .utility) {
+        saveTask = Task.detached(priority: .utility) { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                Self.writeSnapshot(snapshot)
+            do {
+                let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
+                if committed {
+                    await MainActor.run {
+                        self?.persistenceError = nil
+                        self?.lastSaveSucceeded = true
+                        Reminders.reschedule(snapshot.auditions)
+                        WidgetSync.update(snapshot.auditions)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.persistenceError = error.localizedDescription
+                    self?.lastSaveSucceeded = false
+                }
             }
             await LiveActivitySync.update(snapshot.auditions)
         }
@@ -353,19 +373,41 @@ final class AppStore {
         guard !isLoading else { return }
         saveTask?.cancel()
         saveTask = nil
+        saveSequence += 1
+        let currentSeq = saveSequence
         let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
-        Self.writeSnapshot(snapshot)
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
+                if committed {
+                    await MainActor.run {
+                        self?.persistenceError = nil
+                        self?.lastSaveSucceeded = true
+                        Reminders.reschedule(snapshot.auditions)
+                        WidgetSync.update(snapshot.auditions)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.persistenceError = error.localizedDescription
+                    self?.lastSaveSucceeded = false
+                }
+            }
             await LiveActivitySync.update(snapshot.auditions)
         }
     }
 
     @MainActor
-    private static func writeSnapshot(_ snapshot: PersistedState) {
-        Persistence.save(snapshot)
-        // Reminders and widgets follow due dates, progress, status and deletions.
-        Reminders.reschedule(snapshot.auditions)
-        WidgetSync.update(snapshot.auditions)
+    static func writeSnapshot(_ snapshot: PersistedState) {
+        do {
+            try Persistence.save(snapshot)
+            Reminders.reschedule(snapshot.auditions)
+            WidgetSync.update(snapshot.auditions)
+        } catch {
+            #if DEBUG
+            print("[AppStore] Synchronous writeSnapshot failed: \(error.localizedDescription)")
+            #endif
+        }
     }
 
     // MARK: Account

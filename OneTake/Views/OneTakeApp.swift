@@ -172,6 +172,16 @@ struct RootTabView: View {
                 PracticeTakeView(pieceID: pieceID, initialDisplayMode: displayMode, initialRecordMode: recordMode)
             }
         }
+        .alert("Unable to Save Changes", isPresented: Binding(
+            get: { store.persistenceError != nil },
+            set: { if !$0 { store.persistenceError = nil } }
+        )) {
+            Button("OK", role: .cancel) { store.persistenceError = nil }
+        } message: {
+            if let errorMsg = store.persistenceError {
+                Text(errorMsg)
+            }
+        }
     }
 }
 

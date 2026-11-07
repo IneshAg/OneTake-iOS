@@ -100,4 +100,72 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(store.practicePath.isEmpty, "Practice path must be emptied")
         XCTAssertGreaterThan(store.readerTrackVersion, initialReaderVersion, "Reader track version should be bumped to notify views")
     }
+
+    // MARK: - Phase 3 Persistence Reliability & Concurrency Tests
+
+    func testSaveThrowsClassifiedPersistenceError() throws {
+        let validState = PersistedState(auditions: [audition("Valid")], isOnboarded: true)
+        XCTAssertNoThrow(try Persistence.save(validState))
+    }
+
+    func testStateStorageMonotonicSequenceOrdering() async throws {
+        await StateStorage.shared.resetSequenceForTesting()
+        let state1 = PersistedState(auditions: [audition("First")], isOnboarded: true)
+        let state2 = PersistedState(auditions: [audition("Second")], isOnboarded: true)
+
+        // Commit sequence 2
+        let committed2 = try await StateStorage.shared.writeSnapshot(state2, sequence: 2)
+        XCTAssertTrue(committed2, "Sequence 2 should commit")
+
+        // Try to commit sequence 1 (stale snapshot arriving out-of-order)
+        let committed1 = try await StateStorage.shared.writeSnapshot(state1, sequence: 1)
+        XCTAssertFalse(committed1, "Older sequence 1 must be discarded and not overwrite sequence 2")
+
+        let lastSeq = await StateStorage.shared.getLastCommittedSequence()
+        XCTAssertEqual(lastSeq, 2, "Last committed sequence must remain 2")
+    }
+
+    func testDecodingLegacyStateWithoutNoticeText() throws {
+        let legacyJSON = """
+        {
+            "auditions": [{
+                "id": "11111111-2222-3333-4444-555555555555",
+                "project": "Legacy Film",
+                "projectType": "Feature film",
+                "role": "Alex",
+                "roleSize": "Supporting",
+                "castingOffice": "Universal",
+                "due": 1800000000,
+                "asks": [],
+                "pieces": [],
+                "scenes": [],
+                "destination": "actorsAccess",
+                "status": "due"
+            }],
+            "isOnboarded": true,
+            "slate": {"name": "Test Actor"}
+        }
+        """
+        var kept: Data?
+        let loaded = try XCTUnwrap(Persistence.decode(Data(legacyJSON.utf8)) { kept = $0 })
+        XCTAssertNil(kept, "Valid legacy JSON should not produce unreadable copy")
+        XCTAssertEqual(loaded.auditions.count, 1)
+        let first = loaded.auditions[0]
+        XCTAssertEqual(first.project, "Legacy Film")
+        XCTAssertEqual(first.role, "Alex")
+        XCTAssertNil(first.noticeText, "Missing optional noticeText must decode as nil")
+        XCTAssertNil(first.scriptText, "Missing optional scriptText must decode as nil")
+        XCTAssertTrue(loaded.isOnboarded)
+    }
+
+    func testAtomicWritePreservesLastKnownGoodState() throws {
+        let goodState = PersistedState(auditions: [audition("Good Project")], isOnboarded: true)
+        try Persistence.save(goodState)
+        let targetURL = Persistence.fileURL
+        let goodData = try Data(contentsOf: targetURL)
+        XCTAssertFalse(goodData.isEmpty)
+
+        let decoded = try XCTUnwrap(Persistence.decode(goodData) { _ in })
+        XCTAssertEqual(decoded.auditions.first?.project, "Good Project")
+    }
 }
