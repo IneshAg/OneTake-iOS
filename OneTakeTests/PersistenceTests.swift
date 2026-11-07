@@ -353,4 +353,51 @@ final class PersistenceTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(50))
     }
+
+    // MARK: - Phase 8.2 Persistence Sequence & Dirty-State Invariant Tests
+
+    @MainActor
+    func testPersistenceOlderOperationCannotClearDirtyFlagIfNewerSaveOccurred() async throws {
+        let store = AppStore()
+        let mock = MockBackgroundTaskCoordinator()
+        store.backgroundTaskManager = mock
+
+        var a = audition("Initial")
+        store.auditions = [a]
+        store.saveAudition(a) // saveSequence = 1
+
+        // Start flush for sequence 1
+        store.flushPersistence(using: mock)
+        XCTAssertTrue(store.hasUncommittedChanges)
+
+        // While flush for sequence 1 is in flight, user makes a newer edit
+        var a2 = audition("Newer Edit")
+        store.auditions = [a2]
+        // Calling persist() sets saveSequence = 2 and hasUncommittedChanges = true
+        store.saveAudition(a2)
+        XCTAssertTrue(store.hasUncommittedChanges)
+
+        // Allow write to complete
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Because saveSequence was bumped to 2, completion of operation 1 must NOT clear hasUncommittedChanges!
+        XCTAssertTrue(store.hasUncommittedChanges, "Dirty state must remain true while newer edit (seq 2) is uncommitted")
+    }
+
+    func testMonotonicSequenceEnforcementInStateStorage() async throws {
+        await StateStorage.shared.resetSequenceForTesting()
+
+        let state1 = PersistedState(auditions: [], takes: [], practice: [], slate: SlateConfig(), isOnboarded: true, account: nil)
+        let state2 = PersistedState(auditions: [], takes: [], practice: [], slate: SlateConfig(), isOnboarded: false, account: nil)
+
+        // Write sequence 2 first
+        let committed2 = try await StateStorage.shared.writeSnapshot(state2, sequence: 2)
+        XCTAssertTrue(committed2)
+        XCTAssertEqual(await StateStorage.shared.getLastCommittedSequence(), 2)
+
+        // Stale write sequence 1 arriving late: must be rejected
+        let committed1 = try await StateStorage.shared.writeSnapshot(state1, sequence: 1)
+        XCTAssertFalse(committed1, "Stale snapshot sequence 1 must not overwrite sequence 2")
+        XCTAssertEqual(await StateStorage.shared.getLastCommittedSequence(), 2)
+    }
 }

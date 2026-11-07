@@ -360,9 +360,11 @@ final class AppStore {
                 let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
                 if committed {
                     await MainActor.run {
-                        self?.persistenceError = nil
-                        self?.lastSaveSucceeded = true
-                        self?.hasUncommittedChanges = false
+                        if self?.saveSequence == currentSeq {
+                            self?.hasUncommittedChanges = false
+                            self?.lastSaveSucceeded = true
+                            self?.persistenceError = nil
+                        }
                         Reminders.reschedule(snapshot.auditions)
                         WidgetSync.update(snapshot.auditions)
                     }
@@ -409,7 +411,7 @@ final class AppStore {
                     guard let self, self.activeFlushOperation === op else { return }
                     // Check if StateStorage actually committed this sequence despite expiration
                     let committedSeq = await StateStorage.shared.getLastCommittedSequence()
-                    if committedSeq >= op.sequence {
+                    if committedSeq >= op.sequence && self.saveSequence == op.sequence {
                         self.persistenceError = nil
                         self.lastSaveSucceeded = true
                         self.hasUncommittedChanges = false
@@ -430,18 +432,20 @@ final class AppStore {
             do {
                 let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
                 if committed {
-                    _ = operation.markCompleted()
+                    let won = operation.markCompleted()
                     await MainActor.run { [weak self] in
                         guard let self else { return }
-                        if self.activeFlushOperation === operation || self.activeFlushOperation == nil {
+                        if won && self.saveSequence == operation.sequence {
                             self.persistenceError = nil
                             self.lastSaveSucceeded = true
                             self.hasUncommittedChanges = false
+                        }
+                        if self.activeFlushOperation === operation {
                             self.activeFlushOperation = nil
                             self.activeFlushTask = nil
-                            Reminders.reschedule(snapshot.auditions)
-                            WidgetSync.update(snapshot.auditions)
                         }
+                        Reminders.reschedule(snapshot.auditions)
+                        WidgetSync.update(snapshot.auditions)
                     }
                 } else {
                     _ = operation.markCompleted()

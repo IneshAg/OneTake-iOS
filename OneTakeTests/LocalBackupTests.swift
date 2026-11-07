@@ -289,8 +289,9 @@ final class LocalBackupTests: XCTestCase {
             originalSnapshot: [
                 LocalBackup.OriginalEntrySnapshot(name: "project.json", isDirectory: false)
             ],
+            incomingManifest: ["extra_scene.mov"], // Provably part of the incoming backup!
             originalItemsMoved: ["project.json"],
-            incomingItemsInstalled: [] // Note: extra_scene.mov NOT recorded!
+            incomingItemsInstalled: [] // Note: extra_scene.mov not yet journaled as installed before crash!
         )
         try LocalBackup.writeJournal(journal)
 
@@ -389,5 +390,86 @@ final class LocalBackupTests: XCTestCase {
         let restoredClip = destDir.appendingPathComponent("take1.mov")
         XCTAssertTrue(manager.fileExists(atPath: restoredClip.path))
         XCTAssertEqual(try String(contentsOf: restoredClip, encoding: .utf8), "nested clip")
+    }
+
+    // MARK: - Phase 8.2 Ambiguous File Isolation & Content Integrity Tests
+
+    func testCrashRecoveryAmbiguousFilePreservesDataAndHaltsRecovery() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        let originalProject = rollbackDir.appendingPathComponent("project.json")
+        try Data("{"original": true}".utf8).write(to: originalProject)
+
+        // Ambiguous external file created by user or file sharing while restore was interrupted:
+        let ambiguousFile = mockDocumentsURL.appendingPathComponent("external_user_notes.txt")
+        try Data("precious external user notes".utf8).write(to: ambiguousFile)
+
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalSnapshot: [
+                LocalBackup.OriginalEntrySnapshot(name: "project.json", isDirectory: false)
+            ],
+            incomingManifest: ["new_scene.mov"], // external_user_notes.txt is NOT in backup!
+            originalItemsMoved: ["project.json"],
+            incomingItemsInstalled: []
+        )
+        try LocalBackup.writeJournal(journal)
+
+        // Recovery must HALT with error to avoid deleting ambiguous user data
+        XCTAssertThrowsError(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+
+        // Ambiguous file MUST NOT be deleted
+        XCTAssertTrue(manager.fileExists(atPath: ambiguousFile.path), "Ambiguous external file must be preserved")
+        // Rollback folder and journal must remain intact for manual/subsequent recovery
+        XCTAssertTrue(manager.fileExists(atPath: rollbackDir.path))
+        XCTAssertTrue(manager.fileExists(atPath: LocalBackup.journalURL.path))
+
+        // Cleanup
+        try? manager.removeItem(at: ambiguousFile)
+        try? manager.removeItem(at: rollbackDir)
+        LocalBackup.removeJournal()
+    }
+
+    func testCrashRecoveryContentIntegrityVerificationFailurePreservesRollback() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // Rollback file is tampered or corrupted (size mismatch)
+        let corruptedFile = rollbackDir.appendingPathComponent("project.json")
+        try Data("short".utf8).write(to: corruptedFile)
+
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalSnapshot: [
+                LocalBackup.OriginalEntrySnapshot(name: "project.json", isDirectory: false, fileSize: 9999, crc32: 123456)
+            ],
+            incomingManifest: ["scene.mov"],
+            originalItemsMoved: ["project.json"],
+            incomingItemsInstalled: []
+        )
+        try LocalBackup.writeJournal(journal)
+
+        // Integrity verification fails
+        XCTAssertThrowsError(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+
+        // Journal and rollback data must remain intact!
+        XCTAssertTrue(manager.fileExists(atPath: rollbackDir.path))
+        XCTAssertTrue(manager.fileExists(atPath: LocalBackup.journalURL.path))
+
+        try? manager.removeItem(at: rollbackDir)
+        LocalBackup.removeJournal()
     }
 }

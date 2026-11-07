@@ -161,10 +161,32 @@ enum LocalBackup {
 
     // MARK: - Durable Restore Journal & State Machine (AUDIT-FINDING-02)
 
-    /// Snapshot entry capturing original Documents directory items before any destructive operations.
+    /// Snapshot entry capturing original Documents directory items before any destructive operations,
+    /// including file type, size, and streaming CRC32 checksum for content integrity verification.
     struct OriginalEntrySnapshot: Codable, Equatable {
         var name: String
         var isDirectory: Bool
+        var fileSize: Int64?
+        var crc32: UInt32?
+
+        init(name: String, isDirectory: Bool, fileSize: Int64? = nil, crc32: UInt32? = nil) {
+            self.name = name
+            self.isDirectory = isDirectory
+            self.fileSize = fileSize
+            self.crc32 = crc32
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case name, isDirectory, fileSize, crc32
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            isDirectory = try container.decode(Bool.self, forKey: .isDirectory)
+            fileSize = try container.decodeIfPresent(Int64.self, forKey: .fileSize)
+            crc32 = try container.decodeIfPresent(UInt32.self, forKey: .crc32)
+        }
     }
 
     /// Persistent journal recorded outside tmp in Application Support before any live modification,
@@ -177,6 +199,7 @@ enum LocalBackup {
         var rollbackDirectoryPath: String
         var destinationDirectoryPath: String
         var originalSnapshot: [OriginalEntrySnapshot] = []
+        var incomingManifest: [String] = []
         var originalItemsMoved: [String] = []
         var incomingItemsInstalled: [String] = []
         var createdAt: Date = Date()
@@ -194,7 +217,7 @@ enum LocalBackup {
 
         enum CodingKeys: String, CodingKey {
             case formatVersion, operationID, state, stagedDirectoryPath, rollbackDirectoryPath, destinationDirectoryPath
-            case originalSnapshot, originalItemsMoved, incomingItemsInstalled, createdAt, updatedAt
+            case originalSnapshot, incomingManifest, originalItemsMoved, incomingItemsInstalled, createdAt, updatedAt
         }
 
         init(
@@ -204,6 +227,7 @@ enum LocalBackup {
             rollbackDirectoryPath: String,
             destinationDirectoryPath: String,
             originalSnapshot: [OriginalEntrySnapshot] = [],
+            incomingManifest: [String] = [],
             originalItemsMoved: [String] = [],
             incomingItemsInstalled: [String] = []
         ) {
@@ -214,6 +238,7 @@ enum LocalBackup {
             self.rollbackDirectoryPath = rollbackDirectoryPath
             self.destinationDirectoryPath = destinationDirectoryPath
             self.originalSnapshot = originalSnapshot
+            self.incomingManifest = incomingManifest
             self.originalItemsMoved = originalItemsMoved
             self.incomingItemsInstalled = incomingItemsInstalled
             self.createdAt = Date()
@@ -229,6 +254,7 @@ enum LocalBackup {
             rollbackDirectoryPath = try container.decode(String.self, forKey: .rollbackDirectoryPath)
             destinationDirectoryPath = try container.decode(String.self, forKey: .destinationDirectoryPath)
             originalSnapshot = try container.decodeIfPresent([OriginalEntrySnapshot].self, forKey: .originalSnapshot) ?? []
+            incomingManifest = try container.decodeIfPresent([String].self, forKey: .incomingManifest) ?? []
             originalItemsMoved = try container.decodeIfPresent([String].self, forKey: .originalItemsMoved) ?? []
             incomingItemsInstalled = try container.decodeIfPresent([String].self, forKey: .incomingItemsInstalled) ?? []
             createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -309,9 +335,10 @@ enum LocalBackup {
         }
 
         // Interrupted before commit: roll back to original data deterministically
-        let originalSnapshotNames = Set(journal.originalSnapshot.map(\.name))
+        let originalSnapshotMap = Dictionary(uniqueKeysWithValues: journal.originalSnapshot.map { ($0.name, $0) })
         let rollbackContents = (try? manager.contentsOfDirectory(at: rollbackDir, includingPropertiesForKeys: nil)) ?? []
         let rollbackNames = Set(rollbackContents.map(\.lastPathComponent))
+        let incomingSet = Set(journal.incomingManifest).union(journal.incomingItemsInstalled)
 
         // Step 1: Reconcile destination (Documents) directory against the original snapshot and rollback contents.
         // Remove only entries that are provably introduced by the interrupted restore.
@@ -323,15 +350,17 @@ enum LocalBackup {
                 // The item currently in destination is an incoming file that overwrote the original (or a duplicate).
                 // Safely remove it from destination so the original can be restored.
                 try? manager.removeItem(at: itemURL)
-            } else if originalSnapshotNames.contains(itemName) {
+            } else if originalSnapshotMap[itemName] != nil {
                 // This item was present originally and was never moved to rollback (e.g. crash during preservation).
                 // It is original user data that must be preserved!
                 continue
-            } else {
-                // Item is NOT in rollback storage AND was NOT in the original snapshot.
-                // This entry is provably introduced by the restore (e.g. incoming file copied into Documents,
-                // even if the crash occurred before the journal recorded it in incomingItemsInstalled).
+            } else if incomingSet.contains(itemName) {
+                // Provably introduced by the interrupted restore (present in incomingManifest or incomingItemsInstalled).
                 try? manager.removeItem(at: itemURL)
+            } else {
+                // Ambiguous entry: not present in original snapshot, not in rollback, and not in incoming backup manifest.
+                // Preserve ambiguous entry for safety, retain rollback data and journal, and report recovery failure.
+                throw ZipArchive.ArchiveError.invalid("Restore rollback halted: ambiguous entry '\(itemName)' not belonging to backup found in Documents")
             }
         }
 
@@ -352,12 +381,26 @@ enum LocalBackup {
             try manager.moveItem(at: rollbackItem, to: targetURL)
         }
 
-        // Step 3: Verify the restored original state against the original snapshot
+        // Step 3: Verify content integrity of restored original state against the original snapshot
         for expected in journal.originalSnapshot {
             let expectedURL = destination.appendingPathComponent(expected.name)
             guard manager.fileExists(atPath: expectedURL.path) else {
                 // Original file could not be restored! Do NOT delete rollback data or journal!
                 throw ZipArchive.ArchiveError.invalid("Restore rollback verification failed: original entry '\(expected.name)' is missing")
+            }
+            if !expected.isDirectory {
+                if let expectedSize = expected.fileSize {
+                    let actualSize = (try? expectedURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
+                    guard actualSize == expectedSize else {
+                        throw ZipArchive.ArchiveError.invalid("Restore rollback verification failed: original file '\(expected.name)' size mismatch")
+                    }
+                }
+                if let expectedCRC = expected.crc32 {
+                    let actualCRC = try? ZipArchive.crc32(of: expectedURL)
+                    guard actualCRC == expectedCRC else {
+                        throw ZipArchive.ArchiveError.invalid("Restore rollback verification failed: original file '\(expected.name)' CRC32 mismatch")
+                    }
+                }
             }
         }
 
@@ -400,11 +443,15 @@ enum LocalBackup {
         try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
 
         // Capture complete durable snapshot of original Documents entries BEFORE touching any files
-        let existingContents = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
+        let existingContents = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [])) ?? []
         let originalSnapshot: [OriginalEntrySnapshot] = existingContents.map { url in
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            return OriginalEntrySnapshot(name: url.lastPathComponent, isDirectory: isDir)
+            let size = isDir ? nil : ((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init))
+            let crc = isDir ? nil : (try? ZipArchive.crc32(of: url))
+            return OriginalEntrySnapshot(name: url.lastPathComponent, isDirectory: isDir, fileSize: size, crc32: crc)
         }
+
+        let incomingManifest = (try? manager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil))?.map(\.lastPathComponent) ?? []
 
         var journal = RestoreJournal(
             operationID: operationID,
@@ -412,7 +459,8 @@ enum LocalBackup {
             stagedDirectoryPath: stagedDirectory.path,
             rollbackDirectoryPath: rollbackDir.path,
             destinationDirectoryPath: destination.path,
-            originalSnapshot: originalSnapshot
+            originalSnapshot: originalSnapshot,
+            incomingManifest: incomingManifest
         )
         try writeJournal(journal)
 
