@@ -31,11 +31,10 @@ struct WidgetSnapshot: Codable, Hashable {
     /// Unsent auditions, soonest first.
     var upcoming: [Item]
 
-    static let appGroup = "group.com.srmist.onetake"
+    static var appGroup: String { AppGroup.identifier }
 
     private static var fileURL: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
-            .appendingPathComponent("widget-snapshot.json")
+        AppGroup.containerURL?.appendingPathComponent("widget-snapshot.json")
     }
 
     static func load() -> WidgetSnapshot? {
@@ -53,4 +52,24 @@ struct WidgetSnapshot: Codable, Hashable {
 func otTimeLeft(until due: Date, from now: Date = .now) -> (number: String, unit: String) {
     let hours = max(0, Int(due.timeIntervalSince(now) / 3600))
     return hours < 48 ? ("\(hours)", "h") : ("\(hours / 24)", "d")
+}
+
+
+/// Centralized App Group configuration shared between app and extensions
+enum AppGroup {
+    /// App Group identifier shared between the main app, widget extension, and share extension.
+    /// Can be overridden via Info.plist key `APP_GROUP_IDENTIFIER` if customized, otherwise defaults to entitled group.
+    static var identifier: String {
+        Bundle.main.object(forInfoDictionaryKey: "APP_GROUP_IDENTIFIER") as? String ?? "group.com.srmist.onetake"
+    }
+
+    static var containerURL: URL? {
+        let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
+        #if DEBUG
+        if url == nil {
+            print("[AppGroup] Warning: Unable to access App Group container '\(identifier)'. Check entitlements and provisioning.")
+        }
+        #endif
+        return url
+    }
 }

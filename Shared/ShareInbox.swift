@@ -19,8 +19,7 @@ enum ShareInbox {
     static let textFileName = "text.txt"
 
     static var root: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WidgetSnapshot.appGroup)?
-            .appendingPathComponent("ShareInbox", isDirectory: true)
+        AppGroup.containerURL?.appendingPathComponent("ShareInbox", isDirectory: true)
     }
 
     /// A fresh folder for one share. Named by time first so the oldest share is picked up first.

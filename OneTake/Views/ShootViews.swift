@@ -46,7 +46,8 @@ struct RecordButton: View {
             if pressing { Haptics.tick() }
             withAnimation(pressing ? .linear(duration: 0.8) : .easeOut(duration: 0.2)) { holdProgress = pressing ? 1 : 0 }
         })
-        .accessibilityLabel(isRecording ? (holdToStop ? "Stop recording, press and hold" : "Stop recording") : "Record")
+        .accessibilityLabel(isRecording ? (holdToStop ? "Stop recording, press and hold" : "Stop recording") : "Record take")
+        .accessibilityHint(isRecording ? (holdToStop ? "Press and hold to cut the take" : "Tap to cut the take") : "Tap to start rolling")
         .accessibilityAddTraits(.isButton)
     }
 }

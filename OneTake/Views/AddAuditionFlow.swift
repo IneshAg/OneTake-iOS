@@ -477,19 +477,21 @@ private struct OCRReviewSheet: View {
     @State private var showCastingNoticePicker: Bool = false
     @State private var showScriptSidesPicker: Bool = false
 
-    private var hasReaderLines: Bool {
+    private var resolvedScenes: [ScriptScene] {
+        if let custom = draft.customScenes, !custom.isEmpty { return custom }
         let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !effective.isEmpty, draft.hasSides else { return false }
-        let scenes = draft.hasSides
-            ? ((draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective))
-            : []
-        return scenes.contains { $0.lines.contains { !$0.isMine } }
+        guard !effective.isEmpty else { return [] }
+        let text = !draft.scriptText.isEmpty ? draft.scriptText : draft.sourceText
+        return ScriptParser.parseScenes(from: text, myRole: effective)
+    }
+
+    private var hasReaderLines: Bool {
+        guard !roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, draft.hasSides else { return false }
+        return resolvedScenes.contains { $0.lines.contains { !$0.isMine } }
     }
 
     private var detectedReaderName: String {
-        let effective = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let scenes = (draft.customScenes?.isEmpty == false ? draft.customScenes : nil) ?? ScriptParser.parseScenes(from: draft.sourceText, myRole: effective)
-        let unowned = scenes.flatMap(\.lines).filter { !$0.isMine }
+        let unowned = resolvedScenes.flatMap(\.lines).filter { !$0.isMine }
         return unowned.first?.character.capitalized ?? "Reader"
     }
 
@@ -4286,20 +4288,20 @@ struct NoticeReviewView: View {
         }
     }
 
+    private var resolvedScenes: [ScriptScene] {
+        if let custom = store.auditionDraft.customScenes, !custom.isEmpty { return custom }
+        let text = !store.auditionDraft.scriptText.isEmpty ? store.auditionDraft.scriptText : store.auditionDraft.sourceText
+        return ScriptParser.parseScenes(from: text, myRole: store.auditionDraft.role)
+    }
+
     private var hasReaderLines: Bool {
         guard !store.auditionDraft.role.isEmpty, store.auditionDraft.hasSides else { return false }
-        let parsed = store.auditionDraft.customScenes?.isEmpty == false
-            ? store.auditionDraft.customScenes!
-            : ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-        return parsed.contains { $0.lines.contains { !$0.isMine } }
+        return resolvedScenes.contains { $0.lines.contains { !$0.isMine } }
     }
 
     private var detectedReaderName: String {
         guard store.auditionDraft.hasSides else { return "Reader" }
-        let parsedScenes = store.auditionDraft.customScenes?.isEmpty == false
-            ? store.auditionDraft.customScenes!
-            : ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-        let unownedLines = parsedScenes.flatMap(\.lines).filter { !$0.isMine }
+        let unownedLines = resolvedScenes.flatMap(\.lines).filter { !$0.isMine }
         var seen = Set<String>()
         var list: [String] = []
         for line in unownedLines {
@@ -4314,10 +4316,7 @@ struct NoticeReviewView: View {
 
     private var readerCuesCount: Int {
         guard store.auditionDraft.hasSides else { return 0 }
-        let parsedScenes = store.auditionDraft.customScenes?.isEmpty == false
-            ? store.auditionDraft.customScenes!
-            : ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
-        return parsedScenes.flatMap(\.lines).filter { !$0.isMine }.count
+        return resolvedScenes.flatMap(\.lines).filter { !$0.isMine }.count
     }
 
     var body: some View {
