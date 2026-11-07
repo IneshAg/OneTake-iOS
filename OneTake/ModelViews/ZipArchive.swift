@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(zlib)
+import zlib
+#endif
 
 /// Writes a standards-compliant, store-only ZIP without loading video files into memory.
 /// ZIP64 is intentionally not implemented; a single archive and each entry must fit classic ZIP limits.
@@ -219,12 +222,20 @@ enum ZipArchive {
     }
 
     static func crc32(_ data: Data) -> UInt32 {
+        #if canImport(zlib)
+        guard !data.isEmpty else { return 0 }
+        return data.withUnsafeBytes { buffer in
+            guard let baseAddress = buffer.bindMemory(to: Bytef.self).baseAddress else { return 0 }
+            return UInt32(zlib.crc32(0, baseAddress, uInt(buffer.count)))
+        }
+        #else
         var crc: UInt32 = 0xffffffff
         for byte in data {
             crc ^= UInt32(byte)
             for _ in 0..<8 { crc = (crc & 1 != 0) ? ((crc >> 1) ^ 0xedb88320) : (crc >> 1) }
         }
         return ~crc
+        #endif
     }
 
     static func crc32(of data: Data) -> UInt32 {
@@ -234,11 +245,22 @@ enum ZipArchive {
     static func crc32(of url: URL) throws -> UInt32 {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
+        #if canImport(zlib)
+        var crc: uLong = zlib.crc32(0, nil, 0)
+        while let chunk = try input.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+            chunk.withUnsafeBytes { buffer in
+                guard let baseAddress = buffer.bindMemory(to: Bytef.self).baseAddress else { return }
+                crc = zlib.crc32(crc, baseAddress, uInt(buffer.count))
+            }
+        }
+        return UInt32(crc)
+        #else
         var crc: UInt32 = 0xffffffff
         while let chunk = try input.read(upToCount: 1024 * 1024), !chunk.isEmpty {
             for byte in chunk { crc ^= UInt32(byte); for _ in 0..<8 { crc = (crc >> 1) ^ (0xedb88320 & (0 &- (crc & 1))) } }
         }
         return ~crc
+        #endif
     }
 
     private static func appendUInt16(_ value: UInt16, to data: inout Data) {

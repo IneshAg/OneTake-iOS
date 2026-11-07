@@ -65,6 +65,12 @@ final class ZipArchiveTests: XCTestCase {
         let standardCRC = ZipArchive.crc32(standardVector)
         XCTAssertEqual(standardCRC, 0xcbf43926, "CRC-32 for '123456789' must match IEEE 802.3 test vector 0xcbf43926")
 
+        // File-based streaming CRC32 test (AUDIT-005)
+        let tempFile = tempDirectory.appendingPathComponent("stream_crc.dat")
+        try standardVector.write(to: tempFile)
+        let fileCRC = try ZipArchive.crc32(of: tempFile)
+        XCTAssertEqual(fileCRC, 0xcbf43926, "File streaming CRC32 must match 0xcbf43926")
+
         let emptyVector = Data()
         let emptyCRC = ZipArchive.crc32(emptyVector)
         XCTAssertEqual(emptyCRC, 0x00000000, "CRC-32 for empty data must be 0x00000000")
