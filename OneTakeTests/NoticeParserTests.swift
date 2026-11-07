@@ -2131,4 +2131,26 @@ final class NoticeParserTests: XCTestCase {
             XCTAssertFalse(unit.contains("[hesitates]"))
         }
     }
+
+    func testIsSceneOptionalDoesNotFalsePositiveOnEmptySceneTitle() {
+        // Bug 1 regression test: Empty scene title should not match unrelated 'Resume (optional)'
+        let scene1 = ScriptScene(number: 1, title: "", heading: "INT. ROOM - DAY", lines: [])
+        let noticeText = """
+        Please submit self-tape by Friday.
+        Resume (optional).
+        Headshots required.
+        """
+        XCTAssertFalse(NoticeParser.isSceneOptional(scene: scene1, in: noticeText), "Empty scene title must not trigger false positive on unrelated 'optional' text")
+    }
+
+    func testIsSceneOptionalMatchesLegitimateOptionalScenes() {
+        let scene1 = ScriptScene(number: 1, title: "Scene 1", heading: "INT. ROOM - DAY", lines: [])
+        let scene2 = ScriptScene(number: 2, title: "Scene 2", heading: "EXT. STREET - NIGHT", lines: [])
+        let noticeText = """
+        Please record Scene 1 (required).
+        Scene 2 (optional - prepare if time permits).
+        """
+        XCTAssertFalse(NoticeParser.isSceneOptional(scene: scene1, in: noticeText))
+        XCTAssertTrue(NoticeParser.isSceneOptional(scene: scene2, in: noticeText))
+    }
 }

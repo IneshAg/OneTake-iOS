@@ -59,20 +59,72 @@ enum MediaExporter {
     /// scene — or the scenes first when the slate goes at the end. Shared by the export, Preview and
     /// Tape Check, so all three look at the same thing.
     static func clips(for audition: Audition, takes: [Take], slateAtStart: Bool = Self.slateAtStart) -> [Clip] {
-        var slate: [Clip] = []
-        if let s = audition.slateVideoURL { slate.append(Clip(kind: .slate, label: "Slate", url: s)) }
-        if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full-body shot", url: f)) }
-        var clips: [Clip] = []
-        // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
-        // display number, and only this audition's takes are eligible whatever the caller passes in.
         let auditionTakes = takes.filter { $0.auditionID == audition.id }
-        for sceneIndex in audition.scenes.indices {
+
+        func takeClip(for sceneIndex: Int) -> Clip? {
             let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
-            if let chosen = sceneTakes.first(where: \.isCircled), let url = chosen.fileURL {
-                clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url, takeNumber: chosen.number))
+            guard let chosen = sceneTakes.first(where: \.isCircled), let url = chosen.fileURL else { return nil }
+            return Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url, takeNumber: chosen.number)
+        }
+
+        let videoPieces = audition.pieces.filter { $0.kind != .headshot }
+        if videoPieces.isEmpty {
+            var slate: [Clip] = []
+            if let s = audition.slateVideoURL { slate.append(Clip(kind: .slate, label: "Slate", url: s)) }
+            if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full-body shot", url: f)) }
+            var clips: [Clip] = []
+            for sceneIndex in audition.scenes.indices {
+                if let clip = takeClip(for: sceneIndex) {
+                    clips.append(clip)
+                }
+            }
+            return slateAtStart ? slate + clips : clips + slate
+        }
+
+        var orderedClips: [Clip] = []
+        var usedSceneIndices = Set<Int>()
+
+        for piece in videoPieces {
+            switch piece.kind {
+            case .slate:
+                if let s = audition.slateVideoURL {
+                    orderedClips.append(Clip(kind: .slate, label: "Slate", url: s))
+                }
+            case .fullLength:
+                if let f = audition.fullLengthVideoURL {
+                    orderedClips.append(Clip(kind: .fullLength, label: "Full-body shot", url: f))
+                }
+            case .scene:
+                let matchedIndex: Int?
+                if let idx = audition.scenes.indices.first(where: { !usedSceneIndices.contains($0) && audition.scenes[$0].title == piece.title }) {
+                    matchedIndex = idx
+                } else {
+                    matchedIndex = audition.scenes.indices.first(where: { !usedSceneIndices.contains($0) })
+                }
+                if let idx = matchedIndex {
+                    usedSceneIndices.insert(idx)
+                    if let clip = takeClip(for: idx) {
+                        orderedClips.append(clip)
+                    }
+                }
+            case .headshot:
+                break
             }
         }
-        return slateAtStart ? slate + clips : clips + slate
+
+        for sceneIndex in audition.scenes.indices where !usedSceneIndices.contains(sceneIndex) {
+            if let clip = takeClip(for: sceneIndex) {
+                orderedClips.append(clip)
+            }
+        }
+
+        if !slateAtStart {
+            let slateClips = orderedClips.filter { $0.kind == .slate || $0.kind == .fullLength }
+            let otherClips = orderedClips.filter { $0.kind != .slate && $0.kind != .fullLength }
+            return otherClips + slateClips
+        }
+
+        return orderedClips
     }
 
     /// Writes the individual finalized clips and headshots to the separate-clips ZIP.

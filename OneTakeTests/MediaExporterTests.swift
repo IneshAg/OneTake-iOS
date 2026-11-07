@@ -349,4 +349,34 @@ final class MediaExporterTests: XCTestCase {
             "Default ZIP clips must use LAST_FIRST_ROLE_PROJECT prefix when no custom template is set"
         )
     }
+
+    func testClipOrderingRespectsCustomFlowOrder() {
+        let scene1 = ScriptScene(number: 1, title: "Scene 1", heading: "INT. OFFICE", lines: [], estimatedSeconds: 20)
+        let scene2 = ScriptScene(number: 2, title: "Scene 2", heading: "EXT. GARDEN", lines: [], estimatedSeconds: 30)
+        var audition = makeAudition(scenes: [scene1, scene2])
+
+        let slateFile = tempDirectory.appendingPathComponent("slate.mov")
+        let fullFile = tempDirectory.appendingPathComponent("full.mov")
+        let take1File = tempDirectory.appendingPathComponent("take1.mov")
+        let take2File = tempDirectory.appendingPathComponent("take2.mov")
+
+        audition.slateVideoURL = slateFile
+        audition.fullLengthVideoURL = fullFile
+
+        let take1 = Take(number: 1, duration: 30, recordedAt: .now, isCircled: true, notes: [], fileURL: take1File, auditionID: audition.id, sceneIndex: 0)
+        let take2 = Take(number: 1, duration: 45, recordedAt: .now, isCircled: true, notes: [], fileURL: take2File, auditionID: audition.id, sceneIndex: 1)
+
+        // Custom order: Full-body shot -> Scene 2 -> Slate -> Scene 1
+        audition.pieces = [
+            Piece(kind: .fullLength, title: "Full-body shot", detail: "", isDone: true),
+            Piece(kind: .scene, title: "Scene 2", detail: "", isDone: true),
+            Piece(kind: .slate, title: "Slate", detail: "", isDone: true),
+            Piece(kind: .scene, title: "Scene 1", detail: "", isDone: true)
+        ]
+
+        let clips = MediaExporter.clips(for: audition, takes: [take1, take2], slateAtStart: true)
+        let kinds = clips.map(\.kind)
+
+        XCTAssertEqual(kinds, [.fullLength, .scene(1), .slate, .scene(0)], "Clips must strictly follow user's custom flow order in audition.pieces")
+    }
 }

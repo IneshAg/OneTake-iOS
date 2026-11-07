@@ -75,7 +75,11 @@ enum TapeAnalyzer {
                                       allHD: allHD, passed: &passed)
         report.passed = passed
         report.findings += package
-        report.passed.append("File name")
+        let deliverableName = audition.deliverableFileName(slate: SlateInfo())
+        let nameStem = (deliverableName as NSString).deletingPathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nameStem.isEmpty {
+            report.passed.append("File name")
+        }
         report.aiGuidance = await OnDeviceIntelligence.tapeGuidance(audition, report: report)
         return report
     }

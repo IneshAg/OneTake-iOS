@@ -78,23 +78,30 @@ enum VoicePracticeReviewAnalyzer {
     }
 
     private static func transcribe(_ request: SFSpeechURLRecognitionRequest, recognizer: SFSpeechRecognizer) async throws -> [Word] {
-        try await withCheckedThrowingContinuation { continuation in
-            let gate = RecognitionOnceGate()
-            _ = recognizer.recognitionTask(with: request) { result, error in
-                guard gate.claim() else { return }
-                if let result, result.isFinal {
-                    let words = result.bestTranscription.segments.compactMap { segment -> Word? in
-                        let value = normalize(segment.substring)
-                        guard !value.isEmpty else { return nil }
-                        return Word(value: value, timestamp: segment.timestamp, duration: segment.duration)
+        let collector = RecognitionCollector()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = recognizer.recognitionTask(with: request) { result, error in
+                    if let result {
+                        let words = result.bestTranscription.segments.compactMap { segment -> Word? in
+                            let value = normalize(segment.substring)
+                            guard !value.isEmpty else { return nil }
+                            return Word(value: value, timestamp: segment.timestamp, duration: segment.duration)
+                        }
+                        collector.update(words: words)
+                        if result.isFinal {
+                            collector.resumeWithFinal(words: words, continuation: continuation)
+                            return
+                        }
                     }
-                    continuation.resume(returning: words)
-                } else if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    gate.release()
+                    if let error {
+                        collector.finish(error: error, continuation: continuation)
+                    }
                 }
+                collector.setTask(task)
             }
+        } onCancel: {
+            collector.cancel()
         }
     }
 
@@ -202,17 +209,53 @@ enum VoicePracticeReviewAnalyzer {
     private enum ReviewError: Error { case unavailable, onDeviceUnavailable, noSpeech }
 }
 
-private final class RecognitionOnceGate: @unchecked Sendable {
+private final class RecognitionCollector: @unchecked Sendable {
     private let lock = NSLock()
-    private var isClaimed = false
-    func claim() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard !isClaimed else { return false }
-        isClaimed = true
-        return true
+    private var isResumed = false
+    private var accumulatedWords: [VoicePracticeReviewAnalyzer.Word] = []
+    private weak var task: SFSpeechRecognitionTask?
+
+    func setTask(_ task: SFSpeechRecognitionTask) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.task = task
     }
-    func release() {
-        lock.lock(); isClaimed = false; lock.unlock()
+
+    func cancel() {
+        lock.lock()
+        let t = task
+        lock.unlock()
+        t?.cancel()
+    }
+
+    func update(words: [VoicePracticeReviewAnalyzer.Word]) {
+        lock.lock()
+        defer { lock.unlock() }
+        if !words.isEmpty {
+            self.accumulatedWords = words
+        }
+    }
+
+    func resumeWithFinal(words: [VoicePracticeReviewAnalyzer.Word], continuation: CheckedContinuation<[VoicePracticeReviewAnalyzer.Word], Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isResumed else { return }
+        isResumed = true
+        continuation.resume(returning: words.isEmpty ? accumulatedWords : words)
+    }
+
+    func finish(error: Error?, continuation: CheckedContinuation<[VoicePracticeReviewAnalyzer.Word], Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isResumed else { return }
+        isResumed = true
+        if !accumulatedWords.isEmpty {
+            continuation.resume(returning: accumulatedWords)
+        } else if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume(returning: [])
+        }
     }
 }
 

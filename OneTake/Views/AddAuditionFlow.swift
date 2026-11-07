@@ -1932,10 +1932,16 @@ enum NoticeParser {
         if t.contains("optional") || h.contains("optional") { return true }
         if t.contains("if time permits") || h.contains("if time permits") { return true }
 
-        let escapedTitle = NSRegularExpression.escapedPattern(for: scene.title)
+        let cleanTitle = scene.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let titleDisjunction: String
+        if !cleanTitle.isEmpty {
+            titleDisjunction = #"(?:scene\s*"# + "\(scene.number)" + #"\b|"# + NSRegularExpression.escapedPattern(for: cleanTitle) + #")"#
+        } else {
+            titleDisjunction = #"(?:scene\s*"# + "\(scene.number)" + #"\b)"#
+        }
         let patterns = [
-            #"(?i)\b(?:scene\s*"# + "\(scene.number)" + #"\b|"# + escapedTitle + #")[^.\n\r]*\b(optional|if time permits|callback only|not required)\b"#,
-            #"(?i)\b(optional|if time permits|callback only|not required)\b[^.\n\r]*\b(?:scene\s*"# + "\(scene.number)" + #"\b|"# + escapedTitle + #")"#
+            #"(?i)\b"# + titleDisjunction + #"[^.\n\r]*\b(optional|if time permits|callback only|not required)\b"#,
+            #"(?i)\b(optional|if time permits|callback only|not required)\b[^.\n\r]*\b"# + titleDisjunction
         ]
         for pattern in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
