@@ -1585,7 +1585,10 @@ struct ShootFlow: View {
                 Haptics.warning()
                 return
             }
-            let take = Take(id: takeID, number: number, duration: camera.elapsed, recordedAt: .now, isCircled: false, notes: [],
+            let asset = AVURLAsset(url: url)
+            let assetSeconds = CMTimeGetSeconds(asset.duration)
+            let trueDuration = (assetSeconds > 0 && assetSeconds.isFinite) ? assetSeconds : camera.elapsed
+            let take = Take(id: takeID, number: number, duration: trueDuration, recordedAt: .now, isCircled: false, notes: [],
                              fileURL: url, auditionID: auditionID, sceneIndex: sceneIndex)
             store.addTake(take)
             takeNumber = number

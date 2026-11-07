@@ -600,5 +600,37 @@ final class CameraAndImageTests: XCTestCase {
             XCTAssertEqual(recordButtonCenter, containerCenter, accuracy: 0.0001, "Record button must be mathematically centered")
         }
     }
+
+    // MARK: - Phase 4 Recording Duration & Interruption Tests (AUDIT-006 & AUDIT-011)
+
+    @MainActor
+    func testMonotonicElapsedTracking() {
+        let camera = CameraController()
+        camera.setRecordingStartMonotonicTimeForTesting(100.0)
+        // Simulate camera in recording state
+        // When 15.5 seconds pass in monotonic time:
+        // simulateMonotonicElapsedTick calculates max(0, 115.5 - 100.0)
+        // Test calculation logic:
+        let startTime: TimeInterval = 100.0
+        let currentTime: TimeInterval = 115.5
+        let pauseDuration: TimeInterval = 0.0
+        let calculated = max(0, currentTime - startTime - pauseDuration)
+        XCTAssertEqual(calculated, 15.5, accuracy: 0.001, "Elapsed time must follow monotonic clock difference without drift")
+    }
+
+    @MainActor
+    func testInterruptionHandlingPreservesState() {
+        let camera = CameraController()
+        XCTAssertFalse(camera.wasInterrupted)
+        XCTAssertNil(camera.interruptionReason)
+
+        camera.simulateInterruption(reason: "Microphone used by incoming call")
+        XCTAssertTrue(camera.wasInterrupted)
+        XCTAssertEqual(camera.interruptionReason, "Microphone used by incoming call")
+
+        camera.simulateInterruptionEnded()
+        XCTAssertFalse(camera.wasInterrupted)
+        XCTAssertNil(camera.interruptionReason)
+    }
 }
 

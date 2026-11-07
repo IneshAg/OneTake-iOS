@@ -100,12 +100,147 @@ final class CameraController: NSObject {
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
     @ObservationIgnored private var subjectAreaChangeObserver: Any?
+    private(set) var wasInterrupted = false
+    private(set) var interruptionReason: String?
+
+    @ObservationIgnored private var recordingStartTime: TimeInterval = 0
+    @ObservationIgnored private var accumulatedPauseDuration: TimeInterval = 0
+    @ObservationIgnored private var pauseStartTime: TimeInterval = 0
+    @ObservationIgnored private var interruptionObservers: [NSObjectProtocol] = []
+
+    override init() {
+        super.init()
+        setupInterruptionHandling()
+    }
 
     deinit {
         if let obs = subjectAreaChangeObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        for obs in interruptionObservers {
+            NotificationCenter.default.removeObserver(obs)
+        }
     }
+
+    // MARK: - Interruption Handling (AUDIT-011)
+
+    private func setupInterruptionHandling() {
+        let center = NotificationCenter.default
+        let captureInterrupted = center.addObserver(
+            forName: AVCaptureSession.wasInterruptedNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] note in
+            self?.handleCaptureSessionInterrupted(note)
+        }
+        let captureEnded = center.addObserver(
+            forName: AVCaptureSession.interruptionEndedNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] note in
+            self?.handleCaptureSessionInterruptionEnded(note)
+        }
+        let audioInterrupted = center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            self?.handleAudioSessionInterruption(note)
+        }
+        interruptionObservers = [captureInterrupted, captureEnded, audioInterrupted]
+    }
+
+    private func handleCaptureSessionInterrupted(_ notification: Notification) {
+        var reasonDescription = "Recording interrupted"
+        if let rawReason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int,
+           let reason = AVCaptureSession.InterruptionReason(rawValue: rawReason) {
+            switch reason {
+            case .videoDeviceNotAvailableInBackground:
+                reasonDescription = "App entered background"
+            case .audioDeviceInUseByAnotherClient:
+                reasonDescription = "Microphone used by another app (call or Siri)"
+            case .videoDeviceInUseByAnotherClient:
+                reasonDescription = "Camera in use by another app"
+            case .videoDeviceNotAvailableWithMultipleForegroundApps:
+                reasonDescription = "Camera unavailable in split view"
+            case .videoDeviceNotAvailableDueToSystemPressure:
+                reasonDescription = "Camera unavailable due to system thermal pressure"
+            @unknown default:
+                reasonDescription = "Recording interrupted by system"
+            }
+        }
+        wasInterrupted = true
+        interruptionReason = reasonDescription
+
+        if state == .recording || state == .paused {
+            // Stop recording cleanly to flush and preserve whatever was captured so far
+            stopRecording()
+        }
+    }
+
+    private func handleCaptureSessionInterruptionEnded(_ notification: Notification) {
+        wasInterrupted = false
+        interruptionReason = nil
+        queue.async { [weak self] in
+            guard let self else { return }
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
+            Task { @MainActor in
+                if self.state != .recording && self.state != .paused {
+                    self.state = .ready
+                }
+            }
+        }
+    }
+
+    private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+        switch type {
+        case .began:
+            wasInterrupted = true
+            interruptionReason = "Audio interrupted by incoming call or alarm"
+            if state == .recording || state == .paused {
+                stopRecording()
+            }
+        case .ended:
+            wasInterrupted = false
+            interruptionReason = nil
+        @unknown default:
+            break
+        }
+    }
+
+    // MARK: - Testing Hooks
+    #if DEBUG
+    func simulateInterruption(reason: String) {
+        wasInterrupted = true
+        interruptionReason = reason
+        if state == .recording || state == .paused {
+            stopRecording()
+        }
+    }
+
+    func simulateInterruptionEnded() {
+        wasInterrupted = false
+        interruptionReason = nil
+        if state != .recording && state != .paused {
+            state = .ready
+        }
+    }
+
+    func simulateMonotonicElapsedTick(currentTime: TimeInterval) {
+        guard state == .recording else { return }
+        self.elapsed = max(0, currentTime - recordingStartTime - accumulatedPauseDuration)
+    }
+
+    func setRecordingStartMonotonicTimeForTesting(_ time: TimeInterval) {
+        self.recordingStartTime = time
+        self.accumulatedPauseDuration = 0
+        self.pauseStartTime = 0
+    }
+    #endif
 
     // MARK: Permissions
 
@@ -522,10 +657,16 @@ final class CameraController: NSObject {
         lockExposure()
         movieOutput.startRecording(to: url, recordingDelegate: self)
         state = .recording
+        wasInterrupted = false
+        interruptionReason = nil
+        recordingStartTime = CACurrentMediaTime()
+        accumulatedPauseDuration = 0
+        pauseStartTime = 0
         elapsed = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self, self.state == .recording else { return }
-            self.elapsed += 0.1
+            let now = CACurrentMediaTime()
+            self.elapsed = max(0, now - self.recordingStartTime - self.accumulatedPauseDuration)
         }
         Haptics.impact(.rigid)
     }
@@ -540,12 +681,14 @@ final class CameraController: NSObject {
         recordingFinishedHandler = completion
         movieOutput.stopRecording()
         timer?.invalidate()
+        timer = nil
         Haptics.success()
     }
 
     func pauseRecording() {
         guard state == .recording, movieOutput.isRecording else { return }
         movieOutput.pauseRecording()
+        pauseStartTime = CACurrentMediaTime()
         timer?.invalidate()
         timer = nil
         state = .paused
@@ -554,11 +697,16 @@ final class CameraController: NSObject {
 
     func resumeRecording() {
         guard state == .paused, movieOutput.isRecording else { return }
+        if pauseStartTime > 0 {
+            accumulatedPauseDuration += CACurrentMediaTime() - pauseStartTime
+            pauseStartTime = 0
+        }
         movieOutput.resumeRecording()
         state = .recording
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self, self.state == .recording else { return }
-            self.elapsed += 0.1
+            let now = CACurrentMediaTime()
+            self.elapsed = max(0, now - self.recordingStartTime - self.accumulatedPauseDuration)
         }
         Haptics.tick()
     }
@@ -644,6 +792,13 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         Task { @MainActor in
             let url = finished ? outputFileURL : nil
+            if let url {
+                let asset = AVURLAsset(url: url)
+                let assetSeconds = CMTimeGetSeconds(asset.duration)
+                if assetSeconds > 0 && assetSeconds.isFinite {
+                    self.elapsed = assetSeconds
+                }
+            }
             self.lastRecording = url
             self.state = .ready
             self.isStopping = false
