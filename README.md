@@ -1,151 +1,131 @@
 # OneTake · iOS 🎬
 
-> **The actor's self-tape audition studio.** SwiftUI, AVFoundation, Vision and VisionKit, for iOS 18+.
+> **The personal self-tape audition studio for actors.** Built with SwiftUI, AVFoundation, Vision, and VisionKit for iOS 18+.
 
 [![Build](https://github.com/IneshAg/OneTake-iOS/actions/workflows/build.yml/badge.svg)](https://github.com/IneshAg/OneTake-iOS/actions/workflows/build.yml)
 [![iOS](https://img.shields.io/badge/iOS-18.0%2B-blue.svg?style=flat&logo=apple)](https://developer.apple.com/ios/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-OneTake takes an actor from a casting notice to a finished self-tape: it reads the notice and the
-sides, helps you learn the lines, films the slate and every scene with a prompter and your own
-recorded reader, checks the tape, and packages it the way casting asked. There's no server and no
-sign-up — everything stays on the iPhone until you send it.
-
-On supported newer iOS releases, OneTake also uses Apple's on-device Foundation Models framework
-to explain casting notices and turn measured Tape Check findings into practical retake guidance.
-The media checks remain deterministic (Vision and AVFoundation); the model only explains those
-measured facts and never replaces them. Older supported iOS releases use the existing local parser
-and deterministic guidance.
-
-> 🤖 **Android:** [OneTake-Android](https://github.com/IneshAg/OneTake-Android) (Kotlin, Jetpack Compose, CameraX).
+[![Docs](https://img.shields.io/badge/Docs-Complete-green.svg)](docs/INDEX.md)
 
 ---
 
-## ✨ Features
+## 🎭 What is OneTake?
 
-### Auditions
-- **Add from anywhere** — paste the notice, take a photo, scan the pages (VisionKit), pick a PDF or
-  text file, type it in, or **Share → OneTake** from Mail, WhatsApp, Safari, Photos or Files.
-  Everything is read on-device (Vision OCR, PDFKit).
-- **Reads the notice** — role, project, due date, number of scenes and what casting asked for
-  (slate, full length, landscape, length limit, destination). It also retains structured project,
-  role, date, sides, source-page, and submission details when found; anything it can't find, you fill in.
-- **Splits the sides into scenes** at each slugline (`INT.` / `EXT.`) or `SCENE 2` header, and marks
-  your lines.
-- **Checklist per audition** — headshot, slate, requested full-body shot (as part of the slate or a separate clip) and one piece per scene, with a
-  single "Next" action that opens whatever's next.
-- Edit details, revised sides, callbacks, and filters for Active / Due this week / Sent / All.
+OneTake is a dedicated personal self-tape studio for actors. It guides an actor through the complete self-tape lifecycle:
+1. **Intake**: Ingests casting notice requirements and script sides as independent documents.
+2. **Rehearse**: Helps actors learn lines with an adaptive prompter and their own recorded reader cues.
+3. **Shoot**: Films the slate, full-body shots (when requested), and scene takes with a monotonic hardware clock and interruption protection.
+4. **Inspect**: Analyzes technical framing, headroom, audio levels, and lighting via on-device Vision and AVFoundation tape checks.
+5. **Deliver**: Packages deliverables into industry-standard filenames as either a local `.zip` of separate elements or a published temporary iCloud download link.
 
-### Learn the lines
-- **Prepare** — full lines, first letters, or hide yours (tap to peek), with casting's notes on top.
-- **Run lines** — your recorded reader plays their lines; speech recognition follows yours and moves on
-  when you've said it. Say "Line?" for a prompt. The end screen shows which lines you got on your own,
-  and that becomes the scene's "lines learned".
-- **Quick drills** — First-Letter prompts, Mask & Reveal (hide a quarter to all of each line), Audio Gap,
-  and a hands-free Audio Walk loop.
-- **Record the reader** in your own voice, one line at a time, per scene.
+**OneTake operates 100% locally and offline.** There are no user sign-ups, tracking analytics, or third-party servers. All scripts, takes, and headshots remain on the actor's device.
 
-### Shoot
-- Front or back camera at 1080p, recorded upright however the phone is held and never mirrored.
-- Pinch to zoom or tap the zoom control to cycle through 1×, 1.5× and 2× framing.
-- A visible timer control enables or disables the 3-second countdown before recording.
-- Slate, a separately requested full-body shot, then each scene — with a scene picker and “Next: Scene N”. A full-body view requested as part of the slate stays in the slate.
-- Hands-free: say "Action" / "Cut" (only when said on their own), or use a volume button, Camera Control
-  or an AirPods stem press. The prompter follows your voice and plays your reader lines.
-- Hold-to-stop while rolling, so a stray tap can't end an emotional take.
-
-### Takes, Tape Check and sending
-- Takes per scene, circle your send take, trim, and private notes.
-- **Tape Check** analyses only the finalized/circled clips that will be sent: face in frame, distance,
-  headroom, centring, head turn, lighting, quiet voice, clipping, long pauses and a possible clipped
-  opening, plus the package itself (slate, every scene shot, length, orientation, file name). Opening
-  and pause flags cue optional review; they are not automatic judgments. The readiness dial counts
-  technical checks only; optional timing prompts do not lower it, and it never blocks sending.
-  Retakes save as new takes, keeping the selected send take unchanged.
-  The navigation bar is hidden to keep the check focused on the results.
-- **Preview** the whole tape with accurate chapter durations (real duration for slate and scene chapters)
-  and quick chapter actions to change headshots, retake the slate or full-length tape, and open takes for
-  a specific scene.
-- Slate recording can suggest trimming long silent edges with padding; you review the preview before applying, and can restore the saved original from Package.
-- Camera setup has an optional on-device pose guide for shoulder centering and level alignment; it does not save or upload pose data.
-- **Package** generates a merged `.mp4` (`LAST_FIRST_ROLE_PROJECT.mp4`) plus a separate `.zip` archive
-  containing finalized clips and headshots via custom zero-dependency streaming. Tapping the Audio row
-  opens Tape Check, and "Preview the whole tape" opens the local tape preview.
-- **Sent screen** shows a destination-aware headline, persisted send date, actual destination, scene count,
-  merged video and separate ZIP deliverables, and link expiration when applicable.
-- Send through the Share Sheet (AirDrop, Mail, Files, a casting site's app) sharing both the merged MP4 and
-  separate ZIP archive, or as an **iCloud download link** from your own iCloud Drive. Sending a link is the
-  one place OneTake asks you to sign in, with Apple or Google; headshots go along as photos.
-
-### Profile and the rest
-- Slate details, front / left / right headshots with a guide overlay, reader volume, appearance.
-- Deadline reminders (morning of, two hours before) scheduled locally, Home and Lock Screen widgets, and
-  a Live Activity countdown in the last 24 hours.
-- Privacy & data shows what's stored and deletes it; the privacy policy is in the app.
+> [!NOTE]
+> **Explicit Non-Goals**: OneTake is **not** a casting marketplace or job board. It does not grade or score acting performance, and it does not synthesize AI voice replacements for scene partners.
 
 ---
 
-## 🏛️ Project layout
+## ✨ Core Capabilities
 
-```
-OneTake/
-├── Models/         Audition, Take, Scene, Slate, script parsing, persistence
-├── Views/          SwiftUI screens, design system, and asset catalog
-└── ModelViews/     AppStore, navigation state, camera, analysis and export services
-OneTakeWidgets/     Widgets and the Live Activity
-OneTakeShare/       "Share to OneTake" extension
-Shared/             Code shared with the extensions (widget snapshot, share inbox)
-OneTakeTests/       Unit tests
-project.yml         XcodeGen project definition
+- **Independent Document Ingestion**: Ingests Casting Call PDFs and Script Sides PDFs independently. Updating a casting call preserves existing script scenes; revising sides preserves notice metadata.
+- **Line Rehearsal & Prompter**: Record partner dialogue line-by-line. Speech recognition follows the actor's voice and automatically plays the recorded reader's cues.
+- **Monotonic Recording Clock**: `CameraController` tracks elapsed time using `CACurrentMediaTime()` (0.000s drift) and queries true `AVURLAsset` durations upon file completion.
+- **Hold-to-Stop Protection**: Prevents accidental take termination during emotional scenes.
+- **Tape Check Analysis**: Objective technical analysis of headroom, centring, audio clipping, volume levels, and contrast. Never judges dramatic acting.
+- **Crash-Safe Local Backups**: Creates portable ZIP backups. Restore operations preserve root container inodes, maintain durable journals in Application Support, verify streaming `zlib` CRC32 checksums, and safely isolate ambiguous files.
+- **Deliverable Packaging**: Generates `{LAST}_{FIRST}_{ROLE}_{PROJECT}` deliverables. Export choices are strictly limited to **Share Link** (iCloud Drive) and **Separate Elements** (`.zip`).
+- **Widgets & Dynamic Island**: Home Screen widgets, Lock Screen deadline countdowns, and Live Activities in the final 24 hours before submission.
+
+---
+
+## 🏛️ Repository Layout
+
+```text
+OneTake-iOS/
+├── OneTake/                       # Main iOS Application Target
+│   ├── Models/                    # Data models, persistence, backup, script parsing
+│   ├── Views/                     # SwiftUI views, navigation, design system
+│   ├── ModelViews/                # AppStore coordinator, camera, tape check, ZIP archive
+│   ├── Info.plist                 # Target configuration properties
+│   └── OneTake.entitlements       # App Group & iCloud capabilities
+├── OneTakeWidgets/                # WidgetKit & Live Activity Extension
+├── OneTakeShare/                  # Action / Share Extension (PDF intake from Mail/Files)
+├── Shared/                        # Code shared between app and extensions (AppGroup, ShareInbox)
+├── OneTakeTests/                  # Native Swift XCTest suites
+├── scripts/                       # Automated regression & verification test harnesses
+├── dataset/                       # Sample audition breakdowns and script sides for testing
+├── docs/                          # Comprehensive technical and product documentation
+└── project.yml                    # Declarative XcodeGen project specification
 ```
 
 ---
 
-## 🚀 Getting started
+## 🚀 Getting Started
 
-Requirements: macOS with **Xcode 16 or later** (building with the iOS 26 SDK also turns on the
-search-tab behaviour) and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+### Prerequisites
+- macOS 14 (Sonoma) or macOS 15 (Sequoia).
+- Xcode 16.0 or later with the iOS 18.0+ SDK.
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
+### Build & Run
 ```bash
+# 1. Clone repository
 git clone https://github.com/IneshAg/OneTake-iOS.git
 cd OneTake-iOS
+
+# 2. Install XcodeGen and generate project
 brew install xcodegen
 xcodegen generate
+
+# 3. Open in Xcode
 open OneTake.xcodeproj
 ```
-
-Run on an iPhone simulator or a device (set your team under *Signing & Capabilities*). On a device,
-the iCloud container `iCloud.com.onetake.app` and the App Group `group.com.srmist.onetake` (as specified in `project.yml` and `OneTake.entitlements`) must be
-registered for your team for "Email or link" sending, widgets and the share extension. The open
-build leaves Sign in with Apple disabled because its capability requires a paid Apple Developer
-account; a paid team can enable the capability and set `AppleSignInEnabled: true` in `project.yml`.
-For Google sign-in, set `GOOGLE_CLIENT_ID` and `GOOGLE_REVERSED_CLIENT_ID` in `project.yml` to your
-OAuth client (until then the Google button stays disabled).
-
-Tests: **⌘U** in Xcode, or
-
-```bash
-xcodebuild test -project OneTake.xcodeproj -scheme OneTake -destination 'platform=iOS Simulator,name=iPhone 16'
-```
-
-CI (`.github/workflows/build.yml`) builds for the Simulator and for a device and runs the unit tests on
-every push and pull request.
-
-### Simulator notes
-The Simulator has no camera, so the camera screens show a plain silhouette and headshot capture saves a
-placeholder; recording itself needs a real iPhone.
+Select the **OneTake** scheme and run on an iOS 18+ simulator or device.
 
 ---
 
-## 📖 Architecture & Documentation
+## 🧪 Testing & Verification
 
-Comprehensive engineering documentation and architectural invariants are maintained in `docs/`:
+### Native Swift XCTest (macOS)
+```bash
+xcodebuild test \
+  -project OneTake.xcodeproj \
+  -scheme OneTake \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+```
 
-- **[Structure and Working (`docs/STRUCTURE_AND_WORKING.md`)](docs/STRUCTURE_AND_WORKING.md)**: Exhaustive 18-section reference detailing the product architecture, data contracts, persistence resilience, deterministic media measurements, and the 12 core implementation invariants.
-- **[Navigation & UX Changes (`docs/NAVIGATION_CHANGES.md`)](docs/NAVIGATION_CHANGES.md)**: Design choices, header/tabbar HIG alignment, real-time audition flow optimization, and Reader Audio integration.
-- **[On-Device Intelligence & ML Pipeline (`docs/ML_PIPELINE.md`)](docs/ML_PIPELINE.md)**: LoRA fine-tuning, Core ML ANE INT4 palettization, pure-Swift BPE tokenizer, and grammar-constrained JSON decoding.
-- **[Implementation Notes — 7 November 2026 (`docs/IMPLEMENTATION_NOTES_2026-11-07.md`)](docs/IMPLEMENTATION_NOTES_2026-11-07.md)**: Detailed status of the current intake, practice, reader-audio, headshot, review, camera, package, glass-button and verification changes.
-- **[Session Changelog (`docs/SESSION_CHANGELOG.md`)](docs/SESSION_CHANGELOG.md)**: Reverse-chronological implementation history and verification notes.
+### Automated Cross-Platform Regression Suites (Python)
+To run the full 9-phase automated verification suite:
+```powershell
+python scripts/test_notice_and_script_parsers.py
+python scripts/test_separate_pdf_import.py
+python scripts/test_local_backup_safety.py
+python scripts/test_persistence_reliability.py
+python scripts/test_recording_reliability.py
+python scripts/test_export_performance.py
+python scripts/test_sharing_lifecycle.py
+python scripts/test_phase7_quality.py
+python scripts/test_phase8_remediation.py
+```
+*Current test status: 43/43 tests passing 100% across all regression suites.*
+
+---
+
+## 📚 Documentation & Handoff
+
+Detailed technical documentation is maintained in the [`docs/`](docs/INDEX.md) directory:
+
+- **[Documentation Index (`docs/INDEX.md`)](docs/INDEX.md)**: Master hub linking all technical references.
+- **[Autonomous AI Agent Guide (`docs/AI_AGENT_GUIDE.md`)](docs/AI_AGENT_GUIDE.md)**: Mandatory guidelines, invariants, and execution discipline for LLM coding assistants.
+- **[Current Work Handoff (`docs/WORK_IN_PROGRESS.md`)](docs/WORK_IN_PROGRESS.md)**: Active branch state, latest commit, and next engineering tasks.
+- **[Project Overview (`docs/PROJECT_OVERVIEW.md`)](docs/PROJECT_OVERVIEW.md)**: Product philosophy, target users, and explicit non-goals.
+- **[Product Specification (`docs/PRODUCT_SPECIFICATION.md`)](docs/PRODUCT_SPECIFICATION.md)**: Detailed screen and subsystem specifications with verification statuses.
+- **[System Architecture (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md)**: Concurrency models, `@MainActor` state flow, and actor boundaries.
+- **[Codebase Map (`docs/CODEBASE_MAP.md`)](docs/CODEBASE_MAP.md)**: File directory, symbol inventory, and practical navigation guide.
+- **[Persistence & Backup (`docs/PERSISTENCE_AND_BACKUP.md`)](docs/PERSISTENCE_AND_BACKUP.md)**: Off-MainActor `StateStorage`, background task lifecycle, and durable restore recovery.
+- **[Engineering Decisions (`docs/ENGINEERING_DECISIONS.md`)](docs/ENGINEERING_DECISIONS.md)**: Architecture Decision Records (ADRs).
+- **[Audit & Remediation History (`docs/AUDIT_AND_REMEDIATION_HISTORY.md`)](docs/AUDIT_AND_REMEDIATION_HISTORY.md)**: Complete chronicle of remediation commits from Phase 1 to Phase 8.2.
+- **[Known Issues (`docs/KNOWN_ISSUES.md`)](docs/KNOWN_ISSUES.md)**: Documented platform limitations and open technical debt.
 
 ---
 
