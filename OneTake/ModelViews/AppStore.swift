@@ -175,8 +175,8 @@ final class AppStore {
     private(set) var hasUncommittedChanges: Bool = false
     /// Injected background task manager (defaults to UIKitBackgroundTaskManager)
     var backgroundTaskManager: BackgroundTaskManaging = UIKitBackgroundTaskManager.shared
+    private(set) var activeFlushOperation: FlushOperation?
     private var activeFlushTask: Task<Void, Never>?
-    private var activeFlushToken: BackgroundTaskToken?
     /// True while `init` is still applying a loaded snapshot, so that pass doesn't immediately
     /// re-trigger its own save.
     private var isLoading = false
@@ -389,7 +389,7 @@ final class AppStore {
         guard hasUncommittedChanges || !lastSaveSucceeded else { return }
 
         // If an active flush task is in flight, let it complete
-        if let active = activeFlushTask, !active.isCancelled {
+        if let active = activeFlushOperation, !active.isTerminal {
             return
         }
 
@@ -398,43 +398,71 @@ final class AppStore {
         let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
 
         let manager = taskManager ?? backgroundTaskManager
+        var opHolder: FlushOperation?
         var flushTaskHolder: Task<Void, Never>?
         let token = BackgroundTaskToken(manager: manager, name: "onetake.persistence.flush") { [weak self] in
-            flushTaskHolder?.cancel()
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.lastSaveSucceeded = false
-                self.persistenceError = "Persistence flush expired before write completed."
-                self.activeFlushToken?.end()
-                self.activeFlushToken = nil
-                self.activeFlushTask = nil
+            guard let op = opHolder else { return }
+            let won = op.markExpired()
+            if won {
+                flushTaskHolder?.cancel()
+                Task { @MainActor [weak self] in
+                    guard let self, self.activeFlushOperation === op else { return }
+                    // Check if StateStorage actually committed this sequence despite expiration
+                    let committedSeq = await StateStorage.shared.getLastCommittedSequence()
+                    if committedSeq >= op.sequence {
+                        self.persistenceError = nil
+                        self.lastSaveSucceeded = true
+                        self.hasUncommittedChanges = false
+                    } else {
+                        self.lastSaveSucceeded = false
+                        self.persistenceError = "Persistence flush expired before write completed."
+                    }
+                    self.activeFlushOperation = nil
+                    self.activeFlushTask = nil
+                }
             }
         }
-        self.activeFlushToken = token
+        let operation = FlushOperation(sequence: currentSeq, token: token)
+        opHolder = operation
+        self.activeFlushOperation = operation
 
-        let task = Task.detached(priority: .userInitiated) { [weak self, token] in
-            defer { token.end() }
+        let task = Task.detached(priority: .userInitiated) { [weak self, operation] in
             do {
                 let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
-                guard !Task.isCancelled else { return }
                 if committed {
-                    await MainActor.run {
-                        self?.persistenceError = nil
-                        self?.lastSaveSucceeded = true
-                        self?.hasUncommittedChanges = false
-                        self?.activeFlushTask = nil
-                        self?.activeFlushToken = nil
-                        Reminders.reschedule(snapshot.auditions)
-                        WidgetSync.update(snapshot.auditions)
+                    _ = operation.markCompleted()
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        if self.activeFlushOperation === operation || self.activeFlushOperation == nil {
+                            self.persistenceError = nil
+                            self.lastSaveSucceeded = true
+                            self.hasUncommittedChanges = false
+                            self.activeFlushOperation = nil
+                            self.activeFlushTask = nil
+                            Reminders.reschedule(snapshot.auditions)
+                            WidgetSync.update(snapshot.auditions)
+                        }
+                    }
+                } else {
+                    _ = operation.markCompleted()
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        if self.activeFlushOperation === operation {
+                            self.activeFlushOperation = nil
+                            self.activeFlushTask = nil
+                        }
                     }
                 }
             } catch {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self?.persistenceError = error.localizedDescription
-                    self?.lastSaveSucceeded = false
-                    self?.activeFlushTask = nil
-                    self?.activeFlushToken = nil
+                _ = operation.markFailed(error.localizedDescription)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    if self.activeFlushOperation === operation {
+                        self.persistenceError = error.localizedDescription
+                        self.lastSaveSucceeded = false
+                        self.activeFlushOperation = nil
+                        self.activeFlushTask = nil
+                    }
                 }
             }
             await LiveActivitySync.update(snapshot.auditions)

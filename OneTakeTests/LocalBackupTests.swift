@@ -262,4 +262,132 @@ final class LocalBackupTests: XCTestCase {
         XCTAssertThrowsError(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
         LocalBackup.removeJournal()
     }
+    // MARK: - Phase 8.1 Durable Snapshot & Reconciled Rollback Tests
+
+    func testCrashRecoveryRemovesUnjournaledIncomingFileAndRestoresOriginal() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // 1. Original file in rollback storage: project.json
+        let originalProject = rollbackDir.appendingPathComponent("project.json")
+        try Data("{"original": true}".utf8).write(to: originalProject)
+
+        // 2. Incoming unjournaled file in Documents: extra_scene.mov
+        let extraScene = mockDocumentsURL.appendingPathComponent("extra_scene.mov")
+        try Data("new unjournaled scene data".utf8).write(to: extraScene)
+
+        // 3. Durable journal created with original snapshot containing ONLY project.json
+        // (Simulating crash right after extra_scene.mov was copied, before journal record)
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalSnapshot: [
+                LocalBackup.OriginalEntrySnapshot(name: "project.json", isDirectory: false)
+            ],
+            originalItemsMoved: ["project.json"],
+            incomingItemsInstalled: [] // Note: extra_scene.mov NOT recorded!
+        )
+        try LocalBackup.writeJournal(journal)
+
+        // 4. Run recovery
+        let recovered = try LocalBackup.recoverUnfinishedRestoreIfNeeded()
+        XCTAssertTrue(recovered, "Recovery must succeed")
+
+        // 5. Verification:
+        // - original project.json must be restored with 100% fidelity
+        let restoredProject = mockDocumentsURL.appendingPathComponent("project.json")
+        XCTAssertTrue(manager.fileExists(atPath: restoredProject.path), "Original project.json must be restored")
+        XCTAssertEqual(try String(contentsOf: restoredProject, encoding: .utf8), "{"original": true}")
+
+        // - extra_scene.mov must be REMOVED (not orphaned!)
+        XCTAssertFalse(manager.fileExists(atPath: extraScene.path), "Unjournaled extra_scene.mov must be safely removed")
+
+        // - Repeated recovery must be safe and idempotent
+        XCTAssertFalse(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+    }
+
+    func testCrashRecoveryDuringPreservationPreservesUnmovedOriginals() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // Original file 1 moved to rollback:
+        let originalMoved = rollbackDir.appendingPathComponent("file1.mov")
+        try Data("file1 data".utf8).write(to: originalMoved)
+
+        // Original file 2 NEVER moved, still in Documents (crash happened during preservation):
+        let originalUnmoved = mockDocumentsURL.appendingPathComponent("file2.mov")
+        try Data("file2 data unmoved".utf8).write(to: originalUnmoved)
+
+        // Snapshot recorded both original files:
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .preservationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalSnapshot: [
+                LocalBackup.OriginalEntrySnapshot(name: "file1.mov", isDirectory: false),
+                LocalBackup.OriginalEntrySnapshot(name: "file2.mov", isDirectory: false)
+            ],
+            originalItemsMoved: ["file1.mov"],
+            incomingItemsInstalled: []
+        )
+        try LocalBackup.writeJournal(journal)
+
+        let recovered = try LocalBackup.recoverUnfinishedRestoreIfNeeded()
+        XCTAssertTrue(recovered)
+
+        // Both original files must exist in Documents with exact data
+        let dest1 = mockDocumentsURL.appendingPathComponent("file1.mov")
+        let dest2 = mockDocumentsURL.appendingPathComponent("file2.mov")
+        XCTAssertTrue(manager.fileExists(atPath: dest1.path))
+        XCTAssertTrue(manager.fileExists(atPath: dest2.path))
+        XCTAssertEqual(try String(contentsOf: dest1, encoding: .utf8), "file1 data")
+        XCTAssertEqual(try String(contentsOf: dest2, encoding: .utf8), "file2 data unmoved")
+    }
+
+    func testCrashRecoveryRestoresNestedDirectoryTree() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // Original nested directory moved to rollback:
+        let originalDir = rollbackDir.appendingPathComponent("audition-123", isDirectory: true)
+        try manager.createDirectory(at: originalDir, withIntermediateDirectories: true)
+        try Data("nested clip".utf8).write(to: originalDir.appendingPathComponent("take1.mov"))
+
+        // Incoming nested directory partially in Documents:
+        let destDir = mockDocumentsURL.appendingPathComponent("audition-123", isDirectory: true)
+        try manager.createDirectory(at: destDir, withIntermediateDirectories: true)
+        try Data("incoming corrupt clip".utf8).write(to: destDir.appendingPathComponent("take1.mov"))
+
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalSnapshot: [
+                LocalBackup.OriginalEntrySnapshot(name: "audition-123", isDirectory: true)
+            ],
+            originalItemsMoved: ["audition-123"],
+            incomingItemsInstalled: ["audition-123"]
+        )
+        try LocalBackup.writeJournal(journal)
+
+        let recovered = try LocalBackup.recoverUnfinishedRestoreIfNeeded()
+        XCTAssertTrue(recovered)
+
+        let restoredClip = destDir.appendingPathComponent("take1.mov")
+        XCTAssertTrue(manager.fileExists(atPath: restoredClip.path))
+        XCTAssertEqual(try String(contentsOf: restoredClip, encoding: .utf8), "nested clip")
+    }
 }

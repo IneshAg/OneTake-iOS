@@ -161,6 +161,12 @@ enum LocalBackup {
 
     // MARK: - Durable Restore Journal & State Machine (AUDIT-FINDING-02)
 
+    /// Snapshot entry capturing original Documents directory items before any destructive operations.
+    struct OriginalEntrySnapshot: Codable, Equatable {
+        var name: String
+        var isDirectory: Bool
+    }
+
     /// Persistent journal recorded outside tmp in Application Support before any live modification,
     /// enabling deterministic, idempotent recovery if the app terminates or power is lost during restore.
     struct RestoreJournal: Codable {
@@ -170,6 +176,7 @@ enum LocalBackup {
         var stagedDirectoryPath: String
         var rollbackDirectoryPath: String
         var destinationDirectoryPath: String
+        var originalSnapshot: [OriginalEntrySnapshot] = []
         var originalItemsMoved: [String] = []
         var incomingItemsInstalled: [String] = []
         var createdAt: Date = Date()
@@ -183,6 +190,49 @@ enum LocalBackup {
             case installationCompleted
             case validationCompleted
             case committed
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case formatVersion, operationID, state, stagedDirectoryPath, rollbackDirectoryPath, destinationDirectoryPath
+            case originalSnapshot, originalItemsMoved, incomingItemsInstalled, createdAt, updatedAt
+        }
+
+        init(
+            operationID: UUID,
+            state: RestoreState,
+            stagedDirectoryPath: String,
+            rollbackDirectoryPath: String,
+            destinationDirectoryPath: String,
+            originalSnapshot: [OriginalEntrySnapshot] = [],
+            originalItemsMoved: [String] = [],
+            incomingItemsInstalled: [String] = []
+        ) {
+            self.formatVersion = 1
+            self.operationID = operationID
+            self.state = state
+            self.stagedDirectoryPath = stagedDirectoryPath
+            self.rollbackDirectoryPath = rollbackDirectoryPath
+            self.destinationDirectoryPath = destinationDirectoryPath
+            self.originalSnapshot = originalSnapshot
+            self.originalItemsMoved = originalItemsMoved
+            self.incomingItemsInstalled = incomingItemsInstalled
+            self.createdAt = Date()
+            self.updatedAt = Date()
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+            operationID = try container.decode(UUID.self, forKey: .operationID)
+            state = try container.decode(RestoreState.self, forKey: .state)
+            stagedDirectoryPath = try container.decode(String.self, forKey: .stagedDirectoryPath)
+            rollbackDirectoryPath = try container.decode(String.self, forKey: .rollbackDirectoryPath)
+            destinationDirectoryPath = try container.decode(String.self, forKey: .destinationDirectoryPath)
+            originalSnapshot = try container.decodeIfPresent([OriginalEntrySnapshot].self, forKey: .originalSnapshot) ?? []
+            originalItemsMoved = try container.decodeIfPresent([String].self, forKey: .originalItemsMoved) ?? []
+            incomingItemsInstalled = try container.decodeIfPresent([String].self, forKey: .incomingItemsInstalled) ?? []
+            createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+            updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
         }
     }
 
@@ -259,7 +309,33 @@ enum LocalBackup {
         }
 
         // Interrupted before commit: roll back to original data deterministically
-        // 1. Remove any partially installed incoming items from destination
+        let originalSnapshotNames = Set(journal.originalSnapshot.map(\.name))
+        let rollbackContents = (try? manager.contentsOfDirectory(at: rollbackDir, includingPropertiesForKeys: nil)) ?? []
+        let rollbackNames = Set(rollbackContents.map(\.lastPathComponent))
+
+        // Step 1: Reconcile destination (Documents) directory against the original snapshot and rollback contents.
+        // Remove only entries that are provably introduced by the interrupted restore.
+        let currentDestContents = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: nil)) ?? []
+        for itemURL in currentDestContents {
+            let itemName = itemURL.lastPathComponent
+            if rollbackNames.contains(itemName) {
+                // An original copy is safely preserved in rollback storage.
+                // The item currently in destination is an incoming file that overwrote the original (or a duplicate).
+                // Safely remove it from destination so the original can be restored.
+                try? manager.removeItem(at: itemURL)
+            } else if originalSnapshotNames.contains(itemName) {
+                // This item was present originally and was never moved to rollback (e.g. crash during preservation).
+                // It is original user data that must be preserved!
+                continue
+            } else {
+                // Item is NOT in rollback storage AND was NOT in the original snapshot.
+                // This entry is provably introduced by the restore (e.g. incoming file copied into Documents,
+                // even if the crash occurred before the journal recorded it in incomingItemsInstalled).
+                try? manager.removeItem(at: itemURL)
+            }
+        }
+
+        // Also clean up any recorded installed items that might remain
         for installedItem in journal.incomingItemsInstalled {
             let itemURL = destination.appendingPathComponent(installedItem)
             if manager.fileExists(atPath: itemURL.path) {
@@ -267,19 +343,25 @@ enum LocalBackup {
             }
         }
 
-        // 2. Restore all original items from rollback directory
-        if manager.fileExists(atPath: rollbackDir.path) {
-            let rollbackContents = (try? manager.contentsOfDirectory(at: rollbackDir, includingPropertiesForKeys: nil)) ?? []
-            for rollbackItem in rollbackContents {
-                let targetURL = destination.appendingPathComponent(rollbackItem.lastPathComponent)
-                if manager.fileExists(atPath: targetURL.path) {
-                    try? manager.removeItem(at: targetURL)
-                }
-                try? manager.moveItem(at: rollbackItem, to: targetURL)
+        // Step 2: Restore all original items from rollback directory
+        for rollbackItem in rollbackContents {
+            let targetURL = destination.appendingPathComponent(rollbackItem.lastPathComponent)
+            if manager.fileExists(atPath: targetURL.path) {
+                try? manager.removeItem(at: targetURL)
+            }
+            try manager.moveItem(at: rollbackItem, to: targetURL)
+        }
+
+        // Step 3: Verify the restored original state against the original snapshot
+        for expected in journal.originalSnapshot {
+            let expectedURL = destination.appendingPathComponent(expected.name)
+            guard manager.fileExists(atPath: expectedURL.path) else {
+                // Original file could not be restored! Do NOT delete rollback data or journal!
+                throw ZipArchive.ArchiveError.invalid("Restore rollback verification failed: original entry '\(expected.name)' is missing")
             }
         }
 
-        // 3. Remove rollback directory and delete journal
+        // Step 4: Verification passed: remove rollback directory and delete journal
         if manager.fileExists(atPath: rollbackDir.path) {
             try? manager.removeItem(at: rollbackDir)
         }
@@ -317,12 +399,20 @@ enum LocalBackup {
         let rollbackDir = rollbackDirectory(for: operationID)
         try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
 
+        // Capture complete durable snapshot of original Documents entries BEFORE touching any files
+        let existingContents = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
+        let originalSnapshot: [OriginalEntrySnapshot] = existingContents.map { url in
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            return OriginalEntrySnapshot(name: url.lastPathComponent, isDirectory: isDir)
+        }
+
         var journal = RestoreJournal(
             operationID: operationID,
             state: .prepared,
             stagedDirectoryPath: stagedDirectory.path,
             rollbackDirectoryPath: rollbackDir.path,
-            destinationDirectoryPath: destination.path
+            destinationDirectoryPath: destination.path,
+            originalSnapshot: originalSnapshot
         )
         try writeJournal(journal)
 
@@ -374,6 +464,7 @@ enum LocalBackup {
         try? manager.removeItem(at: rollbackDir)
         removeJournal()
     }
+
     static func discardArchive(_ archiveURL: URL?) {
         guard let archiveURL else { return }
         try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent())

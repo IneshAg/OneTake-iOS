@@ -256,4 +256,101 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(store.lastSaveSucceeded, "Expired flush must not report success")
         XCTAssertNotNil(store.persistenceError, "Error must be surfaced on expiration")
     }
+
+    // MARK: - Phase 8.1 Synchronized FlushOperation Lifecycle & Race Tests
+
+    func testFlushOperationCompletionBeforeExpirationWins() {
+        let mock = MockBackgroundTaskCoordinator()
+        let token = BackgroundTaskToken(manager: mock, name: "test.op.comp") {}
+        let op = FlushOperation(sequence: 1, token: token)
+
+        XCTAssertEqual(op.currentOutcome(), .running)
+        XCTAssertFalse(op.isTerminal)
+
+        // Mark completed first
+        let wonCompletion = op.markCompleted()
+        XCTAssertTrue(wonCompletion)
+        XCTAssertEqual(op.currentOutcome(), .completed)
+        XCTAssertTrue(op.isTerminal)
+
+        // Attempt delayed expiration: must fail to transition
+        let wonExpiration = op.markExpired()
+        XCTAssertFalse(wonExpiration, "Late expiration cannot win once completed")
+        XCTAssertEqual(op.currentOutcome(), .completed)
+    }
+
+    func testFlushOperationExpirationBeforeCompletionWins() {
+        let mock = MockBackgroundTaskCoordinator()
+        let token = BackgroundTaskToken(manager: mock, name: "test.op.exp") {}
+        let op = FlushOperation(sequence: 2, token: token)
+
+        // Mark expired first
+        let wonExpiration = op.markExpired()
+        XCTAssertTrue(wonExpiration)
+        XCTAssertEqual(op.currentOutcome(), .expired)
+        XCTAssertTrue(op.isTerminal)
+
+        // Attempt completion after expiration: cannot overwrite expired state
+        let wonCompletion = op.markCompleted()
+        XCTAssertFalse(wonCompletion)
+        XCTAssertEqual(op.currentOutcome(), .expired)
+    }
+
+    func testFlushOperationRepeatedCallbacksAreIdempotent() {
+        let mock = MockBackgroundTaskCoordinator()
+        let token = BackgroundTaskToken(manager: mock, name: "test.op.repeat") {}
+        let op = FlushOperation(sequence: 3, token: token)
+
+        XCTAssertTrue(op.markCompleted())
+        XCTAssertFalse(op.markCompleted(), "Repeated completion must return false")
+        XCTAssertFalse(op.markCompleted(), "Repeated completion must return false")
+        XCTAssertEqual(mock.endedTasks.count, 1, "Token must be ended exactly once")
+    }
+
+    @MainActor
+    func testForegroundRetryAfterExpiration() async throws {
+        let store = AppStore()
+        let mock = MockBackgroundTaskCoordinator()
+        store.backgroundTaskManager = mock
+
+        var a = audition("Retry Test")
+        store.auditions = [a]
+        store.saveAudition(a)
+
+        // 1. Initial flush expires
+        store.flushPersistence(using: mock)
+        mock.triggerExpiration()
+
+        XCTAssertFalse(store.lastSaveSucceeded)
+        XCTAssertNotNil(store.persistenceError)
+
+        // 2. Foreground retry
+        store.retryPersistenceIfNeeded()
+        XCTAssertTrue(mock.begunTasks.count >= 2, "Retry must initiate a new background assertion")
+
+        // Wait for retry commit
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(store.lastSaveSucceeded)
+        XCTAssertFalse(store.hasUncommittedChanges)
+    }
+
+    @MainActor
+    func testForegroundRetryWhilePreviousWriteIsRunningDoesNotOverlap() async throws {
+        let store = AppStore()
+        let mock = MockBackgroundTaskCoordinator()
+        store.backgroundTaskManager = mock
+
+        var a = audition("Non Overlap Test")
+        store.auditions = [a]
+        store.saveAudition(a)
+
+        store.flushPersistence(using: mock)
+        let initialBegunCount = mock.begunTasks.count
+
+        // Attempt retry immediately while operation is still running
+        store.retryPersistenceIfNeeded()
+        XCTAssertEqual(mock.begunTasks.count, initialBegunCount, "Running flush must not be overlapped by retry")
+
+        try await Task.sleep(for: .milliseconds(50))
+    }
 }

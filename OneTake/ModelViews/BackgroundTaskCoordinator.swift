@@ -60,3 +60,71 @@ final class BackgroundTaskToken: @unchecked Sendable {
         manager.endBackgroundTask(id)
     }
 }
+
+
+/// Explicit, synchronized operation lifecycle managing background persistence flush execution,
+/// ensuring that only one terminal outcome (completed, failed, or expired) can win, and preventing
+/// delayed expiration callbacks from overwriting successful flush commits.
+final class FlushOperation: @unchecked Sendable {
+    enum Outcome: Equatable {
+        case running
+        case completed
+        case failed(String)
+        case expired
+    }
+
+    let sequence: Int
+    private let lock = NSLock()
+    private(set) var outcome: Outcome = .running
+    private let token: BackgroundTaskToken
+
+    init(sequence: Int, token: BackgroundTaskToken) {
+        self.sequence = sequence
+        self.token = token
+    }
+
+    /// Attempts to transition to `.completed`. Returns true if this transition won.
+    @discardableResult
+    func markCompleted() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard outcome == .running else { return false }
+        outcome = .completed
+        token.end()
+        return true
+    }
+
+    /// Attempts to transition to `.failed`. Returns true if this transition won.
+    @discardableResult
+    func markFailed(_ error: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard outcome == .running else { return false }
+        outcome = .failed(error)
+        token.end()
+        return true
+    }
+
+    /// Attempts to transition to `.expired`. Returns true if this transition won.
+    @discardableResult
+    func markExpired() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard outcome == .running else { return false }
+        outcome = .expired
+        token.end()
+        return true
+    }
+
+    var isTerminal: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome != .running
+    }
+
+    func currentOutcome() -> Outcome {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome
+    }
+}

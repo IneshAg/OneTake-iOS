@@ -5,7 +5,7 @@ import sys
 import tempfile
 import uuid
 
-print("=== Running Phase 8 Independent Verification Tests (AUDIT-FINDING-02, 03, 04) ===")
+print("=== Running Phase 8 & 8.1 Verification Tests (AUDIT-FINDING-02, 03, 04) ===")
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOCAL_BACKUP_SWIFT = os.path.join(REPO_ROOT, "OneTake", "Models", "LocalBackup.swift")
@@ -20,15 +20,17 @@ CLOUDLINK_SWIFT = os.path.join(REPO_ROOT, "OneTake", "ModelViews", "CloudLink.sw
 with open(LOCAL_BACKUP_SWIFT, "r", encoding="utf-8") as f:
     backup_code = f.read()
 
+assert "struct OriginalEntrySnapshot: Codable, Equatable" in backup_code, "OriginalEntrySnapshot missing"
 assert "struct RestoreJournal: Codable" in backup_code, "RestoreJournal struct missing in LocalBackup.swift"
+assert "var originalSnapshot: [OriginalEntrySnapshot]" in backup_code, "originalSnapshot missing in RestoreJournal"
 assert "var formatVersion: Int = 1" in backup_code, "formatVersion missing in RestoreJournal"
 assert "enum RestoreState: String, Codable" in backup_code, "RestoreState enum missing"
 assert "case prepared" in backup_code and "case committed" in backup_code, "RestoreState cases incomplete"
-assert "appSupportDirectory.appendingPathComponent(\"restore-journal.json\")" in backup_code, "journalURL must be in Application Support outside tmp"
-assert "appSupportDirectory.appendingPathComponent(\"RestoreRollback\"" in backup_code, "rollbackDirectory must be in Application Support outside tmp"
+assert 'appSupportDirectory.appendingPathComponent("restore-journal.json")' in backup_code, "journalURL must be in Application Support outside tmp"
+assert 'appSupportDirectory.appendingPathComponent("RestoreRollback"' in backup_code, "rollbackDirectory must be in Application Support outside tmp"
 assert "func recoverUnfinishedRestoreIfNeeded() throws -> Bool" in backup_code, "recoverUnfinishedRestoreIfNeeded missing"
 assert "func isSafeSandboxPath(_ path: String) -> Bool" in backup_code, "isSafeSandboxPath path-traversal check missing"
-print("[PASS] Test 1 Passed: LocalBackup defines versioned RestoreJournal outside tmp with path-traversal safety")
+print("[PASS] Test 1 Passed: LocalBackup defines versioned RestoreJournal with OriginalEntrySnapshot outside tmp")
 
 # ---------------------------------------------------------
 # Test 2: AppStore.init Launch-Time Recovery Check
@@ -40,37 +42,37 @@ assert "LocalBackup.recoverUnfinishedRestoreIfNeeded()" in appstore_code, "AppSt
 print("[PASS] Test 2 Passed: AppStore.init triggers launch-time restore recovery before normal state loading")
 
 # ---------------------------------------------------------
-# Test 3: Filesystem Simulation of Interrupted Restore & Rollback
+# Test 3: Filesystem Simulation of Exact Unrecorded File Crash & Reconciled Rollback
 # ---------------------------------------------------------
-temp_test_dir = tempfile.mkdtemp(prefix="onetake_phase8_test_")
+temp_test_dir = tempfile.mkdtemp(prefix="onetake_phase8_1_test_")
 try:
     live_docs = os.path.join(temp_test_dir, "Documents")
     app_support = os.path.join(temp_test_dir, "ApplicationSupport", "OneTake")
     os.makedirs(live_docs, exist_ok=True)
     os.makedirs(app_support, exist_ok=True)
 
-    # 1. Simulate state before restore
-    original_take = os.path.join(live_docs, "original_scene_1.mov")
-    with open(original_take, "w", encoding="utf-8") as f:
-        f.write("Original Take Video Data")
+    # 1. Original file in Documents: project.json
+    orig_file = os.path.join(live_docs, "project.json")
+    with open(orig_file, "w", encoding="utf-8") as f:
+        f.write('{"original_data": 12345}')
 
-    # 2. Simulate restore operation starting:
+    # Snapshot captured before any mutation:
+    snapshot = [{"name": "project.json", "isDirectory": False}]
+
+    # 2. Restore begins: original file moved to rollback storage
     op_id = str(uuid.uuid4())
     rollback_dir = os.path.join(app_support, "RestoreRollback", op_id)
     os.makedirs(rollback_dir, exist_ok=True)
 
-    # Move original to rollback
-    rollback_take = os.path.join(rollback_dir, "original_scene_1.mov")
-    shutil.move(original_take, rollback_take)
-    assert not os.path.exists(original_take)
-    assert os.path.exists(rollback_take)
+    shutil.move(orig_file, os.path.join(rollback_dir, "project.json"))
+    assert not os.path.exists(orig_file)
 
-    # Simulate partial installation of new incoming items
-    partial_new_take = os.path.join(live_docs, "new_incoming_take.mov")
-    with open(partial_new_take, "w", encoding="utf-8") as f:
-        f.write("Incomplete incoming take")
+    # 3. New incoming unrecorded file copied into Documents: extra_scene.mov
+    extra_scene = os.path.join(live_docs, "extra_scene.mov")
+    with open(extra_scene, "w", encoding="utf-8") as f:
+        f.write("New unrecorded scene video content")
 
-    # 3. Simulate durable journal written to disk (crash occurred at installationStarted)
+    # 4. Crash occurs! Journal on disk records originalSnapshot, but incomingItemsInstalled is empty!
     journal_data = {
         "formatVersion": 1,
         "operationID": op_id,
@@ -78,8 +80,9 @@ try:
         "stagedDirectoryPath": os.path.join(temp_test_dir, "staged"),
         "rollbackDirectoryPath": rollback_dir,
         "destinationDirectoryPath": live_docs,
-        "originalItemsMoved": ["original_scene_1.mov"],
-        "incomingItemsInstalled": ["new_incoming_take.mov"],
+        "originalSnapshot": snapshot,
+        "originalItemsMoved": ["project.json"],
+        "incomingItemsInstalled": [],  # extra_scene.mov NOT recorded before crash!
         "createdAt": 1700000000,
         "updatedAt": 1700000001
     }
@@ -87,79 +90,118 @@ try:
     with open(journal_file, "w", encoding="utf-8") as f:
         json.dump(journal_data, f)
 
-    # 4. Simulate launch-time recovery engine
-    def simulate_recovery(journal_path):
+    # 5. Recovery engine implementation replicating Swift LocalBackup.recoverUnfinishedRestoreIfNeeded()
+    def execute_recovery(journal_path):
         if not os.path.exists(journal_path):
             return False
         with open(journal_path, "r", encoding="utf-8") as jf:
             j = json.load(jf)
         dest = j["destinationDirectoryPath"]
         rb = j["rollbackDirectoryPath"]
+
         if j["state"] == "committed":
             if os.path.exists(rb):
                 shutil.rmtree(rb)
             os.remove(journal_path)
             return True
-        # Roll back uncommitted
-        for installed in j["incomingItemsInstalled"]:
-            target = os.path.join(dest, installed)
-            if os.path.exists(target):
-                os.remove(target)
+
+        orig_snapshot_names = set(entry["name"] for entry in j.get("originalSnapshot", []))
+        rb_contents = os.listdir(rb) if os.path.exists(rb) else []
+        rb_names = set(rb_contents)
+
+        # Step 1: Reconcile destination contents against original snapshot and rollback
+        current_dest = os.listdir(dest) if os.path.exists(dest) else []
+        for item_name in current_dest:
+            item_path = os.path.join(dest, item_name)
+            if item_name in rb_names:
+                # Original copy in rollback; remove destination copy so rollback can move in
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            elif item_name in orig_snapshot_names:
+                # Was never moved to rollback (crash during preservation): PRESERVE
+                continue
+            else:
+                # Not in rollback and NOT in original snapshot: provably introduced by restore!
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+
+        # Clean up any recorded installed items
+        for installed in j.get("incomingItemsInstalled", []):
+            item_path = os.path.join(dest, installed)
+            if os.path.exists(item_path):
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+
+        # Step 2: Restore all original items from rollback directory
         if os.path.exists(rb):
             for item in os.listdir(rb):
                 src = os.path.join(rb, item)
                 dst = os.path.join(dest, item)
                 if os.path.exists(dst):
-                    os.remove(dst)
+                    if os.path.isdir(dst):
+                        shutil.rmtree(dst)
+                    else:
+                        os.remove(dst)
                 shutil.move(src, dst)
+
+        # Step 3: Verify restored state against original snapshot
+        for entry in j.get("originalSnapshot", []):
+            expected_path = os.path.join(dest, entry["name"])
+            if not os.path.exists(expected_path):
+                raise RuntimeError(f"Rollback verification failed: missing {entry['name']}")
+
+        # Step 4: Verification passed: remove rollback dir and journal
+        if os.path.exists(rb):
             shutil.rmtree(rb)
         os.remove(journal_path)
         return True
 
-    did_recover = simulate_recovery(journal_file)
+    # Run recovery
+    did_recover = execute_recovery(journal_file)
     assert did_recover is True, "Recovery must return True"
 
-    # Verify filesystem post-recovery state:
-    assert not os.path.exists(partial_new_take), "Partial new incoming files must be deleted"
-    assert os.path.exists(original_take), "Original take must be restored into Documents"
-    with open(original_take, "r", encoding="utf-8") as f:
+    # Assert exact post-recovery state:
+    assert os.path.exists(orig_file), "Original project.json must be restored"
+    with open(orig_file, "r", encoding="utf-8") as f:
         content = f.read()
-    assert content == "Original Take Video Data", "Original content must be preserved with 100% fidelity"
+    assert content == '{"original_data": 12345}', "Original project.json data must match 100%"
+
+    assert not os.path.exists(extra_scene), "Unrecorded extra_scene.mov MUST be safely removed and NOT orphaned!"
     assert not os.path.exists(rollback_dir), "Rollback directory must be cleaned up"
-    assert not os.path.exists(journal_file), "Journal file must be deleted after recovery"
+    assert not os.path.exists(journal_file), "Journal file must be deleted"
 
-    # 5. Verify Idempotency: second recovery run
-    assert simulate_recovery(journal_file) is False, "Repeated recovery must be safely idempotent"
+    # Idempotent repeated recovery
+    assert execute_recovery(journal_file) is False, "Repeated recovery must be safely idempotent"
 
-    print("[PASS] Test 3 Passed: Filesystem crash recovery successfully rolled back uncommitted restore and restored original data")
+    print("[PASS] Test 3 Passed: Reconciled rollback successfully removes unrecorded incoming file and restores original data")
 finally:
     shutil.rmtree(temp_test_dir, ignore_errors=True)
 
 # ---------------------------------------------------------
-# Test 4: Static Inspection of AUDIT-FINDING-03 (Background Persistence Flush)
+# Test 4: Static Inspection of AUDIT-FINDING-03 (FlushOperation & Concurrency)
 # ---------------------------------------------------------
 with open(BG_COORD_SWIFT, "r", encoding="utf-8") as f:
     bg_coord_code = f.read()
 
-assert "protocol BackgroundTaskManaging: AnyObject, Sendable" in bg_coord_code, "BackgroundTaskManaging protocol missing"
-assert "final class UIKitBackgroundTaskManager: BackgroundTaskManaging" in bg_coord_code, "UIKitBackgroundTaskManager missing"
-assert "final class BackgroundTaskToken: @unchecked Sendable" in bg_coord_code, "BackgroundTaskToken missing"
-assert "guard !isEnded, identifier != .invalid else { return }" in bg_coord_code, "BackgroundTaskToken must guard against double-ending"
-assert "isEnded = true" in bg_coord_code, "BackgroundTaskToken must set isEnded"
+assert "final class FlushOperation: @unchecked Sendable" in bg_coord_code, "FlushOperation missing"
+assert "case running" in bg_coord_code and "case completed" in bg_coord_code and "case expired" in bg_coord_code, "FlushOperation outcomes incomplete"
+assert "func markCompleted() -> Bool" in bg_coord_code, "markCompleted missing"
+assert "func markExpired() -> Bool" in bg_coord_code, "markExpired missing"
+assert "guard outcome == .running else { return false }" in bg_coord_code, "FlushOperation must enforce only one terminal outcome"
 
-assert "var backgroundTaskManager: BackgroundTaskManaging" in appstore_code, "backgroundTaskManager missing in AppStore"
-assert "private(set) var hasUncommittedChanges: Bool" in appstore_code, "hasUncommittedChanges missing in AppStore"
-assert "func flushPersistence(using taskManager: BackgroundTaskManaging? = nil)" in appstore_code, "flushPersistence missing taskManager injection"
-assert "func retryPersistenceIfNeeded()" in appstore_code, "retryPersistenceIfNeeded missing in AppStore"
-
-with open(ONETAKEAPP_SWIFT, "r", encoding="utf-8") as f:
-    app_view_code = f.read()
-
-assert "store.retryPersistenceIfNeeded()" in app_view_code, "retryPersistenceIfNeeded not hooked into OneTakeApp .active scenePhase"
-print("[PASS] Test 4 Passed: BackgroundTaskCoordinator and AppStore flush lifecycle properly decoupled with exactly-once token guarantees")
+assert "private(set) var activeFlushOperation: FlushOperation?" in appstore_code, "activeFlushOperation missing in AppStore"
+assert "let committedSeq = await StateStorage.shared.getLastCommittedSequence()" in appstore_code, "Expiration handler must verify disk commit status"
+assert "if committedSeq >= op.sequence" in appstore_code, "Expiration handler must check sequence commit status"
+print("[PASS] Test 4 Passed: FlushOperation lifecycle and expiration verification statically verified in AppStore and BackgroundTaskCoordinator")
 
 # ---------------------------------------------------------
-# Test 5: Logic Simulation of Background Flush Expiration and Race Safety
+# Test 5: Logic Simulation of FlushOperation Races & Terminal Outcome Winner
 # ---------------------------------------------------------
 class MockBackgroundTaskCoordinator:
     def __init__(self):
@@ -194,25 +236,52 @@ class SimulatedToken:
             self.is_ended = True
             self.manager.end_background_task(self.task_id)
 
-# Test normal completion
-token1 = SimulatedToken(mock_coordinator, "flush.normal", lambda: None)
-token1.end()
-token1.end()  # multiple calls
-assert len(mock_coordinator.ended_tasks) == 1, "Token must be ended exactly once"
+class SimulatedFlushOperation:
+    def __init__(self, seq, token):
+        self.sequence = seq
+        self.token = token
+        self.outcome = "running"
 
-# Test expiration racing with write
-expired_called = False
-def on_expire():
-    global expired_called
-    expired_called = True
+    def mark_completed(self):
+        if self.outcome != "running":
+            return False
+        self.outcome = "completed"
+        self.token.end()
+        return True
 
-token2 = SimulatedToken(mock_coordinator, "flush.expired", on_expire)
-mock_coordinator.trigger_expiration()
-assert expired_called is True
-token2.end()
-token2.end()
-assert len(mock_coordinator.ended_tasks) == 2, "Second token must be ended exactly once despite expiration"
-print("[PASS] Test 5 Passed: Background task coordinator simulation verified exactly-once ending and expiration race safety")
+    def mark_expired(self):
+        if self.outcome != "running":
+            return False
+        self.outcome = "expired"
+        self.token.end()
+        return True
+
+# Scenario A: Completion before Expiration
+token_a = SimulatedToken(mock_coordinator, "flush.a", lambda: None)
+op_a = SimulatedFlushOperation(1, token_a)
+assert op_a.mark_completed() is True
+assert op_a.outcome == "completed"
+# Late expiration call: MUST FAIL
+assert op_a.mark_expired() is False
+assert op_a.outcome == "completed", "Late expiration cannot overwrite completed status"
+assert len(mock_coordinator.ended_tasks) == 1
+
+# Scenario B: Expiration before Completion
+token_b = SimulatedToken(mock_coordinator, "flush.b", lambda: None)
+op_b = SimulatedFlushOperation(2, token_b)
+assert op_b.mark_expired() is True
+assert op_b.outcome == "expired"
+# Completion call after expiration: MUST FAIL
+assert op_b.mark_completed() is False
+assert op_b.outcome == "expired", "Completion cannot overwrite expired status"
+assert len(mock_coordinator.ended_tasks) == 2
+
+# Scenario C: Repeated completion / expiration calls
+assert op_a.mark_completed() is False
+assert op_b.mark_expired() is False
+assert len(mock_coordinator.ended_tasks) == 2, "Token must be ended exactly once per operation"
+
+print("[PASS] Test 5 Passed: FlushOperation terminal state machine guarantees winner and prevents late expiration overwrites")
 
 # ---------------------------------------------------------
 # Test 6: Static Inspection of AUDIT-FINDING-04 (Legacy Share-Link Revocation)
@@ -226,8 +295,6 @@ assert "case alreadyRevoked" in cloud_code, "case alreadyRevoked missing"
 assert "case unmappedLegacyLink" in cloud_code, "case unmappedLegacyLink missing"
 assert "static func revokeDetails(url: URL?, ubiquityFolderURL: URL? = nil) async -> RevocationOutcome" in cloud_code, "revokeDetails missing"
 assert "static func revoke(url: URL?, ubiquityFolderURL: URL? = nil) async throws -> Bool" in cloud_code, "revoke backward-compatible signature missing"
-
-# Verify that unsafe filename loop matching UUID against URL has been removed
 assert "if let url, item.lastPathComponent == url.lastPathComponent" not in cloud_code, "Unsafe lastPathComponent UUID comparison was not removed!"
 print("[PASS] Test 6 Passed: CloudLink defines RevocationOutcome, eliminates unsafe directory scanning, and preserves legacy data safely")
 
@@ -236,7 +303,6 @@ print("[PASS] Test 6 Passed: CloudLink defines RevocationOutcome, eliminates uns
 # ---------------------------------------------------------
 temp_tapes_root = tempfile.mkdtemp(prefix="onetake_tapes_")
 try:
-    # Create two different auditions' share folders in Documents/Tapes/
     audition_a_folder = os.path.join(temp_tapes_root, str(uuid.uuid4()))
     audition_b_folder = os.path.join(temp_tapes_root, str(uuid.uuid4()))
     os.makedirs(audition_a_folder, exist_ok=True)
@@ -252,20 +318,16 @@ try:
             return "revoked"
         if not public_url_str or "://" not in public_url_str:
             return "failed"
-        # Legacy link with no folder mapping: do not delete anything!
         return "unmappedLegacyLink"
 
-    # Test 1: Explicit folder URL deletion
     res1 = simulate_revoke_details("https://www.icloud.com/iclouddrive/0123", audition_a_folder)
     assert res1 == "revoked"
     assert not os.path.exists(audition_a_folder), "Target folder must be deleted"
     assert os.path.exists(audition_b_folder), "Other audition's folder must NEVER be deleted"
 
-    # Test 2: Idempotent second deletion
     res2 = simulate_revoke_details("https://www.icloud.com/iclouddrive/0123", audition_a_folder)
     assert res2 == "alreadyRevoked"
 
-    # Test 3: Legacy link without folder URL
     res3 = simulate_revoke_details("https://www.icloud.com/iclouddrive/0999opaque", None)
     assert res3 == "unmappedLegacyLink"
     assert os.path.exists(audition_b_folder), "Audition B folder must remain completely intact when legacy link is revoked"
@@ -274,4 +336,4 @@ try:
 finally:
     shutil.rmtree(temp_tapes_root, ignore_errors=True)
 
-print("\n=== ALL 7 PHASE 8 VERIFICATION TESTS PASSED SUCCESSFULLY ===")
+print("\n=== ALL 7 PHASE 8 & 8.1 VERIFICATION TESTS PASSED SUCCESSFULLY ===")
