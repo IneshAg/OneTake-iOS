@@ -345,6 +345,7 @@ struct ShootFlow: View {
     @State private var lastGestureAction = Date.distantPast
     @AppStorage("camera.recordingResolution") private var recordingResolution = CameraResolution.hd1080.rawValue
     @State private var advanceAfterSceneSave = false
+    @State private var showSkipSlateAlert = false
     @State private var deviceOrientation: UIDeviceOrientation = UIDevice.current.orientation
 
     var body: some View {
@@ -503,6 +504,16 @@ struct ShootFlow: View {
             else { scheduleTimedAdvance() }
         }
         .onDisappear { gestureHoldTask?.cancel(); talkbackTask?.cancel(); timedAdvance?.cancel(); cameraSpeaker.stop(); camera.stop(); follower.stop(); stopReader() }
+        .alert("Skip Slate?", isPresented: $showSkipSlateAlert) {
+            Button("Skip to Scene 1", role: .destructive) {
+                store.markDone(.slate, in: auditionID)
+                store.syncPieces()
+                stage = .scene
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You are skipping the slate for now and continuing to Scene 1. You can always record or redo your slate later from the audition checklist.")
+        }
         .alert("Couldn’t save that recording", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -632,8 +643,7 @@ struct ShootFlow: View {
             switch stage {
             case .slate:
                 Button("Skip") {
-                    let a = store.audition(auditionID)
-                    stage = a.map { requiresSeparateFullBodyShot($0) } == true ? .fullLength : .scene
+                    showSkipSlateAlert = true
                 }
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(.white)
@@ -799,10 +809,11 @@ struct ShootFlow: View {
         if hasTapeCheck {
             return ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) })
         }
+        if let unshot = nextUnshotScene(in: a) {
+            return ("Next: \(a.scenes[unshot].title)", { moveToScene(unshot) })
+        }
         if let next = (store.audition(a.id) ?? a).nextPiece {
             switch next.kind {
-            case .fullLength:
-                return ("Next: full-body shot", { stage = .fullLength })
             case .scene:
                 if let nextScene = a.scenes.firstIndex(where: { $0.title == next.title }) {
                     return ("Next: \(next.title)", { moveToScene(nextScene) })
@@ -811,6 +822,8 @@ struct ShootFlow: View {
                 return ("Add headshots", { finish(goTo: .headshots(for: a.id)) })
             case .slate:
                 return ("Continue to slate", { stage = .slate })
+            default:
+                break
             }
         }
         if let unshot = nextUnshotScene(in: a) {

@@ -32,7 +32,13 @@ struct TapePreviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            InContentNavHeader(title: "Preview", backLabel: "Back", onDark: true, onBack: { store.pop() })
+            InContentNavHeader(title: "Preview", backLabel: "Back", onDark: true, onBack: {
+                if store.currentPath.contains(.auditionDetail(auditionID)) {
+                    store.popTo(.auditionDetail(auditionID))
+                } else {
+                    store.pop()
+                }
+            })
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
 
@@ -181,20 +187,47 @@ struct TapePreviewView: View {
                 .foregroundStyle(OT.accent)
             }
             ForEach(Array(tape.chapters.enumerated()), id: \.element.id) { index, chapter in
-                Button { select(chapter) } label: {
-                    HStack(spacing: 12) {
-                        Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
-                        Text(chapter.label)
-                            .font(selectedTarget == .clip(chapter.kind) ? .otHeadline : .otBody)
-                            .foregroundStyle(OT.cameraLabel)
-                        Spacer()
-                        Text(clock(chapter.duration)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
+                HStack(spacing: 12) {
+                    Button { select(chapter) } label: {
+                        HStack(spacing: 12) {
+                            Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
+                            Text(chapter.label)
+                                .font(selectedTarget == .clip(chapter.kind) ? .otHeadline : .otBody)
+                                .foregroundStyle(OT.cameraLabel)
+                            Spacer()
+                            Text(clock(chapter.duration)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
+                        }
                     }
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+
+                    Button(chapterActionTitle(for: chapter.kind)) {
+                        performChapterAction(chapter.kind)
+                    }
+                    .font(.otFootnote.weight(.semibold))
+                    .foregroundStyle(OT.accent)
                 }
-                .buttonStyle(.plain)
+                .padding(.vertical, 6)
             }
+        }
+    }
+
+    private func chapterActionTitle(for kind: MediaExporter.Clip.Kind) -> String {
+        switch kind {
+        case .slate: return "Retake"
+        case .fullLength: return "Retake"
+        case .scene: return "Change Take"
+        }
+    }
+
+    private func performChapterAction(_ kind: MediaExporter.Clip.Kind) {
+        player?.pause()
+        switch kind {
+        case .slate:
+            store.camera = .shoot(auditionID, start: .slate)
+        case .fullLength:
+            store.camera = .shoot(auditionID, start: .fullLength)
+        case .scene(let index):
+            store.push(.takes(auditionID, sceneIndex: index))
         }
     }
 

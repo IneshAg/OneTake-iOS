@@ -273,7 +273,7 @@ enum ScriptParser {
         var finalScenes = scenes.enumerated().map { i, scene in
             // ~150 wpm reading pace is a reasonable estimate for "how long this will take to shoot".
             let wordCount = scene.lines.reduce(0) { $0 + $1.text.split(separator: " ").count }
-            let estimatedSeconds = max(15, Int(Double(wordCount) / 150.0 * 60))
+            let estimatedSeconds = min(max(15, Int(Double(wordCount) / 150.0 * 60)), 900)
             return ScriptScene(number: i + 1, title: "Scene \(i + 1)", heading: scene.heading,
                                lines: scene.lines, estimatedSeconds: estimatedSeconds)
         }

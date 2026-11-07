@@ -242,6 +242,11 @@ enum HeadshotStore {
         return true
     }
 
+    /// Whether an untouched original exists, meaning this photo has already been custom-cropped.
+    static func hasOriginal(key: String, auditionID: UUID? = nil) -> Bool {
+        FileManager.default.fileExists(atPath: originalURL(for: key, auditionID: auditionID).path)
+    }
+
     /// The full original capture if the photo has been reframed, otherwise the current photo.
     static func loadOriginal(key: String, auditionID: UUID? = nil) -> UIImage? {
         UIImage(contentsOfFile: originalURL(for: key, auditionID: auditionID).path) ?? load(key: key, auditionID: auditionID)

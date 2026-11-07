@@ -16,6 +16,13 @@ struct VoiceLineReview: Identifiable {
         var id: String { rawValue }
     }
 
+    struct HesitationBeat: Hashable, Identifiable {
+        var id = UUID()
+        var afterWord: String
+        var pauseSeconds: Double
+        var timestamp: TimeInterval
+    }
+
     let id: UUID
     let lineIndex: Int
     let text: String
@@ -24,6 +31,7 @@ struct VoiceLineReview: Identifiable {
     let suggestion: Mark
     var mark: Mark
     var dismissed = false
+    var hesitations: [HesitationBeat] = []
 }
 
 enum VoicePracticeReviewAnalyzer {
@@ -163,17 +171,24 @@ enum VoicePracticeReviewAnalyzer {
             let matched = (matchedByLine[lineIndex] ?? []).sorted { $0.audio < $1.audio }
             let missing = missedByLine[lineIndex] ?? []
             let extras = extraByLine[lineIndex] ?? []
-            let longestPause = zip(matched, matched.dropFirst()).map { left, right in
-                words[right.audio].timestamp - (words[left.audio].timestamp + words[left.audio].duration)
-            }.max() ?? 0
+            let pauseGaps: [VoiceLineReview.HesitationBeat] = zip(matched, matched.dropFirst()).compactMap { left, right in
+                let gap = words[right.audio].timestamp - (words[left.audio].timestamp + words[left.audio].duration)
+                let leftWord = words[left.audio].value
+                // Hesitation threshold: mid-sentence pause > 1.2s
+                if gap >= 1.2 {
+                    return VoiceLineReview.HesitationBeat(afterWord: leftWord, pauseSeconds: gap, timestamp: words[left.audio].timestamp + words[left.audio].duration)
+                }
+                return nil
+            }
+            let longestPause = pauseGaps.map(\.pauseSeconds).max() ?? 0
             let suggestion: VoiceLineReview.Mark
             let detail: String
             if matched.isEmpty {
                 suggestion = .skipped
                 detail = "No clear match was found for this line. Check the audio; recognition can miss words."
-            } else if longestPause >= 1.25 {
+            } else if !pauseGaps.isEmpty {
                 suggestion = .hesitated
-                detail = "A pause of about \(String(format: "%.1f", longestPause)) seconds was detected within this line."
+                detail = "Hesitation of ~\(String(format: "%.1f", longestPause))s detected after '\(pauseGaps.first?.afterWord ?? "")'."
             } else if !missing.isEmpty {
                 suggestion = .forgot
                 detail = "Possible missing words: \(missing.reversed().joined(separator: " "))."
@@ -186,7 +201,8 @@ enum VoicePracticeReviewAnalyzer {
             }
             return VoiceLineReview(id: line.id, lineIndex: lineIndex, text: line.text,
                                    timestamp: matched.first.map { words[$0.audio].timestamp },
-                                   detail: detail, suggestion: suggestion, mark: suggestion)
+                                   detail: detail, suggestion: suggestion, mark: suggestion,
+                                   hesitations: pauseGaps)
         }
     }
 
@@ -302,6 +318,28 @@ struct VoicePracticeReviewView: View {
                                     }
                                 }
                                 Text(item.text).font(.otBody).foregroundStyle(OT.labelPrimary)
+                                if !item.hesitations.isEmpty {
+                                    ForEach(item.hesitations) { h in
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "pause.circle.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(OT.warning)
+                                            Text("Hesitation after '\(h.afterWord)' (\(String(format: "%.1fs", h.pauseSeconds)))")
+                                                .font(.otCaption.weight(.medium))
+                                                .foregroundStyle(OT.warning)
+                                            Spacer()
+                                            Button("Jump to pause") {
+                                                player?.seek(to: CMTime(seconds: max(0, h.timestamp - 0.4), preferredTimescale: 600))
+                                                player?.play()
+                                            }
+                                            .font(.otCaption.weight(.bold))
+                                            .foregroundStyle(OT.accent)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(OT.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    }
+                                }
                                 Text(item.detail).font(.otFootnote).foregroundStyle(OT.labelSecondary)
                                 HStack {
                                     Menu {

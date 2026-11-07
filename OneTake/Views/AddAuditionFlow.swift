@@ -51,7 +51,10 @@ struct AddAuditionFlow: View {
                 OCRReviewSheet(draft: draft, sourcePreview: pendingReviewImage) { confirmedDraft, readerPlan in
                     pendingReviewDraft = nil
                     pendingReviewImage = nil
-                    if confirmedDraft.missingRequiredDetails.isEmpty {
+                    // If the project and role are filled, commit directly without re-prompting on missing details
+                    if !confirmedDraft.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        store.commitAuditionDraft(confirmedDraft, readerAudioPlan: readerPlan)
+                    } else if confirmedDraft.missingRequiredDetails.isEmpty {
                         store.commitAuditionDraft(confirmedDraft, readerAudioPlan: readerPlan)
                     } else {
                         store.startAuditionDraft(confirmedDraft)
@@ -247,12 +250,61 @@ struct AddAuditionFlow: View {
                 }
                 .buttonStyle(.plain)
 
-                SectionLabel(text: "Or bring in notice or sides")
-                HStack {
-                    PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
-                    Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
-                    Button { showFileImporter = true } label: { way("folder", "File") }
-                    Button { store.startAuditionDraft(NoticeParser.Draft.blank) } label: { way("keyboard", "Type it") }
+                SectionLabel(text: "Bring in casting notice & script sides")
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Button {
+                            showFileImporter = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "doc.text.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(OT.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Casting Call PDF")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("Notice, breakdown & requirements")
+                                        .font(.otCaption)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.doc")
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                            .padding(12)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+
+                        Button {
+                            showFileImporter = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "theatermasks.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(OT.prompterGold)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Script Sides PDF")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("Dialogue lines & scenes")
+                                        .font(.otCaption)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.doc")
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                            .padding(12)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+
+                    HStack {
+                        PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
+                        Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
+                        Button { store.startAuditionDraft(NoticeParser.Draft.blank) } label: { way("keyboard", "Type it") }
+                    }
                 }
                 .buttonStyle(.plain)
 
@@ -578,7 +630,7 @@ private struct OCRReviewSheet: View {
 
 
                     // Choose script scenes, or pages when OCR could only identify page boundaries.
-                    if !draft.availablePortions.isEmpty && draft.availablePortions.count > 1 {
+                    if draft.materialKind != .slateOnly && !draft.availablePortions.isEmpty && draft.availablePortions.count > 1 {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Label(portionsArePages ? "Which pages contain your sides?" : "Which scene(s) are you taping?", systemImage: "film.stack")
@@ -1379,6 +1431,14 @@ enum NoticeParser {
         } else if firstMatch(#"(?i)\b(?:resume|résumé)\b"#, in: text) != nil {
             ask("Resume")
         }
+        // Detect if no scene is required (slate only or explicit instruction)
+        let indicatesSlateOnly = firstMatch(#"(?i)(?:slate\s+only|only\s+slate|no\s+scenes?\s+required|scene\s+not\s+required|sides\s+not\s+required|no\s+sides\s+required|slate\s+and\s+intro\s+only|intro\s+only|introduction\s+only|slate\s+tape\s+only)"#, in: text) != nil
+        if indicatesSlateOnly || (NoticeParser.isNoticeOnly(text) && ScriptParser.parseScenes(from: text, myRole: d.role).isEmpty) {
+            d.materialKind = .slateOnly
+            d.availablePortions = []
+            d.scenes = 0
+        }
+
         d.includeSlate = d.asks.contains { $0.localizedCaseInsensitiveContains("video") || $0.localizedCaseInsensitiveContains("slate") || $0.localizedCaseInsensitiveContains("intro") }
         d.includeHeadshots = d.asks.contains { $0.localizedCaseInsensitiveContains("headshot") || $0.localizedCaseInsensitiveContains("photo") }
         d.isSlateOptional = firstMatch(#"(?i)\b(?:slate|intro(?:duction)?\s+video|self-?tape)\b[^.\n]{0,50}\b(?:optional|if\s+available|not\s+required)\b|\b(?:optional|if\s+available|not\s+required)\b[^.\n]{0,50}\b(?:slate|intro(?:duction)?\s+video|self-?tape)\b"#, in: text) != nil
@@ -2782,7 +2842,8 @@ struct ScriptReviewAndEditView: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(OT.accent)
                         Spacer()
-                        Text("\(scene.lines.count) lines · ≈ \(scene.estimatedSeconds / 60):\(String(format: "%02d", scene.estimatedSeconds % 60))")
+                        let clampedSec = min(max(15, scene.estimatedSeconds), 900)
+                        Text("\(scene.lines.count) lines · ≈ \(clampedSec / 60):\(String(format: "%02d", clampedSec % 60))")
                             .font(.otCaption)
                             .foregroundStyle(OT.labelTertiary)
                     }

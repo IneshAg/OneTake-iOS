@@ -1067,6 +1067,7 @@ struct HeadshotsView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var isFraming = false
     @State private var framingPreset: HeadshotPreset = .cardSlot
+    @State private var hasSavedHeadshots = false
 
     /// Counted from the real files on disk for this specific audition or profile
     private var taken: Int {
@@ -1237,20 +1238,27 @@ struct HeadshotsView: View {
                 if let auditionID {
                     if taken > 0 {
                         HStack(spacing: 6) {
-                            Label("Headshots saved on this iPhone", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(OT.success)
-                            if let next = nextStepAfterHeadshots {
-                                Text("· Next: \(next)")
-                                    .foregroundStyle(OT.labelSecondary)
-                            }
+                            Label(hasSavedHeadshots ? "Headshots saved · Next: Slate" : "Photos ready to save", systemImage: hasSavedHeadshots ? "checkmark.circle.fill" : "arrow.down.circle")
+                                .foregroundStyle(hasSavedHeadshots ? OT.success : OT.accent)
+                            Spacer()
                         }
-                        .font(.otFootnote.weight(.medium))
+                        .font(.otFootnote.weight(.semibold))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Button(continueButtonTitle) {
-                        handleContinue(auditionID)
+                    if taken > 0 && !hasSavedHeadshots {
+                        Button("Save Headshots") {
+                            hasSavedHeadshots = true
+                            store.syncHeadshotPieces()
+                            store.syncPieces()
+                            Haptics.success()
+                        }
+                        .buttonStyle(.otPrimary)
+                    } else {
+                        Button(continueButtonTitle) {
+                            handleContinue(auditionID)
+                        }
+                        .buttonStyle(.otPrimary)
                     }
-                    .buttonStyle(.otPrimary)
 
                     HStack(spacing: 12) {
                         Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot(auditionID: auditionID) }
@@ -1326,7 +1334,9 @@ struct HeadshotsView: View {
             .padding(OT.gutter)
         }
         .onAppear {
+            hasSavedHeadshots = taken > 0
             store.syncHeadshotPieces()
+            store.syncPieces()
             if ProcessInfo.processInfo.arguments.contains("-testHeadshotAdjust") {
                 adjustItem = HeadshotAdjustItem(key: "front", title: "Front", isProfile: false, auditionID: auditionID)
             }
@@ -2514,7 +2524,9 @@ struct HeadshotAdjustSheet: View {
         if let raw = HeadshotStore.loadOriginal(key: item.key, auditionID: item.auditionID) ?? HeadshotStore.load(key: item.key, auditionID: item.auditionID),
            let upright = ImageFramer.normalized(raw) {
             originalImage = upright
-            autoFrame(preset: selectedPreset, animated: false)
+            if !HeadshotStore.hasOriginal(key: item.key, auditionID: item.auditionID) {
+                autoFrame(preset: selectedPreset, animated: false)
+            }
         }
     }
 

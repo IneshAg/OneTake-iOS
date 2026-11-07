@@ -536,8 +536,10 @@ struct HeadshotImage: View {
     var auditionID: UUID? = nil
     var iconSize: CGFloat? = nil
     var onDark: Bool = false
+    @Environment(AppStore.self) private var store
 
     var body: some View {
+        let _ = store.headshotVersion
         if let realKey, let real = HeadshotStore.load(key: realKey, auditionID: auditionID) {
             Color.clear
                 .overlay {
@@ -547,6 +549,7 @@ struct HeadshotImage: View {
                 }
                 .clipped()
                 .contentShape(Rectangle())
+                .id("\(realKey)-\(store.headshotVersion)")
         } else if onDark {
             LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
                 .overlay(Image(systemName: "person.fill").font(.system(size: iconSize ?? 40)).foregroundStyle(.white.opacity(0.35)))

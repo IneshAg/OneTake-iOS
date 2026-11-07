@@ -36,6 +36,9 @@ struct PackageView: View {
     @State private var showSignIn = false
     @State private var trimmingClip: PackageTrimTarget?
     @State private var showFileNameEditor = false
+    enum ShareMethod { case link, separateElements }
+    @State private var shareMethod: ShareMethod = .separateElements
+    @State private var separateShareItems: [Any]? = nil
 
     var body: some View {
         if let a = store.audition(auditionID) {
@@ -113,13 +116,61 @@ struct PackageView: View {
                 HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text(totalDurationLabel(a)).font(.otHeadline) }
                 TapeStrip(legend: legend)
 
-                // 1. Deliverable Format (Combined Video, Separate ZIP, Photos, All)
-                SectionLabel(text: "Deliverable Format").padding(.top, 4)
-                deliverableFormatCard(a, current: deliverable)
+                // Sharing Options: No combined video, no destination questions
+                SectionLabel(text: "Share Tape").padding(.top, 4)
+                VStack(spacing: 12) {
+                    Button {
+                        shareMethod = .link
+                        send()
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "link.circle.fill")
+                                .font(.system(size: 28, weight: .semibold))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Option 1: Share as a Link")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Generate a clean web link for casting to view all separate elements.")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.title3)
+                                .foregroundStyle(OT.accent)
+                        }
+                        .padding(14)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
 
-                // 2. Submission Destination (Files, Email, Casting Sites)
-                SectionLabel(text: "Submission Destination").padding(.top, 4)
-                destinationCard(a)
+                    Button {
+                        shareMethod = .separateElements
+                        prepareAndShareSeparateElements(a)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "square.and.arrow.up.circle.fill")
+                                .font(.system(size: 28, weight: .semibold))
+                                .foregroundStyle(OT.prompterGold)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Option 2: Share as Separate Elements")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Send individual scene takes, slate, and headshots via native iOS Share Sheet.")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.title3)
+                                .foregroundStyle(OT.prompterGold)
+                        }
+                        .padding(14)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 submissionCheckSummary(a)
 
@@ -418,32 +469,37 @@ struct PackageView: View {
         }
     }
 
-    private func bottomSendBar(_ a: Audition, deliverable: PackageDeliverable?) -> some View {
-        let destinationChosen = a.destinationWasChosen ?? false
-        let actionTitle: String
-        let actionIcon: String
-        if let deliverable {
-            actionTitle = destinationChosen ? sendButtonTitle(a, deliverable: deliverable) : "Choose submission destination"
-            actionIcon = destinationChosen ? sendButtonIcon(a) : "paperplane"
-        } else {
-            actionTitle = "Choose delivery format"
-            actionIcon = "shippingbox"
+    private func prepareAndShareSeparateElements(_ a: Audition) {
+        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled }
+        let urls = MediaExporter.separateDeliverableURLs(for: a, takes: takes, slate: store.slate)
+        if !urls.isEmpty {
+            separateShareItems = urls
+            showShare = true
         }
-        return VStack(spacing: 4) {
+    }
+
+    private func bottomSendBar(_ a: Audition, deliverable: PackageDeliverable?) -> some View {
+        HStack(spacing: 12) {
             Button {
-                if deliverable == nil { showDeliverableSelector = true }
-                else if !destinationChosen { showDestination = true }
-                else { send() }
+                shareMethod = .link
+                send()
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: actionIcon)
-                    Text(actionTitle)
-                }
-                .font(.otHeadline)
+                Label("Share Link", systemImage: "link")
+                    .font(.otHeadline)
+            }
+            .buttonStyle(.otSecondary)
+
+            Button {
+                shareMethod = .separateElements
+                prepareAndShareSeparateElements(a)
+            } label: {
+                Label("Share Separate Elements", systemImage: "square.and.arrow.up")
+                    .font(.otHeadline)
             }
             .buttonStyle(.otPrimary)
         }
         .padding(.horizontal, OT.gutter)
+        .padding(.vertical, 8)
         .background(OT.bgCanvas)
     }
 
@@ -673,8 +729,10 @@ struct PackageView: View {
         guard let deliverable = a.packageDeliverable else { return nil }
         let baseName = (a.deliverableFileName(slate: store.slate) as NSString).deletingPathExtension
 
-        if a.destination == .emailOrLink {
-            guard let link = a.shareLink else { return nil }
+        if shareMethod == .separateElements, let items = separateShareItems, !items.isEmpty {
+            return items
+        }
+        if let link = a.shareLink {
             let who = store.slate.name.trimmingCharacters(in: .whitespaces).isEmpty ? "Self-tape" : store.slate.name
             return ["\(who) — \(a.role), \(a.project)", link]
         }

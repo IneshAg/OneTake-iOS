@@ -203,12 +203,11 @@ struct AuditionDetailView: View {
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
                 HStack(spacing: 10) {
                     Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: sceneIndex)) }
-                        .buttonStyle(.otPrimary)
-                    Button("Practise") {
-                        store.practicePiece(for: a.id, sceneIndex: sceneIndex)
-                        store.push(.runLines(a.id, sceneIndex: sceneIndex))
+                        .buttonStyle(.otSecondary)
+                    Button("Tape scene \(scene.number)") {
+                        store.camera = .shoot(a.id, scene: sceneIndex)
                     }
-                    .buttonStyle(.otSecondary)
+                    .buttonStyle(.otPrimary)
                     if isOpt {
                         Button("Skip for now") {
                             store.markPieceDone(a.id, pieceID: next.id)

@@ -285,6 +285,11 @@ struct AuditionElementReviewView: View {
     @State private var player: AVPlayer?
     @State private var findings: [TapeFinding] = []
     @State private var isChecking = true
+    @State private var isCleaningAudio = false
+    @State private var isAudioCleaned = false
+    @State private var showTrimmer = false
+    @State private var originalClipURL: URL? = nil
+    @State private var activeURL: URL? = nil
 
     private var audition: Audition? { store.audition(auditionID) }
     private var displayTitle: String {
@@ -293,7 +298,7 @@ struct AuditionElementReviewView: View {
         }
         return element.title
     }
-    private var clipURL: URL? {
+    private var baseClipURL: URL? {
         guard let audition else { return nil }
         switch element {
         case .slate: return audition.slateVideoURL
@@ -302,6 +307,9 @@ struct AuditionElementReviewView: View {
             let takes = store.takes.filter { $0.auditionID == auditionID && $0.sceneIndex == index }
             return (takes.first(where: \.isCircled) ?? takes.last)?.fileURL
         }
+    }
+    private var clipURL: URL? {
+        activeURL ?? baseClipURL
     }
 
     var body: some View {
@@ -316,12 +324,64 @@ struct AuditionElementReviewView: View {
                     ContentUnavailableView("Recording unavailable", systemImage: "video.slash",
                                            description: Text("This recording may have been moved or deleted."))
                 }
-                SectionLabel(text: "THIS PART ONLY")
+
+                // Audio Cleanup & Video Trimming
+                SectionLabel(text: "AUDIO & VIDEO EDITING")
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Button {
+                            cleanAudio()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isAudioCleaned ? "waveform.badge.checkmark" : "waveform.badge.plus")
+                                Text(isAudioCleaned ? "Audio Cleaned" : (isCleaningAudio ? "Cleaning…" : "Clean Audio (Voice EQ)"))
+                            }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(isAudioCleaned ? OT.success : OT.accent)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .background(isAudioCleaned ? OT.success.opacity(0.12) : OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .disabled(isCleaningAudio || clipURL == nil)
+
+                        Button {
+                            showTrimmer = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "crop")
+                                Text("Trim Video")
+                            }
+                            .font(.otFootnote.weight(.semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .disabled(clipURL == nil)
+                    }
+
+                    if isAudioCleaned {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption).foregroundStyle(OT.success)
+                            Text("Rumble cutoff (<80Hz) and dialogue leveled")
+                                .font(.otCaption).foregroundStyle(OT.labelSecondary)
+                            Spacer()
+                            Button("Restore original") {
+                                restoreAudio()
+                            }
+                            .font(.otCaption.weight(.semibold))
+                            .foregroundStyle(OT.accent)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+                .padding(14).otCard(radius: 16)
+
+                SectionLabel(text: "\(displayTitle.uppercased()) CHECKS")
                 if isChecking {
                     Label("Checking this recording…", systemImage: "waveform")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 } else if findings.isEmpty {
-                    Label("No suggested changes", systemImage: "checkmark.circle.fill")
+                    Label("No suggested changes — looking sharp", systemImage: "checkmark.circle.fill")
                         .font(.otBody.weight(.medium)).foregroundStyle(OT.success)
                 } else {
                     ForEach(findings) { finding in
@@ -333,15 +393,31 @@ struct AuditionElementReviewView: View {
                         .padding(14).otCard(radius: 14)
                     }
                 }
-                Text("Suggestions are advisory. Keep pauses or delivery choices that feel intentional.")
+                Text("Suggestions are advisory. Keep delivery choices that feel authentic to your performance.")
                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
             }
             .padding(.horizontal, OT.gutter).padding(.bottom, 28)
         }
         .otCanvas()
         .safeAreaInset(edge: .bottom) {
-            Button(actionTitle, action: editThisElement)
-                .buttonStyle(.otPrimary).padding(OT.gutter).background(OT.bgCanvas)
+            VStack(spacing: 8) {
+                Button(actionTitle, action: editThisElement)
+                    .buttonStyle(.otPrimary)
+            }
+            .padding(OT.gutter)
+            .background(OT.bgCanvas)
+        }
+        .sheet(isPresented: $showTrimmer) {
+            if let url = clipURL {
+                VideoTrimmer(url: url) { edited in
+                    showTrimmer = false
+                    guard let edited else { return }
+                    activeURL = edited
+                    player?.pause()
+                    player = AVPlayer(url: edited)
+                    Haptics.success()
+                }
+            }
         }
         .task(id: clipURL) {
             player?.pause()
@@ -351,11 +427,43 @@ struct AuditionElementReviewView: View {
             if let audition {
                 let report = await TapeAnalyzer.analyze(audition, takes: store.takes.filter { $0.auditionID == auditionID && $0.isCircled })
                 guard !Task.isCancelled else { return }
-                findings = report.findings.filter { $0.clipURL == clipURL }
+                findings = report.findings.filter { $0.clipURL == clipURL || $0.clipURL == baseClipURL }
             }
             isChecking = false
         }
         .onDisappear { player?.pause() }
+    }
+
+    private func cleanAudio() {
+        guard let url = clipURL else { return }
+        isCleaningAudio = true
+        originalClipURL = url
+        Task {
+            if let cleaned = await AudioCleanup.cleanDialogueAudio(in: url) {
+                await MainActor.run {
+                    activeURL = cleaned
+                    player?.pause()
+                    player = AVPlayer(url: cleaned)
+                    isAudioCleaned = true
+                    isCleaningAudio = false
+                    Haptics.success()
+                }
+            } else {
+                await MainActor.run {
+                    isCleaningAudio = false
+                    Haptics.warning()
+                }
+            }
+        }
+    }
+
+    private func restoreAudio() {
+        guard let orig = originalClipURL else { return }
+        activeURL = orig
+        player?.pause()
+        player = AVPlayer(url: orig)
+        isAudioCleaned = false
+        Haptics.tick()
     }
 
     private var actionTitle: String {

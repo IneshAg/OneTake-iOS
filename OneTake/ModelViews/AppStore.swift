@@ -431,7 +431,7 @@ final class AppStore {
         for i in auditions.indices where auditions[i].status != .sent {
             let id = auditions[i].id
             // Headshots
-            let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: id)
+            let hasAuditionHeadshot = !HeadshotStore.taken(auditionID: id).isEmpty
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
                 if hasAuditionHeadshot {
                     auditions[i].pieces[j].isDone = true
@@ -947,6 +947,7 @@ final class AppStore {
         auditions[i].slateVideoURL = url
         auditions[i].slateOriginalVideoURL = nil
         invalidateExport(for: id)
+        syncPieces()
     }
 
     func acceptSlateTrim(_ trimmed: URL, for id: Audition.ID) {
@@ -956,6 +957,7 @@ final class AppStore {
         auditions[i].slateOriginalVideoURL = original
         auditions[i].slateVideoURL = replacement
         invalidateExport(for: id)
+        syncPieces()
     }
 
     func restoreOriginalSlate(for id: Audition.ID) {
@@ -964,6 +966,7 @@ final class AppStore {
         auditions[i].slateVideoURL = original
         auditions[i].slateOriginalVideoURL = nil
         invalidateExport(for: id)
+        syncPieces()
     }
 
     func setFullLengthVideo(_ url: URL, for id: Audition.ID) {

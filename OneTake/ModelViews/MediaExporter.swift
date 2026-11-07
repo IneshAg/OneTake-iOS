@@ -207,6 +207,40 @@ enum MediaExporter {
         return entries
     }
 
+    /// Returns separate deliverable file URLs (individual named video clips and headshots)
+    /// for direct sharing via iOS native Share Sheet (UIActivityViewController).
+    static func separateDeliverableURLs(for audition: Audition, takes: [Take], slate: SlateInfo) -> [URL] {
+        let baseName = (audition.deliverableFileName(slate: slate) as NSString).deletingPathExtension
+        let exportDir = MediaStore.directory("Exports")
+        var urls: [URL] = []
+
+        for clip in clips(for: audition, takes: takes) {
+            guard FileManager.default.fileExists(atPath: clip.url.path) else { continue }
+            let ext = clip.url.pathExtension.isEmpty ? "mov" : clip.url.pathExtension
+            let name: String
+            switch clip.kind {
+            case .slate:
+                name = audition.clipFileName(slate: slate, scene: "SLATE", extension: ext)
+            case .fullLength:
+                name = audition.clipFileName(slate: slate, scene: "FULL_LENGTH", extension: ext)
+            case .scene(let index):
+                let sceneNum = audition.scenes.indices.contains(index) ? audition.scenes[index].number : (index + 1)
+                name = audition.clipFileName(slate: slate, scene: "SCENE_\(sceneNum)", extension: ext)
+            }
+            let dest = exportDir.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: dest)
+            if (try? FileManager.default.copyItem(at: clip.url, to: dest)) != nil {
+                urls.append(dest)
+            } else {
+                urls.append(clip.url)
+            }
+        }
+
+        let photos = HeadshotStore.deliverables(baseName: baseName, auditionID: audition.id)
+        urls.append(contentsOf: photos)
+        return urls
+    }
+
     /// Joins the clips into one composition. Used for the instant Preview and for the export.
     static func build(_ clips: [Clip]) async throws -> Tape {
         let composition = AVMutableComposition()

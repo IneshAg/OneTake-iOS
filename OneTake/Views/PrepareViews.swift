@@ -12,6 +12,7 @@ struct PrepareView: View {
     @Environment(AppStore.self) private var store
     @State private var mode: Mode = .full
     @State private var peeked: ScriptLine.ID?
+    @State private var revealedWords: [ScriptLine.ID: Set<Int>] = [:]
     @State private var showPrompterSettings = false
     @State private var showSides = false
     @AppStorage("prompter.size") private var prompterSize = 1
@@ -159,6 +160,20 @@ struct PrepareView: View {
                 if line.isMine { Capsule().fill(OT.accent).frame(width: 3) }
                 if line.isSilentReactionCue {
                     SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
+                } else if line.isMine && mode == .firstLetters && peeked != line.id {
+                    RecallWordHintText(
+                        text: line.text,
+                        revealedWords: revealedWords[line.id, default: []],
+                        font: .system(size: CGFloat(textSize), weight: .semibold),
+                        color: OT.labelPrimary
+                    ) { wordIndex in
+                        var words = revealedWords[line.id, default: []]
+                        if words.contains(wordIndex) { words.remove(wordIndex) }
+                        else { words.insert(wordIndex) }
+                        revealedWords[line.id] = words
+                        Haptics.tick()
+                    }
+                    .scaleEffect(x: mirrorPrompter ? -1 : 1, y: 1)
                 } else {
                     Text(display(line))
                         .font(line.isMine ? .system(size: CGFloat(textSize), weight: .semibold) : .system(size: CGFloat(textSize - 2)))
@@ -180,12 +195,12 @@ struct PrepareView: View {
 
     private func bottomBar(_ a: Audition) -> some View {
         HStack(spacing: 12) {
-            Button { store.push(.practiceOptions(a.id, sceneIndex: sceneIndex)) } label: {
-                Label("Practice", systemImage: "play.fill").labelStyle(TrailingIconLabelStyle())
+            Button { store.push(.runLines(a.id, sceneIndex: sceneIndex)) } label: {
+                Label("Rehearse with Reader", systemImage: "person.wave.2").labelStyle(TrailingIconLabelStyle())
             }
             .buttonStyle(.otSecondary)
-            Button { store.push(.shootSetup(a.id, scene: sceneIndex)) } label: {
-                Label("Record", systemImage: "record.circle").labelStyle(TrailingIconLabelStyle())
+            Button { store.camera = .shoot(a.id, scene: sceneIndex) } label: {
+                Label("Tape scene \(a.scenes[sceneIndex].number)", systemImage: "record.circle").labelStyle(TrailingIconLabelStyle())
             }
             .buttonStyle(.otPrimary)
         }
