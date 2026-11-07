@@ -168,4 +168,98 @@ final class LocalBackupTests: XCTestCase {
         // Root path is still identical and valid
         XCTAssertTrue(manager.fileExists(atPath: initialPath))
     }
+
+    // MARK: - Phase 8 Durable Crash-Safe Restore & Recovery Tests (AUDIT-FINDING-02)
+
+    func testDurableRestoreJournalCreationAndCommit() throws {
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .prepared,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalItemsMoved: ["test.mov"],
+            incomingItemsInstalled: ["new.mov"]
+        )
+        try LocalBackup.writeJournal(journal)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: LocalBackup.journalURL.path))
+
+        let loadedData = try Data(contentsOf: LocalBackup.journalURL)
+        let loaded = try JSONDecoder().decode(LocalBackup.RestoreJournal.self, from: loadedData)
+        XCTAssertEqual(loaded.operationID, opID)
+        XCTAssertEqual(loaded.state, .prepared)
+        XCTAssertEqual(loaded.originalItemsMoved, ["test.mov"])
+        XCTAssertEqual(loaded.incomingItemsInstalled, ["new.mov"])
+
+        LocalBackup.removeJournal()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LocalBackup.journalURL.path))
+    }
+
+    func testCrashRecoveryRollsBackUncommittedInterruptedRestore() throws {
+        let manager = FileManager.default
+        let opID = UUID()
+        let rollbackDir = LocalBackup.rollbackDirectory(for: opID)
+        try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
+
+        // Simulate original live files moved to rollback before crash
+        let originalFile = rollbackDir.appendingPathComponent("original_take.mov")
+        try Data("precious original take".utf8).write(to: originalFile)
+
+        // Simulate partial incoming file that got installed into Documents before crash
+        let partialIncoming = mockDocumentsURL.appendingPathComponent("partial_new.mov")
+        try Data("incomplete new data".utf8).write(to: partialIncoming)
+
+        // Write an uncommitted journal (e.g. interrupted at installationStarted)
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: mockDocumentsURL.path,
+            originalItemsMoved: ["original_take.mov"],
+            incomingItemsInstalled: ["partial_new.mov"]
+        )
+        try LocalBackup.writeJournal(journal)
+
+        // Simulate app crash & relaunch: recoverUnfinishedRestoreIfNeeded is called on launch
+        let recovered = try LocalBackup.recoverUnfinishedRestoreIfNeeded()
+        XCTAssertTrue(recovered, "Recovery must execute and return true")
+
+        // Assert filesystem state:
+        // 1. Partial incoming file was removed
+        XCTAssertFalse(manager.fileExists(atPath: partialIncoming.path), "Partial incoming files must be cleaned up")
+        // 2. Original file was safely moved back into live Documents
+        let restoredFile = mockDocumentsURL.appendingPathComponent("original_take.mov")
+        XCTAssertTrue(manager.fileExists(atPath: restoredFile.path), "Original live files must be restored")
+        XCTAssertEqual(try String(contentsOf: restoredFile, encoding: .utf8), "precious original take")
+        // 3. Rollback folder and journal cleaned up
+        XCTAssertFalse(manager.fileExists(atPath: rollbackDir.path))
+        XCTAssertFalse(manager.fileExists(atPath: LocalBackup.journalURL.path))
+    }
+
+    func testCrashRecoveryIdempotency() throws {
+        // Repeated recovery runs must be safe and idempotent
+        XCTAssertFalse(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+        XCTAssertFalse(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+    }
+
+    func testPathTraversalJournalRejection() throws {
+        let opID = UUID()
+        let journal = LocalBackup.RestoreJournal(
+            operationID: opID,
+            state: .installationStarted,
+            stagedDirectoryPath: "/tmp/staged",
+            rollbackDirectoryPath: "/private/var/root/escape",
+            destinationDirectoryPath: "../../../etc",
+            originalItemsMoved: [],
+            incomingItemsInstalled: []
+        )
+        try LocalBackup.writeJournal(journal)
+
+        // Must throw unsafe path error and not delete arbitrary filesystem locations
+        XCTAssertThrowsError(try LocalBackup.recoverUnfinishedRestoreIfNeeded())
+        LocalBackup.removeJournal()
+    }
 }

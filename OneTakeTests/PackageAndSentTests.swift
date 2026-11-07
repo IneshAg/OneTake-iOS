@@ -356,5 +356,35 @@ final class PackageAndSentTests: XCTestCase {
         XCTAssertNil(cleared.shareLinkExpires, "Share link expiration must be cleared")
         XCTAssertNil(cleared.shareUbiquityFolderURL, "Ubiquity folder URL must be cleared")
     }
+
+    // MARK: - Phase 8 Legacy Share Link Revocation Safety Tests (AUDIT-FINDING-04)
+
+    func testRevocationWithPersistedFolderURL() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("test-tapes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let file = tempDir.appendingPathComponent("tape.mp4")
+        try Data("video".utf8).write(to: file)
+
+        let outcome = await CloudLink.revokeDetails(url: URL(string: "https://www.icloud.com/iclouddrive/test")!, ubiquityFolderURL: tempDir)
+        XCTAssertEqual(outcome, .revoked, "Valid ubiquityFolderURL must result in .revoked")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tempDir.path), "Folder must be deleted")
+
+        // Idempotency: calling again on already-deleted folder
+        let outcome2 = await CloudLink.revokeDetails(url: URL(string: "https://www.icloud.com/iclouddrive/test")!, ubiquityFolderURL: tempDir)
+        XCTAssertEqual(outcome2, .alreadyRevoked, "Repeated revocation must be idempotent (.alreadyRevoked)")
+    }
+
+    func testLegacyShareLinkRevocationFailsSafelyWithoutDeletingOtherAuditions() async throws {
+        // Simulate a legacy audition without shareUbiquityFolderURL
+        let legacyURL = URL(string: "https://www.icloud.com/iclouddrive/0123opaquehash")!
+        let outcome = await CloudLink.revokeDetails(url: legacyURL, ubiquityFolderURL: nil)
+        XCTAssertEqual(outcome, .unmappedLegacyLink, "Legacy share link without persisted folder must return .unmappedLegacyLink safely")
+    }
+
+    func testMalformedShareLinkRevocation() async throws {
+        let malformed = URL(string: "not_a_valid_url")!
+        let outcome = await CloudLink.revokeDetails(url: malformed, ubiquityFolderURL: nil)
+        XCTAssertEqual(outcome, .failed("Malformed public link URL"))
+    }
 }
 

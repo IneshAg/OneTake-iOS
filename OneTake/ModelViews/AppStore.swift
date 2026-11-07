@@ -171,11 +171,19 @@ final class AppStore {
     /// Surface persistent write errors to the UI
     @Published var persistenceError: String? = nil
     @Published var lastSaveSucceeded: Bool = true
+    /// Tracks uncommitted state mutations awaiting background flush or debounce completion
+    private(set) var hasUncommittedChanges: Bool = false
+    /// Injected background task manager (defaults to UIKitBackgroundTaskManager)
+    var backgroundTaskManager: BackgroundTaskManaging = UIKitBackgroundTaskManager.shared
+    private var activeFlushTask: Task<Void, Never>?
+    private var activeFlushToken: BackgroundTaskToken?
     /// True while `init` is still applying a loaded snapshot, so that pass doesn't immediately
     /// re-trigger its own save.
     private var isLoading = false
 
     init() {
+        isLoading = true
+        _ = try? LocalBackup.recoverUnfinishedRestoreIfNeeded()
         isLoading = true
         var removedLegacyDemoData = false
         var reorderedLegacyPieces = false
@@ -340,6 +348,7 @@ final class AppStore {
     /// Offloads JSON serialization and disk writing completely off @MainActor to StateStorage.
     private func persist() {
         guard !isLoading else { return }
+        hasUncommittedChanges = true
         saveSequence += 1
         let currentSeq = saveSequence
         saveTask?.cancel()
@@ -353,6 +362,7 @@ final class AppStore {
                     await MainActor.run {
                         self?.persistenceError = nil
                         self?.lastSaveSucceeded = true
+                        self?.hasUncommittedChanges = false
                         Reminders.reschedule(snapshot.auditions)
                         WidgetSync.update(snapshot.auditions)
                     }
@@ -367,33 +377,77 @@ final class AppStore {
         }
     }
 
-    /// Commits the current value immediately when iOS is about to suspend the app.
+    /// Commits uncommitted state changes immediately with a UIKit background execution assertion,
+    /// ensuring writes receive execution time before the OS suspends the app process.
     @MainActor
-    func flushPersistence() {
+    func flushPersistence(using taskManager: BackgroundTaskManaging? = nil) {
         guard !isLoading else { return }
         saveTask?.cancel()
         saveTask = nil
+
+        // If no uncommitted changes and last save succeeded, skip redundant write
+        guard hasUncommittedChanges || !lastSaveSucceeded else { return }
+
+        // If an active flush task is in flight, let it complete
+        if let active = activeFlushTask, !active.isCancelled {
+            return
+        }
+
         saveSequence += 1
         let currentSeq = saveSequence
         let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
-        Task.detached(priority: .userInitiated) { [weak self] in
+
+        let manager = taskManager ?? backgroundTaskManager
+        var flushTaskHolder: Task<Void, Never>?
+        let token = BackgroundTaskToken(manager: manager, name: "onetake.persistence.flush") { [weak self] in
+            flushTaskHolder?.cancel()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.lastSaveSucceeded = false
+                self.persistenceError = "Persistence flush expired before write completed."
+                self.activeFlushToken?.end()
+                self.activeFlushToken = nil
+                self.activeFlushTask = nil
+            }
+        }
+        self.activeFlushToken = token
+
+        let task = Task.detached(priority: .userInitiated) { [weak self, token] in
+            defer { token.end() }
             do {
                 let committed = try await StateStorage.shared.writeSnapshot(snapshot, sequence: currentSeq)
+                guard !Task.isCancelled else { return }
                 if committed {
                     await MainActor.run {
                         self?.persistenceError = nil
                         self?.lastSaveSucceeded = true
+                        self?.hasUncommittedChanges = false
+                        self?.activeFlushTask = nil
+                        self?.activeFlushToken = nil
                         Reminders.reschedule(snapshot.auditions)
                         WidgetSync.update(snapshot.auditions)
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self?.persistenceError = error.localizedDescription
                     self?.lastSaveSucceeded = false
+                    self?.activeFlushTask = nil
+                    self?.activeFlushToken = nil
                 }
             }
             await LiveActivitySync.update(snapshot.auditions)
+        }
+        flushTaskHolder = task
+        self.activeFlushTask = task
+    }
+
+    /// Retries persistence if the previous flush was interrupted or expired
+    @MainActor
+    func retryPersistenceIfNeeded() {
+        if !lastSaveSucceeded || hasUncommittedChanges {
+            flushPersistence()
         }
     }
 

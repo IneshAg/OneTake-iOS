@@ -80,28 +80,62 @@ enum CloudLink {
         return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
     }
 
+    enum RevocationOutcome: Equatable, Sendable {
+        /// The folder was located via its persisted folder URL and deleted.
+        case revoked
+        /// The folder URL was provided, but the directory was already absent (idempotent success).
+        case alreadyRevoked
+        /// A legacy record with only a public URL was provided, but cannot be deterministically mapped to a directory without risking other auditions.
+        case unmappedLegacyLink
+        /// An error occurred during directory removal or invalid URL was supplied.
+        case failed(String)
+    }
+
     /// Revokes an active public download link by deleting its ubiquitous folder from iCloud Drive.
     @discardableResult
     static func revoke(url: URL?, ubiquityFolderURL: URL? = nil) async throws -> Bool {
-        let work = Task.detached(priority: .userInitiated) { () -> Bool in
+        let outcome = await revokeDetails(url: url, ubiquityFolderURL: ubiquityFolderURL)
+        return outcome == .revoked || outcome == .alreadyRevoked
+    }
+
+    /// Performs detailed revocation with explicit outcome reporting, protecting other auditions
+    /// from ambiguous directory deletion when older records lack an explicit folder reference.
+    static func revokeDetails(url: URL?, ubiquityFolderURL: URL? = nil) async -> RevocationOutcome {
+        let work = Task.detached(priority: .userInitiated) { () -> RevocationOutcome in
             let fm = FileManager.default
-            if let ubiquityFolderURL, fm.fileExists(atPath: ubiquityFolderURL.path) {
-                try? fm.removeItem(at: ubiquityFolderURL)
-                return true
-            }
-            guard let container = fm.url(forUbiquityContainerIdentifier: nil) else { return false }
-            let tapesDir = container.appendingPathComponent("Documents/Tapes", isDirectory: true)
-            guard let contents = try? fm.contentsOfDirectory(at: tapesDir, includingPropertiesForKeys: nil) else {
-                return false
-            }
-            var didRemove = false
-            for item in contents {
-                if let url, item.lastPathComponent == url.lastPathComponent {
-                    try? fm.removeItem(at: item)
-                    didRemove = true
+
+            // 1. Explicit persisted ubiquity folder URL is known:
+            if let ubiquityFolderURL {
+                guard fm.fileExists(atPath: ubiquityFolderURL.path) else {
+                    return .alreadyRevoked
+                }
+                do {
+                    try fm.removeItem(at: ubiquityFolderURL)
+                    return .revoked
+                } catch {
+                    return .failed(error.localizedDescription)
                 }
             }
-            return didRemove
+
+            // 2. Legacy record: only public URL exists
+            guard let url else {
+                return .alreadyRevoked
+            }
+
+            // Check for valid URL structure
+            guard url.scheme != nil, url.host != nil else {
+                return .failed("Malformed public link URL")
+            }
+
+            // Apple public iCloud links (https://www.icloud.com/iclouddrive/<hash>) are generated
+            // server-side with opaque tokens that have no reversible mathematical mapping to the local
+            // random UUID folder (Documents/Tapes/<UUID>/). Because searching by name or partial hash
+            // could ambiguously delete another audition's or earlier version's published tape, we do not
+            // perform speculative deletions.
+            #if DEBUG
+            print("[CloudLink] Legacy share link \(url.absoluteString) has no persisted folder mapping; preserving storage to prevent accidental data deletion.")
+            #endif
+            return .unmappedLegacyLink
         }
         return await work.value
     }

@@ -17,7 +17,7 @@ with open(CLOUD_SWIFT, "r", encoding="utf-8") as f:
 
 assert "let ubiquityFolderURL: URL?" in cloud_code, "ubiquityFolderURL missing in CloudLink.Published"
 assert "static func revoke(url: URL?, ubiquityFolderURL: URL? = nil) async throws -> Bool" in cloud_code, "CloudLink.revoke missing"
-assert "try? fm.removeItem(at: ubiquityFolderURL)" in cloud_code, "CloudLink.revoke directory removal missing"
+assert "fm.removeItem(at: ubiquityFolderURL)" in cloud_code, "CloudLink.revoke directory removal missing"
 print("[PASS] Test 1 Passed: CloudLink defines ubiquityFolderURL and static revoke method")
 
 # Test 2: Models.swift Audition property

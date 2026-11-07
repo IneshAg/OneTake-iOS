@@ -168,4 +168,92 @@ final class PersistenceTests: XCTestCase {
         let decoded = try XCTUnwrap(Persistence.decode(goodData) { _ in })
         XCTAssertEqual(decoded.auditions.first?.project, "Good Project")
     }
+
+    // MARK: - Phase 8 Background Task Persistence Flush Tests (AUDIT-FINDING-03)
+
+    final class MockBackgroundTaskCoordinator: BackgroundTaskManaging, @unchecked Sendable {
+        private let lock = NSLock()
+        var begunTasks: [String] = []
+        var endedTasks: [UIBackgroundTaskIdentifier] = []
+        var nextId: Int = 100
+        var expirationHandler: (@Sendable () -> Void)?
+
+        func beginBackgroundTask(name: String, expirationHandler: (@Sendable () -> Void)?) -> UIBackgroundTaskIdentifier {
+            lock.lock()
+            defer { lock.unlock() }
+            begunTasks.append(name)
+            self.expirationHandler = expirationHandler
+            nextId += 1
+            return UIBackgroundTaskIdentifier(rawValue: nextId)
+        }
+
+        func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier) {
+            lock.lock()
+            defer { lock.unlock() }
+            endedTasks.append(identifier)
+        }
+
+        func triggerExpiration() {
+            expirationHandler?()
+        }
+    }
+
+    @MainActor
+    func testBackgroundTaskTokenEndsExactlyOnce() {
+        let mock = MockBackgroundTaskCoordinator()
+        let token = BackgroundTaskToken(manager: mock, name: "test.flush") {}
+        XCTAssertTrue(token.isValid)
+        XCTAssertEqual(mock.begunTasks, ["test.flush"])
+
+        token.end()
+        XCTAssertFalse(token.isValid)
+        XCTAssertEqual(mock.endedTasks.count, 1)
+
+        // Multiple calls to end must not double-end
+        token.end()
+        token.end()
+        XCTAssertEqual(mock.endedTasks.count, 1, "Background task identifier must end exactly once")
+    }
+
+    @MainActor
+    func testFlushPersistenceAcquiresAndEndsBackgroundTask() async throws {
+        let store = AppStore()
+        let mock = MockBackgroundTaskCoordinator()
+        store.backgroundTaskManager = mock
+
+        // Modify audition to mark dirty
+        var a = audition("Flush Test")
+        store.auditions = [a]
+        // Trigger save to set uncommitted changes
+        store.saveAudition(a)
+        XCTAssertTrue(store.hasUncommittedChanges)
+
+        // Flush persistence with background coordinator
+        store.flushPersistence(using: mock)
+        XCTAssertTrue(mock.begunTasks.contains("onetake.persistence.flush"))
+
+        // Wait briefly for off-mainactor write to complete
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(store.lastSaveSucceeded)
+        XCTAssertFalse(store.hasUncommittedChanges)
+        XCTAssertEqual(mock.endedTasks.count, 1, "Background task token must end upon write completion")
+    }
+
+    @MainActor
+    func testFlushPersistenceExpirationPreservesUnsavedChanges() async throws {
+        let store = AppStore()
+        let mock = MockBackgroundTaskCoordinator()
+        store.backgroundTaskManager = mock
+
+        var a = audition("Expiration Test")
+        store.auditions = [a]
+        store.saveAudition(a)
+
+        store.flushPersistence(using: mock)
+        // Simulate iOS expiration handler firing before write completes
+        mock.triggerExpiration()
+
+        XCTAssertFalse(store.lastSaveSucceeded, "Expired flush must not report success")
+        XCTAssertNotNil(store.persistenceError, "Error must be surfaced on expiration")
+    }
 }

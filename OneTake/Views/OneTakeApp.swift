@@ -70,6 +70,7 @@ struct OneTakeApp: App {
             }
             // Countdowns move on while the app is closed; refresh them whenever it comes back.
             guard phase == .active else { return }
+            store.retryPersistenceIfNeeded()
             WidgetSync.update(store.auditions)
             LiveActivitySync.update(store.auditions)
             // Anything shared to OneTake while it was closed opens Add audition with it — unless the

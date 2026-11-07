@@ -159,11 +159,146 @@ enum LocalBackup {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    /// Safely replaces the contents of the application's root Documents directory without ever
-    /// renaming, unlinking, or moving the root container directory itself (preventing iOS sandbox violations).
-    /// Preserves a full rollback copy in isolated temporary storage, ensuring that any failure or interruption
-    /// cleanly rolls back to the previous data state.
+    // MARK: - Durable Restore Journal & State Machine (AUDIT-FINDING-02)
+
+    /// Persistent journal recorded outside tmp in Application Support before any live modification,
+    /// enabling deterministic, idempotent recovery if the app terminates or power is lost during restore.
+    struct RestoreJournal: Codable {
+        var formatVersion: Int = 1
+        var operationID: UUID
+        var state: RestoreState
+        var stagedDirectoryPath: String
+        var rollbackDirectoryPath: String
+        var destinationDirectoryPath: String
+        var originalItemsMoved: [String] = []
+        var incomingItemsInstalled: [String] = []
+        var createdAt: Date = Date()
+        var updatedAt: Date = Date()
+
+        enum RestoreState: String, Codable {
+            case prepared
+            case preservationStarted
+            case preservationCompleted
+            case installationStarted
+            case installationCompleted
+            case validationCompleted
+            case committed
+        }
+    }
+
+    static var appSupportDirectory: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("OneTake", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static var journalURL: URL {
+        appSupportDirectory.appendingPathComponent("restore-journal.json")
+    }
+
+    static func rollbackDirectory(for operationID: UUID) -> URL {
+        appSupportDirectory.appendingPathComponent("RestoreRollback", isDirectory: true)
+            .appendingPathComponent(operationID.uuidString, isDirectory: true)
+    }
+
+    static func writeJournal(_ journal: RestoreJournal) throws {
+        var j = journal
+        j.updatedAt = Date()
+        let data = try JSONEncoder().encode(j)
+        try data.write(to: journalURL, options: .atomic)
+    }
+
+    static func removeJournal() {
+        try? FileManager.default.removeItem(at: journalURL)
+    }
+
+    private static func isSafeSandboxPath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.contains("..") else { return false }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let allowedRoots = [
+            MediaStore.documentsURL.standardizedFileURL.path,
+            appSupportDirectory.standardizedFileURL.path,
+            FileManager.default.temporaryDirectory.standardizedFileURL.path
+        ]
+        return allowedRoots.contains { root in
+            url.path == root || url.path.hasPrefix(root + "/")
+        }
+    }
+
+    /// Checks for an interrupted restore operation and deterministically recovers the environment
+    /// before any app subsystem accesses restored data. Idempotent and crash-consistent.
+    @discardableResult
+    static func recoverUnfinishedRestoreIfNeeded() throws -> Bool {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: journalURL.path) else { return false }
+        guard let data = try? Data(contentsOf: journalURL),
+              let journal = try? JSONDecoder().decode(RestoreJournal.self, from: data) else {
+            // Corrupt journal: preserve rollback folder for safety, archive damaged journal
+            let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+            try? manager.moveItem(at: journalURL, to: appSupportDirectory.appendingPathComponent("restore-journal-corrupt-\(stamp).json"))
+            return false
+        }
+
+        // Path traversal defense: verify referenced directories are strictly app-owned
+        guard isSafeSandboxPath(journal.destinationDirectoryPath),
+              isSafeSandboxPath(journal.rollbackDirectoryPath) else {
+            throw ZipArchive.ArchiveError.invalid("Restore journal references unsafe paths")
+        }
+
+        let destination = URL(fileURLWithPath: journal.destinationDirectoryPath, isDirectory: true)
+        let rollbackDir = URL(fileURLWithPath: journal.rollbackDirectoryPath, isDirectory: true)
+
+        if journal.state == .committed {
+            // Validation & commit completed before termination: finish cleanup
+            if manager.fileExists(atPath: rollbackDir.path) {
+                try? manager.removeItem(at: rollbackDir)
+            }
+            removeJournal()
+            return true
+        }
+
+        // Interrupted before commit: roll back to original data deterministically
+        // 1. Remove any partially installed incoming items from destination
+        for installedItem in journal.incomingItemsInstalled {
+            let itemURL = destination.appendingPathComponent(installedItem)
+            if manager.fileExists(atPath: itemURL.path) {
+                try? manager.removeItem(at: itemURL)
+            }
+        }
+
+        // 2. Restore all original items from rollback directory
+        if manager.fileExists(atPath: rollbackDir.path) {
+            let rollbackContents = (try? manager.contentsOfDirectory(at: rollbackDir, includingPropertiesForKeys: nil)) ?? []
+            for rollbackItem in rollbackContents {
+                let targetURL = destination.appendingPathComponent(rollbackItem.lastPathComponent)
+                if manager.fileExists(atPath: targetURL.path) {
+                    try? manager.removeItem(at: targetURL)
+                }
+                try? manager.moveItem(at: rollbackItem, to: targetURL)
+            }
+        }
+
+        // 3. Remove rollback directory and delete journal
+        if manager.fileExists(atPath: rollbackDir.path) {
+            try? manager.removeItem(at: rollbackDir)
+        }
+        removeJournal()
+        return true
+    }
+
+    /// Safely replaces the contents of the application's root Documents directory with durable
+    /// crash-recovery journaling outside tmp, preserving the root Documents container inode.
     static func replaceDocuments(with stagedDirectory: URL) throws {
+        do {
+            try executeReplaceDocuments(with: stagedDirectory)
+        } catch {
+            _ = try? recoverUnfinishedRestoreIfNeeded()
+            throw error
+        }
+    }
+
+    private static func executeReplaceDocuments(with stagedDirectory: URL) throws {
         let manager = FileManager.default
         let destination = MediaStore.documentsURL
         
@@ -177,63 +312,68 @@ enum LocalBackup {
             throw ZipArchive.ArchiveError.invalid("Staged backup Documents directory missing")
         }
 
-        // 2. Prepare isolated rollback staging directory in temporary space
-        let rollbackDir = manager.temporaryDirectory
-            .appendingPathComponent("onetake-restore-rollback-\(UUID().uuidString)", isDirectory: true)
+        // 2. Prepare durable rollback directory outside tmp in Application Support
+        let operationID = UUID()
+        let rollbackDir = rollbackDirectory(for: operationID)
         try manager.createDirectory(at: rollbackDir, withIntermediateDirectories: true)
 
-        // 3. Move existing live items from Documents into rollback directory (preserving root Documents container)
+        var journal = RestoreJournal(
+            operationID: operationID,
+            state: .prepared,
+            stagedDirectoryPath: stagedDirectory.path,
+            rollbackDirectoryPath: rollbackDir.path,
+            destinationDirectoryPath: destination.path
+        )
+        try writeJournal(journal)
+
+        // 3. Move existing live items from Documents into rollback directory
+        journal.state = .preservationStarted
+        try writeJournal(journal)
+
         let existingItems = (try? manager.contentsOfDirectory(at: destination, includingPropertiesForKeys: nil)) ?? []
-        var movedToRollback: [URL] = []
-        
-        do {
-            for item in existingItems {
-                let rollbackTarget = rollbackDir.appendingPathComponent(item.lastPathComponent)
-                try manager.moveItem(at: item, to: rollbackTarget)
-                movedToRollback.append(rollbackTarget)
-            }
-        } catch {
-            // Revert any items already moved to rollback back to destination
-            for rollbackItem in movedToRollback {
-                let restoreTarget = destination.appendingPathComponent(rollbackItem.lastPathComponent)
-                try? manager.moveItem(at: rollbackItem, to: restoreTarget)
-            }
-            try? manager.removeItem(at: rollbackDir)
-            throw error
+        for item in existingItems {
+            let rollbackTarget = rollbackDir.appendingPathComponent(item.lastPathComponent)
+            try manager.moveItem(at: item, to: rollbackTarget)
+            journal.originalItemsMoved.append(item.lastPathComponent)
+            try writeJournal(journal)
         }
+
+        journal.state = .preservationCompleted
+        try writeJournal(journal)
 
         // 4. Copy new staged items into destination (root Documents)
+        journal.state = .installationStarted
+        try writeJournal(journal)
+
         let newItems = (try? manager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)) ?? []
-        var copiedToDestination: [URL] = []
-
-        do {
-            for item in newItems {
-                let destTarget = destination.appendingPathComponent(item.lastPathComponent)
-                if manager.fileExists(atPath: destTarget.path) {
-                    try manager.removeItem(at: destTarget)
-                }
-                try manager.copyItem(at: item, to: destTarget)
-                copiedToDestination.append(destTarget)
+        for item in newItems {
+            let destTarget = destination.appendingPathComponent(item.lastPathComponent)
+            if manager.fileExists(atPath: destTarget.path) {
+                try manager.removeItem(at: destTarget)
             }
-            // 5. Success: safely discard rollback directory
-            try? manager.removeItem(at: rollbackDir)
-        } catch {
-            // 6. Rollback on failure: remove partially copied items and restore original items from rollback directory
-            for copiedItem in copiedToDestination {
-                try? manager.removeItem(at: copiedItem)
-            }
-            for rollbackItem in movedToRollback {
-                let originalDest = destination.appendingPathComponent(rollbackItem.lastPathComponent)
-                if manager.fileExists(atPath: originalDest.path) {
-                    try? manager.removeItem(at: originalDest)
-                }
-                try? manager.moveItem(at: rollbackItem, to: originalDest)
-            }
-            try? manager.removeItem(at: rollbackDir)
-            throw error
+            try manager.copyItem(at: item, to: destTarget)
+            journal.incomingItemsInstalled.append(item.lastPathComponent)
+            try writeJournal(journal)
         }
-    }
 
+        journal.state = .installationCompleted
+        try writeJournal(journal)
+
+        // 5. Post-install validation
+        guard manager.fileExists(atPath: destination.path) else {
+            throw ZipArchive.ArchiveError.invalid("Destination directory missing after install")
+        }
+        journal.state = .validationCompleted
+        try writeJournal(journal)
+
+        // 6. Commit
+        journal.state = .committed
+        try writeJournal(journal)
+
+        // 7. Cleanup
+        try? manager.removeItem(at: rollbackDir)
+        removeJournal()
+    }
     static func discardArchive(_ archiveURL: URL?) {
         guard let archiveURL else { return }
         try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent())
