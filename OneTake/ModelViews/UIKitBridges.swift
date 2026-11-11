@@ -885,22 +885,23 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     /// Replaces the playable cue with an edited copy while keeping the first untouched recording for Restore.
-    static func installEditedRecording(_ editedURL: URL, at recordingURL: URL) throws {
+    nonisolated static func installEditedRecording(_ editedURL: URL, at recordingURL: URL) throws {
         let fm = FileManager.default
         let backup = originalURL(for: recordingURL)
-        if !fm.fileExists(atPath: backup.path), fm.fileExists(atPath: recordingURL.path) {
+        defer { try? fm.removeItem(at: editedURL) }
+        let editedAudio = try Data(contentsOf: editedURL, options: .mappedIfSafe)
+        if !fm.fileExists(atPath: backup.path) {
             try fm.copyItem(at: recordingURL, to: backup)
         }
-        try? fm.removeItem(at: recordingURL)
-        try fm.moveItem(at: editedURL, to: recordingURL)
+        try editedAudio.write(to: recordingURL, options: .atomic)
     }
 
     static func restoreOriginalRecording(at recordingURL: URL) throws {
         let fm = FileManager.default
         let backup = originalURL(for: recordingURL)
         guard fm.fileExists(atPath: backup.path) else { return }
-        try? fm.removeItem(at: recordingURL)
-        try fm.copyItem(at: backup, to: recordingURL)
+        let originalAudio = try Data(contentsOf: backup, options: .mappedIfSafe)
+        try originalAudio.write(to: recordingURL, options: .atomic)
     }
 
     /// Checks if a valid recording exists for this reader cue.
@@ -1069,6 +1070,8 @@ enum AudioQualityIssue: String, CaseIterable, Identifiable, Sendable {
 @Observable
 final class ReaderLineRecorder {
     private var recorder: AVAudioRecorder?
+    private var cueDestination: URL?
+    private var isFinishing = false
     private var meterTimer: Timer?
     var liveAudioLevel: Float = 0.0
     private var maxPeakPower: Float = -160.0
@@ -1079,8 +1082,10 @@ final class ReaderLineRecorder {
     var lastAudioAnalysis: AudioAnalysisResult?
     var lastAudioIssues: [AudioQualityIssue] = []
 
+    @MainActor
     @discardableResult
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
+        guard cueDestination == nil else { return false }
         let session = AVAudioSession.sharedInstance()
         #if !targetEnvironment(simulator)
         if #available(iOS 17.0, *) {
@@ -1099,15 +1104,16 @@ final class ReaderLineRecorder {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        let url = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: url)
-        try? FileManager.default.removeItem(at: ReaderTrackPlayer.originalURL(for: url))
+        let destination = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("reader-cue-\(UUID().uuidString).m4a")
         guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
         recorder.isMeteringEnabled = true
-        recorder.prepareToRecord()
+        guard recorder.prepareToRecord(), recorder.record() else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
         self.recorder = recorder
-        guard recorder.record() else { self.recorder = nil; return false }
+        cueDestination = destination
 
         startTime = Date()
         maxPeakPower = -160.0
@@ -1139,36 +1145,53 @@ final class ReaderLineRecorder {
         return true
     }
 
+    @MainActor
     func stop(expectedText: String? = nil) async -> ReaderRecordResult {
+        guard !isFinishing, let recorder, let cueDestination else {
+            return .recordingFailed("Recorder was not active.")
+        }
+        isFinishing = true
         meterTimer?.invalidate()
         meterTimer = nil
-        await MainActor.run { self.liveAudioLevel = 0.0 }
+        liveAudioLevel = 0.0
 
-        guard let recorder else { return .recordingFailed("Recorder was not active.") }
         let url = recorder.url
         let duration = max(recorder.currentTime, Date().timeIntervalSince(startTime))
         recorder.stop()
-        self.recorder = nil
-
         let fm = FileManager.default
+        defer {
+            try? fm.removeItem(at: url)
+            try? fm.removeItem(at: ReaderTrackPlayer.originalURL(for: url))
+            if self.recorder === recorder {
+                self.recorder = nil
+                self.cueDestination = nil
+                self.isFinishing = false
+            }
+        }
         guard fm.fileExists(atPath: url.path) || fm.fileExists(atPath: url.standardizedFileURL.path) else {
             return .recordingFailed("No audio file was created.")
         }
 
         // 1. Inspect actual audio file and perform noise/silence trimming
+        let hasMeteredSpeech = (maxPeakPower > -38.0 && speechFramesCount >= 2) || maxPeakPower > -28.0
         let analysis = await Self.inspectAndTrim(url: url)
 
         // 2. Determine voice activity
         let hasAcousticSpeech = analysis?.hasSpeech == true
-        let hasMeteredSpeech = (maxPeakPower > -38.0 && speechFramesCount >= 2) || maxPeakPower > -28.0
 
         var hasSpeech = hasAcousticSpeech || hasMeteredSpeech
         if !hasSpeech && duration >= 0.4 {
             // Check speech recognizer fallback for low-energy speech
             hasSpeech = await checkSpeechWords(in: url)
         }
+        guard self.recorder === recorder else { return .recordingFailed("Recording was canceled.") }
 
         if hasSpeech {
+            do {
+                try Self.saveCue(from: url, to: cueDestination)
+            } catch {
+                return .recordingFailed("Couldn’t save the recording. Any previous cue is still available.")
+            }
             // Speech detected! Accept it even if short (e.g. 0.25s-0.5s cue)
             let finalDuration = analysis?.trimmedDuration ?? duration
             self.lastAudioAnalysis = analysis
@@ -1177,7 +1200,6 @@ final class ReaderLineRecorder {
         }
 
         // 3. No speech detected: audio is blank / quiet room noise
-        try? fm.removeItem(at: url)
         self.lastAudioAnalysis = analysis
         self.lastAudioIssues = []
         // Blank threshold: if blank and shorter than 1.0s (increased from 0.3s/0.7s), flag as too short / blank tap
@@ -1186,6 +1208,27 @@ final class ReaderLineRecorder {
         } else {
             return .noSpeechDetected
         }
+    }
+
+    static func saveCue(from staged: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        let audio = try Data(contentsOf: staged, options: .mappedIfSafe)
+        let backup = ReaderTrackPlayer.originalURL(for: destination)
+        let stagedBackup = ReaderTrackPlayer.originalURL(for: staged)
+        let previousBackup = backup.deletingLastPathComponent().appendingPathComponent(".reader-backup-\(UUID().uuidString)")
+        let hadBackup = fm.fileExists(atPath: backup.path)
+        if hadBackup { try fm.moveItem(at: backup, to: previousBackup) }
+        do {
+            if fm.fileExists(atPath: stagedBackup.path) {
+                try Data(contentsOf: stagedBackup, options: .mappedIfSafe).write(to: backup, options: .atomic)
+            }
+            try audio.write(to: destination, options: .atomic)
+        } catch {
+            try? fm.removeItem(at: backup)
+            if hadBackup { try? fm.moveItem(at: previousBackup, to: backup) }
+            throw error
+        }
+        if hadBackup { try? fm.removeItem(at: previousBackup) }
     }
 
     struct AudioAnalysisResult: Sendable {
@@ -1354,6 +1397,7 @@ final class ReaderLineRecorder {
         // Trim leading and trailing dead air/noise if more than 35ms of silence exists at an edge
         let shouldTrim = (startTime >= 0.035 || (originalDuration - endTime) >= 0.040) && trimmedDuration < (originalDuration - 0.02)
 
+        var savedDuration = originalDuration
         if shouldTrim {
             let asset = AVURLAsset(url: url)
             if let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) {
@@ -1364,22 +1408,13 @@ final class ReaderLineRecorder {
                     start: CMTime(seconds: startTime, preferredTimescale: 44100),
                     duration: CMTime(seconds: trimmedDuration, preferredTimescale: 44100)
                 )
-                let success: Bool
+                defer { try? FileManager.default.removeItem(at: tempURL) }
                 do {
                     try await exporter.export(to: tempURL, as: .m4a)
-                    success = true
+                    try ReaderTrackPlayer.installEditedRecording(tempURL, at: url)
+                    savedDuration = trimmedDuration
                 } catch {
-                    success = false
-                }
-                if success {
-                    let backupURL = ReaderTrackPlayer.originalURL(for: url)
-                    if !FileManager.default.fileExists(atPath: backupURL.path) {
-                        try? FileManager.default.copyItem(at: url, to: backupURL)
-                    }
-                    _ = try? FileManager.default.removeItem(at: url)
-                    try? FileManager.default.moveItem(at: tempURL, to: url)
-                } else {
-                    try? FileManager.default.removeItem(at: tempURL)
+                    // The original is still playable when exporting or installing the trim fails.
                 }
             }
         }
@@ -1387,7 +1422,7 @@ final class ReaderLineRecorder {
         return AudioAnalysisResult(
             hasSpeech: true,
             originalDuration: originalDuration,
-            trimmedDuration: trimmedDuration,
+            trimmedDuration: savedDuration,
             peakDB: peakDB,
             averageSpeechRMS: avgSpeechRMS,
             noiseFloorRMS: estimatedNoiseFloor,
@@ -1398,11 +1433,17 @@ final class ReaderLineRecorder {
         )
     }
 
+    @MainActor
     func cancel() {
         meterTimer?.invalidate()
         meterTimer = nil
-        recorder?.stop()
+        if let recorder, !isFinishing {
+            recorder.stop()
+            try? FileManager.default.removeItem(at: recorder.url)
+        }
         recorder = nil
+        cueDestination = nil
+        isFinishing = false
         liveAudioLevel = 0.0
     }
 
@@ -1412,42 +1453,20 @@ final class ReaderLineRecorder {
         }
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = true
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    var hasResumed = false
-                    let task = recognizer.recognitionTask(with: request) { result, error in
-                        guard !hasResumed else { return }
-                        if let result {
-                            let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !text.isEmpty {
-                                hasResumed = true
-                                continuation.resume(returning: true)
-                            } else if result.isFinal {
-                                hasResumed = true
-                                continuation.resume(returning: false)
-                            }
-                        } else if error != nil {
-                            hasResumed = true
-                            continuation.resume(returning: false)
-                        }
-                    }
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
-                        if !hasResumed {
-                            hasResumed = true
-                            task.cancel()
-                            continuation.resume(returning: false)
-                        }
-                    }
-                }
+        return await withCheckedContinuation { continuation in
+            let gate = RecognitionOnceGate()
+            let task = recognizer.recognitionTask(with: request) { result, error in
+                let text = result?.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+                let heardSpeech = text?.isEmpty == false
+                guard heardSpeech || result?.isFinal == true || error != nil else { return }
+                guard gate.claim() else { return }
+                continuation.resume(returning: heardSpeech)
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                return false
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
+                let timedOut = gate.claim()
+                task.cancel()
+                if timedOut { continuation.resume(returning: false) }
             }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
         }
     }
 }

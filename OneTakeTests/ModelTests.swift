@@ -553,19 +553,11 @@ final class ModelTests: XCTestCase {
 
         // Check pieces
         let pieces = callback.pieces
-        XCTAssertEqual(pieces.count, 4) // Headshot, Slate, Scene 1, Scene 2 (default flow order)
-        XCTAssertEqual(pieces[0].kind, .headshot)
-        XCTAssertTrue(pieces[0].isOptional)
-        XCTAssertFalse(pieces[0].isDone)
-        XCTAssertEqual(pieces[1].kind, .slate)
-        XCTAssertFalse(pieces[1].isDone)
-        XCTAssertEqual(pieces[2].kind, .scene)
-        XCTAssertEqual(pieces[2].title, "Scene 1")
-        XCTAssertFalse(pieces[2].isDone)
-        XCTAssertEqual(pieces[3].kind, .scene)
-        XCTAssertEqual(pieces[3].title, "Scene 2")
-        XCTAssertEqual(pieces[3].detail, "Callback scene")
-        XCTAssertFalse(pieces[3].isDone)
+        XCTAssertEqual(pieces.map(\.kind), [.headshot, .slate, .scene, .scene])
+        XCTAssertTrue(pieces.first?.isOptional == true)
+        XCTAssertTrue(pieces.allSatisfy { !$0.isDone })
+        XCTAssertEqual(pieces.filter { $0.kind == .scene }.map(\.title), ["Scene 1", "Scene 2"])
+        XCTAssertEqual(pieces.last?.detail, "Callback scene")
     }
 }
 

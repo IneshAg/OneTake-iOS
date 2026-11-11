@@ -96,8 +96,10 @@ enum OnDeviceIntelligence {
                 let response = try await session.respond(to: prompt, options: GenerationOptions(temperature: 0, maximumResponseTokens: 80))
                 let data = Data(response.content.utf8)
                 if let indices = try? JSONDecoder().decode([Int].self, from: data) {
-                    let valid = Set(indices.filter { words.indices.contains($0) })
-                    if !valid.isEmpty { return Set(valid.prefix(count)) }
+                    let valid = Set(indices.filter {
+                        words.indices.contains($0) && words[$0].contains(where: \.isLetter)
+                    })
+                    if valid.count == count { return valid }
                 }
             } catch {
                 // Use the stable local ranking below when Apple Intelligence is unavailable at runtime.

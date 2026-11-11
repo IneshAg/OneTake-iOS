@@ -57,12 +57,12 @@ enum VoicePracticeReviewAnalyzer {
         let asset = AVURLAsset(url: videoURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard let audioTrack = audioTracks.first else { throw ReviewError.noSpeech }
-        let duration = try await asset.load(.duration)
+        let audioRange = try await audioTrack.load(.timeRange)
         let composition = AVMutableComposition()
         guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw ReviewError.noSpeech
         }
-        try track.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: audioTrack, at: .zero)
+        try track.insertTimeRange(audioRange, of: audioTrack, at: audioRange.start)
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("voice-review-\(UUID().uuidString).m4a")
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
             throw ReviewError.noSpeech
@@ -81,18 +81,19 @@ enum VoicePracticeReviewAnalyzer {
         try await withCheckedThrowingContinuation { continuation in
             let gate = RecognitionOnceGate()
             _ = recognizer.recognitionTask(with: request) { result, error in
+                guard result?.isFinal == true || error != nil else { return }
                 guard gate.claim() else { return }
                 if let result, result.isFinal {
-                    let words = result.bestTranscription.segments.compactMap { segment -> Word? in
-                        let value = normalize(segment.substring)
-                        guard !value.isEmpty else { return nil }
-                        return Word(value: value, timestamp: segment.timestamp, duration: segment.duration)
+                    let words = result.bestTranscription.segments.flatMap { segment in
+                        let tokens = tokenize(segment.substring)
+                        let duration = segment.duration / Double(max(1, tokens.count))
+                        return tokens.enumerated().map { offset, token in
+                            Word(value: token, timestamp: segment.timestamp + Double(offset) * duration, duration: duration)
+                        }
                     }
                     continuation.resume(returning: words)
                 } else if let error {
                     continuation.resume(throwing: error)
-                } else {
-                    gate.release()
                 }
             }
         }
@@ -101,9 +102,7 @@ enum VoicePracticeReviewAnalyzer {
     private static func align(words: [Word], lines: [ScriptLine]) -> [VoiceLineReview] {
         let actorLines = lines.enumerated().filter { $0.element.isMine && !$0.element.isSilentReactionCue }
         let script = actorLines.flatMap { index, line in
-            line.text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map {
-                ScriptWord(value: normalize(String($0)), line: index)
-            }.filter { !$0.value.isEmpty }
+            tokenize(line.text).map { ScriptWord(value: $0, line: index) }
         }
         guard !script.isEmpty else { return [] }
 
@@ -183,8 +182,11 @@ enum VoicePracticeReviewAnalyzer {
         }
     }
 
-    private static func normalize(_ value: String) -> String {
-        String(value.lowercased().filter { $0.isLetter || $0.isNumber })
+    private static func tokenize(_ text: String) -> [String] {
+        text.lowercased()
+            .split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }
+            .map { String($0.filter { $0.isLetter || $0.isNumber }) }
+            .filter { !$0.isEmpty }
     }
     private static func similar(_ lhs: String, _ rhs: String) -> Bool {
         guard min(lhs.count, rhs.count) >= 4 else { return false }
@@ -202,7 +204,7 @@ enum VoicePracticeReviewAnalyzer {
     private enum ReviewError: Error { case unavailable, onDeviceUnavailable, noSpeech }
 }
 
-private final class RecognitionOnceGate: @unchecked Sendable {
+final class RecognitionOnceGate: @unchecked Sendable {
     private let lock = NSLock()
     private var isClaimed = false
     func claim() -> Bool {
@@ -210,9 +212,6 @@ private final class RecognitionOnceGate: @unchecked Sendable {
         guard !isClaimed else { return false }
         isClaimed = true
         return true
-    }
-    func release() {
-        lock.lock(); isClaimed = false; lock.unlock()
     }
 }
 

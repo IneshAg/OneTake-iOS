@@ -35,7 +35,7 @@ enum AccountAuth {
     /// that capability to paid Apple Developer accounts; the open build ships without it, so the
     /// Apple button is disabled instead of letting Apple reject the request on someone's phone.
     /// Enable it by flipping `AppleSignInEnabled` in `project.yml` at the same time as adding the
-    /// entitlement (see docs/CODEBASE_OVERVIEW.md, §2).
+    /// entitlement (see the Codebase overview in README.md).
     static var isAppleConfigured: Bool {
         switch Bundle.main.object(forInfoDictionaryKey: "AppleSignInEnabled") {
         case let flag as Bool:   return flag

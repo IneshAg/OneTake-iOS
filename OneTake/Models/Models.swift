@@ -790,7 +790,7 @@ enum StandaloneDisplay: String, CaseIterable, Hashable, Identifiable {
 /// Persistent, on-device word selection for a line-recall gap. Keying by normalized line text makes
 /// the chosen words stable even when a scene is reloaded with newly decoded line IDs.
 enum RecallGapSelectionStore {
-    private static let prefix = "practice.recallGap.v1."
+    private static let prefix = "practice.recallGap.v2."
     private static let commonWords: Set<String> = [
         "a", "an", "the", "and", "or", "but", "if", "then", "than", "so", "because", "as",
         "of", "at", "by", "for", "from", "in", "into", "on", "onto", "to", "with", "about",
@@ -804,11 +804,11 @@ enum RecallGapSelectionStore {
     static func hiddenWordIndices(for line: String, level: Int = 2) async -> Set<Int> {
         let words = line.split(whereSeparator: \.isWhitespace).map(String.init)
         guard words.count >= 3 else { return [] }
-        let key = cacheKey(for: line)
+        let targetCount = min(max(1, level), max(1, words.count / 2))
+        let key = cacheKey(for: line) + ".\(targetCount)"
         if let saved = UserDefaults.standard.array(forKey: key) as? [Int] {
             return Set(saved.filter { words.indices.contains($0) })
         }
-        let targetCount = min(max(1, level), max(1, words.count / 2))
         let modelChoice = await OnDeviceIntelligence.recallGapWordIndices(in: line, level: targetCount)
         let chosen = modelChoice ?? deterministicChoice(words: words, count: targetCount)
         let valid = Set(chosen.filter { words.indices.contains($0) })
@@ -817,9 +817,10 @@ enum RecallGapSelectionStore {
     }
 
     private static func deterministicChoice(words: [String], count: Int) -> Set<Int> {
-        let ranked = words.indices.map { index -> (Int, Int) in
+        let ranked = words.indices.compactMap { index -> (Int, Int)? in
             let clean = words[index].trimmingCharacters(in: .punctuationCharacters).lowercased()
             let letters = clean.filter(\.isLetter)
+            guard !letters.isEmpty else { return nil }
             let score = (commonWords.contains(clean) ? -8 : 0)
                 + min(letters.count, 12)
                 + (letters.contains(where: { "aeiou".contains($0) }) ? 2 : 0)

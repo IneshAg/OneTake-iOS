@@ -74,7 +74,9 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertTrue(draft.asks.contains("Headshots"))
 
-        XCTAssertTrue(draft.asks.contains("Email: vaishak@anticasting.in"))
+        XCTAssertEqual(draft.destination, .email)
+
+        XCTAssertEqual(draft.destinationDetail, "vaishak@anticasting.in")
 
     }
 
@@ -154,7 +156,9 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertTrue(draft.asks.contains("Location: Bengaluru"))
 
-        XCTAssertTrue(draft.asks.contains("Email: casting2cast@gmail.com"))
+        XCTAssertEqual(draft.destination, .email)
+
+        XCTAssertEqual(draft.destinationDetail, "casting2cast@gmail.com")
 
         XCTAssertEqual(draft.candidateRoles, ["Male Actor (20-40 years)", "Female Actor (22-60 years)"])
 
@@ -412,7 +416,7 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertTrue(draft.project.isEmpty, "Project should remain empty when only a slugline is present, found: \(draft.project)")
 
-        XCTAssertTrue(draft.missingRequiredDetails.contains("project"))
+        XCTAssertFalse(draft.missingRequiredDetails.contains("project"))
 
     }
 
@@ -446,7 +450,7 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertNil(draft.due, "Shoot or rehearsal date should not be parsed as audition deadline")
 
-        XCTAssertTrue(draft.missingRequiredDetails.contains("due date"))
+        XCTAssertFalse(draft.missingRequiredDetails.contains("due date"))
 
     }
 
@@ -1447,7 +1451,9 @@ final class NoticeParserTests: XCTestCase {
 
         XCTAssertTrue(draft.asks.contains("Location: Bengaluru"))
 
-        XCTAssertTrue(draft.asks.contains("Email: ojas@mccc.in"))
+        XCTAssertEqual(draft.destination, .email)
+
+        XCTAssertEqual(draft.destinationDetail, "ojas@mccc.in")
 
         XCTAssertTrue(draft.candidateRoles.contains("Male Actor (20-40 years)"))
 

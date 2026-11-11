@@ -169,9 +169,7 @@ struct RecallGapHintText: View {
     }
 
     private func masked(_ word: String) -> String {
-        let letters = word.filter(\.isLetter)
-        let punctuation = word.filter { !$0.isLetter && !$0.isNumber }
-        return String(repeating: "_", count: min(max(2, letters.count), 8)) + punctuation
+        String(word.map { $0.isLetter || $0.isNumber ? "_" : $0 })
     }
 }
 
@@ -187,7 +185,7 @@ private struct RecallWordsLayout: Layout {
         var rowHeight: CGFloat = 0
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
+            if x > 0, x + spacing + size.width > maxWidth {
                 y += rowHeight + lineSpacing
                 x = 0
                 rowHeight = 0
@@ -195,7 +193,7 @@ private struct RecallWordsLayout: Layout {
             x += size.width + (x > 0 ? spacing : 0)
             rowHeight = max(rowHeight, size.height)
         }
-        return CGSize(width: proposal.width ?? max(x - spacing, 0), height: y + rowHeight)
+        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

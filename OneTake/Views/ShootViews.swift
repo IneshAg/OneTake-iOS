@@ -317,6 +317,7 @@ struct ShootFlow: View {
     /// Scenes skipped during this camera session are excluded from the wraparound search so Skip
     /// cannot cycle back to a scene the actor already passed.
     @State private var skippedSceneIndices: Set<Int> = []
+    @State private var skippedCameraPieces: Set<PieceKind> = []
     @State private var countdown: Int?
     @State private var timerSeconds = 3
     @State private var pinchStartZoom: CGFloat?
@@ -631,17 +632,14 @@ struct ShootFlow: View {
         } else {
             switch stage {
             case .slate:
-                Button("Skip") {
-                    let a = store.audition(auditionID)
-                    stage = a.map { requiresSeparateFullBodyShot($0) } == true ? .fullLength : .scene
-                }
+                Button("Skip") { advancePastCameraPiece(.slate, skipped: true) }
                 .font(.otFootnote.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .frame(height: 36)
                 .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             case .fullLength:
-                Button("Skip") { stage = .scene }
+                Button("Skip") { advancePastCameraPiece(.fullLength, skipped: true) }
                     .font(.otFootnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
@@ -799,7 +797,7 @@ struct ShootFlow: View {
         if hasTapeCheck {
             return ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) })
         }
-        if let next = (store.audition(a.id) ?? a).nextPiece {
+        if let next = nextCameraFlowPiece(in: store.audition(a.id) ?? a) {
             switch next.kind {
             case .fullLength:
                 return ("Next: full-body shot", { stage = .fullLength })
@@ -1331,6 +1329,44 @@ struct ShootFlow: View {
         }
     }
 
+    private func advancePastCameraPiece(_ kind: PieceKind, skipped: Bool = false) {
+        guard let audition = store.audition(auditionID) else {
+            finish(goTo: nil)
+            return
+        }
+        if skipped {
+            skippedCameraPieces.insert(kind)
+            if let piece = audition.pieces.first(where: { $0.kind == kind && $0.isOptional }) {
+                store.markPieceDone(auditionID, pieceID: piece.id)
+            }
+        }
+        guard let updated = store.audition(auditionID), let next = nextCameraFlowPiece(in: updated) else {
+            finish(goTo: nil)
+            return
+        }
+        switch next.kind {
+        case .slate: stage = .slate
+        case .fullLength: stage = .fullLength
+        case .scene:
+            if let index = updated.scenes.firstIndex(where: { $0.title == next.title }) {
+                moveToScene(index)
+            } else {
+                finish(goTo: nil)
+            }
+        case .headshot: finish(goTo: .headshots(for: auditionID))
+        }
+    }
+
+    private func nextCameraFlowPiece(in audition: Audition) -> Piece? {
+        guard !audition.isPackageReady else { return nil }
+        return audition.pieces.first { piece in
+            guard !piece.isDone, !skippedCameraPieces.contains(piece.kind) else { return false }
+            guard piece.kind == .scene else { return true }
+            guard let index = audition.scenes.firstIndex(where: { $0.title == piece.title }) else { return false }
+            return !skippedSceneIndices.contains(index)
+        }
+    }
+
     /// On to another scene: this one is ticked off (it has a take), the prompter starts from the top.
     private func moveToScene(_ next: Int) {
         markSceneDone()
@@ -1562,7 +1598,7 @@ struct ShootFlow: View {
             store.setFullLengthVideo(url, for: auditionID)
             store.markDone(.fullLength, in: auditionID)
             Haptics.success()
-            stage = .scene
+            advancePastCameraPiece(.fullLength)
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
             let takeID = UUID()

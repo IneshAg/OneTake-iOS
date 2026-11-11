@@ -1298,7 +1298,7 @@ enum NoticeParser {
             // leave it empty so the app explicitly asks the actor which role they are auditioning for.
             d.role = ""
         }
-        if let project = detectProject(in: text), !noticeOnly {
+        if let project = detectProject(in: text) {
             d.project = project
         }
         // Detect explicit role size/tier from notice text
@@ -1345,7 +1345,7 @@ enum NoticeParser {
         if firstMatch(#"(?i)\b(?:please\s+)?slate\s*(?:first|video|instructions?|clip|required)?\b|\binclude\s+(?:a\s+)?slate\b"#, in: text) != nil {
             ask("Slate first")
         }
-        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s+(?:mode|framing|orientation|video|format|shot)\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b|\b(?:slate\s+first[,\s]+)?landscape\b|\bhorizontal\s*\(landscape\)|\borientation\s*[:\-]\s*(?:horizontal|landscape)\b|\blandscape\s+only\b|\bhorizontal\s*/\s*landscape\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s+(?:mode|framing|orientation|video|format|shot)\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b|\bslate\s+first\s*,\s*landscape\b|\blandscape\s*,\s*full\s+length\b|\bhorizontal\s*\(landscape\)|\borientation\s*[:\-]\s*(?:horizontal|landscape)\b|\blandscape\s+only\b|\bhorizontal\s*/\s*landscape\b"#, in: text) != nil {
             ask("Landscape")
         }
         if firstMatch(#"(?i)\b(?:full[-\s]?body|head[-\s]?to[-\s]?toe)\s+(?:photo|picture|headshot)\b"#, in: text) != nil {
@@ -1640,10 +1640,10 @@ enum NoticeParser {
         draft.submissionInstructions = instructions
 
         func addEvidence(field: String, value: String) {
-            guard let range = text.range(of: value, options: .caseInsensitive),
+            guard !value.isEmpty,
                   let pageIndex = sourcePages.firstIndex(where: { $0.range(of: value, options: .caseInsensitive) != nil }),
                   draft.noticeSources.indices.contains(pageIndex) else { return }
-            let nsText = text as NSString
+            let nsText = sourcePages[pageIndex] as NSString
             let match = nsText.range(of: value, options: .caseInsensitive)
             guard match.location != NSNotFound else { return }
             let excerptRange = NSRange(location: max(0, match.location - 80), length: min(nsText.length - max(0, match.location - 80), match.length + 180))
@@ -2470,6 +2470,10 @@ enum NoticeParser {
         }
 
         // 3. Quoted title when the notice explicitly calls it a subject, folder, or title
+        if let v = firstMatch(#"\bmention\s+["“]([^"”\n]{2,45})["”]\s+in\s+(?:the\s+)?(?:email\s+)?subject\b"#, in: text, options: .caseInsensitive),
+           let valid = cleanTitle(v) {
+            return valid
+        }
         if let v = firstMatch(#"(?:subject|folder|titled|called|project)\s*[:\-]?\s*["“]([^"”\n]{2,45})["”]"#, in: text, options: .caseInsensitive),
            let valid = cleanTitle(v) {
             return valid

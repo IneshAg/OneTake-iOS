@@ -2,6 +2,53 @@ import XCTest
 @testable import OneTake
 
 final class PersistenceTests: XCTestCase {
+    @MainActor
+    func testReaderTrimFailurePreservesCurrentEditAndRestoreUsesFirstRecording() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let cue = directory.appendingPathComponent("cue.m4a")
+        let edit = directory.appendingPathComponent("edit.m4a")
+        let original = Data([1, 2, 3])
+        try original.write(to: cue)
+        try Data([2, 3]).write(to: edit)
+        try ReaderTrackPlayer.installEditedRecording(edit, at: cue)
+        let current = Data([2])
+        try current.write(to: edit)
+        try ReaderTrackPlayer.installEditedRecording(edit, at: cue)
+
+        XCTAssertThrowsError(try ReaderTrackPlayer.installEditedRecording(edit, at: cue))
+        XCTAssertEqual(try Data(contentsOf: cue), current)
+        try ReaderTrackPlayer.restoreOriginalRecording(at: cue)
+        XCTAssertEqual(try Data(contentsOf: cue), original)
+    }
+
+    @MainActor
+    func testReaderRetakeKeepsOnlyTheNewRecordingAndItsOriginal() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let cue = directory.appendingPathComponent("cue.m4a")
+        let staged = directory.appendingPathComponent("staged.m4a")
+        let previous = Data([1])
+        let newOriginal = Data([2, 3])
+        let newTrim = Data([3])
+        try previous.write(to: cue)
+        try previous.write(to: ReaderTrackPlayer.originalURL(for: cue))
+
+        XCTAssertThrowsError(try ReaderLineRecorder.saveCue(from: staged, to: cue))
+        XCTAssertEqual(try Data(contentsOf: cue), previous)
+        try newTrim.write(to: staged)
+        try newOriginal.write(to: ReaderTrackPlayer.originalURL(for: staged))
+        try ReaderLineRecorder.saveCue(from: staged, to: cue)
+
+        XCTAssertEqual(try Data(contentsOf: cue), newTrim)
+        try ReaderTrackPlayer.restoreOriginalRecording(at: cue)
+        XCTAssertEqual(try Data(contentsOf: cue), newOriginal)
+    }
+
     private func audition(_ project: String) -> Audition {
         Audition(project: project, projectType: "Feature film", role: "Maya", roleSize: "Lead",
                  castingOffice: "Casting office", due: Date(timeIntervalSince1970: 1_800_000_000),
