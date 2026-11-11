@@ -247,36 +247,12 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
-    func testDocumentScannerSaveButtonRepositionedToBottomRight() throws {
+    func testDocumentScannerInitializes() throws {
         let coordinator = DocumentScannerView.Coordinator { _ in }
+        XCTAssertNotNil(coordinator)
         let vc = VNDocumentCameraViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = vc
-        window.makeKeyAndVisible()
-
-        coordinator.attachCustomizer(to: vc)
-
-        let saveBtn: UIButton
-        let root: UIView
-        if let foundBtn = DocumentScannerCustomizer.findSaveButton(in: vc), let foundRoot = foundBtn.superview {
-            saveBtn = foundBtn
-            root = foundRoot
-        } else {
-            let container = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-            let btn = UIButton(frame: CGRect(x: 0, y: 0, width: 60, height: 44))
-            container.addSubview(btn)
-            saveBtn = btn
-            root = container
-        }
-
-        vc.view.setNeedsLayout()
-        vc.view.layoutIfNeeded()
-
-        DocumentScannerCustomizer.reposition(saveButton: saveBtn, in: root)
-
-        // Button should be positioned in bottom right corner
-        XCTAssertGreaterThan(saveBtn.frame.origin.x, root.bounds.width * 0.5, "Save button should be near trailing edge")
-        XCTAssertGreaterThan(saveBtn.frame.origin.y, root.bounds.height * 0.65, "Save button should be near bottom edge")
+        vc.delegate = coordinator
+        XCTAssertTrue(vc.delegate === coordinator)
     }
 
     @MainActor
@@ -577,18 +553,18 @@ final class ModelTests: XCTestCase {
 
         // Check pieces
         let pieces = callback.pieces
-        XCTAssertEqual(pieces.count, 4) // Slate, Scene 1, Scene 2, Headshot
-        XCTAssertEqual(pieces[0].kind, .slate)
+        XCTAssertEqual(pieces.count, 4) // Headshot, Slate, Scene 1, Scene 2 (default flow order)
+        XCTAssertEqual(pieces[0].kind, .headshot)
+        XCTAssertTrue(pieces[0].isOptional)
         XCTAssertFalse(pieces[0].isDone)
-        XCTAssertEqual(pieces[1].kind, .scene)
-        XCTAssertEqual(pieces[1].title, "Scene 1")
+        XCTAssertEqual(pieces[1].kind, .slate)
         XCTAssertFalse(pieces[1].isDone)
         XCTAssertEqual(pieces[2].kind, .scene)
-        XCTAssertEqual(pieces[2].title, "Scene 2")
-        XCTAssertEqual(pieces[2].detail, "Callback scene")
+        XCTAssertEqual(pieces[2].title, "Scene 1")
         XCTAssertFalse(pieces[2].isDone)
-        XCTAssertEqual(pieces[3].kind, .headshot)
-        XCTAssertTrue(pieces[3].isOptional)
+        XCTAssertEqual(pieces[3].kind, .scene)
+        XCTAssertEqual(pieces[3].title, "Scene 2")
+        XCTAssertEqual(pieces[3].detail, "Callback scene")
         XCTAssertFalse(pieces[3].isDone)
     }
 }

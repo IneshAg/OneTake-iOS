@@ -1066,7 +1066,7 @@ struct HeadshotsView: View {
     @State private var showPicker = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var isFraming = false
-    @State private var framingPreset: HeadshotPreset = .cardSlot
+    @State private var framingPreset: HeadshotPreset = .theatrical
 
     /// Counted from the real files on disk for this specific audition or profile
     private var taken: Int {
@@ -1362,7 +1362,7 @@ struct HeadshotsView: View {
         }
     }
 
-    private func autoFrameAllHeadshots(preset: HeadshotPreset = .cardSlot) {
+    private func autoFrameAllHeadshots(preset: HeadshotPreset = .theatrical) {
         isFraming = true
         let keys = HeadshotStore.taken(auditionID: auditionID).map(\.key)
         let originals = keys.compactMap { key in HeadshotStore.loadOriginal(key: key, auditionID: auditionID).map { (key, $0) } }
@@ -2281,7 +2281,7 @@ struct HeadshotAdjustSheet: View {
     @Environment(AppStore.self) private var store
 
     @State private var originalImage: UIImage?
-    @State private var selectedPreset: HeadshotPreset = .cardSlot
+    @State private var selectedPreset: HeadshotPreset = .theatrical
     @State private var zoom: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero

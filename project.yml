@@ -1,6 +1,6 @@
 name: OneTake
 options:
-  bundleIdPrefix: com.onetake
+  bundleIdPrefix: com.porage
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -9,7 +9,7 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: "5HWNLWJGM5"
+    DEVELOPMENT_TEAM: "SCY3DW3F4W"
 packages:
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
@@ -29,7 +29,7 @@ targets:
       properties:
         # Shared with the widget extension, which reads the snapshot the app writes.
         com.apple.security.application-groups:
-          - group.com.srmist.onetake
+          - group.com.porage.onetake
     # Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE): Google's client ID and the
     # URL schemes for Google's sign-in redirect and the widgets' onetake:// links.
     info:
@@ -52,7 +52,7 @@ targets:
         product: GoogleSignIn
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake
+        PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake
         # From Google Cloud Console → Credentials → OAuth client ID (iOS). Until these are real,
         # the Google button stays disabled rather than crashing.
         GOOGLE_CLIENT_ID: YOUR_CLIENT_ID.apps.googleusercontent.com
@@ -91,10 +91,10 @@ targets:
       path: OneTakeWidgets/OneTakeWidgets.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.srmist.onetake
+          - group.com.porage.onetake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake.widgets
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   # "Share to OneTake" from Mail, WhatsApp, Safari, Photos and Files. Drops what's shared into the
@@ -126,10 +126,10 @@ targets:
       path: OneTakeShare/OneTakeShare.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.srmist.onetake
+          - group.com.porage.onetake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.share
+        PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake.share
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   OneTakeTests:
@@ -141,7 +141,7 @@ targets:
       - target: OneTake
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.srmist.onetake.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake.tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   OneTake:

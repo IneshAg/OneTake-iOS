@@ -63,7 +63,6 @@
 		BE884AB6D8ED4CEFBFAC53DE /* TapePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1A04C39259BC1ED1A20D80 /* TapePreviewView.swift */; };
 		BE95E1CB72675566EFF5892B /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F3701B43B2AC9EB8401891 /* Components.swift */; };
 		C21234A4BDDD8564FED86173 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 89F7EDC264E8450437D0CA5E /* Assets.xcassets */; };
-		C557B7C521984DF630E755B4 /* HeadshotPoseClassifier.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = C57A518B57CD533258B8D19C /* HeadshotPoseClassifier.mlmodelc */; };
 		C924488F8BB4E517D32F8D7C /* OneTakeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66041554030D687F6CF987C3 /* OneTakeApp.swift */; };
 		CA7E3CDA5A03A4DDF12ADD95 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */; };
 		CBDC53E0BB157E794A4E6C66 /* onetake-empty-auditions.svg in Resources */ = {isa = PBXBuildFile; fileRef = 55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */; };
@@ -74,7 +73,6 @@
 		D63C56AA4AB180D999A28922 /* CloudLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B95B82BBE87FF55E057D26 /* CloudLink.swift */; };
 		DF7FF09964719C9CF31C2278 /* PracticeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */; };
 		E75FBB7D97E3F0EBD81F1B46 /* onetake-practice-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = 16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */; };
-		EB4254EFCCB2C8FADDE906F0 /* headshot_pose_net.pth in Resources */ = {isa = PBXBuildFile; fileRef = 66878267EC0AD75C908068F9 /* headshot_pose_net.pth */; };
 		EBDA71A046B1C03E2A43BB5C /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ABF9BB6CAA102F14F3D4FE /* ShareViewController.swift */; };
 		ECC7A89D55FB6BDEDF79FB0A /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */; };
 		ECE27836FDFB3BC75BD35C28 /* Reminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE5A48B4511431ADB462065A /* Reminders.swift */; };
@@ -152,7 +150,6 @@
 		65B95B82BBE87FF55E057D26 /* CloudLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLink.swift; sourceTree = "<group>"; };
 		65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageAndSentTests.swift; sourceTree = "<group>"; };
 		66041554030D687F6CF987C3 /* OneTakeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeApp.swift; sourceTree = "<group>"; };
-		66878267EC0AD75C908068F9 /* headshot_pose_net.pth */ = {isa = PBXFileReference; lastKnownFileType = file; path = headshot_pose_net.pth; sourceTree = "<group>"; };
 		69669BF4964888649591F9C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6E3CCFBC5B55BDFCD0799277 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6F7CCA4D9370E5C22F8DF2A5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -178,7 +175,6 @@
 		C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		C1F3701B43B2AC9EB8401891 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
-		C57A518B57CD533258B8D19C /* HeadshotPoseClassifier.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = HeadshotPoseClassifier.mlmodelc; sourceTree = "<group>"; };
 		C855DD3D620EC45169C5C6C2 /* HeadshotPoseClassifier.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = HeadshotPoseClassifier.mlmodel; sourceTree = "<group>"; };
 		D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeViews.swift; sourceTree = "<group>"; };
 		D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaExporterTests.swift; sourceTree = "<group>"; };
@@ -325,9 +321,7 @@
 			children = (
 				F018C2ADBEAFB9DCF90ED4DE /* BPETokenizer.swift */,
 				E7CBD0AAEB7F1F7AAD1ADC80 /* CoreMLParserRunner.swift */,
-				66878267EC0AD75C908068F9 /* headshot_pose_net.pth */,
 				C855DD3D620EC45169C5C6C2 /* HeadshotPoseClassifier.mlmodel */,
-				C57A518B57CD533258B8D19C /* HeadshotPoseClassifier.mlmodelc */,
 				21AF5ABDAC361833F78C1C8B /* LocalBackup.swift */,
 				596522E487CA40F53189C34F /* Models.swift */,
 				FF5CD71C98EB4D957E90F308 /* Persistence.swift */,
@@ -448,16 +442,16 @@
 				LastUpgradeCheck = 2720;
 				TargetAttributes = {
 					3D60DAA81E45DD957826F5E0 = {
-						DevelopmentTeam = 5HWNLWJGM5;
+						ProvisioningStyle = Automatic;
 					};
 					78836920AA34155C8F156F7D = {
-						DevelopmentTeam = 5HWNLWJGM5;
+						ProvisioningStyle = Automatic;
 					};
 					AA4B1922FF6FBF079F163D9B = {
-						DevelopmentTeam = 5HWNLWJGM5;
+						ProvisioningStyle = Automatic;
 					};
 					DC996624B7CF88D7A28C7F65 = {
-						DevelopmentTeam = 5HWNLWJGM5;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -492,9 +486,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C21234A4BDDD8564FED86173 /* Assets.xcassets in Resources */,
-				C557B7C521984DF630E755B4 /* HeadshotPoseClassifier.mlmodelc in Resources */,
 				1217191BC608709BF1E98AB5 /* PrivacyInfo.xcprivacy in Resources */,
-				EB4254EFCCB2C8FADDE906F0 /* headshot_pose_net.pth in Resources */,
 				11D2AA7005DE26EC266B9AF4 /* onetake-empty-auditions-illustration.svg in Resources */,
 				B90EF3FBF432130FC88EB68B /* onetake-empty-auditions.svg in Resources */,
 				5CDDECBBECF12B916DFC47D8 /* onetake-practice-illustration.svg in Resources */,
@@ -658,10 +650,11 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 5HWNLWJGM5;
+				DEVELOPMENT_TEAM = SCY3DW3F4W;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -697,13 +690,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTake.app/OneTake";
@@ -714,13 +709,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTake.app/OneTake";
@@ -731,13 +728,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeShare/OneTakeShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				INFOPLIST_FILE = OneTakeShare/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -751,6 +750,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;
 				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.YOUR_CLIENT_ID;
@@ -768,7 +769,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -808,10 +809,11 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 5HWNLWJGM5;
+				DEVELOPMENT_TEAM = SCY3DW3F4W;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -840,13 +842,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeWidgets/OneTakeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				INFOPLIST_FILE = OneTakeWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -857,13 +861,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeShare/OneTakeShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				INFOPLIST_FILE = OneTakeShare/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -877,6 +883,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;
 				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.YOUR_CLIENT_ID;
@@ -894,7 +902,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -904,13 +912,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = OneTakeWidgets/OneTakeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W93H964P88;
 				INFOPLIST_FILE = OneTakeWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.srmist.onetake.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.porage.onetake.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";

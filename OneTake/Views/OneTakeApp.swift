@@ -100,6 +100,7 @@ struct RootTabView: View {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView().withRoutes()
                 }
+                .toolbarVisibility(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .toolbar(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
 
@@ -107,6 +108,7 @@ struct RootTabView: View {
                 NavigationStack(path: $store.practicePath) {
                     PracticeView().withRoutes()
                 }
+                .toolbarVisibility(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .toolbar(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
 
@@ -118,6 +120,7 @@ struct RootTabView: View {
                         NavigationStack(path: $store.searchPath) {
                             SearchView().withRoutes()
                         }
+                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                         .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                     }
                 } else {
@@ -126,6 +129,7 @@ struct RootTabView: View {
                         NavigationStack(path: $store.searchPath) {
                             SearchView().withRoutes()
                         }
+                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                         .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                     }
                 }
@@ -181,9 +185,7 @@ private struct RouteDestinations: ViewModifier {
     func body(content: Content) -> some View {
         content.navigationDestination(for: Route.self) { route in
             destination(for: route)
-                .toolbar(.hidden, for: .tabBar)
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationBarBackButtonHidden(true)
+                .hideSystemBars()
         }
     }
 
@@ -222,6 +224,16 @@ private struct RouteDestinations: ViewModifier {
 
 extension View {
     func withRoutes() -> some View { modifier(RouteDestinations()) }
+
+    @ViewBuilder
+    func hideSystemBars() -> some View {
+        self
+            .toolbarVisibility(.hidden, for: .tabBar)
+            .toolbarVisibility(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .tabBar)
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
+    }
 
     @ViewBuilder
     func applySearch(enabled: Bool, text: Binding<String>) -> some View {

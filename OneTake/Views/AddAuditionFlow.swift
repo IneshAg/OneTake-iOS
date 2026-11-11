@@ -36,6 +36,7 @@ struct AddAuditionFlow: View {
                             await MainActor.run { unreadableNoticeError = true }
                         } else {
                             let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: [AuditionSource(name: "Scanned notice", kind: .castingNotice, pageCount: pageTexts.count)])
+                            try? await Task.sleep(nanoseconds: 300_000_000)
                             await MainActor.run {
                                 pendingReviewImage = pages.first
                                 pendingReviewDraft = draft
@@ -1344,7 +1345,7 @@ enum NoticeParser {
         if firstMatch(#"(?i)\b(?:please\s+)?slate\s*(?:first|video|instructions?|clip|required)?\b|\binclude\s+(?:a\s+)?slate\b"#, in: text) != nil {
             ask("Slate first")
         }
-        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s+(?:mode|framing|orientation|video|format|shot)\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b|\b(?:slate\s+first[,\s]+)?landscape\s*,\s*full\s+length\b|\bhorizontal\s*\(landscape\)|\borientation\s*[:\-]\s*(?:horizontal|landscape)\b|\blandscape\s+only\b|\bhorizontal\s*/\s*landscape\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:horizontal|landscape)\s+(?:mode|framing|orientation|video|format|shot)\b|\b(?:frame|shoot|record|film)\s+in\s+landscape\b|\b(?:slate\s+first[,\s]+)?landscape\b|\bhorizontal\s*\(landscape\)|\borientation\s*[:\-]\s*(?:horizontal|landscape)\b|\blandscape\s+only\b|\bhorizontal\s*/\s*landscape\b"#, in: text) != nil {
             ask("Landscape")
         }
         if firstMatch(#"(?i)\b(?:full[-\s]?body|head[-\s]?to[-\s]?toe)\s+(?:photo|picture|headshot)\b"#, in: text) != nil {

@@ -130,9 +130,7 @@ struct AuditionDetailView: View {
             .padding(.bottom, 40)
         }
         .otCanvas()
-        .toolbar(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
+        .hideSystemBars()
         .sheet(isPresented: $showPackage) {
             PackageSheet(auditionID: a.id, onAddSides: { showSides = true })
                 .presentationDetents([.medium, .large])

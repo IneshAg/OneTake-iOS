@@ -78,8 +78,7 @@ enum HeadshotPreset: String, CaseIterable, Identifiable {
             }
         } else {
             switch self {
-            case .cardSlot: return 171.5 / 300.0
-            case .theatrical: return 4.0 / 5.0
+            case .cardSlot, .theatrical: return 4.0 / 5.0
             case .commercial: return 3.0 / 4.0
             case .square: return 1.0
             case .tight, .headAndShoulders: return 4.0 / 5.0
@@ -90,32 +89,26 @@ enum HeadshotPreset: String, CaseIterable, Identifiable {
     func faceFraction(isProfile: Bool) -> CGFloat {
         if isProfile {
             switch self {
-            case .tight: return 0.55
-            case .headAndShoulders, .theatrical, .commercial, .square: return 0.42
-            case .cardSlot: return 0.45
+            case .tight: return 0.40
+            case .headAndShoulders, .theatrical, .commercial, .square, .cardSlot: return 0.28
             }
         } else {
             switch self {
-            case .tight: return 0.35
-            case .headAndShoulders: return 0.24
-            case .theatrical: return 0.25
-            case .commercial: return 0.28
-            case .square: return 0.30
-            case .cardSlot: return 0.21
+            case .tight: return 0.28
+            case .headAndShoulders, .theatrical, .cardSlot: return 0.18
+            case .commercial: return 0.20
+            case .square: return 0.22
             }
         }
     }
 
     func faceCenterFromTop(isProfile: Bool) -> CGFloat {
         if isProfile {
-            return 0.42
+            return 0.40
         } else {
             switch self {
-            case .tight: return 0.42
-            case .headAndShoulders, .theatrical: return 0.39
-            case .commercial: return 0.38
-            case .square: return 0.40
-            case .cardSlot: return 0.35
+            case .tight: return 0.40
+            case .headAndShoulders, .theatrical, .commercial, .square, .cardSlot: return 0.38
             }
         }
     }
