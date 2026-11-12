@@ -76,6 +76,10 @@ final class DesignSystemTests: XCTestCase {
         // header (44) + content (100) + stack spacing (16) + bottom padding (24), non-scrolling
         XCTAssertEqual(height(OTScreen(title: "T", scrolls: false) { Color.clear.frame(height: 100) }), 184)
     }
+
+    func testHeadshotAngleTitles() {
+        XCTAssertEqual(HeadshotAngle.allCases.map(\.title), ["Front", "Left profile", "Right profile"])
+    }
 }
 
 extension UIImage {
