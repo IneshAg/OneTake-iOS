@@ -600,5 +600,45 @@ final class CameraAndImageTests: XCTestCase {
             XCTAssertEqual(recordButtonCenter, containerCenter, accuracy: 0.0001, "Record button must be mathematically centered")
         }
     }
+
+    @MainActor
+    func testHeadshotChecklistRequiresAllAngles() {
+        let auditionID = UUID()
+        defer {
+            HeadshotStore.removeAuditionHeadshots(for: auditionID)
+            HeadshotStore.clearCache()
+        }
+
+        XCTAssertEqual(HeadshotStore.requirementDescription, "3 photos (front, left, right profile)")
+        XCTAssertFalse(HeadshotStore.isComplete(auditionID: auditionID))
+
+        var audition = NoticeParser.Draft(project: "Hamlet", role: "Hamlet").makeAudition()
+        audition.id = auditionID
+        audition.pieces = [Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: false, isOptional: false)]
+
+        let store = AppStore()
+        store.auditions = [audition]
+        store.syncPieces()
+        XCTAssertFalse(store.auditions[0].pieces[0].isDone, "Incomplete headshot set must not mark piece done")
+
+        // Save only front photo
+        let dummy = createTestImage(width: 100, height: 100)
+        HeadshotStore.save(dummy, key: "front", auditionID: auditionID)
+        XCTAssertFalse(HeadshotStore.isComplete(auditionID: auditionID), "Front photo alone should not complete headshot requirements")
+        store.syncPieces()
+        XCTAssertFalse(store.auditions[0].pieces[0].isDone, "Only front photo present must not mark piece done")
+
+        // Save left profile
+        HeadshotStore.save(dummy, key: "left", auditionID: auditionID)
+        XCTAssertFalse(HeadshotStore.isComplete(auditionID: auditionID))
+        store.syncPieces()
+        XCTAssertFalse(store.auditions[0].pieces[0].isDone)
+
+        // Save right profile
+        HeadshotStore.save(dummy, key: "right", auditionID: auditionID)
+        XCTAssertTrue(HeadshotStore.isComplete(auditionID: auditionID))
+        store.syncPieces()
+        XCTAssertTrue(store.auditions[0].pieces[0].isDone, "Complete set of 3 headshots must mark piece done")
+    }
 }
 

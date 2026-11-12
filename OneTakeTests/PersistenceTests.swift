@@ -147,4 +147,35 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(store.practicePath.isEmpty, "Practice path must be emptied")
         XCTAssertGreaterThan(store.readerTrackVersion, initialReaderVersion, "Reader track version should be bumped to notify views")
     }
+
+    func testMediaStorePersistRetakePreservesPreviousRecordingOnFailure() throws {
+        let subfolder = "test-retake-\(UUID().uuidString)"
+        defer { MediaStore.deleteAll([subfolder]) }
+
+        let temp1 = FileManager.default.temporaryDirectory.appendingPathComponent("temp1-\(UUID().uuidString).mov")
+        let temp2 = FileManager.default.temporaryDirectory.appendingPathComponent("temp2-\(UUID().uuidString).mov")
+        let data1 = Data("original-recording".utf8)
+        let data2 = Data("new-retake".utf8)
+        try data1.write(to: temp1)
+        try data2.write(to: temp2)
+        defer {
+            try? FileManager.default.removeItem(at: temp1)
+            try? FileManager.default.removeItem(at: temp2)
+        }
+
+        // 1. Initial save
+        let saved1 = try XCTUnwrap(MediaStore.persist(temp1, as: "slate.mov", in: subfolder))
+        XCTAssertEqual(try Data(contentsOf: saved1), data1)
+
+        // 2. Overwrite with valid new recording
+        let saved2 = try XCTUnwrap(MediaStore.persist(temp2, as: "slate.mov", in: subfolder))
+        XCTAssertEqual(try Data(contentsOf: saved2), data2)
+
+        // 3. Failed save with non-existent temp file does not destroy the existing file
+        let bogusTemp = FileManager.default.temporaryDirectory.appendingPathComponent("nonexistent.mov")
+        let failedSave = MediaStore.persist(bogusTemp, as: "slate.mov", in: subfolder)
+        XCTAssertNil(failedSave)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: saved2.path))
+        XCTAssertEqual(try Data(contentsOf: saved2), data2, "Failed retake must leave previous recording intact")
+    }
 }

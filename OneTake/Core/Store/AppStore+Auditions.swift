@@ -64,7 +64,7 @@ extension AppStore {
         for i in auditions.indices where auditions[i].status != .sent {
             let id = auditions[i].id
             // Headshots
-            let hasAuditionHeadshot = HeadshotStore.exists(key: "front", auditionID: id)
+            let hasAuditionHeadshot = HeadshotStore.isComplete(auditionID: id)
             for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .headshot {
                 if hasAuditionHeadshot {
                     auditions[i].pieces[j].isDone = true

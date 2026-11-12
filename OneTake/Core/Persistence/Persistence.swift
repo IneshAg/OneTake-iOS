@@ -129,19 +129,41 @@ enum MediaStore {
         return dir
     }
 
-    /// Moves a just-recorded temp file to permanent on-disk storage, replacing anything already there.
+    /// Moves a just-recorded temp file to permanent on-disk storage.
+    /// If a file already exists at the destination, it is safely backed up during the move so a
+    /// failed save never destroys the superseded recording.
     /// Returns nil (rather than a bogus URL) if there was nothing real to persist — e.g. the Simulator,
     /// which has no camera and never produces a `lastRecording`.
     @discardableResult
     static func persist(_ tempURL: URL?, as name: String, in subfolder: String) -> URL? {
         guard let tempURL, FileManager.default.fileExists(atPath: tempURL.path) else { return nil }
-        let dest = directory(subfolder).appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: dest)
-        do {
-            try FileManager.default.moveItem(at: tempURL, to: dest)
-            return dest
-        } catch {
-            return nil
+        let dir = directory(subfolder)
+        let dest = dir.appendingPathComponent(name)
+
+        if FileManager.default.fileExists(atPath: dest.path) {
+            let backupName = "backup-\(UUID().uuidString)-\(name)"
+            let backup = dir.appendingPathComponent(backupName)
+            do {
+                try FileManager.default.moveItem(at: dest, to: backup)
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: dest)
+                    try? FileManager.default.removeItem(at: backup)
+                    return dest
+                } catch {
+                    // Restore previous file if new recording move fails
+                    try? FileManager.default.moveItem(at: backup, to: dest)
+                    return nil
+                }
+            } catch {
+                return nil
+            }
+        } else {
+            do {
+                try FileManager.default.moveItem(at: tempURL, to: dest)
+                return dest
+            } catch {
+                return nil
+            }
         }
     }
 
@@ -268,6 +290,17 @@ enum HeadshotStore {
 
     /// The audition headshots that have been taken, in order: front, then left and right profiles.
     static let angles: [(key: String, title: String)] = [("front", "Front"), ("left", "Left profile"), ("right", "Right profile")]
+
+    /// Formatted requirement summary (e.g. "3 photos (front, left, right profile)").
+    static var requirementDescription: String {
+        let names = angles.map { $0.key == "front" ? "front" : ($0.key == "left" ? "left" : $0.title.lowercased()) }
+        return "\(angles.count) photos (\(names.joined(separator: ", ")))"
+    }
+
+    /// Whether all required angle headshots (front, left, right profile) are present.
+    static func isComplete(auditionID: UUID? = nil) -> Bool {
+        angles.allSatisfy { exists(key: $0.key, auditionID: auditionID) }
+    }
 
     static func taken(auditionID: UUID? = nil) -> [(key: String, title: String)] {
         angles.filter { exists(key: $0.key, auditionID: auditionID) }
