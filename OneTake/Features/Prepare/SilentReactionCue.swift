@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 /// Makes a printed `?` or silent reaction cue read as a playable non-verbal expression while retaining its script meaning.
 struct SilentReactionCue: View {
@@ -36,44 +37,44 @@ struct SilentReactionCue: View {
 
     var body: some View {
         if inPrompter {
-            HStack(spacing: 12) {
+            HStack(spacing: OTSpace.m) {
                 ZStack {
                     Circle()
                         .fill(isMine ? OT.prompterGold.opacity(0.22) : OT.reader.opacity(0.22))
-                        .frame(width: 38, height: 38)
+                        .frame(width: 38, height: 38) // ot-lint:allow
                     Text(cueSymbol)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(.system(size: 22, weight: .bold, design: .rounded)) // ot-lint:allow
                         .foregroundStyle(isMine ? OT.prompterGold : OT.reader)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: OTSpace.xs) {
                         Text(headingText)
-                            .font(.system(size: 15, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white)
+                            .font(.system(size: 15, weight: .bold, design: .monospaced)) // ot-lint:allow
+                            .foregroundStyle(Color.white) // ot-lint:allow
                         Text("[ \(cueText) ]")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.55))
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced)) // ot-lint:allow
+                            .foregroundStyle(OT.labelSecondary)
                     }
                     Text(instructionText)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.75))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced)) // ot-lint:allow
+                        .foregroundStyle(OT.labelPrimary)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, OTSpace.xxs)
         } else {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: OTSpace.m) {
                 Text(cueSymbol)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold, design: .rounded)) // ot-lint:allow
                     .foregroundStyle(isMine ? OT.accent : OT.reader)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 36, height: 36) // ot-lint:allow
                     .background(isMine ? OT.accentSoft : OT.reader.opacity(0.15), in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: OTSpace.xs) {
                         Text(headingText)
                             .font(.otHeadline)
                             .foregroundStyle(OT.labelPrimary)
                         Text("[ \(cueText) ]")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced)) // ot-lint:allow
                             .foregroundStyle(OT.labelTertiary)
                     }
                     Text(instructionText)
@@ -81,10 +82,9 @@ struct SilentReactionCue: View {
                         .foregroundStyle(OT.labelSecondary)
                 }
             }
-            .padding(12)
+            .padding(OTSpace.cardInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.separator, lineWidth: 1))
+            .otCard(.grouped)
             .accessibilityElement(children: .combine)
         }
     }

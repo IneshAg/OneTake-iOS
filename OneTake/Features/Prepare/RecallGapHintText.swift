@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 /// Meaningful-word gaps. Each underscore is tappable and reveals its original word as a clue.
 struct RecallGapHintText: View {
@@ -19,7 +20,7 @@ struct RecallGapHintText: View {
                     Text(isHidden ? masked(word) : word)
                         .font(font)
                         .foregroundStyle(color)
-                        .padding(.vertical, 2)
+                        .padding(.vertical, OTSpace.xxs)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -34,3 +35,4 @@ struct RecallGapHintText: View {
         String(word.map { $0.isLetter || $0.isNumber ? "_" : $0 })
     }
 }
+

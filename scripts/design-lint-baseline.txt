@@ -1,10 +1,10 @@
-# Design system lint baseline (Task 10: add-audition migrated)
-radius 106
-font-size 144
-frame-literal 127
-padding-literal 248
-raw-color 54
-system-button-style 8
-manual-surface 24
-hidden-navbar 21
+# Design system lint baseline (Task 11: Prepare + Line Learning migrated)
+radius 74
+font-size 110
+frame-literal 100
+padding-literal 181
+raw-color 52
+system-button-style 7
+manual-surface 12
+hidden-navbar 13
 on-dark-flag 8

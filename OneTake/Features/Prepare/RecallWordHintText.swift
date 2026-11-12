@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 /// First-letter recall text. Each masked word is an individual, accessible hint target.
 struct RecallWordHintText: View {
@@ -19,7 +20,7 @@ struct RecallWordHintText: View {
                     Text(revealedWords.contains(index) ? word : masked(word))
                         .font(font)
                         .foregroundStyle(color)
-                        .padding(.vertical, 2)
+                        .padding(.vertical, OTSpace.xxs)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -34,3 +35,4 @@ struct RecallWordHintText: View {
         return String(first) + (word.count > 1 ? "—" : "")
     }
 }
+
