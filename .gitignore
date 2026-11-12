@@ -5,6 +5,7 @@ xcuserdata/
 DerivedData/
 build/
 build_sim/
+.build/
 *.xcuserstate
 .DS_Store
 .swiftpm/

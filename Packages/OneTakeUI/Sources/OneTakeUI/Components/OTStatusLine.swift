@@ -5,6 +5,7 @@ public enum OTStatusKind: Sendable {
     case success
     case failure
     case offline
+    case due
 
     public static let saving = OTStatusKind.progress
     public static let processing = OTStatusKind.progress
@@ -48,7 +49,18 @@ public struct OTStatusLine: View {
                 Image(systemName: "wifi.slash")
                     .font(.otIcon(.m))
                     .foregroundStyle(OT.warning)
+            case .due:
+                Image(systemName: "clock")
+                    .font(.otIcon(.m))
+                    .foregroundStyle(OT.due)
             }
+        }
+    }
+
+    private var textColor: Color {
+        switch kind {
+        case .due: return OT.due
+        default: return OT.labelPrimary
         }
     }
 
@@ -57,7 +69,7 @@ public struct OTStatusLine: View {
             icon
             Text(text)
                 .font(.otSubhead)
-                .foregroundStyle(OT.labelPrimary)
+                .foregroundStyle(textColor)
             if let detail {
                 Text("· \(detail)")
                     .font(.otCaption)

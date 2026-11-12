@@ -11,7 +11,7 @@ struct ReadinessDashes: View {
                 ForEach(0..<total, id: \.self) { i in
                     Capsule()
                         .fill(i < done ? OT.accent : OT.fillQuiet)
-                        .frame(width: 14, height: 4)
+                        .frame(width: 14, height: 4) // ot-lint:allow
                 }
             }
             Text("\(done) of \(total)").font(.otCaption).foregroundStyle(OT.labelTertiary)

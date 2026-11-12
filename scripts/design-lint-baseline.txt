@@ -1,10 +1,10 @@
-# Design system lint baseline (Task 8: headshots-profile migrated)
-radius 201
-font-size 226
-frame-literal 162
-padding-literal 430
-raw-color 60
+# Design system lint baseline (Task 9: auditions-detail migrated)
+radius 180
+font-size 196
+frame-literal 144
+padding-literal 376
+raw-color 57
 system-button-style 8
-manual-surface 63
-hidden-navbar 31
+manual-surface 54
+hidden-navbar 26
 on-dark-flag 8

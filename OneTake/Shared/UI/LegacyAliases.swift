@@ -50,3 +50,12 @@ struct GlassButtonCompatibility: ViewModifier {
         }
     }
 }
+
+struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: OTSpace.xxs) {
+            configuration.title
+            configuration.icon
+        }
+    }
+}

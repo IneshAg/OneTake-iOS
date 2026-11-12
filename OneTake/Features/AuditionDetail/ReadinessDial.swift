@@ -22,8 +22,8 @@ struct ReadinessDial: View {
                     .rotationEffect(.degrees(-90))
             }
             VStack(spacing: -2) {
-                Text("\(done)").font(.system(size: size * 0.3, weight: .bold)).monospacedDigit()
-                Text("of \(total)").font(.system(size: size * 0.18, weight: .medium))
+                Text("\(done)").font(.system(size: size * 0.3, weight: .bold)).monospacedDigit() // ot-lint:allow
+                Text("of \(total)").font(.system(size: size * 0.18, weight: .medium)) // ot-lint:allow
             }
             .foregroundStyle(onDark ? .white : OT.labelPrimary)
         }

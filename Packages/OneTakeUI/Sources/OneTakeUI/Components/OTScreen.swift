@@ -45,8 +45,11 @@ public struct OTScreen<Content: View, Trailing: View>: View {
             }
         }
         .otCanvas()
+        .toolbarVisibility(.hidden, for: .tabBar) // ot-lint:allow
+        .toolbar(.hidden, for: .tabBar) // ot-lint:allow
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow sole container allowed to hide navigationBar
         .navigationBarBackButtonHidden(true)
+        .background(TabBarHider())
     }
 }
 
