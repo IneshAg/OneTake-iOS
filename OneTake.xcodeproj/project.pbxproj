@@ -37,6 +37,7 @@
 		277D028621EC5489DEC3C250 /* ScriptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FCB73CA66CEE5334E343F45 /* ScriptParserTests.swift */; };
 		2888DEB6F67D47DD84D04536 /* TapeStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BFABB31BF2C237FD31888E /* TapeStrip.swift */; };
 		2AE2F49C57C4A59FEEFDEAC6 /* SendProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF88ACDAE9CD26DE99D27C3D /* SendProgressView.swift */; };
+		2B544E05D9E6598BEF71218F /* AppStore+Sides.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8617E0D1A1DD4D581748BFCD /* AppStore+Sides.swift */; };
 		2D2F07F59468A23CE4085186 /* SubmissionCheckSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BB1EBD36EB0DCA5A11D942 /* SubmissionCheckSummary.swift */; };
 		2DF834FB415C12112B2C8711 /* AppStore+Practice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2C695DFE3285BEC8084796 /* AppStore+Practice.swift */; };
 		2F66A30C9391307890C83641 /* TeleprompterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C43ED1F2E5266132A07D29C /* TeleprompterView.swift */; };
@@ -130,6 +131,7 @@
 		BDC061D0DF21363694884120 /* ReadinessDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBB8972D64BA4BE42F495CF /* ReadinessDial.swift */; };
 		C02FB5C3617CC569478B644C /* RecordReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B846849D64201B575CC65D3D /* RecordReaderView.swift */; };
 		C2EEC20509606E4460CC398E /* RoleBreakdownCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C8E74565195D0807BEA41A /* RoleBreakdownCard.swift */; };
+		C3F4388A346EFC1661A1C03F /* ScriptParser+Normalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EA0A9DF9E31815C6B3FCB /* ScriptParser+Normalization.swift */; };
 		C41795CA51A09866D4ACB151 /* SpeechFollower.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D2FF9035789E3577CD9541 /* SpeechFollower.swift */; };
 		C68E9579AE0964D4108AB223 /* DocumentScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF6200D8A8B211F169BB4E9 /* DocumentScannerView.swift */; };
 		C6C897EDE6D9B09D7DC011A8 /* ScriptReviewAndEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752C11ECEAD4F7F545798CDA /* ScriptReviewAndEditView.swift */; };
@@ -316,12 +318,14 @@
 		82CE7508CCE609B0A14FF2A5 /* SilenceTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceTrimmer.swift; sourceTree = "<group>"; };
 		83CF423F93BFDC8B7C7D196B /* HeadshotsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadshotsView.swift; sourceTree = "<group>"; };
 		85CC163C7829EE87A10EDC56 /* OCRReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRReviewSheet.swift; sourceTree = "<group>"; };
+		8617E0D1A1DD4D581748BFCD /* AppStore+Sides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Sides.swift"; sourceTree = "<group>"; };
 		8646A225FBF657979FC57787 /* PackageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageView.swift; sourceTree = "<group>"; };
 		876C9EE6D294A7DECD651C0C /* SidesInputTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidesInputTile.swift; sourceTree = "<group>"; };
 		89EE2F0ABA59B4A4249C9095 /* TapePreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapePreviewTests.swift; sourceTree = "<group>"; };
 		90D7C0E8D9A082F9F53963FB /* TakeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeModels.swift; sourceTree = "<group>"; };
 		93A5A19622FF45437DBEEB31 /* OneTakeShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = OneTakeShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		957ABF69D00593FC9B2BBADD /* SendFailedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendFailedView.swift; sourceTree = "<group>"; };
+		957EA0A9DF9E31815C6B3FCB /* ScriptParser+Normalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScriptParser+Normalization.swift"; sourceTree = "<group>"; };
 		9791B85874211EDCE9A57E9A /* TapeCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeCheckView.swift; sourceTree = "<group>"; };
 		97B00C1CC0D902062C97DE0A /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -483,6 +487,7 @@
 				E4AC23E5EF6436ABB7546050 /* Models.swift */,
 				EBBC8484EA25EFB11C3E9573 /* ProfileModels.swift */,
 				DE132A7DBF0D0983546FA665 /* ScriptParser.swift */,
+				957EA0A9DF9E31815C6B3FCB /* ScriptParser+Normalization.swift */,
 				90D7C0E8D9A082F9F53963FB /* TakeModels.swift */,
 			);
 			path = Models;
@@ -496,6 +501,7 @@
 				B6E37A1AC5FB418D15339D73 /* AppStore+Headshots.swift */,
 				7EC247DBD4D21539DD28F28F /* AppStore+Navigation.swift */,
 				FD2C695DFE3285BEC8084796 /* AppStore+Practice.swift */,
+				8617E0D1A1DD4D581748BFCD /* AppStore+Sides.swift */,
 			);
 			path = Store;
 			sourceTree = "<group>";
@@ -1066,6 +1072,7 @@
 				D2AB2BEC0534863B2740B440 /* AppStore+Headshots.swift in Sources */,
 				EECFB71D42FFD9357DD5CCC0 /* AppStore+Navigation.swift in Sources */,
 				2DF834FB415C12112B2C8711 /* AppStore+Practice.swift in Sources */,
+				2B544E05D9E6598BEF71218F /* AppStore+Sides.swift in Sources */,
 				8AC8EDF80C8D19D7D0F95AA9 /* AppStore.swift in Sources */,
 				F89AFA9C702BE7570BA6218B /* AudioWalkView.swift in Sources */,
 				FE083DA350754CF63E78F99C /* AuditionActivity.swift in Sources */,
@@ -1160,6 +1167,7 @@
 				FAA112CA4E823B8E03DE1738 /* RouteDestinations.swift in Sources */,
 				92D14222F52D922364163F5C /* RunLinesView.swift in Sources */,
 				9D4BC40AF806DF9F05C218D9 /* SceneAudioFlowView.swift in Sources */,
+				C3F4388A346EFC1661A1C03F /* ScriptParser+Normalization.swift in Sources */,
 				61C7F4868D93DC6DB9C7C491 /* ScriptParser.swift in Sources */,
 				C6C897EDE6D9B09D7DC011A8 /* ScriptReviewAndEditView.swift in Sources */,
 				5D28444FC50205B46A67E5D3 /* ScriptTextEditor.swift in Sources */,

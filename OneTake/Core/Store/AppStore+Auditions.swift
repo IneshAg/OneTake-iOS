@@ -49,8 +49,9 @@ extension AppStore {
         auditions.filter { $0.status != .sent }.min { $0.due < $1.due }
     }
 
-    var active: [Audition] { auditions.filter { $0.status != .sent }.sorted { $0.due < $1.due } }
-    var sent: [Audition] { auditions.filter { $0.status == .sent } }
+    var active: [Audition] { auditions.filter { !$0.archived && $0.status != .sent }.sorted { $0.due < $1.due } }
+    var sent: [Audition] { auditions.filter { !$0.archived && $0.status == .sent } }
+    var archived: [Audition] { auditions.filter { $0.archived }.sorted { $0.due < $1.due } }
 
     // MARK: Mutations
 
@@ -90,8 +91,9 @@ extension AppStore {
                     auditions[i].pieces[j].isDone = false
                 }
             }
-            // Scenes: if an audition has recorded takes for a scene, that scene is done!
-            let auditionTakes = takes.filter { $0.auditionID == id }
+            // Scenes: if an audition has recorded takes for a scene in the current sides revision, that scene is done!
+            let currentRev = auditions[i].currentSidesRevision
+            let auditionTakes = takes.filter { $0.auditionID == id && !$0.previousSides && $0.currentSidesRevision == currentRev }
             let sceneTitles = !auditions[i].scenes.isEmpty
                 ? auditions[i].scenes.map(\.title)
                 : auditions[i].pieces.filter { $0.kind == .scene }.map(\.title)
@@ -170,33 +172,16 @@ extension AppStore {
         auditions.removeAll { $0.id == id }
     }
 
-    /// Revised sides: swaps in the new scenes and resets the scene pieces (the old takes stay, but the
-    /// new pages need shooting). Practice pieces for this audition follow the new text.
-    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene], sourceText: String? = nil) {
+    func archiveAudition(_ id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
-        let hadScenes = !auditions[i].scenes.isEmpty
-        auditions[i].scenes = scenes
-        auditions[i].scriptText = sourceText
-        if auditions[i].castingNotes == nil, let sourceText {
-            auditions[i].castingNotes = NoticeParser.extractCharacterDescription(for: auditions[i].role, in: sourceText)
-        }
-        auditions[i].pieces.removeAll { $0.kind == .scene }
-        auditions[i].pieces += scenes.map {
-            let isOpt = NoticeParser.isSceneOptional(scene: $0, in: sourceText ?? "")
-            return Piece(kind: .scene, title: $0.title, detail: hadScenes ? "Revised sides" : "", isDone: false, isOptional: isOpt)
-        }
-        if auditions[i].status == .ready { auditions[i].status = .due }
-        // Existing recordings remain available to watch, but can no longer be selected for the
-        // revised script until the actor explicitly circles a take from this round.
-        for index in takes.indices where takes[index].auditionID == id {
-            takes[index].isCircled = false
-        }
-        for p in practice.indices where practice[p].auditionID == id {
-            guard let s = practice[p].sceneIndex, scenes.indices.contains(s) else { continue }
-            practice[p].scene = scenes[s]
-            practice[p].linesTotal = scenes[s].lines.filter(\.isMine).count
-            practice[p].linesLearned = min(practice[p].linesLearned, practice[p].linesTotal)
-        }
+        auditions[i].isArchived = true
+        Haptics.tick()
+    }
+
+    func unarchiveAudition(_ id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].isArchived = false
+        Haptics.success()
     }
 
     /// Adjusts the total number of scenes for an audition directly (e.g. from Edit Details).
@@ -404,6 +389,15 @@ extension AppStore {
         auditions[i].sentDate = .now
     }
 
+    func markExported(_ id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].status = .exported
+    }
+
+    func markSubmitted(_ id: Audition.ID) {
+        markSent(id)
+    }
+
     /// Circles `take` and un-circles every other take in the *same* audition+scene — scoped, so
     /// circling a take in one audition no longer silently un-circles another audition's send pick.
     func circleOnly(_ take: Take) {
@@ -553,9 +547,14 @@ extension AppStore {
     /// always a sensible send pick without the actor having to remember to circle one).
     func addTake(_ take: Take) {
         var take = take
-        if let id = take.auditionID, let scene = take.sceneIndex,
-           !takes.contains(where: { $0.auditionID == id && $0.sceneIndex == scene && $0.isCircled }) {
-            take.isCircled = true
+        if let id = take.auditionID {
+            let currentRev = audition(id)?.currentSidesRevision ?? 0
+            take.sidesRevision = currentRev
+            take.isPreviousSides = false
+            if let scene = take.sceneIndex,
+               !takes.contains(where: { $0.auditionID == id && $0.sceneIndex == scene && $0.isCircled && !$0.previousSides && $0.currentSidesRevision == currentRev }) {
+                take.isCircled = true
+            }
         }
         takes.append(take)
         syncPieces()

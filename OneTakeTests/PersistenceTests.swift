@@ -197,4 +197,302 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: saved2.path), "Dest file must still exist after rollback")
         XCTAssertEqual(try Data(contentsOf: saved2), data2, "Failed move must restore superseded recording from backup")
     }
+
+    @MainActor
+    func testRevisedSidesReorderingAndReaderAudioMigration() throws {
+        let store = AppStore()
+        let auditionID = UUID()
+
+        let scene1 = ScriptScene(
+            id: UUID(),
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. OFFICE - DAY",
+            lines: [
+                ScriptLine(id: UUID(), character: "TOM", text: "Greg, hello.", isMine: true),
+                ScriptLine(id: UUID(), character: "GREG", text: "Good morning Tom.", isMine: false)
+            ]
+        )
+        let scene2 = ScriptScene(
+            id: UUID(),
+            number: 2,
+            title: "Scene 2",
+            heading: "EXT. STREET - NIGHT",
+            lines: [
+                ScriptLine(id: UUID(), character: "TOM", text: "Goodbye.", isMine: true),
+                ScriptLine(id: UUID(), character: "SHIV", text: "See you later.", isMine: false)
+            ]
+        )
+
+        var aud = Audition(
+            id: auditionID,
+            project: "Succession S5",
+            projectType: "Series",
+            role: "TOM",
+            roleSize: "Lead",
+            castingOffice: "HBO",
+            due: Date().addingTimeInterval(86400),
+            asks: [],
+            pieces: [],
+            scenes: [scene1, scene2],
+            destination: .email,
+            status: .due
+        )
+        store.add(aud)
+
+        defer {
+            try? FileManager.default.removeItem(at: MediaStore.directory("\(ReaderTrackPlayer.folder)/\(auditionID.uuidString)"))
+        }
+
+        // 1. Create original reader audio files
+        // Greg is scene 0, line 0 among reader lines
+        let gregCueURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: 0)
+        let gregData = Data("greg-audio-cue".utf8)
+        try FileManager.default.createDirectory(at: gregCueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try gregData.write(to: gregCueURL)
+
+        // Shiv is scene 1, line 0 among reader lines
+        let shivCueURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 1, line: 0)
+        let shivData = Data("shiv-audio-cue".utf8)
+        try FileManager.default.createDirectory(at: shivCueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try shivData.write(to: shivCueURL)
+
+        // 2. Add an original take on Scene 0 (marked circled)
+        let originalTake = Take(
+            id: UUID(),
+            number: 1,
+            duration: 20.0,
+            recordedAt: .now,
+            isCircled: true,
+            notes: ["Great take"],
+            fileURL: nil,
+            auditionID: auditionID,
+            sceneIndex: 0
+        )
+        store.addTake(originalTake)
+
+        // 3. New script swaps scene order and modifies Shiv's line:
+        // New Scene 1: old Scene 2 with modified line
+        // New Scene 2: old Scene 1 unchanged
+        let newScene1 = ScriptScene(
+            id: UUID(),
+            number: 1,
+            title: "Scene 1",
+            heading: "EXT. STREET - NIGHT",
+            lines: [
+                ScriptLine(id: UUID(), character: "TOM", text: "Goodbye.", isMine: true),
+                ScriptLine(id: UUID(), character: "SHIV", text: "See you tomorrow.", isMine: false) // Modified
+            ]
+        )
+        let newScene2 = ScriptScene(
+            id: UUID(),
+            number: 2,
+            title: "Scene 2",
+            heading: "INT. OFFICE - DAY",
+            lines: [
+                ScriptLine(id: UUID(), character: "TOM", text: "Greg, hello.", isMine: true),
+                ScriptLine(id: UUID(), character: "GREG", text: "Good morning Tom.", isMine: false) // Unchanged
+            ]
+        )
+
+        // 4. Replace sides
+        store.replaceSides(of: auditionID, with: [newScene1, newScene2], sourceText: "revised script text")
+
+        // 5. Verify reader audio migration:
+        // Greg's audio (previously scene 0, line 0) should now be in new scene 1, line 0!
+        let newGregCueURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 1, line: 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newGregCueURL.path), "Greg's audio cue should migrate to new Scene 2 (index 1)")
+        XCTAssertEqual(try Data(contentsOf: newGregCueURL), gregData)
+
+        // Shiv's modified line (in new scene 0, line 0) should NOT have migrated old audio
+        let newShivCueURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newShivCueURL.path), "Shiv's modified line should not inherit audio from the changed line")
+
+        // 6. Verify takes preservation:
+        let previousTake = try XCTUnwrap(store.takes.first(where: { $0.id == originalTake.id }))
+        XCTAssertTrue(previousTake.previousSides, "Earlier take must be tagged as previous sides")
+        XCTAssertFalse(previousTake.isCircled, "Earlier take should no longer be circled for the package")
+        XCTAssertEqual(previousTake.previousSidesLabel, "Previous sides · Scene 1")
+    }
+
+    func testMultipleReaderCharactersInSameSceneHaveStableCueIDs() throws {
+        let store = AppStore()
+        let auditionID = UUID()
+
+        // Clean any residual test recordings
+        defer {
+            try? FileManager.default.removeItem(at: MediaStore.directory("\(ReaderTrackPlayer.folder)/\(auditionID.uuidString)"))
+        }
+
+        // Scene with two reader characters (KAT and BARTENDER) and one actor character (TOM)
+        let lineKat1 = ScriptLine(id: UUID(), character: "KAT", text: "Hey Tom.", isMine: false)
+        let lineBartender1 = ScriptLine(id: UUID(), character: "BARTENDER", text: "What's your poison?", isMine: false)
+        let lineTom = ScriptLine(id: UUID(), character: "TOM", text: "Just soda water.", isMine: true)
+        let lineKat2 = ScriptLine(id: UUID(), character: "KAT", text: "Make it two.", isMine: false)
+
+        let scene = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. BAR - NIGHT",
+            lines: [lineKat1, lineBartender1, lineTom, lineKat2]
+        )
+
+        let audition = Audition(
+            id: auditionID,
+            project: "Cocktail Hour",
+            projectType: "Feature Film",
+            role: "Tom",
+            roleSize: "Lead",
+            castingOffice: "Bar Casting",
+            due: Date().addingTimeInterval(86400),
+            asks: ["Scene 1"],
+            pieces: [Piece(kind: .scene, title: "Scene 1", detail: "", isDone: false, isOptional: false)],
+            scenes: [scene],
+            destination: .email,
+            status: .due
+        )
+        store.add(audition)
+
+        let allUnowned = scene.lines.filter { !$0.isMine }
+        XCTAssertEqual(allUnowned.count, 3)
+
+        // Cue indices in scene:
+        // Kat line 1: index 0
+        // Bartender line 1: index 1
+        // Kat line 2: index 2
+        let cueIdxKat1 = try XCTUnwrap(allUnowned.firstIndex(where: { $0.id == lineKat1.id }))
+        let cueIdxBartender1 = try XCTUnwrap(allUnowned.firstIndex(where: { $0.id == lineBartender1.id }))
+        let cueIdxKat2 = try XCTUnwrap(allUnowned.firstIndex(where: { $0.id == lineKat2.id }))
+
+        XCTAssertEqual(cueIdxKat1, 0)
+        XCTAssertEqual(cueIdxBartender1, 1)
+        XCTAssertEqual(cueIdxKat2, 2)
+
+        // Write simulated audio for Kat's first cue
+        let kat1URL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: cueIdxKat1)
+        try FileManager.default.createDirectory(at: kat1URL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let kat1Data = "AUDIO_KAT_1".data(using: .utf8)!
+        try kat1Data.write(to: kat1URL)
+
+        // Write simulated audio for Bartender's first cue
+        let bartender1URL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: cueIdxBartender1)
+        let bartender1Data = "AUDIO_BARTENDER_1".data(using: .utf8)!
+        try FileManager.default.createDirectory(at: bartender1URL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bartender1Data.write(to: bartender1URL)
+
+        // Write simulated audio for Kat's second cue
+        let kat2URL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: cueIdxKat2)
+        let kat2Data = "AUDIO_KAT_2".data(using: .utf8)!
+        try FileManager.default.createDirectory(at: kat2URL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try kat2Data.write(to: kat2URL)
+
+        // Verify files exist at the distinct scene-level line indices
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kat1URL.path), "Kat 1 audio must exist at line-0.m4a")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bartender1URL.path), "Bartender 1 audio must exist at line-1.m4a")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kat2URL.path), "Kat 2 audio must exist at line-2.m4a")
+
+        XCTAssertEqual(try Data(contentsOf: kat1URL), kat1Data)
+        XCTAssertEqual(try Data(contentsOf: bartender1URL), bartender1Data)
+        XCTAssertEqual(try Data(contentsOf: kat2URL), kat2Data)
+
+        // Verify ReaderTrackPlayer.hasRecording checks
+        XCTAssertTrue(ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: 0, line: cueIdxKat1))
+        XCTAssertTrue(ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: 0, line: cueIdxBartender1))
+        XCTAssertTrue(ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: 0, line: cueIdxKat2))
+    }
+
+    func testRevisedSidesResetSceneCompletionAndChecklistReadiness() throws {
+        let store = AppStore()
+        let auditionID = UUID()
+
+        // 1. Initial audition with 1 scene
+        let scene1 = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. COFFEE SHOP - DAY",
+            lines: [
+                ScriptLine(id: UUID(), character: "ALICE", text: "Hello.", isMine: true),
+                ScriptLine(id: UUID(), character: "BOB", text: "Hi Alice.", isMine: false)
+            ]
+        )
+
+        let audition = Audition(
+            id: auditionID,
+            project: "Coffee Talk",
+            projectType: "Short Film",
+            role: "Alice",
+            roleSize: "Lead",
+            castingOffice: "Coffee Casting",
+            due: Date().addingTimeInterval(86400),
+            asks: ["Scene 1"],
+            pieces: [Piece(kind: .scene, title: "Scene 1", detail: "", isDone: false, isOptional: false)],
+            scenes: [scene1],
+            destination: .email,
+            status: .due
+        )
+        store.add(audition)
+
+        // 2. Record a take for Scene 1
+        let take1 = Take(
+            id: UUID(),
+            number: 1,
+            duration: 35.0,
+            recordedAt: Date(),
+            isCircled: true,
+            notes: [],
+            fileURL: URL(fileURLWithPath: "/tmp/take1.mov"),
+            auditionID: auditionID,
+            sceneIndex: 0
+        )
+        store.addTake(take1)
+
+        // Assert scene 1 is complete and audition is ready
+        let loadedAudition = try XCTUnwrap(store.audition(auditionID))
+        XCTAssertTrue(loadedAudition.pieces[0].isDone, "Scene 1 should be marked done after recording take")
+        XCTAssertTrue(loadedAudition.isPackageReady, "Audition package should be ready")
+        XCTAssertEqual(loadedAudition.status, .ready)
+
+        // 3. Casting sends revised sides!
+        let revisedScene1 = ScriptScene(
+            number: 1,
+            title: "Scene 1 (Revised)",
+            heading: "INT. COFFEE SHOP - NIGHT",
+            lines: [
+                ScriptLine(id: UUID(), character: "ALICE", text: "We need to talk now.", isMine: true),
+                ScriptLine(id: UUID(), character: "BOB", text: "Not here.", isMine: false)
+            ]
+        )
+
+        store.replaceSides(of: auditionID, with: [revisedScene1], sourceText: "revised sides text")
+
+        // 4. Run syncPieces() as would happen on resume / app launch
+        store.syncPieces()
+
+        // 5. Assert that revised scene is NOT marked done, package is NOT ready, status is .due
+        let revisedAudition = try XCTUnwrap(store.audition(auditionID))
+        let revisedScenePiece = try XCTUnwrap(revisedAudition.pieces.first(where: { $0.kind == .scene }))
+        XCTAssertFalse(revisedScenePiece.isDone, "Revised scene must NOT be marked done just because earlier take exists")
+        XCTAssertFalse(revisedAudition.isPackageReady, "Package must NOT be ready when revised scene has no take from current sides")
+        XCTAssertEqual(revisedAudition.status, .due, "Audition status must be .due after sides revision")
+
+        // 6. Record a take for the revised scene
+        let revisedTake = Take(
+            id: UUID(),
+            number: 2,
+            duration: 40.0,
+            recordedAt: Date(),
+            isCircled: true,
+            notes: [],
+            fileURL: URL(fileURLWithPath: "/tmp/take2.mov"),
+            auditionID: auditionID,
+            sceneIndex: 0
+        )
+        store.addTake(revisedTake)
+
+        let completedAudition = try XCTUnwrap(store.audition(auditionID))
+        let completedScenePiece = try XCTUnwrap(completedAudition.pieces.first(where: { $0.kind == .scene }))
+        XCTAssertTrue(completedScenePiece.isDone, "Revised scene must be marked done after shooting new take")
+        XCTAssertTrue(completedAudition.isPackageReady, "Package should now be ready")
+        XCTAssertEqual(completedAudition.status, .ready)
+    }
 }
