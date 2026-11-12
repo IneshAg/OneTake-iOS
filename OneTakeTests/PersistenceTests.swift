@@ -177,5 +177,24 @@ final class PersistenceTests: XCTestCase {
         XCTAssertNil(failedSave)
         XCTAssertTrue(FileManager.default.fileExists(atPath: saved2.path))
         XCTAssertEqual(try Data(contentsOf: saved2), data2, "Failed retake must leave previous recording intact")
+
+        // 4. Test actual rollback catch branch:
+        // When temp file exists so it passes guard, but moveItem(temp -> dest) throws an error,
+        // the catch block must restore the backup to dest.
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("locked-dir-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let temp3 = tempDir.appendingPathComponent("temp3.mov")
+        try Data("retake-that-fails-to-move".utf8).write(to: temp3)
+        // Lock parent directory so temp3 cannot be unlinked/moved by FileManager.moveItem
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: tempDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let rollbackSave = MediaStore.persist(temp3, as: "slate.mov", in: subfolder)
+        XCTAssertNil(rollbackSave, "Persist must return nil when moveItem fails")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: saved2.path), "Dest file must still exist after rollback")
+        XCTAssertEqual(try Data(contentsOf: saved2), data2, "Failed move must restore superseded recording from backup")
     }
 }
