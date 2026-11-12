@@ -640,5 +640,44 @@ final class CameraAndImageTests: XCTestCase {
         store.syncPieces()
         XCTAssertTrue(store.auditions[0].pieces[0].isDone, "Complete set of 3 headshots must mark piece done")
     }
+
+    @MainActor
+    func testTapeAnalyzerRequiresCompleteHeadshots() async {
+        let auditionID = UUID()
+        defer {
+            HeadshotStore.removeAuditionHeadshots(for: auditionID)
+            HeadshotStore.clearCache()
+        }
+
+        var audition = NoticeParser.Draft(project: "Film Project", role: "Lead").makeAudition()
+        audition.id = auditionID
+        audition.slateVideoURL = URL(fileURLWithPath: "/tmp/slate.mp4")
+        audition.pieces = [
+            Piece(kind: .slate, title: "Slate", detail: "Video", isDone: true, isOptional: false),
+            Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: false, isOptional: false)
+        ]
+
+        let dummy = createTestImage(width: 50, height: 50)
+        HeadshotStore.save(dummy, key: "front", auditionID: auditionID)
+
+        let analysisIncomplete = await TapeAnalyzer.analyze(audition, takes: [])
+        XCTAssertTrue(analysisIncomplete.findings.contains(where: { $0.title == "Headshots not attached" }),
+                     "Incomplete headshot set (only front) should trigger Headshots not attached finding")
+
+        HeadshotStore.save(dummy, key: "left", auditionID: auditionID)
+        HeadshotStore.save(dummy, key: "right", auditionID: auditionID)
+
+        let analysisComplete = await TapeAnalyzer.analyze(audition, takes: [])
+        XCTAssertFalse(analysisComplete.findings.contains(where: { $0.title == "Headshots not attached" }),
+                      "Complete headshot set should clear Headshots not attached finding")
+    }
+
+    @MainActor
+    func testCameraControllerInterruptionEvent() {
+        let camera = CameraController()
+        XCTAssertNil(camera.lastInterruption)
+        camera.clearInterruption()
+        XCTAssertNil(camera.lastInterruption)
+    }
 }
 

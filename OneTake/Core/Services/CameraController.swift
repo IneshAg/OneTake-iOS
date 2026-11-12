@@ -37,11 +37,21 @@ final class CameraController: NSObject {
     private(set) var lastRecording: URL?
     private(set) var audioLevel: Float = 0
     private(set) var audioMeterAvailable = false
-    private(set) var openPalmDetected = false
+    var openPalmDetected = false
     private(set) var isExposureLocked = false
     private(set) var zoomFactor: CGFloat = 1
     private(set) var currentResolution: CameraResolution = .hd1080
     private(set) var supportedResolutions: [CameraResolution] = CameraResolution.allCases
+
+    struct InterruptionEvent: Equatable, Sendable {
+        var url: URL?
+        var duration: TimeInterval
+        var hasSavedContent: Bool
+        var reason: String
+    }
+
+    private(set) var lastInterruption: InterruptionEvent?
+    func clearInterruption() { lastInterruption = nil }
 
     /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
     struct FaceReading: Equatable {
@@ -53,15 +63,15 @@ final class CameraController: NSObject {
     }
     /// Live face position for headshot alignment. nil = no face found. Only updates when
     /// `wantsFaceGuidance` was set before `configure`.
-    private(set) var face: FaceReading?
+    var face: FaceReading?
     /// On-device body-pose landmarks used only for the optional setup coach.
     struct BodyPoseReading: Equatable {
         var shoulderCenterX: CGFloat
         var shoulderTiltDegrees: Double
     }
-    private(set) var bodyPose: BodyPoseReading?
+    var bodyPose: BodyPoseReading?
     /// Average brightness of the frame, 0…1 (updates alongside `face`).
-    private(set) var lightLevel: Double?
+    var lightLevel: Double?
     @ObservationIgnored var wantsFaceGuidance = false
     @ObservationIgnored var wantsBodyPoseGuidance = false
     @ObservationIgnored var wantsHandGesture = false
@@ -69,8 +79,8 @@ final class CameraController: NSObject {
     @ObservationIgnored var faceGuidanceActive = true
     @ObservationIgnored private let faceOutput = AVCaptureVideoDataOutput()
     @ObservationIgnored private let faceQueue = DispatchQueue(label: "onetake.camera.face")
-    @ObservationIgnored private var lastFaceCheck = Date.distantPast
-    @ObservationIgnored private var faceBufferIsUpright = false
+    @ObservationIgnored var lastFaceCheck = Date.distantPast
+    @ObservationIgnored var faceBufferIsUpright = false
     @ObservationIgnored private var photoRequestID = 0
 
     func clearBodyPose() { bodyPose = nil }
@@ -100,9 +110,14 @@ final class CameraController: NSObject {
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
     @ObservationIgnored private var subjectAreaChangeObserver: Any?
+    @ObservationIgnored private var interruptionObserver: Any?
+    private var wasInterrupted = false
 
     deinit {
         if let obs = subjectAreaChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = interruptionObserver {
             NotificationCenter.default.removeObserver(obs)
         }
     }
@@ -224,6 +239,25 @@ final class CameraController: NSObject {
                     queue: nil
                 ) { [weak self] _ in
                     self?.resetFocusToContinuous()
+                }
+            }
+            if self.interruptionObserver == nil {
+                self.interruptionObserver = NotificationCenter.default.addObserver(
+                    forName: AVCaptureSession.wasInterruptedNotification,
+                    object: self.session,
+                    queue: nil
+                ) { [weak self] note in
+                    let reasonCode = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+                    let reasonText: String
+                    switch reasonCode {
+                    case 1: reasonText = "Audio device in use by another app"
+                    case 2: reasonText = "Video device in use by another app"
+                    case 3: reasonText = "App in background"
+                    default: reasonText = "Recording was interrupted"
+                    }
+                    Task { @MainActor in
+                        self?.handleSessionInterruption(reason: reasonText)
+                    }
                 }
             }
             Task { @MainActor in
@@ -563,6 +597,13 @@ final class CameraController: NSObject {
         Haptics.tick()
     }
 
+    private func handleSessionInterruption(reason: String) {
+        guard state == .recording || state == .paused else { return }
+        wasInterrupted = true
+        timer?.invalidate()
+        movieOutput.stopRecording()
+    }
+
     // MARK: Photo (headshots)
 
     /// Reports nil when nothing was captured (camera not ready, capture failed) — callers must not
@@ -642,11 +683,27 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
         // and is playable — that case is flagged with AVErrorRecordingSuccessfullyFinishedKey.
         let finished = error == nil
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let hasSavedContent = fileSize > 1024
+        let hadInterruption = wasInterrupted || (!finished && error != nil)
+
         Task { @MainActor in
-            let url = finished ? outputFileURL : nil
-            self.lastRecording = url
+            let url = finished ? outputFileURL : (hasSavedContent ? outputFileURL : nil)
+            self.lastRecording = finished ? outputFileURL : nil
             self.state = .ready
             self.isStopping = false
+
+            if hadInterruption {
+                let reason = self.wasInterrupted ? "Recording interrupted by system" : (error?.localizedDescription ?? "Recording interrupted")
+                self.lastInterruption = InterruptionEvent(
+                    url: hasSavedContent ? outputFileURL : nil,
+                    duration: self.elapsed,
+                    hasSavedContent: hasSavedContent,
+                    reason: reason
+                )
+                self.wasInterrupted = false
+            }
+
             let handler = self.recordingFinishedHandler
             self.recordingFinishedHandler = nil
             handler?(url)
@@ -658,213 +715,5 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         let image = error == nil ? photo.fileDataRepresentation().flatMap(UIImage.init(data:)) : nil
         Task { @MainActor in self.photoHandler?(image); self.photoHandler = nil }
-    }
-}
-
-// MARK: - Preview layer (UIKit)
-
-/// Hosts `AVCaptureVideoPreviewLayer` — not available in SwiftUI — inside a `UIView`.
-struct CameraPreview: UIViewRepresentable {
-    let session: AVCaptureSession
-    var gravity: AVLayerVideoGravity = .resizeAspectFill
-    /// Hands the preview layer to whoever keeps it level (see `CameraController.attachPreview`).
-    var onLayer: (@MainActor (AVCaptureVideoPreviewLayer) -> Void)? = nil
-
-    final class PreviewView: UIView {
-        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-        var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
-    }
-
-    func makeUIView(context: Context) -> PreviewView {
-        let view = PreviewView()
-        view.backgroundColor = .black
-        view.previewLayer.session = session
-        view.previewLayer.videoGravity = gravity
-        onLayer?(view.previewLayer)
-        return view
-    }
-
-    func updateUIView(_ uiView: PreviewView, context: Context) {
-        uiView.previewLayer.videoGravity = gravity
-    }
-}
-
-/// Camera background that falls back to a still in the Simulator (no camera there).
-struct CameraBackground: View {
-    let controller: CameraController
-    @State private var focusPoint: CGPoint?
-    @State private var focusRingScale: CGFloat = 1.3
-    @State private var focusRingOpacity: Double = 0
-    @State private var lastFocusPoint: CGPoint?
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                OT.cameraBg
-                #if targetEnvironment(simulator)
-                ZStack {
-                    LinearGradient(
-                        colors: [Color(white: 0.14), Color(white: 0.08)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 6) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 13)) // ot-lint:allow
-                            Text("SIMULATOR CAMERA")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced)) // ot-lint:allow
-                        }
-                        .foregroundStyle(Color.white.opacity(0.18)) // ot-lint:allow
-                        .padding(.bottom, 130) // ot-lint:allow
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
-                #else
-                CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
-                #endif
-
-                if let pt = focusPoint {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6) // ot-lint:allow camera focus reticle
-                            .stroke(OT.prompterGold, lineWidth: 2)
-                            .frame(width: 72, height: 72) // ot-lint:allow camera focus reticle
-
-                        Circle()
-                            .fill(OT.prompterGold)
-                            .frame(width: 4, height: 4)
-                    }
-                    .position(pt)
-                    .scaleEffect(focusRingScale)
-                    .opacity(focusRingOpacity)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                if controller.isExposureLocked {
-                    controller.unlockExposure()
-                }
-                lastFocusPoint = location
-                focusPoint = location
-                focusRingScale = 1.3
-                focusRingOpacity = 1.0
-                Haptics.tick()
-                controller.focusAndLockExposure(at: location)
-                withAnimation(.easeOut(duration: 0.25)) {
-                    focusRingScale = 1.0
-                }
-                withAnimation(.easeOut(duration: 0.4).delay(0.9)) {
-                    focusRingOpacity = 0
-                }
-            }
-            .onLongPressGesture(minimumDuration: 0.65) {
-                let point = lastFocusPoint ?? CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-                focusPoint = point
-                focusRingOpacity = 1
-                focusRingScale = 1
-                controller.lockExposure(at: point)
-                Haptics.success()
-                withAnimation(.easeOut(duration: 0.35).delay(1.2)) { focusRingOpacity = 0 }
-            }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                    .onChanged { lastFocusPoint = $0.location }
-            )
-        }
-        .ignoresSafeArea()
-    }
-}
-
-// MARK: - Live face detection (headshot alignment)
-
-extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        let now = Date()
-        let minimumInterval = wantsBodyPoseGuidance ? 0.25 : 0.15
-        guard (faceGuidanceActive || wantsHandGesture), now.timeIntervalSince(lastFaceCheck) > minimumInterval,
-              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        lastFaceCheck = now
-        let request = VNDetectFaceRectanglesRequest()
-        request.revision = VNDetectFaceRectanglesRequestRevision3
-        let poseRequest = wantsBodyPoseGuidance ? VNDetectHumanBodyPoseRequest() : nil
-        let handRequest = wantsHandGesture ? VNDetectHumanHandPoseRequest() : nil
-        handRequest?.maximumHandCount = 1
-        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: faceBufferIsUpright ? .up : .right, options: [:])
-        var requests: [VNRequest] = [request]
-        if let poseRequest { requests.append(poseRequest) }
-        if let handRequest { requests.append(handRequest) }
-        try? handler.perform(requests)
-        var results = request.results ?? []
-        if results.isEmpty || (wantsBodyPoseGuidance && (poseRequest?.results?.isEmpty ?? true))
-            || (wantsHandGesture && (handRequest?.results?.isEmpty ?? true)) {
-            // Orientation fallback in case sensor orientation or device flip inverts the buffer
-            let fallbackOrientation: CGImagePropertyOrientation = faceBufferIsUpright ? .down : .left
-            let fallbackHandler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: fallbackOrientation, options: [:])
-            try? fallbackHandler.perform(requests)
-            results = request.results ?? []
-        }
-        let best = results.max {
-            $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
-        }
-        let reading = best.map {
-            FaceReading(centerX: $0.boundingBox.midX, centerY: 1 - $0.boundingBox.midY,
-                        height: $0.boundingBox.height, yaw: $0.yaw?.doubleValue)
-        }
-        let pose = poseRequest?.results?.first.flatMap { observation -> BodyPoseReading? in
-            guard let left = try? observation.recognizedPoint(.leftShoulder),
-                  let right = try? observation.recognizedPoint(.rightShoulder),
-                  left.confidence >= 0.3, right.confidence >= 0.3 else { return nil }
-            let dx = Double(right.location.x - left.location.x)
-            guard abs(dx) > 0.04 else { return nil }
-            let dy = Double(right.location.y - left.location.y)
-            return BodyPoseReading(shoulderCenterX: (left.location.x + right.location.x) / 2,
-                                   shoulderTiltDegrees: atan2(dy, abs(dx)) * 180 / .pi)
-        }
-        let openPalm = handRequest?.results?.contains(where: Self.isOpenPalm) ?? false
-        let luma = Self.averageLuma(buffer)
-        Task { @MainActor in
-            self.face = reading
-            self.bodyPose = self.wantsBodyPoseGuidance ? pose : nil
-            self.openPalmDetected = self.wantsHandGesture && openPalm
-            self.lightLevel = luma
-        }
-    }
-
-    private static func isOpenPalm(_ hand: VNHumanHandPoseObservation) -> Bool {
-        guard let wrist = try? hand.recognizedPoint(.wrist), wrist.confidence >= 0.3 else { return false }
-        let fingers: [(VNHumanHandPoseObservation.JointName, VNHumanHandPoseObservation.JointName)] = [
-            (.indexTip, .indexPIP), (.middleTip, .middlePIP), (.ringTip, .ringPIP), (.littleTip, .littlePIP)
-        ]
-        return fingers.allSatisfy { tipName, pipName in
-            guard let tip = try? hand.recognizedPoint(tipName),
-                  let pip = try? hand.recognizedPoint(pipName),
-                  tip.confidence >= 0.25, pip.confidence >= 0.25 else { return false }
-            let tipDistance = hypot(tip.location.x - wrist.location.x, tip.location.y - wrist.location.y)
-            let pipDistance = hypot(pip.location.x - wrist.location.x, pip.location.y - wrist.location.y)
-            return tipDistance > pipDistance * 1.18
-        }
-    }
-
-    /// Mean brightness of the luma plane, sampled sparsely (cheap enough to run several times a second).
-    private static func averageLuma(_ buffer: CVPixelBuffer) -> Double? {
-        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return nil }
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
-        let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
-        let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
-        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
-        let pixels = base.assumingMemoryBound(to: UInt8.self)
-        var sum = 0
-        var count = 0
-        for y in Swift.stride(from: 0, to: height, by: 24) {
-            for x in Swift.stride(from: 0, to: width, by: 24) {
-                sum += Int(pixels[y * rowBytes + x])
-                count += 1
-            }
-        }
-        return count > 0 ? Double(sum) / Double(count) / 255 : nil
     }
 }

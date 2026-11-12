@@ -98,6 +98,7 @@
 		8AC8EDF80C8D19D7D0F95AA9 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C9D2695030DF9F8B1EE207 /* AppStore.swift */; };
 		8C2D19A7A992C4A0EEEF221C /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */; };
 		8F86B40F6115489309C61CD2 /* NoticeErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0B7EB471887ECAA637F32B /* NoticeErrorView.swift */; };
+		9151F6EB846F476498153229 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A9826C07FE47986380DFA2 /* CameraPreviewView.swift */; };
 		91AD8EEAF54A7A52D5AC6921 /* CameraAndImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */; };
 		92D14222F52D922364163F5C /* RunLinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24B649484D3F91B8AAD97DEB /* RunLinesView.swift */; };
 		937E6F2CE357A40D148D5BFF /* DeliveryReadyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB65A03163FA02E2CF0E8221 /* DeliveryReadyView.swift */; };
@@ -149,6 +150,7 @@
 		D39893B79002E87C68267386 /* NoticeDestinationAndNotesCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A0BFFE02780B2CB10D5E59 /* NoticeDestinationAndNotesCards.swift */; };
 		D486D5FA30E945D099BD25E6 /* ShootFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024CA3B657C99FDE7A1ABE2F /* ShootFlow.swift */; };
 		D5802831B30E8C69089910A6 /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345483DF2D07C4F4A026610E /* ShareInbox.swift */; };
+		D5AB525F823D579D9B4C863A /* CameraController+FaceDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0CB185A591C3F450AAAF532 /* CameraController+FaceDetection.swift */; };
 		D6CB5BEAD3E0CD6FEAA5E323 /* AccountAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC376E296C1D6BCD7673B002 /* AccountAuth.swift */; };
 		DB7E4A70D9D48951F015A567 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 460F7FE883F565AADEE6B75D /* Assets.xcassets */; };
 		DC76594B325BF1E2DCC01B43 /* AppStore+Auditions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8263A4AB65F8E9A5C7D9250 /* AppStore+Auditions.swift */; };
@@ -273,6 +275,7 @@
 		4E0B7EB471887ECAA637F32B /* NoticeErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeErrorView.swift; sourceTree = "<group>"; };
 		4EABD3AB4243733BEB44E5DA /* PackageFormatSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageFormatSheet.swift; sourceTree = "<group>"; };
 		5090388A967D26CF3672DEA7 /* PrepareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepareView.swift; sourceTree = "<group>"; };
+		50A9826C07FE47986380DFA2 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		5244894BF19AD9CFC70F90CC /* RouteDestinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinations.swift; sourceTree = "<group>"; };
 		525B1005F89E4C1A30FD8A25 /* AuditionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionCard.swift; sourceTree = "<group>"; };
 		52EEF58A7065CC2DE278783F /* ShootPromptCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShootPromptCards.swift; sourceTree = "<group>"; };
@@ -347,6 +350,7 @@
 		BD979F10FD71F886E0B18745 /* ProjectDetailsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDetailsCard.swift; sourceTree = "<group>"; };
 		BF88ACDAE9CD26DE99D27C3D /* SendProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendProgressView.swift; sourceTree = "<group>"; };
 		C0325D12C321B003DC6C16F4 /* AddAuditionFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAuditionFlow.swift; sourceTree = "<group>"; };
+		C0CB185A591C3F450AAAF532 /* CameraController+FaceDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CameraController+FaceDetection.swift"; sourceTree = "<group>"; };
 		C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
 		C390CBD7F82C19E1E1F91462 /* AuditionMaterialKindPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionMaterialKindPicker.swift; sourceTree = "<group>"; };
@@ -820,6 +824,8 @@
 			children = (
 				CC376E296C1D6BCD7673B002 /* AccountAuth.swift */,
 				97B00C1CC0D902062C97DE0A /* CameraController.swift */,
+				C0CB185A591C3F450AAAF532 /* CameraController+FaceDetection.swift */,
+				50A9826C07FE47986380DFA2 /* CameraPreviewView.swift */,
 				AD96D30DE39A1B603221171D /* CloudLink.swift */,
 				A3F768EE4FB0C1F7DC721918 /* ImageFraming.swift */,
 				D5F07E8CD4E38F2C00DC4954 /* MediaExporter.swift */,
@@ -1070,9 +1076,11 @@
 				7B4677F6A0DA8203B220F2EE /* AuditionsView.swift in Sources */,
 				059CFC3D33005A8BF5322934 /* BPETokenizer.swift in Sources */,
 				AD42241F536B296ECE03039C /* CallbackSheet.swift in Sources */,
+				D5AB525F823D579D9B4C863A /* CameraController+FaceDetection.swift in Sources */,
 				644EF977785E212E20CD6BF7 /* CameraController.swift in Sources */,
 				DF1CEBDB7A74768EE6697F62 /* CameraGuidanceSpeaker.swift in Sources */,
 				D36F8C84A794BFB6B448C95C /* CameraOverlay.swift in Sources */,
+				9151F6EB846F476498153229 /* CameraPreviewView.swift in Sources */,
 				BD8BC110A6956924B84FC2BE /* CloudLink.swift in Sources */,
 				3BF9C3F2BE84546F4D868058 /* CoreMLParserRunner.swift in Sources */,
 				0E18ED7204C309622709EFA4 /* Date+Formatting.swift in Sources */,

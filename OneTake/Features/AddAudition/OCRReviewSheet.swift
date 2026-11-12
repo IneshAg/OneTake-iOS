@@ -55,6 +55,9 @@ struct OCRReviewSheet: View {
         (draft.availablePortions.count <= 1 || !selectedPortionIDs.isEmpty)
     }
 
+    var currentRoleText: String { roleText }
+    var isUseThisEnabled: Bool { canUseThis }
+
     private var portionsArePages: Bool {
         !draft.availablePortions.isEmpty && draft.availablePortions.allSatisfy { $0.pageNumber != nil }
     }

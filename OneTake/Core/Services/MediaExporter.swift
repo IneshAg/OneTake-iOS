@@ -64,8 +64,8 @@ enum MediaExporter {
         if let f = audition.fullLengthVideoURL { slate.append(Clip(kind: .fullLength, label: "Full-body shot", url: f)) }
         var clips: [Clip] = []
         // Takes are keyed by audition + scene *index* (what ShootFlow records), not by the scene's
-        // display number, and only this audition's takes are eligible whatever the caller passes in.
-        let auditionTakes = takes.filter { $0.auditionID == audition.id }
+        // display number, and only this audition's takes in the current sides revision are eligible.
+        let auditionTakes = takes.filter { $0.auditionID == audition.id && !$0.previousSides && $0.currentSidesRevision == audition.currentSidesRevision }
         for sceneIndex in audition.scenes.indices {
             let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
             if let chosen = sceneTakes.first(where: \.isCircled), let url = chosen.fileURL {

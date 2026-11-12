@@ -317,14 +317,77 @@ extension NoticeParser {
         // OCR often drops the punctuation around times in lines such as
         // “Video submissions will be accepted until 11:59 pm on December 6, 2026”.
         // Anchor on that explicit submission wording before scanning other event dates.
-        let acceptedUntil = #"(?i)\b(?:video|self[- ]?tape|tape)\s+submissions?\s+(?:will\s+be\s+)?accepted\s+(?:until|through)\s+(?:(?:by|at)\s+)?(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\s+)?(?:on\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})"#
-        if let value = firstMatch(acceptedUntil, in: text) {
-            let normalized = value.replacingOccurrences(of: ",", with: "")
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = .current
-            formatter.dateFormat = "MMMM d yyyy"
-            if let date = formatter.date(from: normalized) { return date }
+        let acceptedUntilPattern = #"(?i)\b(?:video|self[- ]?tape|tape)\s+submissions?\s+(?:will\s+be\s+)?accepted\s+(?:until|through)\s+(?:(?:by|at)\s+)?(?:(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?))(?:\s+([A-Z]{2,4}))?\s+(?:on\s+)?)?([A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})(?:\s+(?:at|by|,)\s+(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?))(?:\s+([A-Z]{2,4}))?)?"#
+        if let regex = try? NSRegularExpression(pattern: acceptedUntilPattern),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+            func groupStr(_ index: Int) -> String? {
+                guard index < match.numberOfRanges, match.range(at: index).location != NSNotFound,
+                      let r = Range(match.range(at: index), in: text) else { return nil }
+                return String(text[r])
+            }
+            let timeStr = groupStr(1) ?? groupStr(4)
+            let tzStr = groupStr(2) ?? groupStr(5)
+            if let rawDateStr = groupStr(3) {
+                var timeZone: TimeZone = .current
+                if let tz = tzStr?.uppercased() {
+                    let tzAliases: [String: String] = [
+                        "ET": "America/New_York",
+                        "EDT": "America/New_York",
+                        "EST": "America/New_York",
+                        "CT": "America/Chicago",
+                        "CDT": "America/Chicago",
+                        "CST": "America/Chicago",
+                        "MT": "America/Denver",
+                        "MDT": "America/Denver",
+                        "MST": "America/Denver",
+                        "PT": "America/Los_Angeles",
+                        "PDT": "America/Los_Angeles",
+                        "PST": "America/Los_Angeles"
+                    ]
+                    if let id = tzAliases[tz], let mappedTZ = TimeZone(identifier: id) {
+                        timeZone = mappedTZ
+                    } else if let parsedTZ = TimeZone(abbreviation: tz) {
+                        timeZone = parsedTZ
+                    }
+                }
+                let cleanDate = rawDateStr.replacingOccurrences(
+                    of: #"(?i)(\d)(st|nd|rd|th)\b"#,
+                    with: "$1",
+                    options: .regularExpression
+                ).replacingOccurrences(of: ",", with: "")
+
+                if var time = timeStr {
+                    time = time.replacingOccurrences(of: ".", with: "").trimmingCharacters(in: .whitespaces)
+                    let formats = [
+                        "h:mm a MMMM d yyyy",
+                        "h a MMMM d yyyy",
+                        "h:mma MMMM d yyyy",
+                        "ha MMMM d yyyy",
+                        "h:mm a MMM d yyyy",
+                        "h a MMM d yyyy",
+                        "h:mma MMM d yyyy",
+                        "ha MMM d yyyy"
+                    ]
+                    let dtStr = "\(time) \(cleanDate)"
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.timeZone = timeZone
+                    for f in formats {
+                        formatter.dateFormat = f
+                        if let d = formatter.date(from: dtStr) {
+                            return d
+                        }
+                    }
+                }
+
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = timeZone
+                formatter.dateFormat = "MMMM d yyyy"
+                if let d = formatter.date(from: cleanDate) { return d }
+                formatter.dateFormat = "MMM d yyyy"
+                if let d = formatter.date(from: cleanDate) { return d }
+            }
         }
         let submissionKeywords = [
             "due", "deadline", "submit by", "submit before", "submission deadline", "tape due",
