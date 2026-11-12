@@ -42,6 +42,8 @@ targets:
         # instead of failing Apple's authorization request on a phone. When a paid team exists, add
         # the entitlement under `entitlements.properties` above and set this to true.
         AppleSignInEnabled: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         CFBundleURLTypes:
           - CFBundleURLSchemes: [onetake]
           - CFBundleURLSchemes: [$(GOOGLE_REVERSED_CLIENT_ID)]
@@ -50,8 +52,13 @@ targets:
       - target: OneTakeShare
       - package: GoogleSignIn
         product: GoogleSignIn
+    preBuildScripts:
+      - name: Design lint
+        script: "\"${SRCROOT}/scripts/lint-design-system.sh\" --xcode || true"
+        basedOnDependencyAnalysis: false
     settings:
       base:
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake
         # From Google Cloud Console → Credentials → OAuth client ID (iOS). Until these are real,
         # the Google button stays disabled rather than crashing.

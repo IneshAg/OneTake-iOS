@@ -1,0 +1,9 @@
+radius 234
+font-size 251
+frame-literal 232
+padding-literal 501
+raw-color 106
+system-button-style 11
+manual-surface 76
+hidden-navbar 38
+on-dark-flag 18
