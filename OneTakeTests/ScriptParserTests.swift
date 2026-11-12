@@ -619,4 +619,27 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(scenes[1].lines[1].text, "I'm not leaving you behind.")
         XCTAssertTrue(scenes[1].lines[1].isMine)
     }
+
+    func testCoreMLClassificationSeparatesActionAndNonStandardHeadingsWithoutRegex() {
+        let script = """
+        SCENE 4
+
+        MAYA
+        We have to leave before midnight.
+
+        Silence hangs in the cold air.
+
+        JOHN
+        Not without the evidence.
+        """
+        let scenes = ScriptParser.parseScenes(from: script, myRole: "Maya")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Maya")
+        XCTAssertEqual(scenes[0].lines[0].text, "We have to leave before midnight.")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[1].character, "John")
+        XCTAssertEqual(scenes[0].lines[1].text, "Not without the evidence.")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+    }
 }

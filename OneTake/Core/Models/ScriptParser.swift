@@ -79,6 +79,7 @@ enum ScriptParser {
         var activeCharacter: String? = nil
         var inSettingOrNoteBlock = false
         var hasExplicitHeading = false
+        var hadBlankLine = true
 
         let runner = CoreMLScriptParserRunner.shared
         let mlAvailable = runner.isAvailable
@@ -131,6 +132,7 @@ enum ScriptParser {
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
                 inParenthetical = false
+                hadBlankLine = true
                 continue
             }
 
@@ -141,6 +143,7 @@ enum ScriptParser {
                 continue
             }
 
+            // Watermarks, timestamps, and page numbering
             if isWatermarkOrHeader(trimmed) {
                 continue
             }
@@ -158,6 +161,7 @@ enum ScriptParser {
                 heading = "SIDES"
                 activeCharacter = String(trimmed[r]).capitalized
                 inSettingOrNoteBlock = true
+                hadBlankLine = false
                 continue
             }
 
@@ -175,7 +179,9 @@ enum ScriptParser {
                 || isLikelyIndentedCue(trimmed, raw: raw)
             )
 
-            if isSceneHeading(trimmed) {
+            let isMLHeading = !isCue && mlClass == .sceneHeading && !trimmed.hasSuffix(".") && !trimmed.hasSuffix("!") && !trimmed.hasSuffix("?")
+
+            if isSceneHeading(trimmed) || isMLHeading {
                 flush()
                 currentCharacter = nil
                 inSettingOrNoteBlock = false
@@ -194,9 +200,11 @@ enum ScriptParser {
                     heading = trimmed
                 }
                 hasExplicitHeading = true
+                hadBlankLine = false
             } else if isActHeading(trimmed) || isWebJunkOrFooter(trimmed) {
                 flush()
                 currentCharacter = nil
+                hadBlankLine = false
             } else if isLineOrPageNumber(trimmed) {
                 continue
             } else if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
@@ -204,19 +212,60 @@ enum ScriptParser {
                 if isLikelyCue(inner) || (isPlausibleCueName(inner) && mlClass == .characterCue) {
                     flush()
                     currentCharacter = cueName(inner)
+                    hadBlankLine = false
                     continue
                 } else {
                     continue
                 }
+            } else if upper.hasPrefix("VIDEO:") || upper.hasPrefix("VISUAL:") || upper.hasPrefix("SFX:") || upper.hasPrefix("SUPER:") || upper.hasPrefix("GRAPHIC:") || upper.hasPrefix("DISCLAIMER:") || (!isCue && mlClass == .metadata) {
+                flush()
+                currentCharacter = nil
+                hadBlankLine = false
+                continue
+            } else if upper.hasPrefix("AUDIO:") {
+                let remainder = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                if let colon = remainder.firstIndex(of: ":") {
+                    let speaker = String(remainder[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let line = String(remainder[remainder.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                    flush()
+                    currentCharacter = cueName(speaker)
+                    currentText = line
+                } else if currentCharacter != nil {
+                    currentText += (currentText.isEmpty ? "" : " ") + remainder
+                }
+                hadBlankLine = false
+                continue
+            } else if let match = periodCueRegex?.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+                      let nameR = Range(match.range(at: 1), in: trimmed),
+                      let textR = Range(match.range(at: 2), in: trimmed) {
+                let name = String(trimmed[nameR])
+                let nonCuePeriodWords: Set<String> = ["INT", "EXT", "MR", "DR", "MRS", "MS", "SC", "ACT", "NO", "P", "PG", "VS", "ETC", "ST"]
+                if isLikelyCue(name) && !nonCuePeriodWords.contains(name.uppercased()) {
+                    flush()
+                    currentCharacter = cueName(name)
+                    currentText = String(trimmed[textR]).trimmingCharacters(in: .whitespaces)
+                    hadBlankLine = false
+                }
+            } else if let colon = trimmed.firstIndex(of: ":"),
+                      isLikelyCue(String(trimmed[..<colon])) || speakerKey(String(trimmed[..<colon])).map({ speakers.contains($0) }) == true {
+                flush()
+                currentCharacter = cueName(String(trimmed[..<colon]))
+                currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                hadBlankLine = false
+            } else if isCue {
+                flush()
+                currentCharacter = cueName(trimmed)
+                hadBlankLine = false
             } else if trimmed.hasPrefix("(") && !trimmed.contains(")") {
                 inParenthetical = true
                 continue
-            } else if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
+            } else if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (!isCue && mlClass == .parenthetical) {
                 // Standalone parenthetical stage direction (e.g. "(whispering)") — ignore without flushing speaker
                 continue
-            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) || (currentCharacter == nil && mlClass == .action) {
+            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) || (!isCue && (currentCharacter == nil || (hadBlankLine && !currentText.isEmpty)) && mlClass == .action && (trimmed.hasSuffix(".") || trimmed.hasSuffix("!"))) {
                 flush()
                 currentCharacter = nil
+                hadBlankLine = false
                 if upper.hasPrefix("SETTING:") || upper.hasPrefix("SETTINGS:") || upper.hasPrefix("DIRECTOR NOTE:") {
                     inSettingOrNoteBlock = true
                 }
@@ -234,45 +283,14 @@ enum ScriptParser {
                         currentText += (currentText.isEmpty ? "" : " ") + trimmed
                     }
                 }
-            } else if upper.hasPrefix("VIDEO:") || upper.hasPrefix("VISUAL:") || upper.hasPrefix("SFX:") || upper.hasPrefix("SUPER:") || upper.hasPrefix("GRAPHIC:") || upper.hasPrefix("DISCLAIMER:") || (!isCue && mlClass == .metadata) {
-                flush()
-                currentCharacter = nil
-                continue
-            } else if upper.hasPrefix("AUDIO:") {
-                let remainder = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                if let colon = remainder.firstIndex(of: ":") {
-                    let speaker = String(remainder[..<colon]).trimmingCharacters(in: .whitespaces)
-                    let line = String(remainder[remainder.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-                    flush()
-                    currentCharacter = cueName(speaker)
-                    currentText = line
-                } else if currentCharacter != nil {
-                    currentText += (currentText.isEmpty ? "" : " ") + remainder
-                }
-                continue
-            } else if let match = periodCueRegex?.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-                      let nameR = Range(match.range(at: 1), in: trimmed),
-                      let textR = Range(match.range(at: 2), in: trimmed) {
-                let name = String(trimmed[nameR])
-                let nonCuePeriodWords: Set<String> = ["INT", "EXT", "MR", "DR", "MRS", "MS", "SC", "ACT", "NO", "P", "PG", "VS", "ETC", "ST"]
-                if isLikelyCue(name) && !nonCuePeriodWords.contains(name.uppercased()) {
-                    flush()
-                    currentCharacter = cueName(name)
-                    currentText = String(trimmed[textR]).trimmingCharacters(in: .whitespaces)
-                }
-            } else if let colon = trimmed.firstIndex(of: ":"),
-                      isLikelyCue(String(trimmed[..<colon])) || speakerKey(String(trimmed[..<colon])).map({ speakers.contains($0) }) == true {
-                flush()
-                currentCharacter = cueName(String(trimmed[..<colon]))
-                currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if isCue {
-                flush()
-                currentCharacter = cueName(trimmed)
+                hadBlankLine = false
             } else if currentCharacter != nil {
                 currentText += (currentText.isEmpty ? "" : " ") + trimmed
+                hadBlankLine = false
             } else if hasExplicitHeading && activeCharacter != nil {
                 currentCharacter = activeCharacter
                 currentText += (currentText.isEmpty ? "" : " ") + trimmed
+                hadBlankLine = false
             }
         }
         flush()
@@ -456,6 +474,7 @@ enum ScriptParser {
         "UNION", "NON-UNION", "NON UNION", "SAG-AFTRA", "EQUITY", "LOCATION", "VENUE", "AGE", "AGES",
         "RATE OF PAY", "PAY RATE", "VIDEO USAGE", "USAGE", "AGENCY FEE", "PRINCIPAL ROLE", "SECONDARY ROLE",
         "MALE", "FEMALE", "MALE AGE", "FEMALE AGE", "YEARS", "YRS", "ESCAPE PLAN", "ANNOUNCEMENT",
+        "CLIENT", "PRODUCT", "CAMPAIGN", "COMMERCIAL COPY",
         "SETTING", "SETTINGS", "DIRECTOR NOTE", "DIRECTOR NOTES", "SLATE INSTRUCTION", "SLATE INSTRUCTIONS",
         "HOW TO USE THESE SIDES", "HOW TO USE", "CASTING SIDES", "AUDITION SIDES", "THE CHARACTERS IN THIS DOCUMENT",
         "THE CHARACTERS", "THE SIDE", "SIDE A", "SIDE B", "SIDE C", "SIDE D", "MULTIPLE ROLES",
