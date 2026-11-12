@@ -20,7 +20,7 @@ struct AuditionsView: View {
                             Button { store.push(.auditionDetail(audition.id)) } label: {
                                 AuditionCard(audition: audition) { store.continueAudition(audition.id) }
                             }
-                            .buttonStyle(PressableCardStyle())
+                            .buttonStyle(OTPressStyle(.card))
 
                             if pendingDelete?.id == audition.id {
                                 inlineDeleteConfirmation(for: audition)

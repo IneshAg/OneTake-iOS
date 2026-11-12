@@ -705,10 +705,8 @@ struct StandalonePracticeView: View {
                                 Image(systemName: "mic.fill")
                                 Text("Run voice")
                             }
-                            .font(.otHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 52)
                         }
-                        .modifier(GlassCapsuleButtonCompatibility())
+                        .buttonStyle(.ot(.glass, size: .large))
 
                         Button {
                             launchPractice(mode: .camera)
@@ -717,10 +715,8 @@ struct StandalonePracticeView: View {
                                 Image(systemName: "video.fill")
                                 Text("Record take")
                             }
-                            .font(.otHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 52)
                         }
-                        .modifier(GlassProminentCapsuleButtonCompatibility())
+                        .buttonStyle(.ot(.primary, size: .large))
                     }
                     .padding(.horizontal, OT.gutter)
                     .padding(.top, 10)

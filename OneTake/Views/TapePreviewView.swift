@@ -54,6 +54,7 @@ struct TapePreviewView: View {
             Spacer(minLength: 0)
         }
         .background(OT.cameraBg.ignoresSafeArea())
+        .otSurface(.camera)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
@@ -62,7 +63,7 @@ struct TapePreviewView: View {
                     .buttonStyle(.otPrimary)
                     .disabled(tape == nil)
                 Button(changeActionTitle) { changeSelectedPiece() }
-                    .buttonStyle(.otSecondaryDark)
+                    .buttonStyle(.otSecondary)
             }
             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         }

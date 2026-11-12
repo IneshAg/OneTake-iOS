@@ -318,100 +318,7 @@ struct PackageStepsBar: View {
 
 // MARK: - Buttons
 
-/// A native iOS highlight style for whole-card buttons (audition cards, first-run card).
-struct PressableCardStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.82 : 1)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
 
-struct PrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    var tint: Color = OT.accent
-    var cornerRadius: CGFloat = 14
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.otHeadline)
-            .foregroundStyle(OT.labelOnAccent)
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(isEnabled ? tint : tint.opacity(0.35))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .opacity(configuration.isPressed ? 0.78 : (isEnabled ? 1 : 0.55))
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-struct SecondaryButtonStyle: ButtonStyle {
-    var onDark = false
-    var cornerRadius: CGFloat = 14
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.otHeadline)
-            .foregroundStyle(onDark ? .white : OT.labelPrimary)
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(onDark ? Color.white.opacity(0.14) : OT.fillField)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .opacity(configuration.isPressed ? 0.70 : 1)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-struct CompactSecondaryButtonStyle: ButtonStyle {
-    var onDark = false
-    var cornerRadius: CGFloat = 10
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.otFootnote.weight(.semibold))
-            .foregroundStyle(onDark ? .white : OT.labelPrimary)
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(onDark ? Color.white.opacity(0.14) : OT.fillField)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .opacity(configuration.isPressed ? 0.70 : 1)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-/// Figma's compact glass action for secondary controls. Primary actions keep their solid accent fill.
-struct GlassLabelButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.otSubhead.weight(.semibold))
-            .foregroundStyle(OT.accent)
-            .padding(.horizontal, 13)
-            .frame(minHeight: 40)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.62), lineWidth: 0.7))
-            .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
-            .opacity(configuration.isPressed ? 0.72 : 1)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-extension ButtonStyle where Self == PrimaryButtonStyle { static var otPrimary: PrimaryButtonStyle { .init() } }
-extension ButtonStyle where Self == SecondaryButtonStyle {
-    static var otSecondary: SecondaryButtonStyle { .init() }
-    static var otSecondaryDark: SecondaryButtonStyle { .init(onDark: true) }
-}
-extension ButtonStyle where Self == CompactSecondaryButtonStyle {
-    static var otCompact: CompactSecondaryButtonStyle { .init() }
-    static var otCompactDark: CompactSecondaryButtonStyle { .init(onDark: true) }
-}
-extension ButtonStyle where Self == GlassLabelButtonStyle { static var otGlass: GlassLabelButtonStyle { .init() } }
 
 // MARK: - Schedule row (v2/Schedule Row)
 
@@ -607,23 +514,6 @@ extension Date {
 
 // MARK: - Native iOS Glass Back Button
 
-struct NativeNavPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.65 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-struct CircularIconPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.55 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 struct GlassBackButton: View {
     var label: String = "Back"
     var onDark: Bool = false
@@ -714,48 +604,17 @@ struct GlassButtonCompatibility: ViewModifier {
             content
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7))
-                .buttonStyle(NativeNavPressStyle())
+                .buttonStyle(OTPressStyle(.nav))
         }
         #else
         if enabled {
             content
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7))
-                .buttonStyle(NativeNavPressStyle())
+                .buttonStyle(OTPressStyle(.nav))
         } else {
             content.buttonStyle(.plain)
         }
-        #endif
-    }
-}
-
-struct GlassCapsuleButtonCompatibility: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            content.buttonStyle(.glass).buttonBorderShape(.capsule)
-        } else {
-            content.buttonStyle(.otGlass)
-        }
-        #else
-        content.buttonStyle(.otGlass)
-        #endif
-    }
-}
-
-/// Prominent native glass action with a branded solid fallback before iOS 26.
-struct GlassProminentCapsuleButtonCompatibility: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(OT.accent)
-        } else {
-            content.buttonStyle(.otPrimary)
-        }
-        #else
-        content.buttonStyle(.otPrimary)
         #endif
     }
 }

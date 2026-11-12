@@ -23,4 +23,36 @@ final class DesignSystemTests: XCTestCase {
         }
         XCTAssertGreaterThan(h(.accessibility3), h(.large))
     }
+
+    private func height(_ v: some View) -> CGFloat {
+        UIHostingController(rootView: v.frame(width: 320)).sizeThatFits(in: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)).height
+    }
+
+    func testPrimaryAndSecondaryShareHeight() {
+        XCTAssertEqual(height(Button("Continue") {}.buttonStyle(.ot(.primary))), 50)
+        XCTAssertEqual(height(Button("Retake") {}.buttonStyle(.ot(.secondary))), 50)
+    }
+
+    func testMenuMatchesButtonHeight() {
+        for size in [OTControlSize.large, .medium] {
+            let b = height(Button("Camera") {}.buttonStyle(.ot(.secondary, size: size)))
+            let m = height(OTMenuButton("Photos", systemImage: "photo", size: size) { Button("Front") {} })
+            XCTAssertEqual(b, m, "\(size)")
+        }
+    }
+
+    func testSmallButtonKeepsTapTarget() {
+        XCTAssertEqual(height(Button("Edit") {}.buttonStyle(.ot(.secondary, size: .small, fullWidth: false))), 44)
+    }
+
+    func testButtonsGrowWithDynamicType() {
+        let v = Button("Continue to slate") {}.buttonStyle(.ot(.primary))
+            .environment(\.dynamicTypeSize, .accessibility3)
+        XCTAssertGreaterThan(height(v), 50)
+    }
+
+    func testCameraSurfaceUsesLightForeground() {
+        XCTAssertEqual(OTButtonStyle.foreground(for: .secondary, surface: .camera), OT.cameraLabel)
+        XCTAssertEqual(OTButtonStyle.foreground(for: .secondary, surface: .standard), OT.labelPrimary)
+    }
 }

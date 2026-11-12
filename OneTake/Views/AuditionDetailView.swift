@@ -30,7 +30,7 @@ struct AuditionDetailView: View {
                         Button { showEdit = true } label: {
                             Label("Edit details", systemImage: "pencil")
                         }
-                        .modifier(GlassCapsuleButtonCompatibility())
+                        .buttonStyle(.ot(.glass, size: .medium, fullWidth: false))
 
                         Menu {
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
