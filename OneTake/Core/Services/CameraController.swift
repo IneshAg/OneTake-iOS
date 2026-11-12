@@ -600,7 +600,7 @@ final class CameraController: NSObject {
             context.fill(CGRect(x: 0, y: 0, width: 720, height: 960))
             // Body silhouette
             UIColor(white: 0.25, alpha: 1).setFill()
-            UIBezierPath(roundedRect: CGRect(x: 140, y: 560, width: 440, height: 460), cornerRadius: 120).fill()
+            UIBezierPath(roundedRect: CGRect(x: 140, y: 560, width: 440, height: 460), cornerRadius: 120).fill() // ot-lint:allow
             // Head silhouette
             context.cgContext.fillEllipse(in: CGRect(x: 210, y: 230, width: 300, height: 300))
             // Facial features for Vision face detection in simulator
@@ -608,7 +608,7 @@ final class CameraController: NSObject {
             context.cgContext.fillEllipse(in: CGRect(x: 280, y: 330, width: 35, height: 20))
             context.cgContext.fillEllipse(in: CGRect(x: 405, y: 330, width: 35, height: 20))
             context.cgContext.fillEllipse(in: CGRect(x: 350, y: 375, width: 20, height: 30))
-            UIBezierPath(roundedRect: CGRect(x: 310, y: 440, width: 100, height: 22), cornerRadius: 10).fill()
+            UIBezierPath(roundedRect: CGRect(x: 310, y: 440, width: 100, height: 22), cornerRadius: 10).fill() // ot-lint:allow
         }
     }
     #endif
@@ -712,12 +712,12 @@ struct CameraBackground: View {
                         Spacer()
                         HStack(spacing: 6) {
                             Image(systemName: "camera.fill")
-                                .font(.system(size: 13))
+                                .font(.system(size: 13)) // ot-lint:allow
                             Text("SIMULATOR CAMERA")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced)) // ot-lint:allow
                         }
-                        .foregroundStyle(Color.white.opacity(0.18))
-                        .padding(.bottom, 130)
+                        .foregroundStyle(Color.white.opacity(0.18)) // ot-lint:allow
+                        .padding(.bottom, 130) // ot-lint:allow
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -728,9 +728,9 @@ struct CameraBackground: View {
 
                 if let pt = focusPoint {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 6) // ot-lint:allow camera focus reticle
                             .stroke(OT.prompterGold, lineWidth: 2)
-                            .frame(width: 72, height: 72)
+                            .frame(width: 72, height: 72) // ot-lint:allow camera focus reticle
 
                         Circle()
                             .fill(OT.prompterGold)

@@ -9,11 +9,10 @@ struct HeadshotImage: View {
     var realKey: String? = nil
     var auditionID: UUID? = nil
     var iconSize: CGFloat? = nil
-    var onDark: Bool = false
     @Environment(\.otSurface) private var otSurface
 
     var body: some View {
-        let isDark = onDark || otSurface == .camera
+        let isDark = otSurface == .camera
         if let realKey, let real = HeadshotStore.load(key: realKey, auditionID: auditionID) {
             Color.clear
                 .overlay {

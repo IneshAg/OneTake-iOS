@@ -15,17 +15,19 @@ struct RootTabView: View {
             Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
                 NavigationStack(path: $store.auditionsPath) {
                     AuditionsView()
-                        .showSystemTabBar()
                         .withRoutes()
                 }
+                .toolbarVisibility(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                .background(TabBarShower(isVisible: store.auditionsPath.isEmpty))
             }
 
             Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
                 NavigationStack(path: $store.practicePath) {
                     PracticeView()
-                        .showSystemTabBar()
                         .withRoutes()
                 }
+                .toolbarVisibility(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
+                .background(TabBarShower(isVisible: store.practicePath.isEmpty))
             }
 
             if isSearchAvailable {
@@ -35,18 +37,20 @@ struct RootTabView: View {
                     Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
                         NavigationStack(path: $store.searchPath) {
                             SearchView()
-                                .showSystemTabBar()
                                 .withRoutes()
                         }
+                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                        .background(TabBarShower(isVisible: store.searchPath.isEmpty))
                     }
                 } else {
                     // Earlier iOS versions still get the native dedicated Search tab role.
                     Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                         NavigationStack(path: $store.searchPath) {
                             SearchView()
-                                .showSystemTabBar()
                                 .withRoutes()
                         }
+                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                        .background(TabBarShower(isVisible: store.searchPath.isEmpty))
                     }
                 }
             }

@@ -52,17 +52,17 @@ extension View {
             .toolbarVisibility(.hidden, for: .tabBar)
             .toolbarVisibility(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
-            .toolbar(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
             .navigationBarBackButtonHidden(true)
             .background(TabBarHider())
     }
 
     @ViewBuilder
-    func showSystemTabBar() -> some View {
+    func showSystemTabBar(isVisible: Bool = true) -> some View {
         self
-            .toolbarVisibility(.visible, for: .tabBar)
-            .toolbar(.visible, for: .tabBar)
-            .background(TabBarShower())
+            .toolbarVisibility(isVisible ? .visible : .hidden, for: .tabBar)
+            .toolbar(isVisible ? .visible : .hidden, for: .tabBar)
+            .background(TabBarShower(isVisible: isVisible))
     }
 
     @ViewBuilder

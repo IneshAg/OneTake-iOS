@@ -44,7 +44,6 @@
 		3042E8B4DDC45FC5F7BD2DBC /* PackageStepsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 421506E5D25D69A219EAD138 /* PackageStepsBar.swift */; };
 		312257371A8AF25746C8D948 /* OneTakeWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 25D4B89A52AB1B4E186168C9 /* OneTakeWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		31622FD4DF646C18A2A880E4 /* AuditionMaterialKindPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C390CBD7F82C19E1E1F91462 /* AuditionMaterialKindPicker.swift */; };
-		330B06B01CCBE52C9FF785E4 /* LegacyAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6869F867905084EB551A3504 /* LegacyAliases.swift */; };
 		34D330AFFABEC3A628DF6DF8 /* VideoThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3937881922C63C8DDEBF8C /* VideoThumbnail.swift */; };
 		37E276C5796C6B7C4B1B5935 /* AddAuditionFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0325D12C321B003DC6C16F4 /* AddAuditionFlow.swift */; };
 		384203EFECEF78DCA2E834C2 /* TapeCheckFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDD268AAAE54F380B409C97 /* TapeCheckFilterTests.swift */; };
@@ -291,7 +290,6 @@
 		650B8EB9BF4FC589B17C44F9 /* OneTakeUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OneTakeUI; path = Packages/OneTakeUI; sourceTree = SOURCE_ROOT; };
 		65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageAndSentTests.swift; sourceTree = "<group>"; };
 		667B35392F06BE17F7A058ED /* PracticeSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeSetupView.swift; sourceTree = "<group>"; };
-		6869F867905084EB551A3504 /* LegacyAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyAliases.swift; sourceTree = "<group>"; };
 		695D3713FCFD661E5D195C71 /* OneTakeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeApp.swift; sourceTree = "<group>"; };
 		69669BF4964888649591F9C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6A9B45DB8FE05854A1B7364A /* RecallWordHintText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecallWordHintText.swift; sourceTree = "<group>"; };
@@ -697,7 +695,6 @@
 			isa = PBXGroup;
 			children = (
 				B3FEF6173B7990896BE530DB /* HeadshotImage.swift */,
-				6869F867905084EB551A3504 /* LegacyAliases.swift */,
 				C74F497EF5215F15004D79F9 /* PhotoSourceMenu.swift */,
 				25CFE061CCE5B4F2B436C20C /* ProfileButton.swift */,
 			);
@@ -1010,7 +1007,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/scripts/lint-design-system.sh\" --xcode || true";
+			shellScript = "\"${SRCROOT}/scripts/lint-design-system.sh\" --strict --xcode";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1087,7 +1084,6 @@
 				63C1D1A28A713F4272366F23 /* ImageFraming.swift in Sources */,
 				F3884FDBA699A144C3AE74FE /* KeepScreenAwake.swift in Sources */,
 				AB66178E85B1DF25FB57241D /* KeyboardAutofillBar.swift in Sources */,
-				330B06B01CCBE52C9FF785E4 /* LegacyAliases.swift in Sources */,
 				4ABB06A206C71A8BA5F6C346 /* LineDrillView.swift in Sources */,
 				CC565096B88217ED588FE504 /* LocalBackup.swift in Sources */,
 				AF9CA7A43589A347FF9455BE /* MediaExporter.swift in Sources */,

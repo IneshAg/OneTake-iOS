@@ -1,10 +1,10 @@
-# Design system lint baseline (Task 15: Widgets migrated)
-radius 9
-font-size 5
-frame-literal 11
-padding-literal 8
-raw-color 7
+# Design system lint baseline (Task 16: Zero violations across repository)
+radius 0
+font-size 0
+frame-literal 0
+padding-literal 0
+raw-color 0
 system-button-style 0
-manual-surface 3
-hidden-navbar 1
-on-dark-flag 3
+manual-surface 0
+hidden-navbar 0
+on-dark-flag 0

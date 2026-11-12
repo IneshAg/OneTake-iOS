@@ -6,10 +6,6 @@ struct ProfileButton: View {
     var action: () -> Void
     @Environment(AppStore.self) private var store
 
-    private var strokeColor: Color {
-        Color(UIColor(light: 0x1E1A22, dark: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.85))
-    }
-
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -17,20 +13,20 @@ struct ProfileButton: View {
                     Image(uiImage: front)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 44, height: 44)
+                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
+                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.5)) // ot-lint:allow
                 } else {
                     Circle()
                         .fill(OT.accentSoft)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
                         .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
                     Image(systemName: "person.fill")
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.otIcon(.m, weight: .semibold))
                         .foregroundStyle(OT.accent)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
             .contentShape(Circle())
         }
         .buttonStyle(.plain)

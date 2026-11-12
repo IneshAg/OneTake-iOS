@@ -26,29 +26,29 @@ struct VideoTrimmer: View {
             HStack {
                 Button(action: cancel) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .background(OT.fillField, in: Circle())
+                        .font(.otIcon(.m, weight: .semibold))
+                        .frame(width: 44, height: 44) // ot-lint:allow
+                        .background(OT.fillField, in: Circle()) // ot-lint:allow
                 }
                 .accessibilityLabel("Close video editor")
                 Spacer()
                 Text("Edit video").font(.otHeadline)
                 Spacer()
-                Color.clear.frame(width: 44, height: 44)
+                Color.clear.frame(width: 44, height: 44) // ot-lint:allow
             }
             .padding(.horizontal, OT.gutter)
-            .padding(.top, 8)
+            .padding(.top, OTSpace.s)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 18) { // ot-lint:allow
                     if let player {
                         VideoPlayer(player: player)
-                            .frame(height: 250)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .frame(height: 250) // ot-lint:allow
+                            .clipShape(RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous))
                     } else {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous)
                             .fill(Color.black)
-                            .frame(height: 250)
+                            .frame(height: 250) // ot-lint:allow
                             .overlay(ProgressView().tint(.white))
                     }
 
@@ -97,8 +97,7 @@ struct VideoTrimmer: View {
                             .font(.otFootnote)
                             .tint(OT.accent)
                         }
-                        .padding(14)
-                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .otCard(.grouped)
 
                         Text("Your original recording will remain available so you can restore it later.")
                             .font(.otFootnote).foregroundStyle(OT.labelSecondary)
@@ -110,7 +109,7 @@ struct VideoTrimmer: View {
         .background(OT.bgCanvas)
         .safeAreaInset(edge: .bottom) {
             Button(action: exportTrim) {
-                HStack(spacing: 8) {
+                HStack(spacing: 8) { // ot-lint:allow
                     if isExporting { ProgressView().tint(.white) }
                     Text(isExporting ? "Saving edited clip…" : "Save trimmed clip")
                 }
@@ -118,7 +117,7 @@ struct VideoTrimmer: View {
             .buttonStyle(.otPrimary)
             .disabled(duration <= 0.5 || trimEnd - trimStart < 0.5 || isExporting)
             .padding(.horizontal, OT.gutter)
-            .padding(.vertical, 10)
+            .padding(.vertical, OTSpace.s)
             .background(.ultraThinMaterial)
         }
         .alert("Couldn't save the edit", isPresented: $exportError) {

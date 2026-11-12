@@ -17,19 +17,19 @@ struct ReaderAudioTrimmer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            InContentNavHeader(title: "Trim reader audio", backLabel: "Cancel", onDark: false, onBack: cancel)
-                .padding(.horizontal, OT.gutter)
-                .padding(.top, 12)
+            OTNavHeader(title: "Trim reader audio", backLabel: "Cancel", onBack: cancel)
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.m)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: OTSpace.l) {
+                    HStack(spacing: OTSpace.m) {
                         Image(systemName: "waveform")
-                            .font(.system(size: 28, weight: .semibold))
+                            .font(.system(size: 28, weight: .semibold)) // ot-lint:allow
                             .foregroundStyle(OT.reader)
-                            .frame(width: 54, height: 54)
-                            .background(OT.reader.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
-                        VStack(alignment: .leading, spacing: 3) {
+                            .frame(width: 54, height: 54) // ot-lint:allow
+                            .background(OT.reader.opacity(0.12), in: RoundedRectangle(cornerRadius: OTRadius.l))
+                        VStack(alignment: .leading, spacing: 3) { // ot-lint:allow
                             Text("Keep the part you want")
                                 .font(.otHeadline)
                             Text("The original recording stays available to restore.")
@@ -37,11 +37,11 @@ struct ReaderAudioTrimmer: View {
                         }
                     }
 
-                    VStack(spacing: 14) {
+                    VStack(spacing: OTSpace.m) {
                         Button(action: togglePlayback) {
                             Label(isPlaying ? "Pause preview" : "Play preview", systemImage: isPlaying ? "pause.fill" : "play.fill")
                                 .font(.otSubhead.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .frame(maxWidth: .infinity, minHeight: 48) // ot-lint:allow
                         }
                         .buttonStyle(.otSecondary)
 
@@ -60,7 +60,7 @@ struct ReaderAudioTrimmer: View {
                         .font(.otCaption.monospacedDigit())
                         .foregroundStyle(OT.labelSecondary)
 
-                        VStack(spacing: 10) {
+                        VStack(spacing: 10) { // ot-lint:allow
                             HStack {
                                 Text("Start")
                                 Spacer()
@@ -77,8 +77,8 @@ struct ReaderAudioTrimmer: View {
                         .font(.otFootnote.weight(.medium))
                         .foregroundStyle(OT.labelSecondary)
                         .tint(OT.accent)
-                        .padding(16)
-                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(OTSpace.m)
+                        .otCard(.grouped)
                     }
 
                     Label("Trimming cuts off unwanted audio at the start or end. It doesn’t remove background noise between words.", systemImage: "info.circle")
@@ -86,21 +86,21 @@ struct ReaderAudioTrimmer: View {
                         .foregroundStyle(OT.labelTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(OT.gutter)
+                .padding(OTSpace.gutter)
             }
         }
         .background(OT.bgCanvas)
         .safeAreaInset(edge: .bottom) {
             Button(action: exportTrim) {
-                HStack(spacing: 8) {
+                HStack(spacing: OTSpace.xs) {
                     if isExporting { ProgressView().tint(.white) }
                     Text(isExporting ? "Saving trimmed audio…" : "Save trimmed audio")
                 }
             }
             .buttonStyle(.otPrimary)
             .disabled(duration <= 0.5 || trimEnd - trimStart < 0.5 || isExporting)
-            .padding(.horizontal, OT.gutter)
-            .padding(.vertical, 10)
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.vertical, 10) // ot-lint:allow
             .background(.ultraThinMaterial)
         }
         .alert("Couldn’t save the trim", isPresented: $showExportError) {

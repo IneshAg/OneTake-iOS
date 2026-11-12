@@ -57,7 +57,7 @@ targets:
         product: GoogleSignIn
     preBuildScripts:
       - name: Design lint
-        script: "\"${SRCROOT}/scripts/lint-design-system.sh\" --xcode || true"
+        script: "\"${SRCROOT}/scripts/lint-design-system.sh\" --strict --xcode"
         basedOnDependencyAnalysis: false
     settings:
       base:

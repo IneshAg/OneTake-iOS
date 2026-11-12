@@ -22,13 +22,6 @@ public struct TabBarHider: UIViewControllerRepresentable {
             view.backgroundColor = .clear
         }
 
-        public override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            hidesBottomBarWhenPushed = true
-            parent?.hidesBottomBarWhenPushed = true
-            hideTabBar(animated: animated)
-        }
-
         public override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             hideTabBar(animated: false)
@@ -45,17 +38,27 @@ public struct TabBarHider: UIViewControllerRepresentable {
             }
         }
 
+        public override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            hidesBottomBarWhenPushed = true
+            parent?.hidesBottomBarWhenPushed = true
+            var responder: UIResponder? = view
+            while let r = responder {
+                if let vc = r as? UIViewController, vc !== self {
+                    vc.hidesBottomBarWhenPushed = true
+                }
+                responder = r.next
+            }
+            hideTabBar(animated: animated)
+        }
+
         private func findTabBarController() -> UITabBarController? {
             if let tbc = tabBarController { return tbc }
             if let tbc = navigationController?.tabBarController { return tbc }
-            var current: UIViewController? = self
-            while let p = current?.parent {
-                if let tbc = p as? UITabBarController ?? p.tabBarController { return tbc }
-                current = p
-            }
-            var responder: UIResponder? = self
+            var responder: UIResponder? = view
             while let r = responder {
                 if let tbc = r as? UITabBarController { return tbc }
+                if let vc = r as? UIViewController, let tbc = vc.tabBarController { return tbc }
                 responder = r.next
             }
             if let root = view.window?.rootViewController {
@@ -71,17 +74,30 @@ public struct TabBarHider: UIViewControllerRepresentable {
 
 /// Ensures the enclosing UITabBarController shows its tab bar when this root view appears.
 public struct TabBarShower: UIViewControllerRepresentable {
-    public init() {}
+    public let isVisible: Bool
+
+    public init(isVisible: Bool = true) {
+        self.isVisible = isVisible
+    }
 
     public func makeUIViewController(context: Context) -> ShowerController {
-        ShowerController()
+        let vc = ShowerController()
+        vc.desiredVisibility = isVisible
+        return vc
     }
 
     public func updateUIViewController(_ uiViewController: ShowerController, context: Context) {
-        uiViewController.showTabBar(animated: false)
+        uiViewController.desiredVisibility = isVisible
+        if isVisible {
+            uiViewController.showTabBar(animated: false)
+        } else {
+            uiViewController.hideTabBar(animated: false)
+        }
     }
 
     public final class ShowerController: UIViewController {
+        var desiredVisibility: Bool = true
+
         public override func viewDidLoad() {
             super.viewDidLoad()
             view.isUserInteractionEnabled = false
@@ -90,16 +106,42 @@ public struct TabBarShower: UIViewControllerRepresentable {
 
         public override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            showTabBar(animated: animated)
+            if desiredVisibility {
+                showTabBar(animated: animated)
+            } else {
+                hideTabBar(animated: animated)
+            }
         }
 
         public override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            showTabBar(animated: false)
+            if desiredVisibility {
+                showTabBar(animated: false)
+            } else {
+                hideTabBar(animated: false)
+            }
+        }
+
+        func hideTabBar(animated: Bool) {
+            guard let tbc = findTabBarController() else { return }
+            if #available(iOS 18.0, *) {
+                if !tbc.isTabBarHidden {
+                    tbc.setTabBarHidden(true, animated: animated)
+                }
+            } else {
+                tbc.tabBar.isHidden = true
+            }
         }
 
         func showTabBar(animated: Bool) {
-            guard isTopOrVisible() else { return }
+            guard desiredVisibility else {
+                hideTabBar(animated: animated)
+                return
+            }
+            guard isTopOrVisible() else {
+                hideTabBar(animated: animated)
+                return
+            }
             guard let tbc = findTabBarController() else { return }
             if #available(iOS 18.0, *) {
                 if tbc.isTabBarHidden {
@@ -111,21 +153,36 @@ public struct TabBarShower: UIViewControllerRepresentable {
         }
 
         private func isTopOrVisible() -> Bool {
-            guard let nav = findNavigationController() else { return true }
-            if nav.viewControllers.count > 1 {
-                if nav.topViewController !== self && nav.topViewController !== parent {
-                    return false
+            guard let nav = findNavigationController() else {
+                if let tbc = findTabBarController(), let sel = tbc.selectedViewController {
+                    if let nav = sel as? UINavigationController ?? sel.children.compactMap({ $0 as? UINavigationController }).first {
+                        return nav.viewControllers.count <= 1
+                    }
                 }
+                return true
             }
-            return true
+            return nav.viewControllers.count <= 1
         }
 
         private func findNavigationController() -> UINavigationController? {
             if let nav = navigationController { return nav }
-            var current: UIViewController? = self
-            while let p = current?.parent {
-                if let nav = p as? UINavigationController ?? p.navigationController { return nav }
-                current = p
+            var responder: UIResponder? = view
+            while let r = responder {
+                if let vc = r as? UIViewController, vc !== self {
+                    if let nav = vc as? UINavigationController ?? vc.navigationController {
+                        return nav
+                    }
+                }
+                responder = r.next
+            }
+            if let root = view.window?.rootViewController {
+                if let nav = root as? UINavigationController { return nav }
+                if let tbc = root as? UITabBarController, let sel = tbc.selectedViewController {
+                    if let nav = sel as? UINavigationController { return nav }
+                    for child in sel.children {
+                        if let nav = child as? UINavigationController { return nav }
+                    }
+                }
             }
             return nil
         }
@@ -133,14 +190,10 @@ public struct TabBarShower: UIViewControllerRepresentable {
         private func findTabBarController() -> UITabBarController? {
             if let tbc = tabBarController { return tbc }
             if let tbc = navigationController?.tabBarController { return tbc }
-            var current: UIViewController? = self
-            while let p = current?.parent {
-                if let tbc = p as? UITabBarController ?? p.tabBarController { return tbc }
-                current = p
-            }
-            var responder: UIResponder? = self
+            var responder: UIResponder? = view
             while let r = responder {
                 if let tbc = r as? UITabBarController { return tbc }
+                if let vc = r as? UIViewController, let tbc = vc.tabBarController { return tbc }
                 responder = r.next
             }
             if let root = view.window?.rootViewController {

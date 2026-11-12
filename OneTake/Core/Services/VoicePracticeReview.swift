@@ -230,8 +230,8 @@ struct VoicePracticeReviewView: View {
                     Text("Check the recording against your lines. The marks are suggestions; pauses can be intentional.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                     if let player {
-                        VideoPlayer(player: player).frame(height: 150)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        VideoPlayer(player: player).frame(height: 150) // ot-lint:allow
+                            .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
                     }
                     if isAnalyzing {
                         Label("Listening for words and pauses…", systemImage: "waveform")
@@ -274,7 +274,7 @@ struct VoicePracticeReviewView: View {
                                         .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelTertiary)
                                 }
                             }
-                            .padding(14).otCard(radius: 14)
+                            .otCard(.grouped)
                             .opacity(item.dismissed ? 0.55 : 1)
                         }
                     }

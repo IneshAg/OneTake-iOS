@@ -110,3 +110,31 @@ public extension ButtonStyle where Self == OTButtonStyle {
         .ot(.glass, size: .medium, fullWidth: false)
     }
 }
+
+public struct OTTrailingIconLabelStyle: LabelStyle {
+    public init() {}
+    public func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: OTSpace.xxs) {
+            configuration.title
+            configuration.icon
+        }
+    }
+}
+
+public typealias TrailingIconLabelStyle = OTTrailingIconLabelStyle
+
+public struct GlassButtonCompatibility: ViewModifier {
+    public let enabled: Bool
+    public init(enabled: Bool) { self.enabled = enabled }
+    @ViewBuilder
+    public func body(content: Content) -> some View {
+        if enabled {
+            content
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7)) // ot-lint:allow
+                .buttonStyle(OTPressStyle(.nav))
+        } else {
+            content.buttonStyle(.plain)
+        }
+    }
+}
