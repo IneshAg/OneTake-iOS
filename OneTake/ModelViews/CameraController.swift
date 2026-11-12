@@ -43,6 +43,16 @@ final class CameraController: NSObject {
     private(set) var currentResolution: CameraResolution = .hd1080
     private(set) var supportedResolutions: [CameraResolution] = CameraResolution.allCases
 
+    struct InterruptionEvent: Equatable, Sendable {
+        var url: URL?
+        var duration: TimeInterval
+        var hasSavedContent: Bool
+        var reason: String
+    }
+
+    private(set) var lastInterruption: InterruptionEvent?
+    func clearInterruption() { lastInterruption = nil }
+
     /// Where the face sits in the (upright, as-displayed) frame, all 0…1 with the origin top-left.
     struct FaceReading: Equatable {
         var centerX: CGFloat
@@ -100,9 +110,14 @@ final class CameraController: NSObject {
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
     @ObservationIgnored private var subjectAreaChangeObserver: Any?
+    @ObservationIgnored private var interruptionObserver: Any?
+    private var wasInterrupted = false
 
     deinit {
         if let obs = subjectAreaChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = interruptionObserver {
             NotificationCenter.default.removeObserver(obs)
         }
     }
@@ -224,6 +239,25 @@ final class CameraController: NSObject {
                     queue: nil
                 ) { [weak self] _ in
                     self?.resetFocusToContinuous()
+                }
+            }
+            if self.interruptionObserver == nil {
+                self.interruptionObserver = NotificationCenter.default.addObserver(
+                    forName: AVCaptureSession.wasInterruptedNotification,
+                    object: self.session,
+                    queue: nil
+                ) { [weak self] note in
+                    let reasonCode = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+                    let reasonText: String
+                    switch reasonCode {
+                    case 1: reasonText = "Audio device in use by another app"
+                    case 2: reasonText = "Video device in use by another app"
+                    case 3: reasonText = "App in background"
+                    default: reasonText = "Recording was interrupted"
+                    }
+                    Task { @MainActor in
+                        self?.handleSessionInterruption(reason: reasonText)
+                    }
                 }
             }
             Task { @MainActor in
@@ -563,6 +597,13 @@ final class CameraController: NSObject {
         Haptics.tick()
     }
 
+    private func handleSessionInterruption(reason: String) {
+        guard state == .recording || state == .paused else { return }
+        wasInterrupted = true
+        timer?.invalidate()
+        movieOutput.stopRecording()
+    }
+
     // MARK: Photo (headshots)
 
     /// Reports nil when nothing was captured (camera not ready, capture failed) — callers must not
@@ -642,11 +683,27 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
         // and is playable — that case is flagged with AVErrorRecordingSuccessfullyFinishedKey.
         let finished = error == nil
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let hasSavedContent = fileSize > 1024
+        let hadInterruption = wasInterrupted || (!finished && error != nil)
+
         Task { @MainActor in
-            let url = finished ? outputFileURL : nil
-            self.lastRecording = url
+            let url = finished ? outputFileURL : (hasSavedContent ? outputFileURL : nil)
+            self.lastRecording = finished ? outputFileURL : nil
             self.state = .ready
             self.isStopping = false
+
+            if hadInterruption {
+                let reason = self.wasInterrupted ? "Recording interrupted by system" : (error?.localizedDescription ?? "Recording interrupted")
+                self.lastInterruption = InterruptionEvent(
+                    url: hasSavedContent ? outputFileURL : nil,
+                    duration: self.elapsed,
+                    hasSavedContent: hasSavedContent,
+                    reason: reason
+                )
+                self.wasInterrupted = false
+            }
+
             let handler = self.recordingFinishedHandler
             self.recordingFinishedHandler = nil
             handler?(url)

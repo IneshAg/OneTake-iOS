@@ -72,6 +72,9 @@
 		D5802831B30E8C69089910A6 /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345483DF2D07C4F4A026610E /* ShareInbox.swift */; };
 		D63C56AA4AB180D999A28922 /* CloudLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B95B82BBE87FF55E057D26 /* CloudLink.swift */; };
 		DF7FF09964719C9CF31C2278 /* PracticeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */; };
+		C61AE92A75C94F4060A924E4 /* PracticeSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B331EDD61F580FBBB41C9 /* PracticeSetupView.swift */; };
+		DDDC2148C016B84491BD3E44 /* PracticeTakeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931BF5AA0F2FB8B297D3372D /* PracticeTakeView.swift */; };
+		CC0CFFFB07E7E0B72A1565DD /* StandalonePracticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E243542E0635D02D7B0D8F /* StandalonePracticeView.swift */; };
 		E75FBB7D97E3F0EBD81F1B46 /* onetake-practice-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = 16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */; };
 		EBDA71A046B1C03E2A43BB5C /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ABF9BB6CAA102F14F3D4FE /* ShareViewController.swift */; };
 		ECC7A89D55FB6BDEDF79FB0A /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */; };
@@ -177,6 +180,9 @@
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
 		C855DD3D620EC45169C5C6C2 /* HeadshotPoseClassifier.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = HeadshotPoseClassifier.mlmodel; sourceTree = "<group>"; };
 		D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeViews.swift; sourceTree = "<group>"; };
+		F10B331EDD61F580FBBB41C9 /* PracticeSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeSetupView.swift; sourceTree = "<group>"; };
+		931BF5AA0F2FB8B297D3372D /* PracticeTakeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeTakeView.swift; sourceTree = "<group>"; };
+		39E243542E0635D02D7B0D8F /* StandalonePracticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandalonePracticeView.swift; sourceTree = "<group>"; };
 		D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaExporterTests.swift; sourceTree = "<group>"; };
 		D5BDCF145FDBD841EE702951 /* ZipArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchiveTests.swift; sourceTree = "<group>"; };
 		DE04313D351125DAF5F36F9D /* LineLearningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineLearningViews.swift; sourceTree = "<group>"; };
@@ -230,6 +236,9 @@
 				66041554030D687F6CF987C3 /* OneTakeApp.swift */,
 				ECBF07451290B9BF7E698086 /* PackageViews.swift */,
 				D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */,
+				F10B331EDD61F580FBBB41C9 /* PracticeSetupView.swift */,
+				931BF5AA0F2FB8B297D3372D /* PracticeTakeView.swift */,
+				39E243542E0635D02D7B0D8F /* StandalonePracticeView.swift */,
 				A95735310A681B3CB3BD3E15 /* PrepareViews.swift */,
 				80BD4CBDC28B1384EC52BC84 /* PrivacyInfo.xcprivacy */,
 				E4775F41DA1D4F7C97E61944 /* ProfileViews.swift */,
@@ -562,6 +571,9 @@
 				59F390BC248596E558552218 /* PackageViews.swift in Sources */,
 				16A14A731305B6F070EA748B /* Persistence.swift in Sources */,
 				DF7FF09964719C9CF31C2278 /* PracticeViews.swift in Sources */,
+				C61AE92A75C94F4060A924E4 /* PracticeSetupView.swift in Sources */,
+				DDDC2148C016B84491BD3E44 /* PracticeTakeView.swift in Sources */,
+				CC0CFFFB07E7E0B72A1565DD /* StandalonePracticeView.swift in Sources */,
 				CDF642FE88FDD54EAEA70E97 /* PrepareViews.swift in Sources */,
 				2DB4EEED6CCB3AB5293B5123 /* ProfileViews.swift in Sources */,
 				ECE27836FDFB3BC75BD35C28 /* Reminders.swift in Sources */,

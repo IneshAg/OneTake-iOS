@@ -159,9 +159,7 @@ struct AudioWalkView: View {
                     .font(.otCallout).foregroundStyle(OT.labelSecondary).multilineTextAlignment(.center)
                 let _ = store.readerTrackVersion
                 let unowned = scene.lines.filter { !$0.isMine }
-                let readerName = unowned.first?.character.capitalized ?? "Reader"
-                let specificReaderLines = unowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
-                let readerLines = specificReaderLines.count
+                let readerLines = unowned.count
                 let recorded = (0..<readerLines).filter {
                     ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
                 }.count

@@ -94,10 +94,11 @@ enum HeadshotPreset: String, CaseIterable, Identifiable {
             }
         } else {
             switch self {
-            case .tight: return 0.28
-            case .headAndShoulders, .theatrical, .cardSlot: return 0.18
-            case .commercial: return 0.20
-            case .square: return 0.22
+            case .tight: return 0.36
+            case .headAndShoulders: return 0.26
+            case .theatrical, .cardSlot: return 0.25
+            case .commercial: return 0.26
+            case .square: return 0.28
             }
         }
     }
@@ -165,7 +166,7 @@ enum ImageFramer {
         if let preset {
             targetFaceHeightFraction = preset.faceFraction(isProfile: isProfile)
             targetAnchorFromTop = preset.faceCenterFromTop(isProfile: isProfile)
-            targetMinFaceWidths = isProfile ? 2.0 : (preset == .tight ? 1.8 : 2.5)
+            targetMinFaceWidths = isProfile ? 2.0 : (preset == .tight ? 1.8 : 2.2)
         } else if isProfile {
             // Profile shots live in wide cards (~1.18 ratio, height ~145 pt).
             // Head needs to fill ~45% of the frame height with proper headroom,

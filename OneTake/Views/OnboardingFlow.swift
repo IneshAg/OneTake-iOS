@@ -38,7 +38,9 @@ struct OnboardingFlow: View {
 // MARK: - 01 Welcome
 
 struct WelcomeView: View {
+    @Environment(AppStore.self) private var store
     var onStart: () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Label("OneTake", systemImage: "movieclapper.fill")
@@ -57,10 +59,29 @@ struct WelcomeView: View {
                 .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 .padding(.top, 10)
 
-            Spacer().frame(height: 40)
-            Button("Get started", action: onStart).buttonStyle(.otPrimary)
+            Spacer().frame(height: 36)
+
+            VStack(spacing: 12) {
+                Button {
+                    store.isOnboarded = true
+                    store.showAddAudition = true
+                } label: {
+                    Label("Import an audition", systemImage: "doc.badge.plus")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otPrimary)
+
+                Button {
+                    store.loadSampleAudition()
+                } label: {
+                    Label("Try a sample", systemImage: "play.circle")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otSecondary)
+            }
         }
         .padding(.horizontal, OT.gutter + 4)
+        .padding(.bottom, 24)
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)

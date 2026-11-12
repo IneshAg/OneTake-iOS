@@ -89,10 +89,9 @@ enum ScriptParser {
         var speakerCounts: [String: Int] = [:]
         for raw in rawLines {
             let tr = raw.trimmingCharacters(in: .whitespaces)
-            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
             if let colon = tr.firstIndex(of: ":"), let key = speakerKey(String(tr[..<colon])) {
                 speakerCounts[key, default: 0] += 1
-            } else if isLikelyCue(tr, indentation: indentation) {
+            } else if isLikelyCue(tr) {
                 let key = cueName(tr).uppercased()
                 speakerCounts[key, default: 0] += 1
             }
@@ -124,7 +123,6 @@ enum ScriptParser {
 
         for raw in rawLines {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
             let upper = trimmed.uppercased()
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
@@ -256,7 +254,7 @@ enum ScriptParser {
                 flush()
                 currentCharacter = cueName(String(trimmed[..<colon]))
                 currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if isLikelyCue(trimmed, indentation: indentation) {
+            } else if isLikelyCue(trimmed) {
                 flush()
                 currentCharacter = cueName(trimmed)
             } else if currentCharacter != nil {
@@ -669,11 +667,8 @@ enum ScriptParser {
 
     /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
     /// one real letter (filters out page numbers, "---", scene-heading punctuation runs, etc).
-    private static func isLikelyCue(_ raw: String, indentation: Int? = nil) -> Bool {
+    private static func isLikelyCue(_ raw: String) -> Bool {
         var trimmed = raw.trimmingCharacters(in: .whitespaces)
-        // OCR may preserve a centered screenplay cue's measured x-position. A short uppercase
-        // line with smaller indentation is more likely an action/dialogue line than a speaker cue.
-        if let indentation, indentation > 0, indentation < 14 { return false }
         // Allow cues with a trailing period, e.g. "HAMLET." or "NORA."
         if trimmed.hasSuffix(".") && !trimmed.contains(" ") {
             trimmed = String(trimmed.dropLast())
@@ -1119,6 +1114,15 @@ enum ScriptParser {
             }
         }
         return allScenes
+    }
+
+    /// Normalizes spoken dialogue words for diff and comparison across revised script pages:
+    /// strips punctuation, extra whitespace, and case differences while preserving the spoken content.
+    static func normalizeDialogue(_ text: String) -> String {
+        text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
 }

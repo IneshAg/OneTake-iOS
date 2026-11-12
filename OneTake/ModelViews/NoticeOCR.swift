@@ -9,9 +9,35 @@ import CoreImage.CIFilterBuiltins
 /// iPhone: Vision OCR and PDFKit both run entirely on-device.
 enum NoticeOCR {
     // MARK: - Language support
-    /// Recognition languages ordered by priority. Includes Indian English and Hindi so casting
+    /// Preferred recognition languages ordered by priority. Includes Indian English and Hindi so casting
     /// notices with Devanagari names or bilingual text are handled correctly.
-    private static let recognitionLanguages: [String] = ["en-IN", "en-US", "hi-IN"]
+    private static let preferredLanguages: [String] = ["en-US", "en-IN", "hi-IN"]
+
+    /// Dynamically queries Vision at runtime for supported recognition languages for the given level and revision,
+    /// filtering our preferred languages against system capabilities.
+    private static func configureSupportedLanguages(for request: VNRecognizeTextRequest) {
+        if #available(iOS 15.0, *) {
+            if let supported = try? request.supportedRecognitionLanguages() {
+                let supportedSet = Set(supported)
+                let matched = preferredLanguages.filter { supportedSet.contains($0) }
+                if !matched.isEmpty {
+                    request.recognitionLanguages = matched
+                    return
+                }
+                let prefixMatched = preferredLanguages.filter { pref in
+                    let prefix = String(pref.prefix(2))
+                    return supported.contains(where: { $0.hasPrefix(prefix) })
+                }
+                if !prefixMatched.isEmpty {
+                    request.recognitionLanguages = prefixMatched
+                    return
+                }
+                request.recognitionLanguages = supported.contains("en-US") ? ["en-US"] : Array(supported.prefix(3))
+                return
+            }
+        }
+        request.recognitionLanguages = preferredLanguages
+    }
 
     // MARK: - Recognition confidence threshold
     /// Minimum per-observation confidence for the text to be included. Observations that Vision
@@ -26,10 +52,11 @@ enum NoticeOCR {
     /// avoid memory jetsam and inference crashes on devices with tighter memory limits (e.g. A12 Bionic on iOS 18).
     static func recognizeText(in images: [UIImage]) async -> String {
         let pages = await recognizePages(in: images)
-        return pages.joined(separator: "\n\n")
+        return pages.filter { !looksBlankPage($0) }.joined(separator: "\n\n")
     }
 
-    /// Same OCR path as `recognizeText`, retaining page boundaries for role and side selection.
+    /// Same OCR path as `recognizeText`, retaining original page boundaries and indices for role and side selection.
+    /// Preserves empty string entries for blank pages so that page indices accurately match document page numbers (1-indexed).
     static func recognizePages(in images: [UIImage]) async -> [String] {
         var results: [String] = []
         for image in images {
@@ -38,11 +65,14 @@ enum NoticeOCR {
                     recognizeText(in: image)
                 }
             }.value
-            if !text.isEmpty {
-                results.append(text)
-            }
+            // Always preserve entry for each page to maintain exact 1-to-1 page alignment
+            results.append(text)
         }
         return results
+    }
+
+    private static func looksBlankPage(_ text: String) -> Bool {
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Single-image recognition
@@ -53,24 +83,109 @@ enum NoticeOCR {
                 print("[NoticeOCR] no CGImage for this UIImage")
                 return ""
             }
-            // Apply adaptive image pre-processing to boost OCR accuracy on coloured / low-contrast notices.
-            let processedImage = enhancedCGImage(cgImage) ?? cgImage
-            let primaryResult = performVisionOCR(on: processedImage)
-            if looksReadable(primaryResult) {
-                return primaryResult
-            }
+            // Pass 1: Try normalized CGImage directly (preserves fine glyphs, periods, email syntax)
+            var bestResult = performVisionOCR(on: cgImage)
 
-            // Fallback pass: If primary pass produced unreadable or empty text, try inverting luminance
-            // (handles dark-background flyers with light text or stylized Instagram graphics)
-            if let invertedImage = enhancedCGImage(cgImage, forceInvert: true) {
-                let invertedResult = performVisionOCR(on: invertedImage)
-                if looksReadable(invertedResult) {
-                    return invertedResult
+            // Pass 2: Adaptive image pre-processing (grayscale, contrast stretch, sharpen)
+            if isWeakOCR(bestResult), let processedImage = enhancedCGImage(cgImage) {
+                let processedResult = performVisionOCR(on: processedImage)
+                if isBetterOCRResult(processedResult, than: bestResult) {
+                    bestResult = processedResult
                 }
             }
 
-            return primaryResult
+            // Pass 3: Inverted luminance pass if text is still weak (for light text on dark backgrounds)
+            if isWeakOCR(bestResult), let invertedImage = enhancedCGImage(cgImage, forceInvert: true) {
+                let invertedResult = performVisionOCR(on: invertedImage)
+                if isBetterOCRResult(invertedResult, than: bestResult) {
+                    bestResult = invertedResult
+                }
+            }
+
+            // Pass 4: Bounded enlargement retry for small-print flyers
+            // When fine text drops below Vision's character detector threshold,
+            // upscale up to 2.0x (bounded to maxDimension 4096) to bring glyphs into readable range.
+            if isWeakOCR(bestResult) {
+                let sourceCG = image.cgImage ?? cgImage
+                let longest = max(sourceCG.width, sourceCG.height)
+                let maxBound: CGFloat = 4096
+                let candidateCG: CGImage?
+                if longest < 2500 {
+                    let scale = min(2.0, maxBound / CGFloat(max(longest, 1)))
+                    candidateCG = scaledCGImage(sourceCG, scale: scale)
+                } else {
+                    candidateCG = sourceCG
+                }
+
+                if let candidateCG {
+                    // Try clean high-res CoreGraphics scaled image first!
+                    let cleanEnlargedResult = performVisionOCR(on: candidateCG)
+                    if isBetterOCRResult(cleanEnlargedResult, than: bestResult) {
+                        bestResult = cleanEnlargedResult
+                    }
+                    if isWeakOCR(bestResult), let processedEnlarged = enhancedCGImage(candidateCG) {
+                        let enlargedResult = performVisionOCR(on: processedEnlarged)
+                        if isBetterOCRResult(enlargedResult, than: bestResult) {
+                            bestResult = enlargedResult
+                        } else if let invertedEnlarged = enhancedCGImage(candidateCG, forceInvert: true) {
+                            let invertedResult = performVisionOCR(on: invertedEnlarged)
+                            if isBetterOCRResult(invertedResult, than: bestResult) {
+                                bestResult = invertedResult
+                            }
+                        }
+                    }
+                }
+            }
+
+            return bestResult
         }
+    }
+
+    /// Evaluates whether OCR output is weak (empty, unreadable, or very few recognized words/lines).
+    private static func isWeakOCR(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || !looksReadable(trimmed) { return true }
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .filter { $0.filter(\.isLetter).count >= 2 }
+        let lines = trimmed.components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return words.count < 6 || lines.count < 2
+    }
+
+    /// Measures quality of OCR text based on recognized letter words and line count.
+    private static func ocrScore(_ text: String) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .filter { $0.filter(\.isLetter).count >= 2 }
+        let lines = trimmed.components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return (words.count * 3) + (lines.count * 2)
+    }
+
+    private static func isBetterOCRResult(_ candidate: String, than current: String) -> Bool {
+        return ocrScore(candidate) > ocrScore(current)
+    }
+
+    /// High-quality Core Graphics enlargement for fine-print notices and flyers whose character heights
+    /// fall below Apple Vision's character detector threshold.
+    private static func scaledCGImage(_ source: CGImage, scale: CGFloat) -> CGImage? {
+        guard scale > 1.0 else { return source }
+        let newWidth = Int(CGFloat(source.width) * scale)
+        let newHeight = Int(CGFloat(source.height) * scale)
+        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: newWidth,
+            height: newHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(source, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        return context.makeImage()
     }
 
     /// Performs Vision OCR across accurate and fast recognition levels.
@@ -81,9 +196,8 @@ enum NoticeOCR {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
             request.usesLanguageCorrection = level == .accurate
-            // Support English (Indian), English (US) and Hindi so bilingual casting notices
-            // and Devanagari names are read correctly on all devices.
-            request.recognitionLanguages = recognitionLanguages
+            // Query Vision for supported recognition languages at runtime
+            configureSupportedLanguages(for: request)
             // The image is already drawn upright by `normalizedCGImage`.
             let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
             do {
@@ -354,11 +468,10 @@ enum NoticeOCR {
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
                 var pages: [String] = []
                 for i in 0..<doc.pageCount {
-                    if let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !pageStr.isEmpty {
-                        pages.append(pageStr)
-                    }
+                    let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    pages.append(pageStr)
                 }
-                if !pages.isEmpty && looksReadable(pages.joined(separator: "\n")) {
+                if looksReadable(pages.joined(separator: "\n")) {
                     return ExtractedDocument(pages: pages)
                 }
             }

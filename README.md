@@ -4,6 +4,7 @@ This file includes the complete project README and documentation, including hist
 
 ## Contents
 
+- [November 12 resilient recovery and verification](#november-12-resilient-recovery-and-verification)
 - [November 11 audit and verification](#november-11-audit-and-verification)
 - [Project overview and setup](#doc-readme)
 - [November 7 implementation notes](#doc-docs-implementation-notes-2026-11-07)
@@ -18,6 +19,12 @@ This file includes the complete project README and documentation, including hist
 - [Dataset catalog](#doc-docs-research-dataset-catalog)
 - [Dataset collection](#doc-docs-research-dataset-collection)
 - [Pilgrimage research report](#doc-docs-research-pilgrimage-research-report)
+
+## November 12 resilient recovery and verification
+
+Added robust error recovery, interrupted take preview, revised sides migration, callback project grouping, library archiving, and backup safety sheets. The test suite was expanded with automated tests verifying reader audio relocation, cue isolation across revised scripts, and prior take tagging.
+
+All 192 unit tests in `OneTakeTests` ran on iPhone 18 Pro simulator (`7D61F2DB-9EE6-4C5F-BE67-27846D3FCEDA`) with zero failures (`** TEST SUCCEEDED **`). Visual inspection on the simulator confirmed the segmented archive library filter, project rounds switching, camera permission recovery prompts, and restore summary sheet.
 
 ## November 11 audit and verification
 
@@ -328,6 +335,43 @@ A running log of every change made during active development sessions, in revers
 
 > Author for all commits: **Inesh Agarwal \<ineshag123@gmail.com\>**
 > Remotes: `origin` → `IneshAg/OneTake-iOS`, `team` → `iOS-Team-10/OneTake`
+
+---
+
+## Session — 12 November 2026
+
+### Resilient Actor Recovery, Revised Sides Migration, and Workflow Ergonomics
+
+**Files changed:** `AppStore.swift`, `CameraController.swift`, `ShootViews.swift`, `AuditionDetailView.swift`, `AuditionsView.swift`, `TakesViews.swift`, `ProfileViews.swift`, `Persistence.swift`, `Models.swift`, `ScriptParser.swift`, `OneTakeApp.swift`, `PersistenceTests.swift`, `README.md`.
+
+**What changed:**
+
+- **Revised Sides & Intelligent Reader Audio Migration**:
+  - Added `ScriptParser.normalizeDialogue` to compare dialogue text independently of case, punctuation, and whitespace variations.
+  - Implemented `compareSides(of:with:)` in `AppStore.swift` to identify unchanged vs. revised lines, preserved reader cues, and scene reorderings.
+  - Implemented non-destructive reader audio migration in `replaceSides`: moves existing reader audio folder to a unique staging path before recreating destination directories, copies unchanged reader cues to their new `(sceneIndex, readerIndex)` coordinates, leaves revised cues empty to prevent misleading audio playback, and archives previous audio into `previous_sides_<timestamp>`.
+  - Preserves all earlier takes under `isPreviousSides = true`, resets `isCircled = false`, and tags them with `previousSidesLabel = "Previous sides · Scene X"`.
+  - Added a dedicated "Previous sides" horizontal scroll gallery in `TakesView` with inline `PlayerCard` video playback, excluding them from final package delivery.
+  - Added automated unit test `testRevisedSidesReorderingAndReaderAudioMigration` in `PersistenceTests.swift` verifying scene reordering, audio migration, cue isolation, and take tagging.
+- **Callback from Submitted Audition**:
+  - Submitted auditions (`status == .sent`) now display a dedicated status banner and a direct **"Start callback"** action button.
+  - Added a **"Project Rounds"** card grouping original Round 1 and Callback rounds with date, scene counts, take counts, and one-tap round switching.
+- **Camera & Microphone Recovery & Interruption Handling**:
+  - Inline recovery actions in `ShootSetupView`: added direct **"Open Settings"** button when microphone permission is denied, and **"Use on-screen controls"** when speech recognition is unavailable.
+  - Interrupted take handling in `CameraController` & `ShootFlow`: listens for `AVCaptureSession.wasInterruptedNotification` (e.g. phone call, alarm, app backgrounding) and captures partial recordings.
+  - When interrupted, the actor is alerted whether video was saved (with duration). If content exists, **"Play partial take"** opens `InterruptedTakeReviewSheet` to preview the clip and choose **"Keep this take"** or **"Discard and record again"**.
+- **Audition List Management (Active, Submitted, Archived)**:
+  - Added segmented filter control `[Active (N)] [Submitted (N)] [Archived (N)]` in `AuditionsView`.
+  - `AppStore.active`, `AppStore.sent`, and `AppStore.archived` cleanly partition auditions by status and archive state.
+  - Added **Archive** (`archivebox.fill`) and **Unarchive** (`tray.and.arrow.up.fill`) swipe actions and context menus to archive auditions without deleting sides or takes.
+  - Tailored empty states for each filter view.
+- **Backup & Restore Confidence**:
+  - Replaced basic confirmation dialog in `ProfileViews.swift` with `RestoreBackupSheet`.
+  - Inspects backup payload and displays a comprehensive summary: created date, audition count, take count, headshots count, and reader cues count.
+  - Added **"Back up this iPhone first"** option which exports the current device state to an archive before restoring the imported backup, protecting local data.
+- **Verification**:
+  - All 192 unit tests in `OneTakeTests` pass with zero failures (`** TEST SUCCEEDED **`).
+  - Tested on iPhone 18 Pro simulator (`7D61F2DB-9EE6-4C5F-BE67-27846D3FCEDA`), confirming the filtered library view, navigation, and detail displays.
 
 ---
 
@@ -5473,6 +5517,109 @@ An exhaustive inspection of every view and modal in the audition lifecycle revea
 ### Verification
 - Covered by unit tests `testAppStoreCommitAuditionDraftDirectTransition` and `testReplaceSidesReaderAudioDetectionAndRouting` in `OneTakeTests/NoticeParserTests.swift`.
 - Verified 100% pass rate in `scripts/test_notice_and_script_parsers.py`.
+
+---
+
+## 38. Resilient Recovery: Interrupted Recording, Revised Sides Migration, Callback Round Linking, and Library Archiving
+
+### Problem & UX Gap Audit
+Self-taping is high-pressure and intensely vulnerable. Beyond code correctness, an app must gracefully handle what happens when an actor returns, when casting updates materials, or when real-world interruptions occur:
+1. **Revised Sides Disorientation & Audio Corruption**:
+   - Casting frequently sends revised script sides after an actor has already memorized lines, rehearsed, and recorded reader cues.
+   - Previously, replacing sides indiscriminately cleared circled takes, while reader audio was strictly indexed by scene and line coordinate. If scenes swapped order (e.g. Scene 1 and Scene 2) or new lines were inserted, old reader audio would play for completely wrong dialogue, misleading the actor during takes.
+2. **Disconnected Callback Navigation**:
+   - When an audition was submitted and casting invited the actor for a callback, starting a callback was hidden in the overflow menu.
+   - Original audition and callback rounds lacked visual linkage under the project umbrella.
+3. **Capture Frustration & Recording Interruption Panic**:
+   - If an actor was framed and ready to shoot, permission denials (mic access off) or unavailable speech recognition gave no inline recovery, forcing actors to leave the app and hunt through iOS Settings.
+   - If a phone call, alarm, or app switch interrupted a take 2 minutes into a 3-minute scene, the app gave no indication of whether any footage was saved, leaving the actor in the dark.
+4. **Library Clutter**:
+   - As actors taped multiple projects, the audition list filled up. The only options were "Mark sent" or "Delete" (which permanently wiped takes and sides).
+5. **Restore Blindness**:
+   - Tapping "Import backup" showed a bare 2-line prompt with no indication of what was inside the backup, risking accidental data overwrites without a prior backup.
+
+### Implementation Architecture
+
+1. **Intelligent Sides Comparison & Audio Relocation (`AppStore.swift`, `ScriptParser.swift`)**:
+   - Added `ScriptParser.normalizeDialogue` to compare dialogue text independently of punctuation, case, and whitespace.
+   - `AppStore.compareSides(of:with:)` builds a granular diff of unchanged vs. revised lines, preserved reader cues, and scene reorderings.
+   - In `AppStore.replaceSides`: moves the current `reader` directory to a temporary staging folder, copies unchanged cues directly to their new `(sceneIndex, readerIndex)` coordinates, leaves revised/new cues empty so the app prompts for fresh recordings, and archives the previous audio into `previous_sides_<timestamp>` so nothing is ever lost.
+   - Preserves earlier takes by setting `isPreviousSides = true`, `isCircled = false`, and labeling them `Previous sides · Scene X`.
+   - `TakesView` displays earlier takes in a dedicated "Previous sides" horizontal scroll gallery with inline `PlayerCard` playback, safely excluded from package finalization.
+
+2. **Submitted Callback Action & Project Rounds Grouping (`AuditionDetailView.swift`)**:
+   - Submitted auditions (`status == .sent`) display a prominent "Submitted" card with a direct **"Start callback"** button.
+   - Added a **"Project Rounds"** card grouping Round 1 and Callback rounds with date, scene counts, take counts, and one-tap round switching.
+
+3. **In-Camera Recovery & Interrupted Take Playback (`ShootViews.swift`, `CameraController.swift`)**:
+   - Inline recovery actions in `ShootSetupView`: direct **"Open Settings"** button when mic access is denied, and **"Use on-screen controls"** when voice commands are unavailable.
+   - `CameraController` observes `AVCaptureSession.wasInterruptedNotification` and records interruption state and partial video files.
+   - When interrupted, the actor is alerted: *"Recording was interrupted, but Xs was saved. You can play it before retrying."* Tapping **"Play partial take"** opens `InterruptedTakeReviewSheet` to preview the clip and choose **"Keep this take"** or **"Discard and record again"**.
+
+4. **Audition List Filters & Non-Destructive Archiving (`AuditionsView.swift`)**:
+   - Segmented filter bar: **`[Active (N)] [Submitted (N)] [Archived (N)]`**.
+   - Added **Archive** (`archivebox.fill`) and **Unarchive** (`tray.and.arrow.up.fill`) swipe actions and context menus to archive auditions without deleting sides or takes.
+   - Dedicated empty states for each tab filter.
+
+5. **Backup & Restore Confidence (`ProfileViews.swift`)**:
+   - Replaced confirmation dialog with `RestoreBackupSheet`.
+   - Displays backup creation date, audition count, take count, headshots count, and reader cues count.
+   - Offers **"Back up this iPhone first"** to export current device data before restoring the imported backup, protecting local data.
+
+### Verification
+- Added automated unit test `testRevisedSidesReorderingAndReaderAudioMigration` in `OneTakeTests/PersistenceTests.swift` verifying scene reordering, audio migration, cue isolation, and take tagging.
+- All 192 unit tests in `OneTakeTests` pass with zero failures (`** TEST SUCCEEDED **`).
+- Simulator verification on iPhone 18 Pro (`7D61F2DB-9EE6-4C5F-BE67-27846D3FCEDA`).
+
+---
+
+## 39. Multi-Reader Cue Isolation, Voice-Follower Silent Beat Resiliency, Revision-Aware Readiness, and Ambiguous Role Safeguards
+
+### Problem & Invariant Audit
+Through targeted fault-path inspection across verified flows, four edge-case paths were identified and resolved:
+1. **Multi-Reader Cue Audio Collisions (`PrepareViews.swift`, `LineLearningViews.swift`)**:
+   - In scenes with multiple reader characters (e.g. Kat and Bartender), switching between reader characters in `RecordReaderView` reset `lineIndex` to 0. Because recordings were saved to `scene-<index>/line-<lineIndex>.m4a` using local character-filtered indices, recording Bartender's first cue silently overwrote Kat's first cue on disk.
+   - In `ShootViews.swift` and `AudioWalkPlayer`, cues were played back sequentially across all unowned lines in the scene (`scene.lines.filter { !$0.isMine }`), causing playback desync and playing wrong character recordings during live takes.
+2. **Prompter Stalling on Silent Reaction Cues Under Voice Following (`ShootViews.swift`)**:
+   - In `ShootViews.swift`, non-verbal reader reaction cues (such as `?`, `...`, `(pause)`) stalled indefinitely when **Follow Voice** was enabled.
+   - `speakIfReader` routed silent cues to `scheduleTimedAdvance`, but `scheduleTimedAdvance` contained `if followVoice && !line.isMine && !readerAudioMissing { return }`. Since `readerAudioMissing` was false, the timer was cancelled and returned without scheduling an advance. Because the cue contained no spoken words, the speech follower never detected speech, halting the prompter permanently.
+3. **Revised Sides Premature Checklist Completion (`Models.swift`, `AppStore.swift`, `MediaExporter.swift`, `PackageViews.swift`)**:
+   - Replacing sides correctly tagged prior takes with `isPreviousSides = true` and cleared circled takes. However, `syncPieces()` evaluated scene piece completion via `auditionTakes.contains { ($0.sceneIndex ?? 0) == sceneIndex }` without filtering out previous sides.
+   - Subsequent calls to `syncPieces()` (e.g. on app resume or creation flow) immediately re-marked revised scenes as complete (`isDone = true`) and set `audition.status = .ready` despite having zero takes recorded for the revised pages.
+4. **Ambiguous Candidate Role Auto-Selection in Review (`AddAuditionFlow.swift`)**:
+   - When a casting notice contained multiple character breakdowns (e.g. `Elena Gomez`, `Marcus Brody`), `NoticeParser` intentionally left `draft.role = ""` to let the actor choose.
+   - However, `OCRReviewSheet` initialized `roleText` with `draft.candidateRoles.first ?? ""`, arbitrarily pre-selecting the first candidate role. The actor could tap "Use this" without realizing they were committing to the wrong role.
+
+### Implementation Architecture
+
+1. **Stable Scene-Level Reader Cue Indexing (`PrepareViews.swift`, `LineLearningViews.swift`)**:
+   - Standardized all reader cue recording, playback, audio scrubbing, trimming, and original restoration to stable scene-level unowned line indices (`scene.lines.filter { !$0.isMine }`).
+   - In `RecordReaderView`, `ReaderView`, and `SceneAudioFlowView`, each line maps to `allUnowned.firstIndex(where: { $0.id == line.id }) ?? index`.
+   - In `AudioWalkView` (`LineLearningViews.swift`), the total cue count is bound to `scene.lines.filter { !$0.isMine }.count`, aligning perfectly with `AudioWalkPlayer` and `ShootViews.swift`.
+
+2. **Unconditional Timed Advance for Silent Reaction Beats (`ShootViews.swift`)**:
+   - Identified silent beats (`line.isSilentReactionCue || !hasSpokenWords`).
+   - Guarded speech follower delegates so that silent beats bypass voice-following and audio-missing early exits.
+   - Prompter advances naturally after a 1.6-second reaction beat without requiring vocal recognition or recorded audio files.
+
+3. **Sides Revision Counters & Revision-Aware Package Readiness (`Models.swift`, `AppStore.swift`, `MediaExporter.swift`, `PackageViews.swift`)**:
+   - Added `sidesRevision: Int? = 0` to `Audition` and `Take`.
+   - `replaceSides` increments `auditions[i].sidesRevision += 1`.
+   - `addTake` stamps new takes with the audition's current `currentSidesRevision` and marks `isPreviousSides = false`.
+   - In `syncPieces()`, `MediaExporter.clips()`, and `PackageViews.manifestRow`, takes are strictly filtered by `!$0.previousSides && $0.currentSidesRevision == audition.currentSidesRevision`.
+   - Revised scenes remain incomplete and require a new take from the active sides revision before the package can be marked ready or exported.
+
+4. **Explicit Candidate Role Selection Safeguards (`AddAuditionFlow.swift`)**:
+   - In `OCRReviewSheet.init`, when `draft.candidateRoles.count > 1` and `draft.role.isEmpty`, `roleText` remains `""`.
+   - Displays an inline prompt: *"Multiple roles found. Choose which role you’re auditioning for:"*.
+   - "Use this" remains disabled (`canUseThis == false`) until the actor explicitly selects a candidate role or inputs a character name.
+
+### Verification & Unit Tests
+- Added `testMultipleReaderCharactersInSameSceneHaveStableCueIDs` in `OneTakeTests/PersistenceTests.swift`: validates multi-character scene (`Kat` + `Bartender`), independent cue audio files (`line-0.m4a`, `line-1.m4a`, `line-2.m4a`), non-collision, and recording status.
+- Added `testRevisedSidesResetSceneCompletionAndChecklistReadiness` in `OneTakeTests/PersistenceTests.swift`: verifies `syncPieces()` keeps revised scenes incomplete, package unready, and audition `.due` until a new take is recorded.
+- Added `testMultipleDetectedRolesLeaveRoleBlankInDraftAndUnselectedInReview` and `testSingleDetectedRolePreFillsInReview` in `OneTakeTests/NoticeParserTests.swift`: confirms ambiguous roles remain unselected while single detected roles pre-fill cleanly.
+- Added `testSilentReactionCueIsNotBypassedWhenVoiceFollowingActive` in `OneTakeTests/NoticeParserTests.swift`: asserts silent reaction cues never bail out under voice-following mode.
+- Complete test suite: **197 tests passed, 0 failures** (`** TEST SUCCEEDED **`).
 
 ---
 

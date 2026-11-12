@@ -71,8 +71,19 @@ struct PackageView: View {
             .sheet(isPresented: $showShare) {
                 if let items = shareItems(a) {
                     ShareSheet(items: items, subject: a.emailSubject(slate: store.slate)) { completed in
-                        if completed { store.markSent(auditionID); Haptics.success(); phase = .sent }
-                        else { phase = .readyToShare }
+                        if completed {
+                            if a.destination == .email {
+                                store.markSent(auditionID)
+                                Haptics.success()
+                                phase = .sent
+                            } else {
+                                store.markExported(auditionID)
+                                Haptics.success()
+                                phase = .readyToShare
+                            }
+                        } else {
+                            phase = .readyToShare
+                        }
                         endUpload()
                     }
                 }
@@ -112,6 +123,48 @@ struct PackageView: View {
 
                 HStack { SectionLabel(text: "On the tape, in order"); Spacer(); Text(totalDurationLabel(a)).font(.otHeadline) }
                 TapeStrip(legend: legend)
+
+                // Explicit submission manifest
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Included in this export")
+                    VStack(spacing: 8) {
+                        // Slate
+                        if let _ = a.slateVideoURL {
+                            manifestRow(icon: "person.text.rectangle", title: "Slate", detail: "Slate video included", status: "Ready", isReady: true)
+                        } else if a.asks.contains(where: { $0.localizedCaseInsensitiveContains("slate") }) {
+                            manifestRow(icon: "person.text.rectangle", title: "Slate", detail: "Not recorded", status: "Missing", isReady: false)
+                        }
+
+                        // Scenes with circled takes
+                        ForEach(a.scenes.indices, id: \.self) { i in
+                            let scene = a.scenes[i]
+                            let take = store.takes.first(where: { $0.auditionID == a.id && $0.sceneIndex == i && $0.isCircled && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision })
+                            let isShot = take != nil
+                            manifestRow(
+                                icon: "film.fill",
+                                title: scene.title,
+                                detail: take.map { "Take \($0.number) (Circled) · \(Int($0.duration))s" } ?? "No take circled",
+                                status: isShot ? "Take \(take!.number)" : "Not ready",
+                                isReady: isShot
+                            )
+                        }
+
+                        // Headshots
+                        let headshots = HeadshotStore.taken(auditionID: a.id)
+                        if !headshots.isEmpty {
+                            manifestRow(icon: "person.crop.square", title: "Headshots", detail: "\(headshots.count) photo\(headshots.count == 1 ? "" : "s") attached", status: "\(headshots.count) attached", isReady: true)
+                        } else if a.asks.contains(where: { $0.localizedCaseInsensitiveContains("headshot") }) {
+                            manifestRow(icon: "person.crop.square", title: "Headshots", detail: "Optional · not attached", status: "Optional", isReady: false)
+                        }
+
+                        // Résumé
+                        if let resumeURL = a.resumeURL {
+                            manifestRow(icon: "doc.text.fill", title: "Résumé", detail: resumeURL.lastPathComponent, status: "Attached", isReady: true)
+                        }
+                    }
+                }
+                .padding(14)
+                .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 // 1. Deliverable Format (Combined Video, Separate ZIP, Photos, All)
                 SectionLabel(text: "Deliverable Format").padding(.top, 4)
@@ -458,26 +511,19 @@ struct PackageView: View {
     private func sendButtonTitle(_ a: Audition, deliverable: PackageDeliverable) -> String {
         switch a.destination {
         case .email:
-            return "Email \(deliverable.shortTitle) to Casting"
+            return "Open email"
         case .localFiles:
-            return "Export \(deliverable.shortTitle) to Files / AirDrop"
+            return "Export files"
         case .actorsAccess:
-            return "Export \(deliverable.shortTitle) for Actors Access"
+            return "Export for Actors Access"
         case .backstage:
-            return "Export \(deliverable.shortTitle) for Backstage"
+            return "Export for Backstage"
         case .castingNetworks:
-            return "Export \(deliverable.shortTitle) for Casting Networks"
+            return "Export for Casting Networks"
         case .spotlight:
-            return "Export \(deliverable.shortTitle) for Spotlight"
+            return "Export for Spotlight"
         case .emailOrLink:
-            let item: String
-            switch deliverable {
-            case .combinedVideo: item = "Video Link"
-            case .separateZip: item = "Clips ZIP Link"
-            case .headshotsOnly: item = "Photos ZIP Link"
-            case .completePackage: item = "Full Package Link"
-            }
-            return "Create \(item)"
+            return "Create Share Link"
         }
     }
 
@@ -496,12 +542,32 @@ struct PackageView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
+    private func manifestRow(icon: String, title: String, detail: String, status: String, isReady: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(isReady ? OT.accent : OT.labelTertiary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.otBody.weight(.semibold)).foregroundStyle(OT.labelPrimary)
+                Text(detail).font(.otCaption).foregroundStyle(OT.labelSecondary)
+            }
+            Spacer()
+            Text(status)
+                .font(.otCaption.weight(.bold))
+                .foregroundStyle(isReady ? OT.success : OT.labelTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isReady ? OT.success.opacity(0.12) : OT.fillField, in: Capsule())
+        }
+    }
+
     private func tapeLegend(_ a: Audition) -> [(String, String, Color)] {
         var items: [(String, String, Color)] = []
         items.append(("Headshot", a.pieces.first(where: { $0.kind == .headshot })?.isDone == true ? "Captured" : "Not yet", OT.accent.opacity(0.4)))
         items.append(("Slate", a.slateVideoURL != nil ? "Recorded" : "Not yet", OT.accent.opacity(0.4)))
         for (i, scene) in a.scenes.enumerated() {
-            let take = store.takes.first(where: { $0.auditionID == a.id && $0.sceneIndex == i && $0.isCircled })
+            let take = store.takes.first(where: { $0.auditionID == a.id && $0.sceneIndex == i && $0.isCircled && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision })
             let detail = take.map { "Take \($0.number) · \(Int($0.duration))s" } ?? "Not shot yet"
             items.append((scene.title, detail, i.isMultiple(of: 2) ? OT.accent : OT.reader))
         }
@@ -509,7 +575,7 @@ struct PackageView: View {
     }
 
     private func totalDurationLabel(_ a: Audition) -> String {
-        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled }
+        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision }
         guard !takes.isEmpty else { return "—" }
         let total = Int(takes.reduce(0) { $0 + $1.duration })
         return "\(total / 60):\(String(format: "%02d", total % 60))"
@@ -530,7 +596,7 @@ struct PackageView: View {
     }
 
     private func estimatedSizeMB(_ a: Audition) -> Int {
-        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled }
+        let takes = store.takes.filter { $0.auditionID == a.id && $0.isCircled && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision }
         let totalSeconds = takes.reduce(0.0) { $0 + $1.duration }
         let estimated = max(8, Int(totalSeconds * 1.5))
         return estimated
@@ -1069,6 +1135,7 @@ struct DeliveryReadyView: View {
     var onShare: () -> Void
     var onBack: () -> Void
 
+    @Environment(AppStore.self) private var store
     @State private var copiedNoticeToast: Bool = false
 
     var body: some View {
@@ -1124,6 +1191,39 @@ struct DeliveryReadyView: View {
                         .font(.otHeadline)
                 }
                 .buttonStyle(.otPrimary)
+
+                if destination != .email {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(OT.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(audition.status == .exported ? "Files Exported" : "Ready for Upload")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Upload your files to \(destination.rawValue), then mark submitted.")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                        }
+                        Button {
+                            store.markSubmitted(audition.id)
+                            Haptics.success()
+                            onBack()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Mark as Submitted")
+                            }
+                            .font(.otHeadline)
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
+                    .padding(14)
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
 
                 // Change choices by returning to package review; alternate formats aren't
                 // generated behind the scenes and must not silently change what gets shared.
@@ -1184,8 +1284,12 @@ struct DeliveryReadyView: View {
 
     private var primaryButtonTitle: String {
         switch destination {
-        case .email: return "Send via Email"
+        case .email: return "Open email"
         case .localFiles: return "Save to Files / AirDrop"
+        case .actorsAccess: return "Export for Actors Access"
+        case .backstage: return "Export for Backstage"
+        case .castingNetworks: return "Export for Casting Networks"
+        case .spotlight: return "Export for Spotlight"
         default: return "Share \(deliverable.shortTitle)"
         }
     }

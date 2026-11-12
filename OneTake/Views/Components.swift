@@ -779,23 +779,24 @@ struct InContentNavHeader<TrailingContent: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            GlassBackButton(label: backLabel, onDark: onDark) {
-                if let onBack { onBack() } else { dismiss() }
-            }
-
-            Spacer()
-
+        ZStack {
             if !title.isEmpty {
                 Text(title)
                     .font(.otHeadline)
                     .foregroundStyle(onDark ? OT.cameraLabel : OT.labelPrimary)
                     .lineLimit(1)
+                    .padding(.horizontal, 54)
             }
 
-            Spacer()
+            HStack(spacing: 8) {
+                GlassBackButton(label: backLabel, onDark: onDark) {
+                    if let onBack { onBack() } else { dismiss() }
+                }
 
-            trailing()
+                Spacer()
+
+                trailing()
+            }
         }
         .frame(minHeight: 44)
     }

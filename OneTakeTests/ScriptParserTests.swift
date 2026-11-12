@@ -464,4 +464,23 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(hamletTokens, [4913, 4987, 788, 330, 39941, 1149, 497, 330, 5778, 788, 330, 46, 759, 35929, 9207])
         XCTAssertEqual(tokenizer.decode(tokens: hamletTokens), hamletJSON)
     }
+
+    func testIndentedCharacterCuesWithTabsAndSpaces() {
+        let sides = """
+        \tHAMLET
+        To be, or not to be, that is the question.
+
+            OPHELIA
+        My lord, I have remembrances of yours.
+        """
+        let scenes = ScriptParser.parseScenes(from: sides, myRole: "Hamlet")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Hamlet")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "To be, or not to be, that is the question.")
+        XCTAssertEqual(scenes[0].lines[1].character, "Ophelia")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+        XCTAssertEqual(scenes[0].lines[1].text, "My lord, I have remembrances of yours.")
+    }
 }

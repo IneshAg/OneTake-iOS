@@ -106,7 +106,7 @@ struct ScriptScene: Identifiable, Hashable, Codable, Sendable {
 }
 
 enum AuditionStatus: String, Codable, Hashable {
-    case due, ready, sent
+    case due, ready, exported, sent
 }
 
 // MARK: - Casting notice model
@@ -440,6 +440,8 @@ struct Audition: Identifiable, Hashable, Codable {
     var packageDeliverable: PackageDeliverable? = nil
     var status: AuditionStatus
     var sentDate: Date?
+    var isArchived: Bool? = false
+    var archived: Bool { isArchived ?? false }
 
     /// Real recordings, once this audition has actually been shot — nil until then. Persisted as
     /// file URLs; the files themselves live under `MediaStore`.
@@ -472,6 +474,8 @@ struct Audition: Identifiable, Hashable, Codable {
     var noticeSources: [AuditionSource]? = nil
     var fieldEvidence: [AuditionFieldEvidence]? = nil
     var submissionInstructions: AuditionSubmissionInstructions? = nil
+    var sidesRevision: Int? = 0
+    var currentSidesRevision: Int { sidesRevision ?? 0 }
 
     var resolvedMaterialKind: AuditionMaterialKind { materialKind ?? .sides }
 
@@ -485,6 +489,14 @@ struct Audition: Identifiable, Hashable, Codable {
     var readyCount: Int { pieces.filter(\.isDone).count }
     var totalCount: Int { pieces.count }
     var requiredPieces: [Piece] { pieces.filter { !$0.isOptional } }
+    var requiredReadyCount: Int { requiredPieces.filter(\.isDone).count }
+    var requiredTotalCount: Int { requiredPieces.count }
+    var requiredProgressSummary: String {
+        let total = requiredTotalCount > 0 ? requiredTotalCount : totalCount
+        let ready = requiredTotalCount > 0 ? requiredReadyCount : readyCount
+        return "\(ready) of \(total) required items ready"
+    }
+
     /// True when all required pieces are completed (optional pieces do not block the package),
     /// and at least one piece is completed.
     var isPackageReady: Bool {
@@ -496,17 +508,27 @@ struct Audition: Identifiable, Hashable, Codable {
         return req.allSatisfy { $0.isDone }
     }
 
+    /// The first required piece that is not yet completed. If all required pieces are completed,
+    /// falls back to optional pieces that remain undone, or nil when everything is complete.
+    var nextRequiredPiece: Piece? {
+        if isPackageReady { return nil }
+        if let nextReq = requiredPieces.first(where: { !$0.isDone }) {
+            return nextReq
+        }
+        return pieces.first { !$0.isDone }
+    }
+
     /// The next piece follows the actor's saved flow order. Optional pieces remain available while
     /// required work is still underway, but they do not block preview once all required pieces finish.
     var nextPiece: Piece? {
-        if isPackageReady { return nil }
-        return pieces.first { !$0.isDone }
+        nextRequiredPiece
     }
 
     /// The single "Next:" line used on Home and on audition cards.
     var nextAction: String {
         if status == .sent { return shareLinkTimeLeft.map { "Sent · link active \($0)" } ?? "Sent" }
-        guard let next = nextPiece else { return "Watch it once, then send" }
+        if status == .exported { return "Exported · Mark as Submitted" }
+        guard let next = nextRequiredPiece else { return "Review & Send tape" }
         switch next.kind {
         case .headshot:   return "Take your headshot"
         case .slate:      return "Record the slate"
@@ -682,6 +704,11 @@ struct Take: Identifiable, Hashable, Codable {
     /// both; optional only so `Take` can still be constructed in previews/tests without one.
     var auditionID: Audition.ID?
     var sceneIndex: Int?
+    var isPreviousSides: Bool? = false
+    var previousSides: Bool { isPreviousSides ?? false }
+    var previousSidesLabel: String? = nil
+    var sidesRevision: Int? = 0
+    var currentSidesRevision: Int { sidesRevision ?? 0 }
 }
 
 // MARK: - Tape check

@@ -321,9 +321,11 @@ enum OnDeviceIntelligence {
                 }
             } else if trimmed.uppercased().hasPrefix("SUBMISSION_LINK:") {
                 let val = String(trimmed.dropFirst(16)).trimmingCharacters(in: .whitespaces)
-                if refined.destinationDetail == nil && !val.isEmpty && val.lowercased() != "none" && sourceText.contains(val) {
+                let isLinkOrEmail = val.contains("@") || val.contains("http://") || val.contains("https://") ||
+                    val.contains(".com") || val.contains(".org") || val.contains(".net") || val.contains(".in") || val.contains(".io")
+                if refined.destinationDetail == nil && !val.isEmpty && val.lowercased() != "none" && isLinkOrEmail && sourceText.contains(val) {
                     refined.destinationDetail = val
-                    refined.destination = .emailOrLink
+                    refined.destination = val.contains("@") ? .email : .emailOrLink
                     refined.destinationWasDetected = true
                 }
             } else if trimmed.uppercased().hasPrefix("GUIDANCE:") {

@@ -394,7 +394,7 @@ enum TapeAnalyzer {
 
         let headshotPiece = a.pieces.first { $0.kind == .headshot }
         let isHeadshotRequired = headshotPiece != nil && !(headshotPiece?.isOptional ?? false)
-        if HeadshotStore.exists(key: "front", auditionID: a.id) {
+        if HeadshotStore.isComplete(auditionID: a.id) {
             passed.append("Headshots")
         } else if isHeadshotRequired || a.asks.contains("Headshots") {
             add("Headshots not attached", "Attach your headshots before sending. You can attach your default profile photo or take new ones.")

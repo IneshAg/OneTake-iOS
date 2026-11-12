@@ -227,8 +227,23 @@ struct VoicePracticeReviewView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Check the recording against your lines. The marks are suggestions; pauses can be intentional.")
-                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                    let matchedCount = reviews.filter { $0.mark == .matched }.count
+                    let reviewCount = reviews.count - matchedCount
+                    if !reviews.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(matchedCount) of \(reviews.count) lines matched · \(reviewCount) to review")
+                                .font(.otLargeTitle)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text("Tap 'Listen' on any line below to hear that exact moment in your take.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Text("Check the recording against your lines. The marks are suggestions; pauses can be intentional.")
+                            .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                    }
+
                     if let player {
                         VideoPlayer(player: player).frame(height: 150)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -252,8 +267,16 @@ struct VoicePracticeReviewView: View {
                                             player?.seek(to: CMTime(seconds: max(0, time - 0.7), preferredTimescale: 600))
                                             player?.play()
                                         } label: {
-                                            Label(String(format: "%.1fs", time), systemImage: "play.fill")
-                                                .font(.otCaption.monospacedDigit()).foregroundStyle(OT.accent)
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "speaker.wave.2.fill")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                Text("Listen (\(String(format: "%.1fs", time)))")
+                                                    .font(.otCaption.weight(.bold))
+                                            }
+                                            .foregroundStyle(OT.accent)
+                                            .padding(.horizontal, 9)
+                                            .padding(.vertical, 4)
+                                            .background(OT.accentSoft, in: Capsule())
                                         }
                                     }
                                 }

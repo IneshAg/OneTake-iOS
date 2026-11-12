@@ -2,17 +2,53 @@ import SwiftUI
 
 /// 05 Auditions — light, single column library with swipe actions.
 struct AuditionsView: View {
+    enum FilterTab: String, CaseIterable, Identifiable {
+        case active = "Active"
+        case submitted = "Submitted"
+        case archived = "Archived"
+
+        var id: String { rawValue }
+    }
+
     @Environment(AppStore.self) private var store
+    @State private var selectedTab: FilterTab = .active
     @State private var pendingDelete: Audition?
 
     private var items: [Audition] {
-        store.active + store.sent
+        switch selectedTab {
+        case .active: return store.active
+        case .submitted: return store.sent
+        case .archived: return store.archived
+        }
     }
 
     var body: some View {
         Group {
             if store.auditions.isEmpty {
                 EmptyAuditionsView { store.showAddAudition = true }
+            } else if items.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: selectedTab == .archived ? "archivebox" : selectedTab == .submitted ? "paperplane" : "sparkles")
+                        .font(.system(size: 36))
+                        .foregroundStyle(OT.labelTertiary)
+                        .padding(.top, 60)
+                    Text(selectedTab == .archived ? "No archived auditions" : selectedTab == .submitted ? "No submitted auditions yet" : "No active auditions")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                    Text(selectedTab == .archived ? "Auditions you archive will stay saved here without cluttering your active list." : selectedTab == .submitted ? "Auditions marked as sent will appear here." : "Import a casting notice or add an audition to get started.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    if selectedTab == .active {
+                        Button { store.showAddAudition = true } label: {
+                            Label("Add an audition", systemImage: "plus")
+                        }
+                        .buttonStyle(.otPrimary)
+                        .padding(.top, 8)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 List {
                     ForEach(items) { audition in
@@ -35,15 +71,45 @@ struct AuditionsView: View {
                                     pendingDelete = (pendingDelete?.id == audition.id ? nil : audition)
                                 }
                             } label: { Label("Delete", systemImage: "trash") }
-                            if audition.status != .sent {
-                                Button { store.markSent(audition.id); Haptics.success() } label: { Label("Mark sent", systemImage: "paperplane.fill") }
-                                    .tint(OT.success)
+
+                            if audition.archived {
+                                Button {
+                                    store.unarchiveAudition(audition.id)
+                                } label: {
+                                    Label("Unarchive", systemImage: "tray.and.arrow.up.fill")
+                                }
+                                .tint(OT.accent)
+                            } else {
+                                Button {
+                                    store.archiveAudition(audition.id)
+                                } label: {
+                                    Label("Archive", systemImage: "archivebox.fill")
+                                }
+                                .tint(OT.due)
+
+                                if audition.status != .sent {
+                                    Button { store.markSent(audition.id); Haptics.success() } label: { Label("Mark sent", systemImage: "paperplane.fill") }
+                                        .tint(OT.success)
+                                }
                             }
                         }
                         .contextMenu {
-                            if audition.status != .sent {
-                                Button { store.markSent(audition.id); Haptics.success() } label: {
-                                    Label("Mark sent", systemImage: "paperplane.fill")
+                            if audition.archived {
+                                Button {
+                                    store.unarchiveAudition(audition.id)
+                                } label: {
+                                    Label("Unarchive audition", systemImage: "tray.and.arrow.up")
+                                }
+                            } else {
+                                if audition.status != .sent {
+                                    Button { store.markSent(audition.id); Haptics.success() } label: {
+                                        Label("Mark sent", systemImage: "paperplane.fill")
+                                    }
+                                }
+                                Button {
+                                    store.archiveAudition(audition.id)
+                                } label: {
+                                    Label("Archive audition", systemImage: "archivebox")
                                 }
                             }
                             Button(role: .destructive) {
@@ -144,19 +210,38 @@ struct AuditionsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("Auditions")
-                .font(.otLargeTitle)
-                .foregroundStyle(OT.labelPrimary)
-            Spacer()
-            GlassIconButton(systemName: "plus", accessibilityLabel: "Add an audition") {
-                store.showAddAudition = true
+        VStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Text("Auditions")
+                    .font(.otLargeTitle)
+                    .foregroundStyle(OT.labelPrimary)
+                Spacer()
+                GlassIconButton(systemName: "plus", accessibilityLabel: "Add an audition") {
+                    store.showAddAudition = true
+                }
+                ProfileButton { store.showProfile = true }
             }
-            ProfileButton { store.showProfile = true }
+            .padding(.horizontal, OT.gutter)
+
+            Picker("Filter", selection: $selectedTab) {
+                ForEach(FilterTab.allCases) { tab in
+                    let count = countFor(tab)
+                    Text(count > 0 ? "\(tab.rawValue) (\(count))" : tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, OT.gutter)
         }
-        .padding(.horizontal, OT.gutter)
         .padding(.bottom, 6)
         .background(OT.bgCanvas)
+    }
+
+    private func countFor(_ tab: FilterTab) -> Int {
+        switch tab {
+        case .active: return store.active.count
+        case .submitted: return store.sent.count
+        case .archived: return store.archived.count
+        }
     }
 
 }
@@ -179,10 +264,15 @@ struct AuditionCard: View {
                     Text(audition.project).font(.otHeadline).foregroundStyle(OT.labelPrimary)
                     Spacer()
                     if audition.status == .sent {
-                        Label("Sent", systemImage: "paperplane.fill")
+                        Label("Submitted", systemImage: "paperplane.fill")
                             .font(.otCaption.weight(.semibold)).foregroundStyle(OT.success)
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(OT.success.opacity(0.14), in: Capsule())
+                    } else if audition.status == .exported {
+                        Label("Exported", systemImage: "arrow.down.doc.fill")
+                            .font(.otCaption.weight(.semibold)).foregroundStyle(OT.accent)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(OT.accent.opacity(0.14), in: Capsule())
                     }
                 }
                 Text("\(audition.projectType) · \(audition.role)").font(.otFootnote).foregroundStyle(OT.labelSecondary)
@@ -213,7 +303,22 @@ struct AuditionCard: View {
     }
 
     @ViewBuilder private var statusLine: some View {
-        if audition.status == .ready {
+        if audition.status == .sent {
+            Label("Submitted", systemImage: "checkmark.circle.fill")
+                .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.success)
+        } else if audition.status == .exported {
+            HStack(spacing: 8) {
+                Label("Exported · ready to upload", systemImage: "arrow.down.doc.fill")
+                    .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
+                Spacer()
+                Button("Mark Submitted") {
+                    store.markSubmitted(audition.id)
+                    Haptics.success()
+                }
+                .font(.otCaption.weight(.bold))
+                .foregroundStyle(OT.accent)
+            }
+        } else if audition.status == .ready {
             Label("Ready to send · due \(audition.dueRemaining.relativePhrase)", systemImage: "checkmark.circle")
                 .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.success)
         } else {
@@ -236,6 +341,7 @@ struct AuditionCard: View {
 
 struct EmptyAuditionsView: View {
     var onAdd: () -> Void
+    @Environment(AppStore.self) private var store
 
     var body: some View {
         VStack(spacing: 16) {
@@ -250,6 +356,23 @@ struct EmptyAuditionsView: View {
             Text("No auditions yet")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(OT.labelPrimary)
+
+            VStack(spacing: 12) {
+                Button(action: onAdd) {
+                    Label("Import an audition", systemImage: "doc.badge.plus")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otPrimary)
+
+                Button {
+                    store.loadSampleAudition()
+                } label: {
+                    Label("Try a sample", systemImage: "play.circle")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otSecondary)
+            }
+            .padding(.top, 8)
 
             Spacer()
         }

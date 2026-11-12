@@ -514,10 +514,31 @@ struct PrivacyView: View {
     @State private var isWorkingWithBackup = false
     @State private var backupArchiveURL: URL?
     @State private var pendingBackup: PendingBackup?
+    @State private var backupThenRestorePending = false
 
-    private struct PendingBackup {
+    struct PendingBackup: Identifiable {
+        var id: String { directory.path }
         let directory: URL
         let payload: LocalBackupPayload
+
+        var createdAt: Date { payload.createdAt }
+        var auditionCount: Int { payload.state.auditions.count }
+        var takeCount: Int { payload.state.takes.count }
+        var headshotCount: Int {
+            let path = directory.appendingPathComponent("Documents/headshots").path
+            return (try? FileManager.default.contentsOfDirectory(atPath: path).filter { !$0.hasPrefix(".") }.count) ?? 0
+        }
+        var readerCueCount: Int {
+            let path = directory.appendingPathComponent("Documents/\(ReaderTrackPlayer.folder)")
+            guard let enumerator = FileManager.default.enumerator(at: path, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return 0 }
+            var count = 0
+            for case let fileURL as URL in enumerator {
+                if ["m4a", "caf", "wav"].contains(fileURL.pathExtension.lowercased()) {
+                    count += 1
+                }
+            }
+            return count
+        }
     }
 
     private var rawTakesSize: Int64 {
@@ -567,16 +588,28 @@ struct PrivacyView: View {
         .sheet(isPresented: $showBackupShare, onDismiss: {
             LocalBackup.discardArchive(backupArchiveURL)
             backupArchiveURL = nil
+            if backupThenRestorePending {
+                backupThenRestorePending = false
+                restoreBackup()
+            }
         }) {
             if let backupArchiveURL {
                 ShareSheet(items: [backupArchiveURL]) { _ in showBackupShare = false }
             }
         }
-        .confirmationDialog("Replace local data with this backup?", isPresented: $showRestoreConfirmation, titleVisibility: .visible) {
-            Button("Replace local data", role: .destructive) { restoreBackup() }
-            Button("Cancel", role: .cancel) { discardPendingBackup() }
-        } message: {
-            Text("This replaces auditions, recordings, headshots, practice and settings on this iPhone.")
+        .sheet(item: $pendingBackup) { backup in
+            RestoreBackupSheet(
+                backup: backup,
+                onBackupFirst: {
+                    backupCurrentiPhoneThenRestore()
+                },
+                onRestore: {
+                    restoreBackup()
+                },
+                onCancel: {
+                    discardPendingBackup()
+                }
+            )
         }
         .alert("Backup could not be used", isPresented: $showBackupError) {
             Button("OK", role: .cancel) { }
@@ -805,6 +838,31 @@ struct PrivacyView: View {
                     backupArchiveURL = try await Task.detached(priority: .userInitiated) {
                         try LocalBackup.writeArchive(job)
                     }.value
+                    showBackupShare = true
+                } catch {
+                    backupErrorMessage = error.localizedDescription
+                    showBackupError = true
+                }
+                isWorkingWithBackup = false
+            }
+        } catch {
+            isWorkingWithBackup = false
+            backupErrorMessage = error.localizedDescription
+            showBackupError = true
+        }
+    }
+
+    private func backupCurrentiPhoneThenRestore() {
+        guard !isWorkingWithBackup else { return }
+        isWorkingWithBackup = true
+        do {
+            let job = try LocalBackup.prepareExport(from: store)
+            Task {
+                do {
+                    backupArchiveURL = try await Task.detached(priority: .userInitiated) {
+                        try LocalBackup.writeArchive(job)
+                    }.value
+                    backupThenRestorePending = true
                     showBackupShare = true
                 } catch {
                     backupErrorMessage = error.localizedDescription
@@ -1067,6 +1125,7 @@ struct HeadshotsView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var isFraming = false
     @State private var framingPreset: HeadshotPreset = .theatrical
+    @State private var showConfirmDelete = false
 
     /// Counted from the real files on disk for this specific audition or profile
     private var taken: Int {
@@ -1084,7 +1143,41 @@ struct HeadshotsView: View {
                     title: auditionID != nil ? "Audition Headshots" : "Default Headshots",
                     backLabel: "Back",
                     onBack: { store.pop() }
-                )
+                ) {
+                    if taken > 0 {
+                        Button(role: .destructive) {
+                            showConfirmDelete = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.danger)
+                                .frame(width: 36, height: 36)
+                                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        }
+                        .accessibilityLabel("Remove headshots")
+                        .alert(auditionID != nil ? "Delete Audition Headshots?" : "Delete Default Headshots?", isPresented: $showConfirmDelete) {
+                            Button("Cancel", role: .cancel) {}
+                            Button("Delete", role: .destructive) {
+                                if let auditionID {
+                                    HeadshotStore.removeAuditionHeadshots(for: auditionID)
+                                } else {
+                                    let dir = MediaStore.directory("headshots")
+                                    try? FileManager.default.removeItem(at: dir)
+                                    HeadshotStore.clearCache()
+                                }
+                                store.headshotVersion += 1
+                                store.syncHeadshotPieces()
+                                Haptics.warning()
+                            }
+                        } message: {
+                            if auditionID != nil {
+                                Text("These photos will be removed from this audition. Your default headshots will stay in Profile.")
+                            } else {
+                                Text("These photos will be removed from your profile. Existing audition headshots will not be affected.")
+                            }
+                        }
+                    }
+                }
                 .padding(.top, 4)
 
                 if let auditionID {
@@ -1179,13 +1272,14 @@ struct HeadshotsView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(height: 280)
+                .id(store.headshotVersion)
 
                 photoActionsBar
             }
             .padding(.horizontal, OT.gutter)
-            .padding(.bottom, 120)
+            .padding(.bottom, 140)
         }
-        .id(store.headshotVersion)
+        .scrollBounceBehavior(.basedOnSize)
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
@@ -2292,6 +2386,8 @@ struct HeadshotAdjustSheet: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var isAutoFraming = false
     @State private var saveError = false
+    @State private var frameFeedbackMessage: String?
+    @State private var isPulseActive = false
 
     /// Display frame dimensions inside the sheet matching slot proportions or selected preset ratio.
     private func targetFrameSize(for preset: HeadshotPreset) -> CGSize {
@@ -2356,8 +2452,9 @@ struct HeadshotAdjustSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+                            .strokeBorder(isPulseActive ? OT.accent : Color.white.opacity(0.35), lineWidth: isPulseActive ? 2.5 : 1.5)
                     )
+                    .scaleEffect(isPulseActive ? 1.025 : 1.0)
                     .gesture(
                         SimultaneousGesture(
                             DragGesture()
@@ -2378,6 +2475,26 @@ struct HeadshotAdjustSheet: View {
                                 }
                         )
                     )
+
+                    if let msg = frameFeedbackMessage {
+                        VStack {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(OT.accent)
+                                Text(msg)
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(Capsule().strokeBorder(OT.accent.opacity(0.4), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
+                            .padding(.top, 16)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            Spacer()
+                        }
+                    }
                 } else {
                     ProgressView()
                         .tint(.white)
@@ -2566,7 +2683,24 @@ struct HeadshotAdjustSheet: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 applyTransform()
             }
-            Haptics.tick()
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
+                isPulseActive = true
+            }
+            let msg = face != nil ? "Framed to face · \(targetPreset.title)" : "Centered crop · \(targetPreset.title)"
+            frameFeedbackMessage = msg
+            Haptics.success()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    isPulseActive = false
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                if frameFeedbackMessage == msg {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        frameFeedbackMessage = nil
+                    }
+                }
+            }
         } else {
             applyTransform()
         }
@@ -2676,6 +2810,7 @@ struct HeadshotViewerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppStore.self) private var store
     @State private var replacePickerItem: PhotosPickerItem?
+    @State private var showConfirmDelete = false
 
     private var image: UIImage? {
         HeadshotStore.load(key: item.key, auditionID: item.auditionID)
@@ -2751,16 +2886,7 @@ struct HeadshotViewerSheet: View {
 
                 // Remove button
                 Button(role: .destructive) {
-                    let dir = item.auditionID != nil
-                        ? MediaStore.directory("audition_headshots/\(item.auditionID!.uuidString)")
-                        : MediaStore.directory("headshots")
-                    try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key).jpg"))
-                    try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key)_original.jpg"))
-                    HeadshotStore.clearCache()
-                    store.headshotVersion += 1
-                    store.syncHeadshotPieces()
-                    Haptics.warning()
-                    dismiss()
+                    showConfirmDelete = true
                 } label: {
                     Image(systemName: "trash")
                         .font(.otSubhead.weight(.semibold))
@@ -2774,6 +2900,23 @@ struct HeadshotViewerSheet: View {
             .background(OT.surfaceRaised)
         }
         .preferredColorScheme(.dark)
+        .alert("Delete Headshot?", isPresented: $showConfirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                let dir = item.auditionID != nil
+                    ? MediaStore.directory("audition_headshots/\(item.auditionID!.uuidString)")
+                    : MediaStore.directory("headshots")
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key).jpg"))
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(item.key)_original.jpg"))
+                HeadshotStore.clearCache()
+                store.headshotVersion += 1
+                store.syncHeadshotPieces()
+                Haptics.warning()
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to delete this headshot?")
+        }
         .onChange(of: replacePickerItem) { _, newItem in
             guard let newItem else { return }
             Task {
@@ -2789,6 +2932,97 @@ struct HeadshotViewerSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Restore Backup Sheet
+
+struct RestoreBackupSheet: View {
+    let backup: PrivacyView.PendingBackup
+    var onBackupFirst: () -> Void
+    var onRestore: () -> Void
+    var onCancel: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Backup contents")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+
+                    VStack(spacing: 10) {
+                        summaryRow(icon: "calendar", label: "Created", value: backup.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        summaryRow(icon: "folder.fill", label: "Auditions", value: "\(backup.auditionCount)")
+                        summaryRow(icon: "film.fill", label: "Takes", value: "\(backup.takeCount)")
+                        summaryRow(icon: "person.crop.square.fill", label: "Headshots", value: "\(backup.headshotCount)")
+                        summaryRow(icon: "waveform", label: "Reader cues", value: "\(backup.readerCueCount)")
+                    }
+                    .padding(14)
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(OT.warning)
+                            .font(.subheadline)
+                        Text("Restoring will replace all current auditions, recordings, headshots, and settings on this iPhone.")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelSecondary)
+                    }
+                    .padding(12)
+                    .background(OT.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .padding(.horizontal, OT.gutter)
+                .padding(.top, 10)
+
+                Spacer()
+
+                VStack(spacing: 10) {
+                    Button {
+                        dismiss()
+                        onBackupFirst()
+                    } label: {
+                        Label("Back up this iPhone first", systemImage: "arrow.up.doc.fill")
+                    }
+                    .buttonStyle(.otPrimary)
+
+                    Button(role: .destructive) {
+                        dismiss()
+                        onRestore()
+                    } label: {
+                        Text("Replace local data now")
+                    }
+                    .buttonStyle(.otSecondary)
+
+                    Button("Cancel", role: .cancel) {
+                        dismiss()
+                        onCancel()
+                    }
+                    .font(.otCallout)
+                    .foregroundStyle(OT.labelSecondary)
+                    .padding(.top, 4)
+                }
+                .padding(.horizontal, OT.gutter)
+                .padding(.bottom, 20)
+            }
+            .otCanvas()
+            .navigationTitle("Restore Backup")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func summaryRow(icon: String, label: String, value: String) -> some View {
+        HStack {
+            Label(label, systemImage: icon)
+                .font(.otSubhead)
+                .foregroundStyle(OT.labelSecondary)
+            Spacer()
+            Text(value)
+                .font(.otSubhead.weight(.semibold))
+                .foregroundStyle(OT.labelPrimary)
         }
     }
 }

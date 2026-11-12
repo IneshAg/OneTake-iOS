@@ -1,6 +1,7 @@
 // xcode: set sdk=iOS
 
 import SwiftUI
+import UIKit
 import GoogleSignIn
 
 @main
@@ -28,6 +29,9 @@ struct OneTakeApp: App {
             .tint(OT.accent)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
             .task {
+                if ProcessInfo.processInfo.arguments.contains("-loadSampleAudition") {
+                    store.loadSampleAudition()
+                }
                 if ProcessInfo.processInfo.arguments.contains("-openProfile") {
                     store.showProfile = true
                 }
@@ -59,6 +63,7 @@ struct OneTakeApp: App {
                 }
                 guard url.scheme == "onetake", url.host == "audition",
                       let id = UUID(uuidString: url.lastPathComponent), store.audition(id) != nil else { return }
+                store.showProfile = false
                 store.camera = nil
                 store.tab = .auditions
                 store.auditionsPath = [.auditionDetail(id)]

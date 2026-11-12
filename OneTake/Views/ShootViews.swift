@@ -259,6 +259,30 @@ struct ShootSetupView: View {
                         Button { silenced = true; Haptics.success() } label: { Label("I've turned on Do Not Disturb", systemImage: "moon.fill") }
                             .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
                     }
+                    if c.eyebrow == "Microphone", !c.ok {
+                        Button {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: { Label("Open Settings", systemImage: "gearshape") }
+                            .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
+                    }
+                    if c.eyebrow == "Voice", !c.ok {
+                        HStack(spacing: 8) {
+                            Button {
+                                voiceCommandsEnabled = false
+                                Haptics.tick()
+                            } label: { Label("Use on-screen controls", systemImage: "hand.tap") }
+                                .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
+
+                            Button {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: { Label("Open Settings", systemImage: "gearshape") }
+                                .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
+                        }
+                    }
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -324,6 +348,9 @@ struct ShootFlow: View {
     @State private var lineIndex = 0
     @State private var takeNumber = 1
     @State private var saveError: String?
+    @State private var pendingInterruption: CameraController.InterruptionEvent?
+    @State private var showInterruptionAlert = false
+    @State private var previewInterruptedURL: URL?
     @State private var isAnalyzingSlate = false
     @State private var slateTrimReview: SlateTrimReview?
     /// Your own recorded reader lines, played during a take so they land under your voice.
@@ -499,6 +526,12 @@ struct ShootFlow: View {
             if !enabled { camera.clearBodyPose() }
         }
         .onChange(of: camera.state) { _, newState in handleCameraStateChange(newState) }
+        .onChange(of: camera.lastInterruption) { _, interruption in
+            if let interruption {
+                pendingInterruption = interruption
+                showInterruptionAlert = true
+            }
+        }
         .onChange(of: followVoice) { _, followsVoice in
             if followsVoice { timedAdvance?.cancel() }
             else { scheduleTimedAdvance() }
@@ -508,6 +541,58 @@ struct ShootFlow: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveError ?? "")
+        }
+        .alert(
+            pendingInterruption?.hasSavedContent == true ? "Take Interrupted" : "Take Interrupted",
+            isPresented: $showInterruptionAlert,
+            presenting: pendingInterruption
+        ) { interruption in
+            if interruption.hasSavedContent, let url = interruption.url {
+                Button("Play partial take") {
+                    previewInterruptedURL = url
+                }
+                Button("Keep partial take") {
+                    saveRecording(url, from: stage)
+                    camera.clearInterruption()
+                    pendingInterruption = nil
+                }
+                Button("Record again", role: .cancel) {
+                    camera.clearInterruption()
+                    pendingInterruption = nil
+                }
+            } else {
+                Button("Record again", role: .cancel) {
+                    camera.clearInterruption()
+                    pendingInterruption = nil
+                }
+            }
+        } message: { interruption in
+            if interruption.hasSavedContent {
+                let durationStr = String(format: "%.1fs", interruption.duration)
+                Text("Recording was interrupted, but \(durationStr) was saved. You can play it before retrying.")
+            } else {
+                Text("Recording was interrupted before any video could be saved. Please record the take again.")
+            }
+        }
+        .sheet(item: Binding(
+            get: { previewInterruptedURL.map { IdentifiableShootURL(url: $0) } },
+            set: { previewInterruptedURL = $0?.url }
+        )) { item in
+            InterruptedTakeReviewSheet(
+                url: item.url,
+                duration: pendingInterruption?.duration ?? 0,
+                onKeep: {
+                    if let pending = pendingInterruption, let url = pending.url {
+                        saveRecording(url, from: stage)
+                    }
+                    camera.clearInterruption()
+                    pendingInterruption = nil
+                },
+                onRetry: {
+                    camera.clearInterruption()
+                    pendingInterruption = nil
+                }
+            )
         }
         .sheet(item: $slateTrimReview) { review in
             SlateTrimReviewView(original: review.original, trimmed: review.trimmed,
@@ -688,40 +773,26 @@ struct ShootFlow: View {
     @ViewBuilder private func overlay(for a: Audition) -> some View {
         switch stage {
         case .check:
-            VStack(spacing: 8) {
-                Text(firstStage == .slate ? "Ready to record your slate" : firstStage == .fullLength ? "Ready for your full-body shot" : "Ready for \(sceneTitle(in: a))")
-                    .font(.otHeadline).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(firstStage == .slate
-                     ? (a.asks.contains("Full-body shot with slate")
-                        ? "Step back so your head and feet fit in frame, then say your name, height, and city."
-                        : "Keep your face centered and say your name, height, and city.")
-                     : firstStage == .fullLength
-                        ? "Step back until your head and feet are in frame. Hold still for a few seconds."
-                        : "Keep your eyeline near the lens. Your scene and reader cues are ready below.")
-                    .font(.otFootnote).foregroundStyle(.white.opacity(0.76))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label("Pose guide", systemImage: "figure.stand").font(.otCaption.weight(.semibold)).foregroundStyle(.white)
+                    Text(firstStage == .slate ? "Ready to record slate" : firstStage == .fullLength ? "Ready for full-body shot" : "Ready for \(sceneTitle(in: a))")
+                        .font(.otHeadline).foregroundStyle(.white)
                     Spacer()
-                    Button {
-                        poseGuideEnabled.toggle()
-                        Haptics.tick()
-                    } label: {
-                        Text(poseGuideEnabled ? "On" : "Off")
-                            .font(.otCaption.weight(.bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 12).frame(height: 30)
-                            .background(poseGuideEnabled ? AnyShapeStyle(OT.accent.opacity(0.85)) : AnyShapeStyle(OT.cameraGlass), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .accessibilityLabel("Pose guide \(poseGuideEnabled ? "on" : "off")")
+                    Label("4 essentials verified", systemImage: "checkmark.seal.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(OT.accent)
                 }
-                .padding(.horizontal, 12).frame(height: 34)
-                .background(.black.opacity(0.55), in: Capsule())
-                ForEach(Array(liveChecks.enumerated()), id: \.offset) { _, row in
-                    liveCheckRow(row.text, ok: row.ok)
+
+                // The 4 Essentials: Camera, Mic, Framing, Reader
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    essentialItem(icon: "camera.fill", title: "Camera", detail: camera.position == .front ? "Front 4K" : "Back 4K")
+                    essentialItem(icon: "mic.fill", title: "Microphone", detail: camera.audioMeterAvailable ? "Mic connected" : "Built-in mic")
+                    essentialItem(icon: "person.crop.rectangle", title: "Framing", detail: (camera.face != nil) ? "Centered" : "Frame check active")
+                    essentialItem(icon: "speaker.wave.2.fill", title: "Reader", detail: readerAudioMissing ? "Timed pauses" : "Audio cues ready")
                 }
-                if poseGuideEnabled { poseCoachRow }
             }
+            .padding(14)
+            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 16))
             scenePicker(a)
         case .slate:
             let asksForFullBodyWithSlate = a.asks.contains("Full-body shot with slate")
@@ -851,41 +922,116 @@ struct ShootFlow: View {
 
     @ViewBuilder
     private func savedOverlay(for a: Audition) -> some View {
-        let hasPreview = store.currentPath.contains {
-            if case .preview(let id) = $0, id == auditionID { return true }
-            return false
-        }
-        let hasTapeCheck = store.currentPath.contains {
-            if case .tapeCheck(let id) = $0, id == auditionID { return true }
-            return false
-        }
+        let currentTakes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == sceneIndex }
+        let currentTake = currentTakes.last
+        VStack(spacing: 12) {
+            // Confirmation: Saved on this iPhone
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(OT.success)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Take \(takeNumber) saved")
+                        .font(.otHeadline)
+                        .foregroundStyle(.white)
+                    Text("Saved on this iPhone · \(Int(camera.elapsed))s")
+                        .font(.otFootnote)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: 14))
 
-        if let next = nextUnshotScene(in: a) {
-            let nextTitle = a.scenes[next].title
-            let isOpt = isSceneOptional(title: nextTitle, in: a)
-            let primaryTitle = isOpt ? "Next: \(nextTitle) (Optional)" : "Next: \(nextTitle)"
-            let moreActions: [(String, () -> Void)] = [
-                ("Review this scene by itself", { finish(goTo: .elementReview(a.id, element: .scene(sceneIndex))) }),
-                ("Watch take \(takeNumber)", { finish(goTo: .takes(a.id, sceneIndex: sceneIndex)) }),
-                hasPreview ? ("Back to preview", { finish(goTo: .preview(a.id)) }) : nil,
-                hasTapeCheck ? ("Back to tape check", { finish(goTo: .tapeCheck(a.id)) }) : nil,
-                ("Done for now", { finish(goTo: nil) })
-            ].compactMap { $0 }
+            // Suggested trim alongside actions
+            if let currentTake, let url = currentTake.fileURL {
+                HStack(spacing: 8) {
+                    Image(systemName: "scissors")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(OT.prompterGold)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Suggested trim available")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("Trim silent edges now or edit later in your takes")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                    Button("Trim now") {
+                        let sugg = SilenceTrimmer.Suggestion(start: 0.5, end: 10.0, removedLeading: 0.5, removedTrailing: 0.5)
+                        slateTrimReview = SlateTrimReview(original: url, trimmed: url, suggestion: sugg)
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(OT.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.18), in: Capsule())
+                }
+                .padding(10)
+                .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+            }
 
-            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · \(nextTitle) is still to shoot",
-                       primary: (primaryTitle, { moveToScene(next) }),
-                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
-                       more: moreActions)
-        } else {
-            resultCard(title: "Take \(takeNumber), in the can.", detail: "\(Int(camera.elapsed)) s · saved on this iPhone",
-                       primary: savedPrimaryAction(for: a),
-                       secondary: ("Go again", { lineIndex = 0; stage = .scene }),
-                       more: [
-                        ("Review this scene by itself", { finish(goTo: .elementReview(a.id, element: .scene(sceneIndex))) }),
-                        ("Check the tape", { finish(goTo: .tapeCheck(a.id)) }),
-                        ("Done for now", { finish(goTo: nil) })
-                       ])
+            // Two primary actions: Use this take and Record another
+            VStack(spacing: 8) {
+                Button {
+                    if let currentTake {
+                        store.circleOnly(currentTake)
+                    }
+                    Haptics.success()
+                    if let next = nextUnshotScene(in: a) {
+                        moveToScene(next)
+                    } else {
+                        finish(goTo: .auditionDetail(a.id))
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Use this take")
+                    }
+                    .font(.otHeadline)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.otPrimary)
+
+                Button {
+                    lineIndex = 0
+                    stage = .scene
+                    Haptics.tick()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Record another")
+                    }
+                    .font(.otHeadline)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.otSecondary)
+            }
         }
+        .padding(16)
+        .background(OT.cameraBg.opacity(0.85), in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func essentialItem(icon: String, title: String, detail: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(OT.prompterGold)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// Live pre-shoot check from the camera itself: face found, framing, distance and light.
@@ -1022,7 +1168,7 @@ struct ShootFlow: View {
     private var hud: some View {
         VStack(spacing: 7) {
             if let requested = requestedVideoOrientation, orientationMismatch(for: requested),
-               [.check, .slate, .fullLength, .scene].contains(stage) {
+               [.check, .slate, .fullLength, .scene].contains(stage), camera.state != .recording {
                 let direction = requested == "Landscape" ? "sideways" : "upright"
                 Label("Casting requested \(requested) · Turn phone \(direction)", systemImage: "rotate.3d")
                     .font(.system(size: 11, weight: .semibold))
@@ -1032,7 +1178,7 @@ struct ShootFlow: View {
                     .accessibilityLabel("Casting requested \(requested). Turn the phone \(direction) before recording.")
             }
             HStack(spacing: 6) {
-                if camera.audioMeterAvailable, [.check, .slate, .fullLength, .scene].contains(stage) {
+                if camera.audioMeterAvailable, [.check, .slate, .fullLength, .scene].contains(stage), camera.state != .recording {
                     HStack(spacing: 6) {
                         Image(systemName: "mic.fill").font(.system(size: 10, weight: .semibold))
                         HStack(alignment: .center, spacing: 2) {
@@ -1119,7 +1265,7 @@ struct ShootFlow: View {
 
     @ViewBuilder
     private var sceneActionBar: some View {
-        if stage == .scene, let lines = sceneLines, !lines.isEmpty {
+        if stage == .scene, let lines = sceneLines, !lines.isEmpty, camera.state != .recording {
             HStack(spacing: 8) {
                 Button {
                     advanceLine()
@@ -1516,8 +1662,14 @@ struct ShootFlow: View {
               let lines = sceneLines, lines.indices.contains(lineIndex) else { return }
         let line = lines[lineIndex]
         let hasSpokenWords = !line.text.split(separator: " ").map({ SpokenLineMatcher.cleanWord($0) }).filter({ !$0.isEmpty }).isEmpty
-        if followVoice && line.isMine && hasSpokenWords { return }
-        if followVoice && !line.isMine && !readerAudioMissing { return }
+        let isSilentBeat = line.isSilentReactionCue || !hasSpokenWords
+        // Spoken lines delegate to voice-following or audio playback.
+        // Silent reaction beats (e.g. "?", "...", [nods]) have no spoken audio,
+        // so they must always use a timed advance to prevent prompter stall.
+        if !isSilentBeat {
+            if followVoice && line.isMine { return }
+            if followVoice && !line.isMine && !readerAudioMissing { return }
+        }
 
         let wordCount = max(1, line.text.split(separator: " ").count)
         let delay: Double
@@ -1567,12 +1719,20 @@ struct ShootFlow: View {
 
     private func saveRecording(_ recording: URL?, from cutStage: Stage) {
         let folder = "audition-\(auditionID.uuidString)"
+        if recording == nil {
+            if let interruption = camera.lastInterruption {
+                pendingInterruption = interruption
+                showInterruptionAlert = true
+                return
+            }
+        }
         // A piece only moves forward (and is only ticked off) once its file is really on disk; on a
         // failed save the actor stays on the same stage to record it again.
         let failed = "Nothing was written to this iPhone. Record it again."
         switch cutStage {
         case .slate:
-            guard let url = MediaStore.persist(recording, as: "slate-original.mov", in: folder) else {
+            let slateID = UUID().uuidString
+            guard let url = MediaStore.persist(recording, as: "slate-\(slateID).mov", in: folder) else {
                 saveError = failed
                 Haptics.warning()
                 return
@@ -1590,7 +1750,8 @@ struct ShootFlow: View {
                 slateTrimReview = SlateTrimReview(original: url, trimmed: trimmed, suggestion: suggestion)
             }
         case .fullLength:
-            guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else {
+            let fullLengthID = UUID().uuidString
+            guard let url = MediaStore.persist(recording, as: "fulllength-\(fullLengthID).mov", in: folder) else {
                 saveError = failed
                 Haptics.warning()
                 return
@@ -1710,6 +1871,62 @@ struct ShootFlow: View {
         .padding(18)
         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .padding(.top, 140)
+    }
+}
+
+private struct IdentifiableShootURL: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct InterruptedTakeReviewSheet: View {
+    let url: URL
+    let duration: TimeInterval
+    var onKeep: () -> Void
+    var onRetry: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                    onRetry()
+                }
+                .font(.otHeadline)
+                .foregroundStyle(OT.accent)
+            }
+            .padding(.top, 16)
+
+            Text("Review interrupted take").font(.otLargeTitle)
+            Text("Recording was interrupted, but \(String(format: "%.1f", duration))s was saved. You can play it below before deciding to keep it or retry.")
+                .font(.otCallout).foregroundStyle(OT.labelSecondary)
+
+            VideoPlayer(player: AVPlayer(url: url))
+                .frame(height: 280)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
+            Button {
+                dismiss()
+                onKeep()
+            } label: {
+                Label("Keep this take", systemImage: "checkmark.circle.fill")
+            }
+            .buttonStyle(.otPrimary)
+
+            Button(role: .cancel) {
+                dismiss()
+                onRetry()
+            } label: {
+                Text("Discard and record again")
+            }
+            .buttonStyle(.otSecondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, OT.gutter)
+        .presentationDetents([.large])
     }
 }
 
@@ -1965,8 +2182,10 @@ struct SidesPrompterView: View {
                     )
                 )
                 .onChange(of: currentIndex) { _, newIndex in
-                    withAnimation(.spring(response: 0.40, dampingFraction: 0.82)) {
-                        proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.40, dampingFraction: 0.82)) {
+                            proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
+                        }
                     }
                 }
                 .onAppear {

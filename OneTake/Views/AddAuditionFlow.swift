@@ -13,11 +13,14 @@ struct AddAuditionFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var photoItem: PhotosPickerItem?
     @State private var pendingReviewImage: UIImage?
+    @State private var lastFailedPages: [UIImage] = []
     @State private var showFileImporter = false
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var unreadableNoticeError = false
     @State private var emptyClipboardAlert = false
+    @State private var isReadingNotice = false
+    @State private var ocrRecoveryActive = false
     /// Parsed draft pending the actor's review — shown in OCRReviewSheet before being committed.
     @State private var pendingReviewDraft: NoticeParser.Draft? = nil
 
@@ -25,20 +28,31 @@ struct AddAuditionFlow: View {
         capture
             .presentationDetents([.height(315)])
             .presentationDragIndicator(.visible)
+            .overlay {
+                if isReadingNotice {
+                    ReadingNoticeOverlay(image: pendingReviewImage)
+                }
+            }
             .fullScreenCover(isPresented: $showScanner) {
                 DocumentScannerView { pages in
                     showScanner = false
                     guard !pages.isEmpty else { return }
+                    pendingReviewImage = pages.first
+                    lastFailedPages = pages
+                    isReadingNotice = true
                     Task {
                         let pageTexts = await NoticeOCR.recognizePages(in: pages)
                         let text = pageTexts.joined(separator: "\n\n")
                         if !NoticeOCR.looksReadable(text) {
-                            await MainActor.run { unreadableNoticeError = true }
+                            await MainActor.run {
+                                isReadingNotice = false
+                                ocrRecoveryActive = true
+                            }
                         } else {
                             let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: [AuditionSource(name: "Scanned notice", kind: .castingNotice, pageCount: pageTexts.count)])
-                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            try? await Task.sleep(nanoseconds: 200_000_000)
                             await MainActor.run {
-                                pendingReviewImage = pages.first
+                                isReadingNotice = false
                                 pendingReviewDraft = draft
                             }
                         }
@@ -46,16 +60,40 @@ struct AddAuditionFlow: View {
                 }
                 .ignoresSafeArea()
             }
+            .sheet(isPresented: $ocrRecoveryActive) {
+                OCRRecoverySheet(
+                    image: pendingReviewImage,
+                    onRetry: { retryOCR() },
+                    onReplace: {
+                        ocrRecoveryActive = false
+                        photoItem = nil
+                        pendingReviewImage = nil
+                        lastFailedPages = []
+                    },
+                    onEnterDetails: {
+                        ocrRecoveryActive = false
+                        store.startAuditionDraft(NoticeParser.Draft.blank)
+                    },
+                    onCancel: {
+                        ocrRecoveryActive = false
+                        pendingReviewImage = nil
+                        lastFailedPages = []
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
             // OCR Review sheet — shown after every scan/photo/file import so the actor can
             // verify parsed fields before they are committed to the audition draft.
             .sheet(item: $pendingReviewDraft) { draft in
                 OCRReviewSheet(draft: draft, sourcePreview: pendingReviewImage) { confirmedDraft, readerPlan in
                     pendingReviewDraft = nil
                     pendingReviewImage = nil
-                    if confirmedDraft.missingRequiredDetails.isEmpty {
-                        store.commitAuditionDraft(confirmedDraft, readerAudioPlan: readerPlan)
-                    } else {
-                        store.startAuditionDraft(confirmedDraft)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        if confirmedDraft.missingRequiredDetails.isEmpty {
+                            store.commitAuditionDraft(confirmedDraft, readerAudioPlan: readerPlan)
+                        } else {
+                            store.startAuditionDraft(confirmedDraft)
+                        }
                     }
                 } onDiscard: {
                     pendingReviewDraft = nil
@@ -65,31 +103,36 @@ struct AddAuditionFlow: View {
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
                 switch result {
                 case .success(let url):
-                    pendingReviewImage = nil
                     let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
                     let pdfPreview = resolved.url.pathExtension.lowercased() == "pdf"
                         ? PDFDocument(url: resolved.url)?.page(at: 0)?.thumbnail(of: CGSize(width: 1200, height: 1600), for: .mediaBox)
                         : nil
+                    pendingReviewImage = pdfPreview
+                    if let pdfPreview { lastFailedPages = [pdfPreview] }
+                    isReadingNotice = true
                     Task {
                         defer { resolved.cleanup() }
                         if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
                             let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)])
                             await MainActor.run {
-                                pendingReviewImage = pdfPreview
+                                isReadingNotice = false
                                 pendingReviewDraft = draft
                             }
                         } else if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
                             let draft = await NoticeParser.parseAsync(text, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: 1)])
                             await MainActor.run {
-                                pendingReviewImage = pdfPreview
+                                isReadingNotice = false
                                 pendingReviewDraft = draft
                             }
                         } else {
-                            await MainActor.run { unreadableNoticeError = true }
+                            await MainActor.run {
+                                isReadingNotice = false
+                                ocrRecoveryActive = true
+                            }
                         }
                     }
                 case .failure:
-                    unreadableNoticeError = true
+                    ocrRecoveryActive = true
                 }
             }
             .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
@@ -112,24 +155,52 @@ struct AddAuditionFlow: View {
             .task { await readSharedNotice() }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
-                pendingReviewImage = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
-                        await MainActor.run { unreadableNoticeError = true }
+                        await MainActor.run { ocrRecoveryActive = true }
                         return
+                    }
+                    await MainActor.run {
+                        pendingReviewImage = image
+                        lastFailedPages = [image]
+                        isReadingNotice = true
                     }
                     let text = await NoticeOCR.recognizeText(in: [image])
                     if !NoticeOCR.looksReadable(text) {
-                        await MainActor.run { unreadableNoticeError = true }
+                        await MainActor.run {
+                            isReadingNotice = false
+                            ocrRecoveryActive = true
+                        }
                     } else {
                         let draft = await NoticeParser.parseAsync(text, pages: [text])
                         await MainActor.run {
-                            pendingReviewImage = image
+                            isReadingNotice = false
                             pendingReviewDraft = draft
                         }
                     }
                 }
             }
+    }
+
+    private func retryOCR() {
+        guard !lastFailedPages.isEmpty else { return }
+        isReadingNotice = true
+        ocrRecoveryActive = false
+        Task {
+            let text = await NoticeOCR.recognizeText(in: lastFailedPages)
+            if !NoticeOCR.looksReadable(text) {
+                await MainActor.run {
+                    isReadingNotice = false
+                    ocrRecoveryActive = true
+                }
+            } else {
+                let draft = await NoticeParser.parseAsync(text, pages: [text])
+                await MainActor.run {
+                    isReadingNotice = false
+                    pendingReviewDraft = draft
+                }
+            }
+        }
     }
 
     private func openScanner() {
@@ -348,13 +419,114 @@ struct SuggestionChipBar: View {
     }
 }
 
-private struct OCRReviewSheet: View {
+// MARK: - Reading Notice & Recovery Views
+
+struct ReadingNoticeOverlay: View {
+    let image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.65)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                }
+
+                VStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(OT.accent)
+
+                    Text("Reading your notice…")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+
+                    Text("Finding character, sides, and casting instructions")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+            }
+            .padding(24)
+            .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .padding(.horizontal, 28)
+        }
+    }
+}
+
+struct OCRRecoverySheet: View {
+    let image: UIImage?
+    var onRetry: () -> Void
+    var onReplace: () -> Void
+    var onEnterDetails: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+            }
+
+            VStack(spacing: 6) {
+                Text("Couldn’t read text from this notice")
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.labelPrimary)
+                Text("The print might be too small, low contrast, or handwritten. You can retry with enhanced contrast, pick another photo, or enter details with this photo as a reference.")
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 10) {
+                Button(action: onRetry) {
+                    Label("Retry reading notice", systemImage: "arrow.clockwise")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otPrimary)
+
+                Button(action: onReplace) {
+                    Label("Replace photo", systemImage: "photo.badge.plus")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otSecondary)
+
+                Button(action: onEnterDetails) {
+                    Label("Enter details manually", systemImage: "square.and.pencil")
+                        .font(.otHeadline)
+                }
+                .buttonStyle(.otSecondary)
+            }
+
+            Button("Cancel", action: onCancel)
+                .font(.otFootnote)
+                .foregroundStyle(OT.labelTertiary)
+        }
+        .padding(OT.gutter)
+        .otCanvas()
+    }
+}
+
+struct OCRReviewSheet: View {
     @Environment(AppStore.self) private var store
     /// The draft that the parser produced — presented as editable fields.
     @State var draft: NoticeParser.Draft
     let sourcePreview: UIImage?
     let onConfirm: (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void
     let onDiscard: () -> Void
+
+    var currentRoleText: String { roleText }
+    var isUseThisEnabled: Bool { canUseThis }
 
     private enum FocusField: Hashable {
         case project, role, castingOffice
@@ -409,14 +581,21 @@ private struct OCRReviewSheet: View {
         self.onConfirm = onConfirm
         self.onDiscard = onDiscard
         self._projectText = State(initialValue: draft.project)
-        let effectiveRole = draft.role.isEmpty ? (draft.candidateRoles.first ?? "") : draft.role
+        let effectiveRole: String
+        if !draft.role.isEmpty {
+            effectiveRole = draft.role
+        } else if draft.candidateRoles.count == 1 {
+            effectiveRole = draft.candidateRoles[0]
+        } else {
+            effectiveRole = ""
+        }
         self._roleText = State(initialValue: effectiveRole)
         self._castingOfficeText = State(initialValue: draft.castingOffice)
         self._sidesLinkText = State(initialValue: draft.sidesLink ?? "")
         self._destinationDetailText = State(initialValue: draft.destinationDetail ?? "")
         self._hasDueDate = State(initialValue: draft.due != nil)
         self._dueDate = State(initialValue: draft.due ?? .now.addingTimeInterval(3 * 86400))
-        let initialCastingNotes = draft.castingNotes ?? NoticeParser.extractCharacterDescription(for: effectiveRole, in: draft.sourceText) ?? ""
+        let initialCastingNotes = draft.castingNotes ?? (!effectiveRole.isEmpty ? NoticeParser.extractCharacterDescription(for: effectiveRole, in: draft.sourceText) : nil) ?? ""
         self._castingNotesText = State(initialValue: initialCastingNotes)
         self._actorNotesText = State(initialValue: draft.actorNotes ?? "")
         self._isSlateOptional = State(initialValue: draft.isSlateOptional)
@@ -424,7 +603,13 @@ private struct OCRReviewSheet: View {
         self._isHeadshotOptional = State(initialValue: draft.isHeadshotOptional)
         self._includeSlate = State(initialValue: draft.includeSlate)
         self._includeHeadshots = State(initialValue: draft.includeHeadshots)
-        self._selectedPortionIDs = State(initialValue: draft.selectedPortionIDs)
+        let initialPortionIDs: Set<String>
+        if !effectiveRole.isEmpty || draft.candidateRoles.isEmpty {
+            initialPortionIDs = draft.selectedPortionIDs
+        } else {
+            initialPortionIDs = []
+        }
+        self._selectedPortionIDs = State(initialValue: initialPortionIDs)
     }
 
     var body: some View {
@@ -438,6 +623,60 @@ private struct OCRReviewSheet: View {
                         Text("Check each field — fix anything that looks wrong before continuing.")
                             .font(.otFootnote)
                             .foregroundStyle(OT.labelSecondary)
+                    }
+
+                    if !hasDueDate || roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Needs your review", systemImage: "exclamationmark.circle.fill")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.accent)
+
+                            if !hasDueDate {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "clock.badge.questionmark")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(OT.due)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Deadline unknown")
+                                            .font(.otSubhead.weight(.bold))
+                                            .foregroundStyle(OT.labelPrimary)
+                                        Text("No deadline was stated in this notice. You can set one or leave it open.")
+                                            .font(.otFootnote)
+                                            .foregroundStyle(OT.labelSecondary)
+                                    }
+                                    Spacer()
+                                    Button("Set deadline") {
+                                        hasDueDate = true
+                                        Haptics.tick()
+                                    }
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                                }
+                                .padding(12)
+                                .background(OT.due.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+
+                            if roleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "person.fill.questionmark")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(OT.accent)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Character not confirmed")
+                                            .font(.otSubhead.weight(.bold))
+                                            .foregroundStyle(OT.labelPrimary)
+                                        Text("Select or enter the character you are auditioning for below.")
+                                            .font(.otFootnote)
+                                            .foregroundStyle(OT.labelSecondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(12)
+                                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                        }
+                        .padding(14)
+                        .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -472,6 +711,18 @@ private struct OCRReviewSheet: View {
                         isRequired: true,
                         field: .role
                     )
+
+                    if roleText.isEmpty && draft.candidateRoles.count > 1 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "hand.tap.fill")
+                                .font(.otCaption.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                            Text("Multiple roles found. Choose which role you’re auditioning for:")
+                                .font(.otCaption.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                        }
+                        .padding(.top, 2)
+                    }
 
                     // Quick-select candidate roles extracted from the notice
                     if !draft.roleBreakdowns.isEmpty {
@@ -668,27 +919,43 @@ private struct OCRReviewSheet: View {
                     }
 
                     // Due date
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Label("Due date", systemImage: "calendar")
                             .font(.otCaption.weight(.medium))
                             .foregroundStyle(OT.labelSecondary)
 
-                        Toggle("Tape deadline found", isOn: $hasDueDate)
-                            .font(.otFootnote)
-                            .tint(OT.accent)
-
                         if hasDueDate {
-                            DatePicker("", selection: $dueDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
+                            HStack {
+                                DatePicker("Deadline", selection: $dueDate, displayedComponents: [.date, .hourAndMinute])
+                                    .datePickerStyle(.compact)
+                                Spacer()
+                                Button("Remove") {
+                                    hasDueDate = false
+                                    Haptics.tick()
+                                }
+                                .font(.otCaption.weight(.semibold))
+                                .foregroundStyle(OT.labelTertiary)
+                            }
                         } else {
-                            Text("No deadline found — you can set one later.")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
+                            HStack {
+                                Label("Deadline unknown", systemImage: "clock.badge.questionmark")
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.due)
+                                Spacer()
+                                Button("Set deadline") {
+                                    hasDueDate = true
+                                    Haptics.tick()
+                                }
+                                .font(.otCaption.weight(.bold))
+                                .foregroundStyle(OT.accent)
+                            }
+                            Text("No deadline was found in the notice. It will be marked as Deadline unknown.")
+                                .font(.otCaption)
+                                .foregroundStyle(OT.labelTertiary)
                         }
                     }
                     .padding(14)
-                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                     // Notes from casting
                     VStack(alignment: .leading, spacing: 6) {
@@ -1391,6 +1658,12 @@ enum NoticeParser {
             d.destinationDetail = email
             d.destination = .email
             d.destinationWasDetected = true
+        } else if let spacedEmail = firstMatch(#"([A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+(?:\.[A-Za-z]{2,}|\s*(?:\.|\b)(?:com|org|net|in|co|io|edu|ora)\b))"#, in: text) {
+            let cleanedEmail = spacedEmail.replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "@quiethorizonfilmora", with: "@quiethorizonfilm.org")
+            d.destinationDetail = cleanedEmail
+            d.destination = .email
+            d.destinationWasDetected = true
         }
 
         // Context-aware link classification: inspects the text and labels immediately before each URL
@@ -1835,14 +2108,77 @@ enum NoticeParser {
         // OCR often drops the punctuation around times in lines such as
         // “Video submissions will be accepted until 11:59 pm on December 6, 2026”.
         // Anchor on that explicit submission wording before scanning other event dates.
-        let acceptedUntil = #"(?i)\b(?:video|self[- ]?tape|tape)\s+submissions?\s+(?:will\s+be\s+)?accepted\s+(?:until|through)\s+(?:(?:by|at)\s+)?(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\s+)?(?:on\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})"#
-        if let value = firstMatch(acceptedUntil, in: text) {
-            let normalized = value.replacingOccurrences(of: ",", with: "")
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = .current
-            formatter.dateFormat = "MMMM d yyyy"
-            if let date = formatter.date(from: normalized) { return date }
+        let acceptedUntilPattern = #"(?i)\b(?:video|self[- ]?tape|tape)\s+submissions?\s+(?:will\s+be\s+)?accepted\s+(?:until|through)\s+(?:(?:by|at)\s+)?(?:(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?))(?:\s+([A-Z]{2,4}))?\s+(?:on\s+)?)?([A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})(?:\s+(?:at|by|,)\s+(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?))(?:\s+([A-Z]{2,4}))?)?"#
+        if let regex = try? NSRegularExpression(pattern: acceptedUntilPattern),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+            func groupStr(_ index: Int) -> String? {
+                guard index < match.numberOfRanges, match.range(at: index).location != NSNotFound,
+                      let r = Range(match.range(at: index), in: text) else { return nil }
+                return String(text[r])
+            }
+            let timeStr = groupStr(1) ?? groupStr(4)
+            let tzStr = groupStr(2) ?? groupStr(5)
+            if let rawDateStr = groupStr(3) {
+                var timeZone: TimeZone = .current
+                if let tz = tzStr?.uppercased() {
+                    let tzAliases: [String: String] = [
+                        "ET": "America/New_York",
+                        "EDT": "America/New_York",
+                        "EST": "America/New_York",
+                        "CT": "America/Chicago",
+                        "CDT": "America/Chicago",
+                        "CST": "America/Chicago",
+                        "MT": "America/Denver",
+                        "MDT": "America/Denver",
+                        "MST": "America/Denver",
+                        "PT": "America/Los_Angeles",
+                        "PDT": "America/Los_Angeles",
+                        "PST": "America/Los_Angeles"
+                    ]
+                    if let id = tzAliases[tz], let mappedTZ = TimeZone(identifier: id) {
+                        timeZone = mappedTZ
+                    } else if let parsedTZ = TimeZone(abbreviation: tz) {
+                        timeZone = parsedTZ
+                    }
+                }
+                let cleanDate = rawDateStr.replacingOccurrences(
+                    of: #"(?i)(\d)(st|nd|rd|th)\b"#,
+                    with: "$1",
+                    options: .regularExpression
+                ).replacingOccurrences(of: ",", with: "")
+
+                if var time = timeStr {
+                    time = time.replacingOccurrences(of: ".", with: "").trimmingCharacters(in: .whitespaces)
+                    let formats = [
+                        "h:mm a MMMM d yyyy",
+                        "h a MMMM d yyyy",
+                        "h:mma MMMM d yyyy",
+                        "ha MMMM d yyyy",
+                        "h:mm a MMM d yyyy",
+                        "h a MMM d yyyy",
+                        "h:mma MMM d yyyy",
+                        "ha MMM d yyyy"
+                    ]
+                    let dtStr = "\(time) \(cleanDate)"
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.timeZone = timeZone
+                    for f in formats {
+                        formatter.dateFormat = f
+                        if let d = formatter.date(from: dtStr) {
+                            return d
+                        }
+                    }
+                }
+
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = timeZone
+                formatter.dateFormat = "MMMM d yyyy"
+                if let d = formatter.date(from: cleanDate) { return d }
+                formatter.dateFormat = "MMM d yyyy"
+                if let d = formatter.date(from: cleanDate) { return d }
+            }
         }
         let submissionKeywords = [
             "due", "deadline", "submit by", "submit before", "submission deadline", "tape due",
@@ -2050,7 +2386,10 @@ enum NoticeParser {
             "what to submit", "submission requirements", "audition requirements", "requirements", "role details", "character details",
             "how to use these sides", "casting sides", "audition sides", "dialogue sides", "sides",
             "female identifying", "male identifying", "for female identifying", "for male identifying", "for any gender", "any gender",
-            "your choice", "character of your choice", "the character of your choice", "a character of your choice"
+            "your choice", "character of your choice", "the character of your choice", "a character of your choice",
+            "submission guidelines", "submission guideline", "guidelines",
+            "character areaktyowns", "character areaktynns", "character breakdowns", "suruission guideen-s",
+            "video submission specs", "submission specs", "video submission", "specs", "specifications"
         ]
 
         func addRole(_ r: String) {
@@ -2167,20 +2506,25 @@ enum NoticeParser {
         }
 
         // 2c. "Character Breakdowns" section: standalone role name lines followed by demographics on the next line
-        //     e.g. "Character Breakdowns\nMaggie\nF, 40s. ..."
-        let breakdownSectionPattern = #"(?is)(?:character\s+breakdowns?|breakdowns?|characters?)\s*\n(.*?)(?=\n\s*(?:note|production|audition|submission|when|how|deadline|\z))"#
+        //     e.g. "Character Breakdowns\nMaggie\nF, 40s. ..." or bulleted lists "• Detective Miller"
+        let breakdownSectionPattern = #"(?is)(?:character\s+[A-Za-z]*breakdown[A-Za-z]*|character\s+[A-Za-z]*areak[A-Za-z]*|character\s+breakdowns?|breakdowns?)\s*\n(.*?)(?=\n\s*(?:note|production|audition|submission|suruission|video|specs?|specifications?|tapes?|due|when|how|deadline|\z))"#
         if let r = try? NSRegularExpression(pattern: breakdownSectionPattern),
            let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
            let range = Range(m.range(at: 1), in: text) {
             let block = String(text[range])
-            // Within the section pick lines that look like character names (Title Case, 2-20 chars)
+            // Within the section pick lines that look like character names (Title Case, 2-35 chars)
             for line in block.components(separatedBy: .newlines) {
-                let candidate = clean(line)
-                guard candidate.count >= 2, candidate.count <= 25 else { continue }
-                // Must be a simple Title Case word or two words
-                if candidate.range(of: #"^[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?$"#, options: .regularExpression) != nil {
+                var candidate = clean(line)
+                // Strip bullet points, list prefixes, or OCR glyph noise (e.g. "• ", "* ", "- ", "\" ", "a ", "E ", "El ", "6 ", "@ ")
+                if let bulletRange = candidate.range(of: #"^[\s*•\-–—"'>·@0-9a-zA-Z\d]{1,3}[·•\-–—:.)\]\s]\s*"#, options: .regularExpression) {
+                    candidate = String(candidate[bulletRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                } else if candidate.hasPrefix("•") || candidate.hasPrefix("-") || candidate.hasPrefix("*") || candidate.hasPrefix("\"") || candidate.hasPrefix("@") {
+                    candidate = candidate.trimmingCharacters(in: CharacterSet(charactersIn: "•-*\"@ \t"))
+                }
+                guard candidate.count >= 2, candidate.count <= 35 else { continue }
+                if candidate.range(of: #"^(?:(?:Dr\.|Dr|Mr\.|Mr|Ms\.|Ms|Mrs\.|Mrs|Officer|Detective|Father|Agent)\s+)?[A-Z][A-Za-z'’\-]{1,20}(?:\s+[A-Za-z'’\-]{1,20}){0,2}$"#, options: .regularExpression) != nil {
                     if !invalidRoleNames.contains(candidate.lowercased()) {
-                        addRole(candidate)
+                        addRole(candidate.capitalized)
                     }
                 }
             }
@@ -2499,6 +2843,21 @@ enum NoticeParser {
             return valid
         }
 
+        // Web casting pages and casting call flyers:
+        // When the flyer starts with a header like "OFFICIAL CASTING CALL", "CASTING CALL", "CASTING NOTICE",
+        // the project title is prominently placed on the following line.
+        for i in 0..<min(lines.count - 1, 4) {
+            let line = lines[i].uppercased()
+            if line == "OFFICIAL CASTING CALL" || line == "CASTING CALL" || line == "CASTING NOTICE" || line == "AUDITION CALL" || line == "AUDITION NOTICE" {
+                let candidate = lines[i + 1]
+                if !candidate.uppercased().contains("BREAKDOWN") && !candidate.uppercased().hasPrefix("FORMAT") {
+                    if let valid = cleanTitle(candidate) {
+                        return valid
+                    }
+                }
+            }
+        }
+
         for i in 0..<min(lines.count - 1, 8) {
             let line = lines[i]
             let nextLine = lines[i + 1].uppercased()
@@ -2569,6 +2928,14 @@ enum NoticeParser {
             let lower = cleaned.lowercased()
             let isEditorialNote = lower.hasPrefix("note on casting") || lower.hasPrefix("a note on casting")
             if !cleaned.isEmpty && !isEditorialNote && !genericCastingWords.contains(lower) && !isNoiseLine(cleaned) {
+                return cleaned.capitalized
+            }
+        }
+
+        if let uncolonMatch = firstMatch(#"(?im)^[\s>*•\-]*Casting\s+Office\s+([A-Za-z0-9&'\.\s\-]{3,40})$"#, in: text) {
+            let cleaned = clean(uncolonMatch)
+            let lower = cleaned.lowercased()
+            if !genericCastingWords.contains(lower) && !isNoiseLine(cleaned) {
                 return cleaned.capitalized
             }
         }

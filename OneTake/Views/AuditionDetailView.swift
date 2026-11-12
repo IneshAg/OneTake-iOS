@@ -12,6 +12,7 @@ struct AuditionDetailView: View {
     @State private var showCallback = false
     @State private var showEdit = false
     @State private var showSides = false
+    @State private var showNoticeDetails = false
 
     var body: some View {
         if let audition = store.audition(auditionID) {
@@ -28,14 +29,19 @@ struct AuditionDetailView: View {
                 InContentNavHeader(backLabel: "Auditions", onBack: { store.pop() }) {
                     HStack(spacing: 8) {
                         Button { showEdit = true } label: {
-                            Label("Edit details", systemImage: "pencil")
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(OT.labelPrimary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Circle())
                         }
-                        .modifier(GlassCapsuleButtonCompatibility())
+                        .modifier(GlassButtonCompatibility(enabled: true))
+                        .accessibilityLabel("Edit details")
 
                         Menu {
-                        Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
-                        Divider()
-                        Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
+                            Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
+                            Divider()
+                            Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
                         } label: {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 16, weight: .semibold))
@@ -52,29 +58,20 @@ struct AuditionDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SectionLabel(text: "\(a.resolvedMaterialKind.shortLabel) · \(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
                     Text(a.project).font(.system(size: 40, weight: .bold)).foregroundStyle(OT.labelPrimary)
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        let rem = a.dueRemaining
-                        if rem.isPastDue {
-                            Text("0").font(.otNumber).foregroundStyle(OT.due)
-                            Text("mins left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else if rem.days >= 1 {
-                            Text("\(rem.days)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(rem.days == 1 ? "day" : "days").font(.otHeadline).foregroundStyle(OT.due)
-                            if rem.hours > 0 {
-                                Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
-                                Text(rem.hours == 1 ? "hr" : "hrs").font(.otHeadline).foregroundStyle(OT.due)
-                            }
-                            Text("left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else if rem.hours >= 1 {
-                            Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(rem.hours == 1 ? "hr left" : "hrs left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else {
-                            let mins = max(1, rem.minutes)
-                            Text("\(mins)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(mins == 1 ? "min left" : "mins left").font(.otHeadline).foregroundStyle(OT.due)
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(a.dueRemaining.isPastDue ? OT.due : OT.accent)
+                        Text(a.dueRemaining.isPastDue ? "Past due · was due \(a.due.otDue)" : "Due \(a.due.otDue)")
+                            .font(.otSubhead.weight(.medium))
+                            .foregroundStyle(a.dueRemaining.isPastDue ? OT.due : OT.labelPrimary)
+                        if !a.dueRemaining.isPastDue {
+                            Text("·  \(a.dueRemaining.relativePhrase)")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
                         }
-                        Text("·  Due \(a.due.otDue)").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     }
+                    .padding(.vertical, 2)
                     if !a.asks.isEmpty {
                         HStack(spacing: 12) {
                             ForEach(a.asks.prefix(3), id: \.self) { Text($0).font(.otFootnote).foregroundStyle(OT.labelSecondary) }
@@ -83,7 +80,7 @@ struct AuditionDetailView: View {
                     }
                 }
 
-                // Package
+                // Package Overview
                 Button { showPackage = true } label: {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -93,9 +90,9 @@ struct AuditionDetailView: View {
                                 .font(.otFootnote).foregroundStyle(OT.accent)
                         }
                         HStack(spacing: 6) {
-                            Text("\(a.readyCount) of \(a.totalCount) ready").font(.otHeadline).foregroundStyle(OT.labelPrimary)
-                            if let next = a.nextPiece {
-                                Text(a.readyCount == 0 ? "· \(next.title) first" : "· \(next.title) next").font(.otCallout).foregroundStyle(OT.labelSecondary)
+                            Text(a.requiredProgressSummary).font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                            if let next = a.nextRequiredPiece {
+                                Text(a.requiredReadyCount == 0 ? "· \(next.title) first" : "· \(next.title) next").font(.otCallout).foregroundStyle(OT.labelSecondary)
                             }
                         }
                         PackageStepsBar(pieces: a.pieces)
@@ -103,27 +100,163 @@ struct AuditionDetailView: View {
                 }
                 .buttonStyle(.plain)
 
+                if a.status == .exported {
+                    HStack(spacing: 14) {
+                        Image(systemName: "arrow.down.doc.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(OT.accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Exported")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text("Files saved for \(a.destination.rawValue). After manual upload, mark as submitted.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        Spacer()
+                        Button("Mark Submitted") {
+                            store.markSubmitted(a.id)
+                            Haptics.success()
+                        }
+                        .buttonStyle(.otPrimary)
+                    }
+                    .padding(16)
+                    .otCard(radius: 16)
+                }
+
+                if a.status == .sent {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 26))
+                                .foregroundStyle(OT.success)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Submitted")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text(a.sentDate.map { "Sent on \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Audition submitted")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                        }
+
+                        Divider()
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Heard back from casting?")
+                                    .font(.otSubhead.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Start a callback to track Round 2 with new sides and notes.")
+                                    .font(.otCaption)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+                            Spacer()
+                            Button {
+                                showCallback = true
+                            } label: {
+                                Label("Start callback", systemImage: "arrow.uturn.right")
+                                    .font(.otFootnote.weight(.bold))
+                            }
+                            .buttonStyle(.otPrimary)
+                        }
+                    }
+                    .padding(16)
+                    .otCard(radius: 16)
+                }
+
+                let projectRounds = store.auditions.filter {
+                    $0.project.trimmingCharacters(in: .whitespaces).lowercased() == a.project.trimmingCharacters(in: .whitespaces).lowercased()
+                }.sorted { ($0.round ?? 1) < ($1.round ?? 1) }
+
+                if projectRounds.count > 1 {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label("Project Rounds · \(a.project)", systemImage: "square.stack.3d.up.fill")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.accent)
+                            Spacer()
+                            Text("\(projectRounds.count) rounds")
+                                .font(.otCaption.weight(.medium))
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+
+                        ForEach(projectRounds) { roundAudition in
+                            let isCurrent = roundAudition.id == a.id
+                            let roundNum = roundAudition.round ?? 1
+                            let roundTakes = store.takes.filter { $0.auditionID == roundAudition.id && !$0.previousSides }
+                            Button {
+                                if !isCurrent {
+                                    store.pop()
+                                    store.push(.auditionDetail(roundAudition.id))
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Circle()
+                                        .fill(roundAudition.status == .sent ? OT.success : (isCurrent ? OT.accent : OT.labelTertiary))
+                                        .frame(width: 8, height: 8)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text(roundNum == 1 ? "Round 1 · Initial Audition" : "Round \(roundNum) · Callback")
+                                                .font(.otSubhead.weight(.bold))
+                                                .foregroundStyle(OT.labelPrimary)
+                                            if isCurrent {
+                                                Text("Current")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(OT.accentSoft, in: Capsule())
+                                                    .foregroundStyle(OT.accent)
+                                            }
+                                        }
+                                        HStack(spacing: 8) {
+                                            Text(roundAudition.status == .sent ? "Submitted" : "Due \(roundAudition.due.otDue)")
+                                            Text("·")
+                                            Text("\(roundAudition.scenes.count) \(roundAudition.scenes.count == 1 ? "scene" : "scenes")")
+                                            Text("·")
+                                            Text("\(roundTakes.count) takes")
+                                        }
+                                        .font(.otCaption)
+                                        .foregroundStyle(OT.labelSecondary)
+                                    }
+
+                                    Spacer()
+
+                                    if !isCurrent {
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(OT.labelTertiary)
+                                    }
+                                }
+                                .padding(10)
+                                .background(isCurrent ? OT.accentSoft.opacity(0.3) : OT.surfaceCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(14)
+                    .otCard(radius: 16)
+                }
+
+                // 1. Studio Guide: Focused Primary Next Step
                 upNext(a)
 
-                if let dates = a.importantDates, !dates.isEmpty {
-                    MilestoneDatesListCard(dates: dates)
-                }
-
-                if let details = a.projectDetails, details.hasReviewableContent {
-                    ProjectDetailsCard(details: details)
-                }
-
-                if let instructions = a.submissionInstructions {
-                    submissionInstructionsCard(instructions)
-                }
-
+                // 2. Creative Craft Hub: Script Sides & Rehearsal
                 sidesCard(a)
 
+                // 3. Audio Partner: Reader Track
                 readerTrackCard(a)
 
-                // The next-piece card already owns the headshot action when headshots are up next.
+                // 4. Headshots (shown here when not already the featured next step above)
                 if a.nextPiece?.kind != .headshot {
                     headshotsCard(a)
+                }
+
+                // 5. Notice Details & Casting Breakdown (Accessible reference without card fatigue)
+                if hasNoticeDetails(a) {
+                    noticeAndDetailsSection(a)
                 }
             }
             .padding(.horizontal, OT.gutter)
@@ -146,13 +279,99 @@ struct AuditionDetailView: View {
     // MARK: Up next panel
 
     @ViewBuilder private func upNext(_ a: Audition) -> some View {
-        let next = a.nextPiece
+        let next = a.nextRequiredPiece
         VStack(alignment: .leading, spacing: 12) {
-            if next?.kind == .headshot {
+            if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
+                let scene = a.scenes[sceneIndex]
+                let isOpt = next.isOptional
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · scene \(scene.number) of \(a.scenes.count) (Optional)" : "Up next · scene \(scene.number) of \(a.scenes.count)")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        store.togglePieceOptional(for: a.id, pieceID: next.id)
+                        Haptics.tick()
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
+                Text(scene.title).font(.otTitle)
+                Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
+                if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
+                HStack(spacing: 10) {
+                    Button("Record Scene \(scene.number)") {
+                        store.camera = .shoot(a.id, scene: sceneIndex)
+                    }
+                    .buttonStyle(.otPrimary)
+
+                    Button("Rehearse scene") {
+                        let practicePiece = store.practicePiece(for: a.id, sceneIndex: sceneIndex)
+                        store.camera = .practiceTake(pieceID: practicePiece.id)
+                    }
+                    .buttonStyle(.otSecondary)
+
+                    if isOpt {
+                        Button("Skip for now") {
+                            store.markPieceDone(a.id, pieceID: next.id)
+                            Haptics.tick()
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
+                }
+            } else if next?.kind == .slate || next?.kind == .fullLength {
                 let isOpt = next?.isOptional ?? false
-                SectionLabel(text: isOpt ? "Up next · Headshots (Optional)" : "Up next · Headshots")
+                let title = next?.kind == .slate ? "Slate" : "Full-body shot"
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · \(title) (Optional)" : "Up next · \(title)")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        if let pieceID = next?.id {
+                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
+                            Haptics.tick()
+                        }
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
+                if next?.kind == .slate {
+                    Text("Record the slate").font(.otTitle)
+                    quoteLine(store.slate.spoken)
+                } else {
+                    Text("Full-body shot").font(.otTitle)
+                    Text("Record a separate head-to-toe view, as requested.")
+                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
+                }
+                HStack(spacing: 10) {
+                    Button("Record \(title)") {
+                        store.camera = .shoot(a.id, scene: nil, start: next?.kind == .slate ? .slate : .fullLength)
+                    }
+                    .buttonStyle(.otPrimary)
+
+                    if isOpt {
+                        Button(next?.kind == .slate ? "Skip slate" : "Skip full-body shot") {
+                            if let pieceID = next?.id {
+                                store.markPieceDone(a.id, pieceID: pieceID)
+                                Haptics.tick()
+                            }
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
+                }
+            } else if next?.kind == .headshot {
+                let isOpt = next?.isOptional ?? false
+                HStack {
+                    SectionLabel(text: isOpt ? "Up next · Headshots (Optional)" : "Up next · Headshots")
+                    Spacer()
+                    Button(isOpt ? "Make required" : "Make optional") {
+                        if let pieceID = next?.id {
+                            store.togglePieceOptional(for: a.id, pieceID: pieceID)
+                            Haptics.tick()
+                        }
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
                 Text("Audition headshots").font(.otTitle)
-                quoteLine(isOpt ? "Sent alongside your video tape as photos." : "Required in package · 3 photos (front, left, right profile).")
+                quoteLine(isOpt ? "Sent alongside your video tape as photos." : "Required in package · \(HeadshotStore.requirementDescription).")
                 HStack(spacing: 10) {
                     let photoCount = HeadshotStore.taken(auditionID: a.id).count
                     Button(photoCount == 0 ? "Add headshots" : "Manage headshots") {
@@ -168,61 +387,14 @@ struct AuditionDetailView: View {
                         .buttonStyle(.otSecondary)
                     }
                 }
-            } else if next?.kind == .slate || next?.kind == .fullLength {
-                let isOpt = next?.isOptional ?? false
-                let title = next?.kind == .slate ? "Slate" : "Full-body shot"
-                SectionLabel(text: isOpt ? "Up next · \(title) (Optional)" : "Up next · \(title)")
-                if next?.kind == .slate {
-                    Text("Record the slate").font(.otTitle)
-                    quoteLine(store.slate.spoken)
-                } else {
-                    Text("Full-body shot").font(.otTitle)
-                    Text("Record a separate head-to-toe view, as requested.")
-                        .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                }
-                HStack(spacing: 10) {
-                    Button("Set up the camera") { store.push(.shootSetup(a.id)) }.buttonStyle(.otPrimary)
-                    if isOpt {
-                        Button(next?.kind == .slate ? "Skip slate" : "Skip full-body shot") {
-                            if let pieceID = next?.id {
-                                store.markPieceDone(a.id, pieceID: pieceID)
-                                Haptics.tick()
-                            }
-                        }
-                        .buttonStyle(.otSecondary)
-                    }
-                }
-            } else if let next, next.kind == .scene, let sceneIndex = a.scenes.firstIndex(where: { $0.title == next.title }) {
-                let scene = a.scenes[sceneIndex]
-                let isOpt = next.isOptional
-                SectionLabel(text: isOpt ? "Up next · scene \(scene.number) of \(a.scenes.count) (Optional)" : "Up next · scene \(scene.number) of \(a.scenes.count)")
-                Text(scene.title).font(.otTitle)
-                Text(scene.heading).font(.otCaption).foregroundStyle(OT.labelTertiary)
-                if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
-                HStack(spacing: 10) {
-                    Button("Prepare scene \(scene.number)") { store.push(.prepare(a.id, sceneIndex: sceneIndex)) }
-                        .buttonStyle(.otPrimary)
-                    Button("Practise") {
-                        store.practicePiece(for: a.id, sceneIndex: sceneIndex)
-                        store.push(.runLines(a.id, sceneIndex: sceneIndex))
-                    }
-                    .buttonStyle(.otSecondary)
-                    if isOpt {
-                        Button("Skip for now") {
-                            store.markPieceDone(a.id, pieceID: next.id)
-                            Haptics.tick()
-                        }
-                        .buttonStyle(.otSecondary)
-                    }
-                }
             } else if next?.kind == .scene {
                 SectionLabel(text: "Up next · \(next?.title ?? "scene")")
                 Text("Add your sides below").font(.otTitle)
                 Text("Attach your script sides to prepare and shoot this scene.").font(.otCallout).foregroundStyle(OT.labelSecondary)
             } else {
-                SectionLabel(text: "Everything's in")
+                SectionLabel(text: "All required items ready")
                 Text("Watch it once, then send").font(.otTitle)
-                Button("Review the package") { store.push(.package(a.id)) }.buttonStyle(.otPrimary)
+                Button("Review & Send tape") { store.push(.package(a.id)) }.buttonStyle(.otPrimary)
             }
         }
         .padding(20)
@@ -410,7 +582,7 @@ struct AuditionDetailView: View {
     }
 
     @ViewBuilder private func headshotsCard(_ a: Audition) -> some View {
-        let hasHeadshots = HeadshotStore.exists(key: "front", auditionID: a.id)
+        let hasHeadshots = HeadshotStore.isComplete(auditionID: a.id)
         let count = HeadshotStore.taken(auditionID: a.id).count
         let headshotPiece = a.pieces.first { $0.kind == .headshot }
         let isOpt = headshotPiece?.isOptional ?? false
@@ -434,6 +606,65 @@ struct AuditionDetailView: View {
         }
         .padding(16)
         .otCard()
+    }
+
+    private func hasNoticeDetails(_ a: Audition) -> Bool {
+        (a.importantDates != nil && !a.importantDates!.isEmpty) ||
+        (a.projectDetails != nil && a.projectDetails!.hasReviewableContent) ||
+        (a.submissionInstructions != nil)
+    }
+
+    @ViewBuilder
+    private func noticeAndDetailsSection(_ a: Audition) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    showNoticeDetails.toggle()
+                }
+                Haptics.tick()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(OT.accent)
+                        .frame(width: 34, height: 34)
+                        .background(OT.accentSoft, in: Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        SectionLabel(text: "Notice & Breakdown")
+                        Text(showNoticeDetails ? "Hide breakdown notes" : "Review synopsis, dates & casting specs")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: showNoticeDetails ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(OT.labelTertiary)
+                }
+                .padding(16)
+                .otCard()
+            }
+            .buttonStyle(.plain)
+
+            if showNoticeDetails {
+                VStack(spacing: 12) {
+                    if let dates = a.importantDates, !dates.isEmpty {
+                        MilestoneDatesListCard(dates: dates)
+                    }
+
+                    if let details = a.projectDetails, details.hasReviewableContent {
+                        ProjectDetailsCard(details: details)
+                    }
+
+                    if let instructions = a.submissionInstructions {
+                        submissionInstructionsCard(instructions)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 
     private func quoteLine(_ text: String) -> some View {
@@ -1431,7 +1662,7 @@ struct EditAuditionSheet: View {
                                 set: { included in
                                     if included {
                                         if !audition.wrappedValue.pieces.contains(where: { $0.kind == .headshot }) {
-                                            let isDone = HeadshotStore.exists(key: "front", auditionID: auditionID)
+                                            let isDone = HeadshotStore.isComplete(auditionID: auditionID)
                                             let p = Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: isDone, isOptional: false)
                                             let insertAt = audition.wrappedValue.pieces.firstIndex(where: { $0.kind != .headshot }) ?? audition.wrappedValue.pieces.endIndex
                                             audition.wrappedValue.pieces.insert(p, at: insertAt)
@@ -1978,6 +2209,59 @@ struct RevisedSidesSheet: View {
                     }
 
                     if !text.isEmpty {
+                        if !isNewSides, let summary = store.compareSides(of: auditionID, with: activeScenes) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Label("What changed in these sides", systemImage: "arrow.triangle.swap")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.accent)
+                                    Spacer()
+                                }
+
+                                ForEach(summary.sceneDiffs) { diff in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: diff.isReordered ? "arrow.up.arrow.down.circle.fill" : (diff.revisedLinesCount > 0 ? "pencil.circle.fill" : "checkmark.circle.fill"))
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(diff.isReordered ? OT.accent : (diff.revisedLinesCount > 0 ? OT.prompterGold : OT.success))
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(diff.sceneTitle)
+                                                .font(.otFootnote.weight(.bold))
+                                                .foregroundStyle(OT.labelPrimary)
+                                            Text(diff.isReordered ? "Reordered from previous position" : (diff.revisedLinesCount > 0 ? "\(diff.revisedLinesCount) line\(diff.revisedLinesCount == 1 ? "" : "s") revised · needs re-recording" : "Dialogue unchanged"))
+                                                .font(.otCaption)
+                                                .foregroundStyle(OT.labelSecondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(8)
+                                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+
+                                Divider()
+
+                                VStack(alignment: .leading, spacing: 5) {
+                                    if summary.totalUnchangedReaderCues > 0 {
+                                        Label("\(summary.totalUnchangedReaderCues) reader audio cue\(summary.totalUnchangedReaderCues == 1 ? "" : "s") preserved & aligned", systemImage: "speaker.wave.2.fill")
+                                            .font(.otCaption.weight(.semibold))
+                                            .foregroundStyle(OT.success)
+                                    }
+                                    if summary.totalNewOrRevisedReaderCues > 0 {
+                                        Label("\(summary.totalNewOrRevisedReaderCues) revised reader cue\(summary.totalNewOrRevisedReaderCues == 1 ? "" : "s") need recording", systemImage: "mic.badge.plus")
+                                            .font(.otCaption.weight(.semibold))
+                                            .foregroundStyle(OT.prompterGold)
+                                    }
+                                    if summary.previousTakesCount > 0 {
+                                        Label("\(summary.previousTakesCount) earlier take\(summary.previousTakesCount == 1 ? "" : "s") will stay playable under Previous sides", systemImage: "clock.arrow.circlepath")
+                                            .font(.otCaption.weight(.semibold))
+                                            .foregroundStyle(OT.labelSecondary)
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .background(OT.accentSoft.opacity(0.35), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(OT.accent.opacity(0.3), lineWidth: 1))
+                        }
+
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Text("DETECTED SIDES")

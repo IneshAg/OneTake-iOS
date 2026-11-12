@@ -1591,8 +1591,16 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertFalse(draft.castingOffice.lowercased().hasPrefix("note on casting"),
             "Casting office should not be 'Note On Casting', got '\(draft.castingOffice)'")
 
-        // Date should be found (Dec 6 video deadline or Dec 7 in-person)
-        XCTAssertNotNil(draft.due, "Date should be detected from 'auditions will be held on December 7, 2026'")
+        // Date should be found (Dec 6 video deadline at 11:59 pm)
+        XCTAssertNotNil(draft.due, "Date should be detected from 'Video submissions will be accepted until 11:59 pm on December 6, 2026'")
+        if let due = draft.due {
+            let cal = Calendar.current
+            XCTAssertEqual(cal.component(.year, from: due), 2026)
+            XCTAssertEqual(cal.component(.month, from: due), 12)
+            XCTAssertEqual(cal.component(.day, from: due), 6)
+            XCTAssertEqual(cal.component(.hour, from: due), 23)
+            XCTAssertEqual(cal.component(.minute, from: due), 59)
+        }
 
         // aiGuidance must NOT show the generic production announcement blurb
         XCTAssertFalse(draft.aiGuidance.lowercased().contains("holding auditions"),
@@ -1601,6 +1609,21 @@ final class NoticeParserTests: XCTestCase {
             "aiGuidance should not contain company name: '\(draft.aiGuidance)'")
         XCTAssertFalse(draft.aiGuidance.lowercased().contains("world premiere production"),
             "aiGuidance should not contain announcement boilerplate: '\(draft.aiGuidance)'")
+    }
+
+    func testVideoSubmissionsDeadlinePreservesTimeAndExplicitTimeZone() {
+        let notice = "Video submissions will be accepted until 11:59 pm EST on December 6, 2026"
+        let draft = NoticeParser.parse(notice)
+        XCTAssertNotNil(draft.due)
+        if let due = draft.due {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(abbreviation: "EST")!
+            XCTAssertEqual(cal.component(.year, from: due), 2026)
+            XCTAssertEqual(cal.component(.month, from: due), 12)
+            XCTAssertEqual(cal.component(.day, from: due), 6)
+            XCTAssertEqual(cal.component(.hour, from: due), 23)
+            XCTAssertEqual(cal.component(.minute, from: due), 59)
+        }
     }
 
     func testPilgrimageSidesPacket() {
@@ -2136,5 +2159,119 @@ final class NoticeParserTests: XCTestCase {
             XCTAssertFalse(unit.contains("(beat)"))
             XCTAssertFalse(unit.contains("[hesitates]"))
         }
+    }
+
+    func testFlyersOCRAndDeterministicParsing() async {
+        let datasetDir = "/Users/user1/Downloads/OneTake-iOS/dataset/notices"
+        let flyers = [
+            ("Notice 1", "notice_1_shadows_of_manhattan.jpg"),
+            ("Notice 2", "notice_2_the_quiet_horizon.jpg"),
+            ("Notice 3", "notice_3_crossroads_chronicle.jpg")
+        ]
+
+        for (label, filename) in flyers {
+            let path = "\(datasetDir)/\(filename)"
+            guard let image = UIImage(contentsOfFile: path) else {
+                XCTFail("Could not load image at \(path)")
+                continue
+            }
+
+            print("\n=======================================================")
+            print("EVALUATING: \(label) (\(filename))")
+            print("Image Size: \(image.size.width) x \(image.size.height)")
+
+            let pages = await NoticeOCR.recognizePages(in: [image])
+            let ocrText = pages.first ?? ""
+            let lines = ocrText.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let words = ocrText.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+
+            print("--- OCR RESULTS ---")
+            print("Pages returned: \(pages.count)")
+            print("Line count: \(lines.count)")
+            print("Word count: \(words.count)")
+            print("Looks readable: \(NoticeOCR.looksReadable(ocrText))")
+            print("OCR Text:\n\(ocrText)")
+
+            // Test Deterministic Parser
+            let draft = NoticeParser.parse(ocrText, pages: pages)
+            print("\n--- DETERMINISTIC PARSER EXTRACTED FIELDS ---")
+            print("Project Title: \(draft.project)")
+            print("Candidate Roles: \(draft.candidateRoles)")
+            print("Due Date: \(String(describing: draft.due))")
+            print("Casting Office: \(draft.castingOffice)")
+            print("Destination: \(draft.destination) -> \(draft.destinationDetail ?? "none")")
+            print("Asks: \(draft.asks)")
+            print("Role Size: \(draft.roleSize)")
+
+            // Test Model-Assisted Parser (Prompt 2)
+            let refinedDraft = await NoticeParser.parseAsync(ocrText, pages: pages)
+            print("\n--- MODEL-ASSISTED REFINEMENT EXTRACTED FIELDS ---")
+            print("Project Title: \(refinedDraft.project)")
+            print("Candidate Roles: \(refinedDraft.candidateRoles)")
+            print("Role Selected: \(refinedDraft.role)")
+            print("Due Date: \(String(describing: refinedDraft.due))")
+            print("Casting Office: \(refinedDraft.castingOffice)")
+            print("Destination: \(refinedDraft.destination) -> \(refinedDraft.destinationDetail ?? "none")")
+            print("Asks: \(refinedDraft.asks)")
+            print("AI Guidance: \(refinedDraft.aiGuidance)")
+
+            // Verify bounded enlargement recovered lines on flyers
+            XCTAssertTrue(lines.count >= 8, "\(label) should recover at least 8 lines with bounded enlargement")
+            XCTAssertTrue(NoticeOCR.looksReadable(ocrText), "\(label) should produce readable text")
+            XCTAssertFalse(draft.project.isEmpty, "\(label) should extract a non-empty project title")
+            XCTAssertFalse(draft.candidateRoles.isEmpty, "\(label) should extract candidate roles")
+            XCTAssertNotNil(draft.due, "\(label) should extract a submission deadline")
+        }
+    }
+
+    func testMultipleDetectedRolesLeaveRoleBlankInDraftAndUnselectedInReview() {
+        var draft = NoticeParser.Draft.blank
+        draft.project = "The Quiet Horizon"
+        draft.candidateRoles = ["Elena Gomez", "Marcus Brody"]
+        draft.role = "" // Ambiguous roles leave draft.role blank
+        draft.due = Date().addingTimeInterval(86400)
+
+        // Instantiate review sheet
+        let review = OCRReviewSheet(draft: draft, onConfirm: { _, _ in }, onDiscard: {})
+
+        // Assert role is not arbitrarily pre-filled
+        XCTAssertTrue(review.currentRoleText.isEmpty, "Review screen must not pre-fill candidate role when multiple roles exist")
+        XCTAssertFalse(review.isUseThisEnabled, "Use this must be disabled until the actor explicitly chooses a role")
+    }
+
+    func testSingleDetectedRolePreFillsInReview() {
+        var draft = NoticeParser.Draft.blank
+        draft.project = "Single Role Production"
+        draft.candidateRoles = ["Solo Lead"]
+        draft.role = "Solo Lead"
+        draft.due = Date().addingTimeInterval(86400)
+
+        let review = OCRReviewSheet(draft: draft, onConfirm: { _, _ in }, onDiscard: {})
+        XCTAssertEqual(review.currentRoleText, "Solo Lead", "Review screen should pre-fill unambiguous single candidate role")
+        XCTAssertTrue(review.isUseThisEnabled, "Use this should be enabled when a single role is known")
+    }
+
+    func testSilentReactionCueIsNotBypassedWhenVoiceFollowingActive() {
+        let questionCue = ScriptLine(character: "Reader", text: "?", isMine: false)
+        XCTAssertTrue(questionCue.isSilentReactionCue)
+
+        let hasSpokenWords = !questionCue.text.split(separator: " ").map({ SpokenLineMatcher.cleanWord($0) }).filter({ !$0.isEmpty }).isEmpty
+        XCTAssertFalse(hasSpokenWords, "Lone question mark cue has no spoken words")
+
+        let isSilentBeat = questionCue.isSilentReactionCue || !hasSpokenWords
+        XCTAssertTrue(isSilentBeat, "Silent reaction cue must be classified as a silent beat")
+
+        // Simulate the ShootViews guard:
+        // When followVoice is true and readerAudioMissing is false,
+        // a spoken line would bail out, but a silent beat must NOT bail out.
+        let followVoice = true
+        let readerAudioMissing = false
+        var wouldBailOut = false
+        if !isSilentBeat {
+            if followVoice && questionCue.isMine { wouldBailOut = true }
+            if followVoice && !questionCue.isMine && !readerAudioMissing { wouldBailOut = true }
+        }
+
+        XCTAssertFalse(wouldBailOut, "Silent reaction cue must not bail out; it must schedule timed advance even when followVoice is active")
     }
 }

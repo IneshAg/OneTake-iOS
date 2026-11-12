@@ -75,8 +75,10 @@ struct TakesView: View {
     }
 
     var body: some View {
-        let takes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == shownScene }
-        let current = takes.first { $0.id == (selected ?? takes.first(where: \.isCircled)?.id) } ?? takes.last
+        let takes = store.takes.filter { $0.auditionID == auditionID && ($0.sceneIndex ?? 0) == shownScene && !$0.previousSides }
+        let previousSidesTakes = store.takes.filter { $0.auditionID == auditionID && $0.previousSides }
+        let current = (selected != nil ? store.takes.first { $0.id == selected } : nil)
+            ?? (takes.first(where: \.isCircled) ?? takes.last ?? previousSidesTakes.last)
         let circled = takes.first(where: \.isCircled)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -126,13 +128,55 @@ struct TakesView: View {
                 }
 
                 HStack {
-                    Text(circled.map { "Take \($0.number) is circled — that's your send." }
-                         ?? (takes.isEmpty ? "No takes for this scene yet." : "Long-press a take to circle it."))
-                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                    Spacer()
-                    if let c = current, !c.isCircled {
-                        Button("Circle take \(c.number)") { store.circleOnly(c); Haptics.success() }.font(.otFootnote.weight(.semibold))
+                    if let c = current, c.previousSides {
+                        Text("Take \(c.number) is from earlier sides · kept for your reference.")
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                    } else {
+                        Text(circled.map { "Take \($0.number) is circled — that's your send." }
+                             ?? (takes.isEmpty ? "No takes for this scene yet." : "Long-press a take to circle it."))
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+                        Spacer()
+                        if let c = current, !c.isCircled {
+                            Button("Circle take \(c.number)") { store.circleOnly(c); Haptics.success() }.font(.otFootnote.weight(.semibold))
+                        }
                     }
+                }
+
+                if !previousSidesTakes.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Previous sides", systemImage: "clock.arrow.circlepath")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Spacer()
+                            Text("\(previousSidesTakes.count) earlier \(previousSidesTakes.count == 1 ? "take" : "takes")")
+                                .font(.otCaption.weight(.medium))
+                                .foregroundStyle(OT.labelSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        }
+
+                        Text("Recorded before casting sent revised sides. Kept here so you can review previous performances.")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelTertiary)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(previousSidesTakes) { prevTake in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        TakeThumbnail(take: prevTake, isSelected: current?.id == prevTake.id)
+                                            .onTapGesture { selected = prevTake.id; Haptics.tick() }
+                                        Text(prevTake.previousSidesLabel ?? "Previous sides")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(OT.labelTertiary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
 
                 DisclosureGroup(isExpanded: $notesOpen) {
@@ -420,7 +464,7 @@ struct TapeCheckView: View {
             if result.findings.isEmpty {
                 Haptics.success()
             } else {
-                Haptics.warning()
+                Haptics.tick()
             }
         }
         .sheet(item: $finding) { f in
@@ -455,7 +499,7 @@ struct TapeCheckView: View {
     }
 
     private var finalizedTakes: [Take] {
-        store.takes.filter { $0.auditionID == auditionID && $0.isCircled }
+        store.takes.filter { $0.auditionID == auditionID && $0.isCircled && !$0.previousSides }
     }
 
     private var reviewElements: [(element: AuditionReviewElement, url: URL)] {
@@ -487,21 +531,19 @@ struct TapeCheckView: View {
             let optionalPrompts = report.findings.filter { $0.isSoftPrompt && $0.clipURL == nil }
             HStack(spacing: 16) {
                 ReadinessDial(done: report.passed.count, total: report.checkCount, size: 84, lineWidth: 8)
-                    .accessibilityLabel("\(report.passed.count) of \(report.checkCount) technical checks passed")
+                    .accessibilityLabel("\(report.passed.count) of \(report.checkCount) studio quality checks verified")
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(report.findings.isEmpty ? "No technical issues found" : worthReview.isEmpty ? "No clear technical issue" : "Review what stands out")
+                    Text(report.findings.isEmpty ? "Your tape is ready to send" : "Studio notes for your review")
                         .font(.otTitle)
                     Text(report.findings.isEmpty
-                         ? "Nothing stood out. Watch it once, then send."
-                         : optionalPrompts.isEmpty
-                            ? "These checks are advisory. Nothing blocks sending."
-                            : "Timing cues can be intentional. Keep them if they feel right. Nothing blocks sending.")
+                         ? "Everything looks and sounds clear. Watch it once, then send."
+                         : "These are gentle studio tips. If the take felt authentic and true to your character, trust your performance.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
                 }
             }
             if !reviewElements.isEmpty {
                 SectionLabel(text: "Review one part at a time")
-                Text("Each recording opens on its own, with its own checks and retake action.")
+                Text("Each recording opens on its own, with its own notes and retake action.")
                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                 ForEach(reviewElements.indices, id: \.self) { index in
                     let item = reviewElements[index]
@@ -513,8 +555,8 @@ struct TapeCheckView: View {
                                 .frame(width: 40, height: 40).background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(reviewTitle(item.element)).font(.otBody.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                                Text(count == 0 ? "Ready to review" : "\(count) suggestion\(count == 1 ? "" : "s")")
-                                    .font(.otFootnote).foregroundStyle(count == 0 ? OT.success : OT.warning)
+                                Text(count == 0 ? "Ready to review" : "\(count) studio note\(count == 1 ? "" : "s")")
+                                    .font(.otFootnote).foregroundStyle(count == 0 ? OT.success : OT.accent)
                             }
                             Spacer()
                             Image(systemName: "chevron.forward").font(.caption.weight(.semibold)).foregroundStyle(OT.labelTertiary)
@@ -531,11 +573,11 @@ struct TapeCheckView: View {
                         .padding(14).background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if !worthReview.isEmpty {
-                    SectionLabel(text: "Worth a look")
+                    SectionLabel(text: "Suggestions for review")
                     ForEach(worthReview) { findingRow($0) }
                 }
                 if !optionalPrompts.isEmpty {
-                    SectionLabel(text: "Check if you want")
+                    SectionLabel(text: "Optional timing notes")
                     Text("These timing cues are estimates. A pause or quick start may be intentional.")
                         .font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     ForEach(optionalPrompts) { findingRow($0) }
@@ -552,7 +594,7 @@ struct TapeCheckView: View {
                         .font(.otFootnote).foregroundStyle(OT.labelSecondary).padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Label("\(report.passed.count) checks passed", systemImage: "checkmark.seal.fill").foregroundStyle(OT.success)
+                    Label("\(report.passed.count) quality checks verified", systemImage: "checkmark.circle.fill").foregroundStyle(OT.success)
                 }
             }
             Label("Checked on this iPhone — nothing is uploaded.", systemImage: "lock.fill")

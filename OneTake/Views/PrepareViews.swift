@@ -575,9 +575,13 @@ struct ReaderView: View {
                     if readerLines.isEmpty {
                         Text("No reader lines for \(effectiveReaderName) in this scene.").font(.otFootnote).foregroundStyle(OT.labelTertiary)
                     } else {
+                        let allUnowned = (store.audition(auditionID)?.scenes.indices.contains(sceneIndex) == true)
+                            ? store.audition(auditionID)!.scenes[sceneIndex].lines.filter { !$0.isMine }
+                            : []
                         ForEach(Array(readerLines.enumerated()), id: \.offset) { index, line in
+                            let cueIdx = allUnowned.firstIndex(where: { $0.id == line.id }) ?? index
                             let isSilent = line.isSilentReactionCue
-                            let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
+                            let recorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx)
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 12) {
                                     Button {
@@ -587,7 +591,7 @@ struct ReaderView: View {
                                             } else if playingLine == index && !player.isPlaying {
                                                 player.resume()
                                             } else {
-                                                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index)
+                                                player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIdx)
                                                 playingLine = index
                                                 expandedLine = index
                                             }
@@ -656,7 +660,7 @@ struct ReaderView: View {
                                 }
 
                                 if recorded && (expandedLine == index || playingLine == index) {
-                                    ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: index, compact: false)
+                                    ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIdx, compact: false)
                                         .padding(.top, 4)
                                 }
                             }
@@ -832,7 +836,8 @@ struct RecordReaderView: View {
                 // Interactive Progress & Line Selector
                 HStack(spacing: 4) {
                     ForEach(readerLines.indices, id: \.self) { i in
-                        let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: i)
+                        let cueIdx = allUnowned.firstIndex(where: { $0.id == readerLines[i].id }) ?? i
+                        let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx)
                         Button {
                             guard !recording && !isProcessing else { return }
                             player.stop()
@@ -971,7 +976,8 @@ struct RecordReaderView: View {
                                         Spacer()
 
                                         if let rIdx = matchedReaderIdx {
-                                            let hasRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: rIdx)
+                                            let cueIdx = allUnowned.firstIndex(where: { $0.id == sLine.id }) ?? rIdx
+                                            let hasRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx)
                                             if hasRec {
                                                 Image(systemName: "checkmark.circle.fill")
                                                     .font(.caption)
@@ -1012,7 +1018,8 @@ struct RecordReaderView: View {
 
                 if lineIndex < readerLines.count {
                     let line = readerLines[lineIndex]
-                    let isCurrentRecorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+                    let currentCueIndex = allUnowned.firstIndex(where: { $0.id == line.id }) ?? lineIndex
+                    let isCurrentRecorded = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: currentCueIndex)
                     let currentGlobalIdx = allSceneLines.firstIndex(where: { $0.id == line.id })
                     let prevCue: ScriptLine? = {
                         guard let idx = currentGlobalIdx, idx > 0 else { return nil }
@@ -1088,17 +1095,17 @@ struct RecordReaderView: View {
                                     .font(.otCaption.weight(.semibold))
                                     .foregroundStyle(OT.labelSecondary)
 
-                                ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex, compact: false)
+                                ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: currentCueIndex, compact: false)
 
                                 HStack(spacing: 10) {
-                                    Button { beginAudioTrim(lineIndex) } label: {
+                                    Button { beginAudioTrim(currentCueIndex) } label: {
                                         Label("Trim audio", systemImage: "scissors")
                                             .font(.otFootnote.weight(.semibold))
                                     }
                                     .buttonStyle(.otGlass)
 
-                                    if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) {
-                                        Button { requestOriginalRestore(lineIndex) } label: {
+                                    if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: currentCueIndex) {
+                                        Button { requestOriginalRestore(currentCueIndex) } label: {
                                             Label("Restore original", systemImage: "arrow.uturn.backward")
                                                 .font(.otFootnote.weight(.semibold))
                                         }
@@ -1215,7 +1222,7 @@ struct RecordReaderView: View {
                         }
 
                         RecordButton(isRecording: recording) {
-                            handleRecordTap(readerLines: readerLines, isCurrentRecorded: isCurrentRecorded)
+                            handleRecordTap(readerLines: readerLines, currentCueIndex: currentCueIndex, isCurrentRecorded: isCurrentRecorded)
                         }
                         .frame(maxWidth: .infinity)
                         .disabled(isProcessing)
@@ -1233,7 +1240,8 @@ struct RecordReaderView: View {
                             VStack(spacing: 10) {
                                 ForEach(Array(readerLines.enumerated()), id: \.offset) { idx, line in
                                     let isSilent = line.isSilentReactionCue
-                                    let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: idx)
+                                    let cueIdx = allUnowned.firstIndex(where: { $0.id == line.id }) ?? idx
+                                    let isRec = readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx)
                                     VStack(alignment: .leading, spacing: 8) {
                                         HStack(spacing: 12) {
                                             Button {
@@ -1243,7 +1251,7 @@ struct RecordReaderView: View {
                                                     } else if !player.isPlaying && playingReviewIndex == idx {
                                                         player.resume()
                                                     } else {
-                                                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx)
+                                                        player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIdx)
                                                         playingReviewIndex = idx
                                                         expandedReviewIndex = idx
                                                     }
@@ -1322,17 +1330,17 @@ struct RecordReaderView: View {
                                         }
 
                                         if isRec && (expandedReviewIndex == idx || playingReviewIndex == idx) {
-                                            ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: idx, compact: false)
+                                            ReaderAudioScrubberView(player: player, auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIdx, compact: false)
                                                 .padding(.top, 4)
                                             HStack(spacing: 10) {
-                                                Button { beginAudioTrim(idx) } label: {
+                                                Button { beginAudioTrim(cueIdx) } label: {
                                                     Label("Trim audio", systemImage: "scissors")
                                                         .font(.otFootnote.weight(.semibold))
                                                 }
                                                 .buttonStyle(.otGlass)
 
-                                                if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: idx) {
-                                                    Button { requestOriginalRestore(idx) } label: {
+                                                if ReaderTrackPlayer.hasOriginal(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx) {
+                                                    Button { requestOriginalRestore(cueIdx) } label: {
                                                         Label("Restore original", systemImage: "arrow.uturn.backward")
                                                             .font(.otFootnote.weight(.semibold))
                                                     }
@@ -1432,8 +1440,9 @@ struct RecordReaderView: View {
                         lineIndex = initialLineIndex
                     } else {
                         // Open on the first unrecorded line; if all recorded, start on 0 so the user can review/retake
-                        lineIndex = rLines.indices.first(where: {
-                            !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
+                        lineIndex = rLines.indices.first(where: { idx in
+                            let cueIdx = allUnowned.firstIndex(where: { $0.id == rLines[idx].id }) ?? idx
+                            return !ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIdx)
                         }) ?? 0
                     }
                 }
@@ -1475,7 +1484,7 @@ struct RecordReaderView: View {
         restoreTargetLineIndex = nil
     }
 
-    private func handleRecordTap(readerLines: [ScriptLine], isCurrentRecorded: Bool) {
+    private func handleRecordTap(readerLines: [ScriptLine], currentCueIndex: Int, isCurrentRecorded: Bool) {
         if recording {
             recording = false
             isProcessing = true
@@ -1530,7 +1539,7 @@ struct RecordReaderView: View {
             isPreviewPlaying = false
             recordingError = nil
             successBanner = nil
-            if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: lineIndex) {
+            if recorder.start(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: currentCueIndex) {
                 recording = true
                 Haptics.impact(.heavy)
             } else {
@@ -1928,8 +1937,8 @@ struct SceneAudioFlowView: View {
                         // Dialogue Lines List
                         ForEach(Array(allLines.enumerated()), id: \.offset) { index, line in
                             let isActive = activeLineIndex == index
-                            let sameCharLines = allLines.filter { !$0.isMine && $0.character.caseInsensitiveCompare(line.character) == .orderedSame }
-                            let cueIndex = sameCharLines.firstIndex(where: { $0.id == line.id }) ?? 0
+                            let allUnowned = allLines.filter { !$0.isMine }
+                            let cueIndex = allUnowned.firstIndex(where: { $0.id == line.id }) ?? 0
                             let isRec = !line.isMine && readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex)
                             let cueDuration = isRec ? ReaderTrackPlayer.duration(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex) : 0
 
@@ -2177,8 +2186,8 @@ struct SceneAudioFlowView: View {
                 RunLoop.main.add(timer, forMode: .common)
             }
         } else {
-            let sameCharLines = allLines.filter { !$0.isMine && $0.character.caseInsensitiveCompare(line.character) == .orderedSame }
-            let cueIndex = sameCharLines.firstIndex(where: { $0.id == line.id }) ?? 0
+            let allUnowned = allLines.filter { !$0.isMine }
+            let cueIndex = allUnowned.firstIndex(where: { $0.id == line.id }) ?? 0
             if ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: cueIndex) {
                 player.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: cueIndex, from: 0)
             } else if isContinuousFlow && index + 1 < allLines.count {
