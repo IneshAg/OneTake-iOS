@@ -464,4 +464,82 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(hamletTokens, [4913, 4987, 788, 330, 39941, 1149, 497, 330, 5778, 788, 330, 46, 759, 35929, 9207])
         XCTAssertEqual(tokenizer.decode(tokens: hamletTokens), hamletJSON)
     }
+
+    func testCoreMLScriptElementClassifierAccuracy() async {
+        let runner = CoreMLScriptParserRunner.shared
+        XCTAssertTrue(runner.isAvailable, "ScriptElementClassifier model should be available on device or test host.")
+
+        let testCases: [(String, ScriptElementClass)] = [
+            // Headings / Sluglines
+            ("INT. COFFEE SHOP - DAY", .sceneHeading),
+            ("EXT. STREET CORNER - NIGHT", .sceneHeading),
+            ("SCENE 1", .sceneHeading),
+            ("ACT I", .sceneHeading),
+            ("INT./EXT. CAR - MOVING", .sceneHeading),
+
+            // Character Cues
+            ("MAYA", .characterCue),
+            ("ARJUN (CONT'D)", .characterCue),
+            ("DANNY:", .characterCue),
+            ("SARAH (O.S.)", .characterCue),
+            ("DETECTIVE MILLER (V.O.)", .characterCue),
+            ("\t\tMAYA", .characterCue),
+            ("    JOHN", .characterCue),
+
+            // Dialogue
+            ("Where were you last night?", .dialogue),
+            ("I didn't think you'd come.", .dialogue),
+            ("Look at me.", .dialogue),
+            ("I told you everything I know.", .dialogue),
+            ("Not here. We can't talk here.", .dialogue),
+            ("Why did you do it?", .dialogue),
+
+            // Parentheticals
+            ("(whispering)", .parenthetical),
+            ("(beat)", .parenthetical),
+            ("(to Arjun)", .parenthetical),
+            ("(laughing)", .parenthetical),
+            ("(pauses)", .parenthetical),
+            ("(under her breath)", .parenthetical),
+            ("(firmly)", .parenthetical),
+            ("(hesitates)", .parenthetical),
+
+            // Action
+            ("Maya paces across the room, clutching her phone.", .action),
+            ("He glances out the rain-streaked window.", .action),
+            ("Silence hangs in the cold air.", .action),
+            ("She slams the door shut.", .action),
+            ("They exchange uneasy glances.", .action),
+
+            // Metadata
+            ("CONFIDENTIAL", .metadata),
+            ("PAGE 4 OF 12", .metadata),
+            ("AUDITION SIDES ONLY", .metadata),
+            ("FINAL SHOOTING DRAFT", .metadata)
+        ]
+
+        for (line, expectedClass) in testCases {
+            let syncResult = runner.classifySync(line: line)
+            XCTAssertEqual(
+                syncResult,
+                expectedClass,
+                "Sync classification failed for '\(line)': expected \(expectedClass.rawValue), got \(syncResult?.rawValue ?? "nil")"
+            )
+
+            let asyncResult = await runner.classify(line: line)
+            XCTAssertEqual(
+                asyncResult,
+                expectedClass,
+                "Async classification failed for '\(line)': expected \(expectedClass.rawValue), got \(asyncResult?.rawValue ?? "nil")"
+            )
+        }
+
+        // Batch prediction check
+        let sampleLines = testCases.map(\.0)
+        let batchResults = await runner.classify(lines: sampleLines)
+        XCTAssertEqual(batchResults.count, testCases.count)
+        for (idx, expectedClass) in testCases.map(\.1).enumerated() {
+            XCTAssertEqual(batchResults[idx], expectedClass)
+        }
+    }
 }

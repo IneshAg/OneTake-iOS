@@ -23,6 +23,7 @@ targets:
     sources:
       - path: OneTake
       - path: Shared
+      - path: OneTake/Core/Models/ScriptElementClassifier.mlmodel
     # iCloud Drive (CloudDocuments) for "Email or link": the exported tape is uploaded to the app's
     # own iCloud container and published as a download link. Needs a development team with this
     # container registered in the Apple Developer portal.
