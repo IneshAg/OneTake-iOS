@@ -37,9 +37,12 @@ extension AppStore {
 
         for (newIdx, newScene) in newScenes.enumerated() {
             let matchedOldIdx = oldScenes.firstIndex(where: {
-                $0.title.lowercased() == newScene.title.lowercased() ||
-                $0.heading.lowercased() == newScene.heading.lowercased() ||
-                $0.number == newScene.number
+                if !$0.heading.isEmpty && !newScene.heading.isEmpty && $0.heading.lowercased() == newScene.heading.lowercased() {
+                    return true
+                }
+                return false
+            }) ?? oldScenes.firstIndex(where: {
+                $0.title.lowercased() == newScene.title.lowercased() || $0.number == newScene.number
             })
             let isReordered = matchedOldIdx != nil && matchedOldIdx != newIdx
 
@@ -190,9 +193,11 @@ extension AppStore {
             let fm = FileManager.default
             let readerDir = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)", isDirectory: true)
             if fm.fileExists(atPath: readerDir.path) {
-                let archiveDir = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)/previous_sides_\(Int(Date().timeIntervalSince1970))", isDirectory: true)
-                try? fm.moveItem(at: readerDir, to: archiveDir)
+                let tempDir = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)_zero_staging_\(UUID().uuidString)", isDirectory: true)
+                try? fm.moveItem(at: readerDir, to: tempDir)
                 try? fm.createDirectory(at: readerDir, withIntermediateDirectories: true)
+                let archiveDir = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(id.uuidString)/previous_sides_\(Int(Date().timeIntervalSince1970))", isDirectory: true)
+                try? fm.moveItem(at: tempDir, to: archiveDir)
                 readerTrackVersion += 1
             }
         }

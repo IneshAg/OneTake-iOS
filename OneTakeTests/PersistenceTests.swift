@@ -495,4 +495,120 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(completedAudition.isPackageReady, "Package should now be ready")
         XCTAssertEqual(completedAudition.status, .ready)
     }
+
+    func testRevisedSidesWhenAllLinesChangeArchivesReaderDirectoryWithoutSelfNestingError() throws {
+        let store = AppStore()
+        let auditionID = UUID()
+
+        defer {
+            try? FileManager.default.removeItem(at: MediaStore.directory("\(ReaderTrackPlayer.folder)/\(auditionID.uuidString)"))
+        }
+
+        let oldScene = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. BASEMENT - DAY",
+            lines: [
+                ScriptLine(id: UUID(), character: "CHARLIE", text: "Speak up.", isMine: false)
+            ]
+        )
+        let audition = Audition(
+            id: auditionID,
+            project: "Secret Code",
+            projectType: "Feature Film",
+            role: "Maya",
+            roleSize: "Lead",
+            castingOffice: "Casting Co",
+            due: Date().addingTimeInterval(86400),
+            asks: [],
+            pieces: [],
+            scenes: [oldScene],
+            destination: .email,
+            status: .due
+        )
+        store.add(audition)
+
+        let cueURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: 0, line: 0)
+        try FileManager.default.createDirectory(at: cueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old-cue-data".utf8).write(to: cueURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cueURL.path))
+
+        // New scene with completely different heading and text (0 matching lines)
+        let newScene = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "EXT. MOUNTAIN - NIGHT",
+            lines: [
+                ScriptLine(id: UUID(), character: "DENNIS", text: "Look at the stars.", isMine: false)
+            ]
+        )
+
+        store.replaceSides(of: auditionID, with: [newScene], sourceText: "brand new script")
+
+        let readerDir = MediaStore.documentsURL.appendingPathComponent("\(ReaderTrackPlayer.folder)/\(auditionID.uuidString)", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: readerDir.path), "Reader directory must exist")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cueURL.path), "Old cue must not exist at old unmigrated location")
+
+        // Subdirectories should include a previous_sides folder
+        let subpaths = (try? FileManager.default.contentsOfDirectory(atPath: readerDir.path)) ?? []
+        let hasPreviousSides = subpaths.contains { $0.hasPrefix("previous_sides_") }
+        XCTAssertTrue(hasPreviousSides, "Previous sides archive directory must exist without self-nesting move error")
+    }
+
+    func testCompareSidesPrioritizesHeadingMatchOverDefaultSceneNumber() throws {
+        let store = AppStore()
+        let auditionID = UUID()
+
+        // Old scenes: Scene 1 = EXT. BEACH, Scene 2 = INT. CABIN
+        let oldScene1 = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "EXT. BEACH - DAY",
+            lines: [ScriptLine(id: UUID(), character: "ALEX", text: "Cold water.", isMine: false)]
+        )
+        let oldScene2 = ScriptScene(
+            number: 2,
+            title: "Scene 2",
+            heading: "INT. CABIN - NIGHT",
+            lines: [ScriptLine(id: UUID(), character: "ALEX", text: "Warm fire.", isMine: false)]
+        )
+
+        let audition = Audition(
+            id: auditionID,
+            project: "Getaway",
+            projectType: "Feature Film",
+            role: "Sam",
+            roleSize: "Lead",
+            castingOffice: "Beach Casting",
+            due: Date().addingTimeInterval(86400),
+            asks: [],
+            pieces: [],
+            scenes: [oldScene1, oldScene2],
+            destination: .email,
+            status: .due
+        )
+        store.add(audition)
+
+        // New sides swap the order: Scene 1 is now INT. CABIN, Scene 2 is EXT. BEACH
+        let newScene1 = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. CABIN - NIGHT",
+            lines: [ScriptLine(id: UUID(), character: "ALEX", text: "Warm fire.", isMine: false)]
+        )
+        let newScene2 = ScriptScene(
+            number: 2,
+            title: "Scene 2",
+            heading: "EXT. BEACH - DAY",
+            lines: [ScriptLine(id: UUID(), character: "ALEX", text: "Cold water.", isMine: false)]
+        )
+
+        let summary = try XCTUnwrap(store.compareSides(of: auditionID, with: [newScene1, newScene2]))
+        // newScene1 (index 0) has heading INT. CABIN, which matches oldScene2 (index 1)
+        XCTAssertEqual(summary.sceneDiffs[0].oldIndex, 1, "Slugline match must take precedence over default Scene 1 number")
+        XCTAssertTrue(summary.sceneDiffs[0].isReordered)
+        // newScene2 (index 1) has heading EXT. BEACH, which matches oldScene1 (index 0)
+        XCTAssertEqual(summary.sceneDiffs[1].oldIndex, 0, "Slugline match must take precedence over default Scene 2 number")
+        XCTAssertTrue(summary.sceneDiffs[1].isReordered)
+    }
 }
