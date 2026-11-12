@@ -80,21 +80,7 @@ public enum OT {
 
 // MARK: - Common modifiers
 
-public struct CardBackground: ViewModifier {
-    public var radius: CGFloat = OT.cardRadius
-    public init(radius: CGFloat = OT.cardRadius) {
-        self.radius = radius
-    }
-    public func body(content: Content) -> some View {
-        content
-            .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
-    }
-}
-
 public extension View {
-    func otCard(radius: CGFloat = OT.cardRadius) -> some View { modifier(CardBackground(radius: radius)) }
-
     /// Full-screen canvas background used by every tab root.
     func otCanvas() -> some View { background(OT.bgCanvas.ignoresSafeArea()) }
 

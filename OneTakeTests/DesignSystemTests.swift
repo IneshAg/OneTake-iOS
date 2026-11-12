@@ -55,4 +55,38 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(OTButtonStyle.foreground(for: .secondary, surface: .camera), OT.cameraLabel)
         XCTAssertEqual(OTButtonStyle.foreground(for: .secondary, surface: .standard), OT.labelPrimary)
     }
+
+    @MainActor func testBottomBarIsOpaque() {
+        let v = Color.red.frame(width: 320, height: 400)
+            .otBottomBar { Button("Go") {}.buttonStyle(.otPrimary) }
+        let img = ImageRenderer(content: v).uiImage!
+        let px = img.rgba(at: CGPoint(x: 4, y: img.size.height - 2))
+        XCTAssertEqual(px.a, 1, accuracy: 0.01)
+        XCTAssertFalse(px.r > 0.9 && px.g < 0.1 && px.b < 0.1, "content bleeds through the bar")
+    }
+}
+
+extension UIImage {
+    func rgba(at point: CGPoint) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        guard let cgImage = cgImage else { return (0, 0, 0, 0) }
+        var pixel: [UInt8] = [0, 0, 0, 0]
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        guard let context = CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return (0, 0, 0, 0) }
+        context.draw(cgImage, in: CGRect(x: -point.x, y: -(CGFloat(cgImage.height) - point.y - 1), width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
+        return (
+            CGFloat(pixel[0]) / 255.0,
+            CGFloat(pixel[1]) / 255.0,
+            CGFloat(pixel[2]) / 255.0,
+            CGFloat(pixel[3]) / 255.0
+        )
+    }
 }
