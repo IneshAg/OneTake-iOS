@@ -464,14 +464,15 @@ enum ScriptParser {
     /// Notice headers, flyer keywords, and locations that must never be treated as screenplay cues.
     static let blacklistedNoticeWords: Set<String> = [
         "CALL", "CASTING", "AUDITION", "AUDITIONS", "OPEN CALL", "URGENT", "NOTICE", "BREAKDOWN",
-        "SEEKING", "LOOKING FOR", "WE ARE LOOKING", "PROJECT", "UPCOMING", "REQUIREMENTS", "CRITERIA",
+        "SEEKING", "LOOKING FOR", "WE ARE LOOKING", "PROJECT", "UPCOMING", "REQUIREMENT", "REQUIREMENTS", "CRITERIA",
         "SUBMIT", "SUBMISSION", "SUBMISSIONS", "SELF TAPE", "SELF-TAPE", "SELF TAPE FOR", "DEADLINE",
         "DETAILS", "INSTRUCTIONS", "CONTACT", "DM", "MAIL", "EMAIL", "PHONE", "SLATE", "HEADSHOT",
-        "HEADSHOTS", "PHOTO", "PHOTOS", "VIDEO", "VIDEOS", "SCENE", "SCENES", "SIDES", "ACTOR",
+        "HEADSHOTS", "PHOTO", "PHOTOS", "PICTURE", "PICTURES", "VIDEO", "VIDEOS", "SCENE", "SCENES", "SIDES", "ACTOR",
         "ACTORS", "ACTRESS", "ACTRESSES", "DIRECTOR", "PRODUCER", "PRODUCTION", "AGENCY", "OFFICE",
         "IMPORTANT", "NOTE", "NOTES", "REMINDER", "STATUS", "DATE", "DATES", "TIME", "CITY", "COUNTRY",
         "EXPERIENCE", "LANGUAGE", "LANGUAGES", "INFO", "INFORMATION", "APPLY", "COMPENSATION", "RATE",
         "UNION", "NON-UNION", "NON UNION", "SAG-AFTRA", "EQUITY", "LOCATION", "VENUE", "AGE", "AGES",
+        "TURBAN", "SIKH", "INTRO", "INTRODUCTION",
         "RATE OF PAY", "PAY RATE", "VIDEO USAGE", "USAGE", "AGENCY FEE", "PRINCIPAL ROLE", "SECONDARY ROLE",
         "MALE", "FEMALE", "MALE AGE", "FEMALE AGE", "YEARS", "YRS", "ESCAPE PLAN", "ANNOUNCEMENT",
         "CLIENT", "PRODUCT", "CAMPAIGN", "COMMERCIAL COPY",
@@ -480,18 +481,23 @@ enum ScriptParser {
         "THE CHARACTERS", "THE SIDE", "SIDE A", "SIDE B", "SIDE C", "SIDE D", "MULTIPLE ROLES",
         "BENGALURU", "BANGALORE", "MUMBAI", "BOMBAY", "DELHI", "NEW DELHI", "HYDERABAD", "CHENNAI",
         "MADRAS", "KOLKATA", "CALCUTTA", "PUNE", "GOA", "AHMEDABAD", "JAIPUR", "CHANDIGARH", "KOCHI",
-        "KERALA", "NOIDA", "GURGAON", "GURUGRAM", "NEW YORK", "LOS ANGELES", "LA", "NYC", "CHICAGO",
+        "KERALA", "NOIDA", "GURGAON", "GURUGRAM", "BHOPAL", "NEW YORK", "LOS ANGELES", "LA", "NYC", "CHICAGO",
         "ATLANTA", "LONDON", "TORONTO", "VANCOUVER", "SYDNEY", "MELBOURNE", "PARIS", "BERLIN", "DUBAI"
     ]
 
     static func isBlacklistedNoticeWord(_ raw: String) -> Bool {
-        let clean = raw.trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—*\"' \t\r\n")).uppercased()
+        let clean = raw.trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—*\"' \t\r\n•·▪▫|#<>")).uppercased()
         if clean.isEmpty { return true }
         if blacklistedNoticeWords.contains(clean) { return true }
+        let tokens = clean.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        if tokens.contains(where: { ["GENDER", "REQUIREMENT", "REQUIREMENTS", "CASTING", "CALL", "AUDITION", "SUBMIT", "SUBMISSION", "DEADLINE", "TURBAN", "PICTURES", "HEADSHOT", "RESUME", "INTRODUCTION", "CONTACT"].contains($0) }) {
+            return true
+        }
         let noticePhrases = [
             "CASTING CALL", "OPEN CALL", "MALE AGE", "FEMALE AGE", "LOOKING FOR", "WE ARE LOOKING",
-            "CASTING SIDES", "HOW TO USE", "DIRECTOR NOTE", "SLATE INSTRUCTION", "MULTIPLE ROLES",
-            "THE CHARACTERS", "SETTING"
+            "WE'RE LOOKING", "CASTING SIDES", "HOW TO USE", "DIRECTOR NOTE", "SLATE INSTRUCTION", "MULTIPLE ROLES",
+            "THE CHARACTERS", "SETTING", "KINDLY SEND", "SEND IN", "CONTACT NUMBER", "RECENT PICTURES",
+            "MUST WEAR", "UPCOMING PROJECT"
         ]
         for p in noticePhrases {
             if clean.contains(p) { return true }
@@ -503,21 +509,23 @@ enum ScriptParser {
     static func isNoticeText(_ text: String) -> Bool {
         let lower = text.lowercased()
         let indicators = [
-            "we are looking for", "actors for an upcoming", "mail us on", "email us on",
+            "we are looking for", "we're looking for", "actors for an upcoming", "mail us on", "email us on",
             "dm us", "in the subject", "casting call", "years old", "shortlisted candidates",
             "send across your", "need not apply", "how to use these sides", "casting sides",
             "the characters in this document", "slate first", "video format", "submit your tape",
             "submit a separate video", "screen time", "instructions on your character",
             "production quality required", "dialogue sides", "director will read between",
             "skip or pause over", "skip other character", "before beginning, look directly into camera",
-            "what i'm looking for:", "what i need to see:", "maximum total video", "please read all instructions"
+            "what i'm looking for:", "what i need to see:", "maximum total video", "please read all instructions",
+            "must wear a turban", "kindly send in your", "recent pictures", "detailed introduction",
+            "contact number", "upcoming project", "@mccc.in", "based in bhopal", "requirement:"
         ]
         return indicators.contains(where: { lower.contains($0) })
     }
 
     /// A line is a plausible character cue if it's short, uppercase, and not punctuation or notice keyword.
     static func isLikelyCue(_ raw: String, indentation: Int? = nil) -> Bool {
-        var trimmed = raw.trimmingCharacters(in: .whitespaces)
+        var trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "•·▪▫*-–—| \t\r\n"))
         if let indentation, indentation > 0, indentation < 14, !raw.contains("\t") {
             let words = trimmed.split(separator: " ")
             if words.count > 3 { return false }
@@ -542,19 +550,20 @@ enum ScriptParser {
 
     /// Verifies whether a line can plausibly be a character cue (e.g. capitalized name, no lowercase sentence prose)
     static func isPlausibleCueName(_ trimmed: String) -> Bool {
-        guard trimmed.count >= 2, trimmed.count < 35 else { return false }
-        if trimmed.contains(":") { return false }
-        if trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(",") || trimmed.hasSuffix(";") {
+        let clean = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "•·▪▫*-–—| \t\r\n"))
+        guard clean.count >= 2, clean.count < 35 else { return false }
+        if clean.contains(":") { return false }
+        if clean.hasSuffix("!") || clean.hasSuffix("?") || clean.hasSuffix(",") || clean.hasSuffix(";") {
             return false
         }
         let allowedSingleWordPeriod: Set<String> = ["DR.", "MR.", "MRS.", "MS.", "PROF.", "CAPT.", "LT.", "SGT.", "REV."]
-        if trimmed.hasSuffix(".") && !allowedSingleWordPeriod.contains(trimmed.uppercased()) {
+        if clean.hasSuffix(".") && !allowedSingleWordPeriod.contains(clean.uppercased()) {
             return false
         }
-        if isTransition(trimmed) || isBlacklistedNoticeWord(trimmed) || isActHeading(trimmed) || isSceneHeading(trimmed) {
+        if isTransition(clean) || isBlacklistedNoticeWord(clean) || isActHeading(clean) || isSceneHeading(clean) {
             return false
         }
-        let bareName = cueName(trimmed)
+        let bareName = cueName(clean)
         guard !bareName.isEmpty else { return false }
         let words = bareName.split(separator: " ")
         guard (1...4).contains(words.count) else { return false }
@@ -580,7 +589,7 @@ enum ScriptParser {
 
     /// "Maya" / "Dr. Rao" / "Maya Kapoor" before a colon — a short, capitalised name.
     private static func speakerKey(_ raw: String) -> String? {
-        let name = cueName(raw.trimmingCharacters(in: .whitespaces))
+        let name = cueName(raw.trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—*\"' \t\r\n•·▪▫|#<>")))
         guard name.count >= 2, name.count <= 24 else { return nil }
         let words = name.split(separator: " ")
         guard (1...3).contains(words.count) else { return nil }
@@ -614,7 +623,7 @@ enum ScriptParser {
 
     /// The speaker's name with screenplay extensions dropped: "ARJUN (CONT'D)" / "ARJUN (V.O.)" → "ARJUN".
     private static func cueName(_ raw: String) -> String {
-        var name = raw.trimmingCharacters(in: .whitespaces)
+        var name = raw.trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—*\"' \t\r\n•·▪▫|#<>"))
         if name.hasPrefix("[") && name.hasSuffix("]") {
             name = String(name.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
         }

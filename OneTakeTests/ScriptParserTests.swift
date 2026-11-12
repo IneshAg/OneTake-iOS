@@ -642,4 +642,33 @@ final class ScriptParserTests: XCTestCase {
         XCTAssertEqual(scenes[0].lines[1].text, "Not without the evidence.")
         XCTAssertFalse(scenes[0].lines[1].isMine)
     }
+
+    func testCastingCallFlyerDoesNotGenerateFalseScenesOrCues() {
+        let flyerText = """
+        CASTING
+        CALL
+        MUKESH CHHABRA
+        CASTING COMPANY
+        WE'RE LOOKING FOR SIKH ACTORS
+        BASED IN BHOPAL FOR AN
+        UPCOMING PROJECT
+        REQUIREMENT:
+        • GENDER: MALE
+        • AGE: (30-55 YEARS)
+        • LANGUAGE: HINDI, ENGLISH & PUNJABI
+        • MUST WEAR A TURBAN
+        KINDLY SEND IN YOUR
+        • CONTACT NUMBER
+        • DETAILED INTRODUCTION
+        • RECENT PICTURES
+        ojas@mccc.in
+        nupur@mccc.in
+        """
+
+        let scenes = ScriptParser.parseScenes(from: flyerText, myRole: "Male")
+        XCTAssertTrue(scenes.isEmpty, "Casting flyers must not generate false script scenes or cues.")
+
+        let isNotice = NoticeParser.isNoticeOnly(flyerText)
+        XCTAssertTrue(isNotice, "Flyer text must be recognized as notice-only.")
+    }
 }

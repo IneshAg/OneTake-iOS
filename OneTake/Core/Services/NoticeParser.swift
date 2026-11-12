@@ -7,8 +7,11 @@ enum NoticeParser {
     /// otherwise do not turn the notice's own headings into dialogue or a required scene.
     static func isNoticeOnly(_ text: String) -> Bool {
         let lower = text.lowercased()
-        let hasNoticeMarkers = ["what to submit", "currently casting", "actors should email", "audition notice"]
-            .contains(where: lower.contains)
+        let hasNoticeMarkers = [
+            "what to submit", "currently casting", "actors should email", "audition notice",
+            "casting call", "we're looking for", "we are looking for", "requirement:", "requirements:",
+            "kindly send in your", "send in your", "recent pictures", "upcoming project"
+        ].contains(where: lower.contains)
         guard hasNoticeMarkers else { return false }
         let hasSceneMarker = text.range(of: #"(?im)^\s*(?:INT\.|EXT\.|INT/EXT\b|SCENE\s+[0-9A-Z]+\b|ACT\s+(?:ONE|TWO|THREE|[0-9IVX]+)\b|[A-Z]{2,20}\s*[·•|—-]\s*(?:He|She|They)/|[A-Z]{2,20}\s*[-—–]\s*(?:Page|Pg\.?)\s*\d+)"#, options: .regularExpression) != nil
         return !hasSceneMarker
