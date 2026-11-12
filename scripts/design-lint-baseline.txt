@@ -1,9 +1,10 @@
-radius 234
-font-size 251
-frame-literal 232
-padding-literal 501
-raw-color 106
-system-button-style 11
-manual-surface 76
-hidden-navbar 38
-on-dark-flag 18
+# Design system lint baseline (Task 8: headshots-profile migrated)
+radius 201
+font-size 226
+frame-literal 162
+padding-literal 430
+raw-color 60
+system-button-style 8
+manual-surface 63
+hidden-navbar 31
+on-dark-flag 8
