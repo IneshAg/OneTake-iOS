@@ -87,7 +87,7 @@ final class CameraController: NSObject {
     func clearHandGestureDetection() { openPalmDetected = false }
 
     let session = AVCaptureSession()
-    private let movieOutput = AVCaptureMovieFileOutput()
+    let movieOutput = AVCaptureMovieFileOutput()
     private let photoOutput = AVCapturePhotoOutput()
     private let queue = DispatchQueue(label: "onetake.camera")
     private var timer: Timer?
@@ -113,19 +113,55 @@ final class CameraController: NSObject {
     @ObservationIgnored private var interruptionObserver: Any?
     @ObservationIgnored private let interruptionLock = NSLock()
     @ObservationIgnored private var _wasInterrupted = false
+    @ObservationIgnored private var _interruptionReason: String? = nil
 
-    private func markInterrupted() {
+    func markInterrupted(reason: String? = nil) {
         interruptionLock.lock()
         _wasInterrupted = true
+        if let reason {
+            _interruptionReason = reason
+        }
         interruptionLock.unlock()
     }
 
-    private func consumeInterruption() -> Bool {
+    func consumeInterruption() -> (wasInterrupted: Bool, reason: String?) {
         interruptionLock.lock()
         defer { interruptionLock.unlock() }
         let current = _wasInterrupted
+        let reason = _interruptionReason
         _wasInterrupted = false
-        return current
+        _interruptionReason = nil
+        return (current, reason)
+    }
+
+    override init() {
+        super.init()
+        setupInterruptionObserver()
+    }
+
+    private func setupInterruptionObserver() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.wasInterruptedNotification,
+            object: session,
+            queue: nil
+        ) { [weak self] note in
+            guard let self else { return }
+            let reasonCode = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+            let reasonText: String
+            switch reasonCode {
+            case 1: reasonText = "Audio device in use by another app"
+            case 2: reasonText = "Video device in use by another app"
+            case 3: reasonText = "App in background"
+            default: reasonText = "Recording was interrupted"
+            }
+            if self.movieOutput.isRecording {
+                self.markInterrupted(reason: reasonText)
+            }
+            Task { @MainActor in
+                self.handleSessionInterruption(reason: reasonText)
+            }
+        }
     }
 
     deinit {
@@ -256,26 +292,7 @@ final class CameraController: NSObject {
                     self?.resetFocusToContinuous()
                 }
             }
-            if self.interruptionObserver == nil {
-                self.interruptionObserver = NotificationCenter.default.addObserver(
-                    forName: AVCaptureSession.wasInterruptedNotification,
-                    object: self.session,
-                    queue: nil
-                ) { [weak self] note in
-                    self?.markInterrupted()
-                    let reasonCode = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
-                    let reasonText: String
-                    switch reasonCode {
-                    case 1: reasonText = "Audio device in use by another app"
-                    case 2: reasonText = "Video device in use by another app"
-                    case 3: reasonText = "App in background"
-                    default: reasonText = "Recording was interrupted"
-                    }
-                    Task { @MainActor in
-                        self?.handleSessionInterruption(reason: reasonText)
-                    }
-                }
-            }
+            self.setupInterruptionObserver()
             Task { @MainActor in
                 self.videoDevice = camera
                 self.updateRotationCoordinator()
@@ -565,6 +582,7 @@ final class CameraController: NSObject {
     // MARK: Recording
 
     func startRecording() {
+        _ = consumeInterruption()
         guard state == .ready else { return }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("take-\(UUID().uuidString).mov")
@@ -615,7 +633,7 @@ final class CameraController: NSObject {
 
     private func handleSessionInterruption(reason: String) {
         guard state == .recording || state == .paused else { return }
-        markInterrupted()
+        markInterrupted(reason: reason)
         timer?.invalidate()
         movieOutput.stopRecording()
     }
@@ -701,8 +719,8 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
         let hasSavedContent = fileSize > 1024
-        let wasInterrupted = consumeInterruption()
-        let hadInterruption = wasInterrupted || (!finished && error != nil)
+        let interruption = consumeInterruption()
+        let hadInterruption = interruption.wasInterrupted || (!finished && error != nil)
 
         Task { @MainActor in
             let url = finished ? outputFileURL : (hasSavedContent ? outputFileURL : nil)
@@ -711,7 +729,8 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
             self.isStopping = false
 
             if hadInterruption {
-                let reason = wasInterrupted ? "Recording interrupted by system" : (error?.localizedDescription ?? "Recording interrupted")
+                let defaultReason = interruption.wasInterrupted ? "Recording interrupted by system" : "Recording interrupted"
+                let reason = interruption.reason ?? error?.localizedDescription ?? defaultReason
                 self.lastInterruption = InterruptionEvent(
                     url: hasSavedContent ? outputFileURL : nil,
                     duration: self.elapsed,

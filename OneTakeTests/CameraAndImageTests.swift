@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import AVFoundation
 @testable import OneTake
 
 final class CameraAndImageTests: XCTestCase {
@@ -678,6 +679,62 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertNil(camera.lastInterruption)
         camera.clearInterruption()
         XCTAssertNil(camera.lastInterruption)
+    }
+
+    @MainActor
+    func testIdleSessionInterruptionDoesNotLeakIntoSubsequentRecording() async throws {
+        let camera = CameraController()
+
+        // 1. Post an interruption notification while the camera is idle (not recording)
+        NotificationCenter.default.post(
+            name: AVCaptureSession.wasInterruptedNotification,
+            object: camera.session,
+            userInfo: [AVCaptureSessionInterruptionReasonKey: NSNumber(value: 3)] // App in background
+        )
+
+        // Give the notification observer block a moment to run
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        // Verify that idle interruption did not set wasInterrupted flag
+        XCTAssertFalse(camera.consumeInterruption().wasInterrupted, "Idle interruption must not set wasInterrupted")
+
+        // 2. Also simulate a stale interruption flag to verify startRecording() clears it
+        camera.markInterrupted(reason: "Stale interruption")
+        camera.startRecording()
+        XCTAssertFalse(camera.consumeInterruption().wasInterrupted, "startRecording() must clear any prior interruption")
+
+        // 3. Complete a successful recording via fileOutput callback
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-take-\(UUID().uuidString).mov")
+        let dummyData = Data(repeating: 0x42, count: 4096)
+        try dummyData.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        camera.fileOutput(camera.movieOutput, didFinishRecordingTo: tempURL, from: [], error: nil)
+
+        // Allow MainActor task spawned by fileOutput to run
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        // Assert that lastInterruption is nil
+        XCTAssertNil(camera.lastInterruption, "Idle interruption must not mark a subsequent successful recording as interrupted")
+        XCTAssertEqual(camera.lastRecording, tempURL)
+    }
+
+    @MainActor
+    func testActiveInterruptionPreservesSpecificReason() async throws {
+        let camera = CameraController()
+        camera.markInterrupted(reason: "Audio device in use by another app")
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-take-\(UUID().uuidString).mov")
+        let dummyData = Data(repeating: 0x42, count: 4096)
+        try dummyData.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        camera.fileOutput(camera.movieOutput, didFinishRecordingTo: tempURL, from: [], error: nil)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertNotNil(camera.lastInterruption)
+        XCTAssertEqual(camera.lastInterruption?.reason, "Audio device in use by another app")
+        XCTAssertTrue(camera.lastInterruption?.hasSavedContent == true)
     }
 }
 
