@@ -542,4 +542,81 @@ final class ScriptParserTests: XCTestCase {
             XCTAssertEqual(batchResults[idx], expectedClass)
         }
     }
+
+    func testIndentedCharacterCuesWithTabsAndSpaces() {
+        let sides = """
+        INT. COFFEE SHOP - DAY
+
+        Maya sits alone at a corner table stirring her tea.
+
+        \t\tMAYA
+        \t(whispering)
+        I didn't think you'd come.
+
+            JOHN
+        (sitting across from her)
+        You asked me to.
+
+        He reaches into his jacket and pulls out an envelope.
+
+        \t\tMaya
+        Is that what I think it is?
+        """
+        let scenes = ScriptParser.parseScenes(from: sides, myRole: "Maya")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 3)
+        XCTAssertEqual(scenes[0].lines[0].character, "Maya")
+        XCTAssertEqual(scenes[0].lines[0].text, "I didn't think you'd come.")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+
+        XCTAssertEqual(scenes[0].lines[1].character, "John")
+        XCTAssertEqual(scenes[0].lines[1].text, "You asked me to.")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+
+        XCTAssertEqual(scenes[0].lines[2].character, "Maya")
+        XCTAssertEqual(scenes[0].lines[2].text, "Is that what I think it is?")
+        XCTAssertTrue(scenes[0].lines[2].isMine)
+    }
+
+    func testCoreMLScriptParserParsesScenes() {
+        let multiSceneScript = """
+        INT. APARTMENT - DAY
+
+        MAYA
+        Where were you last night?
+
+        JOHN
+        Working late at the archives.
+
+        EXT. ALLEY - NIGHT
+
+        Rain falls heavily onto the asphalt.
+
+        JOHN
+        Don't follow me, Maya.
+
+        MAYA
+        (stepping forward)
+        I'm not leaving you behind.
+        """
+        let scenes = ScriptParser.parseScenes(from: multiSceneScript, myRole: "Maya")
+        XCTAssertEqual(scenes.count, 2)
+        XCTAssertEqual(scenes[0].heading, "INT. APARTMENT - DAY")
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Maya")
+        XCTAssertEqual(scenes[0].lines[0].text, "Where were you last night?")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[1].character, "John")
+        XCTAssertEqual(scenes[0].lines[1].text, "Working late at the archives.")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+
+        XCTAssertEqual(scenes[1].heading, "EXT. ALLEY - NIGHT")
+        XCTAssertEqual(scenes[1].lines.count, 2)
+        XCTAssertEqual(scenes[1].lines[0].character, "John")
+        XCTAssertEqual(scenes[1].lines[0].text, "Don't follow me, Maya.")
+        XCTAssertFalse(scenes[1].lines[0].isMine)
+        XCTAssertEqual(scenes[1].lines[1].character, "Maya")
+        XCTAssertEqual(scenes[1].lines[1].text, "I'm not leaving you behind.")
+        XCTAssertTrue(scenes[1].lines[1].isMine)
+    }
 }

@@ -1,10 +1,8 @@
 import Foundation
 
 /// Turns real screenplay-formatted text (from a scan, a PDF, or a pasted email) into `ScriptLine`s —
-/// no network call, no fixed example to fall back on. Two conventions are recognised, both common in
-/// real sides: a short ALL-CAPS line on its own starting a new speaker ("ARJUN" then dialogue below),
-/// and "CHARACTER: dialogue" on one line. Anything that doesn't look like either is skipped rather than
-/// guessed at.
+/// powered by on-device Core ML element classification (`ScriptElementClassifier`) with a deterministic
+/// fallback guardrail for full backward compatibility across all iOS versions.
 enum ScriptParser {
     /// Casting and audition script archetypes encountered across television, film, commercial, and theater sides.
     enum ScriptArchetype: String, CaseIterable {
@@ -69,11 +67,9 @@ enum ScriptParser {
         return order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
     }
 
+    /// Parses scenes from screenplay or sides text using Core ML element classification with deterministic guardrails.
     static func parseScenes(from text: String, myRole: String) -> [ScriptScene] {
-        // Blank lines are kept: in screenplay format a blank line ends a dialogue block, and whatever
-        // follows (action, description) belongs to no one until the next cue.
         let rawLines = text.components(separatedBy: .newlines)
-
         let roleName = normalizedName(myRole)
 
         let characterHeaderRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\s*[·•|\-—]\s*(?:(?:He|She|They)/|[0-9]{1,2}s?\b|Early|Mid|Late)"#)
@@ -84,22 +80,28 @@ enum ScriptParser {
         var inSettingOrNoteBlock = false
         var hasExplicitHeading = false
 
-        // Mixed-case "Maya: Hello" cues (emails, Word files, OCR) and standard all-caps cues (e.g. "FRANCIS")
-        // are indexed so stage directions can identify character actions ("Maggie tosses the satchel...").
+        let runner = CoreMLScriptParserRunner.shared
+        let mlAvailable = runner.isAvailable
+
+        // Index speaker cues across the document to assist narration action filtering
         var speakerCounts: [String: Int] = [:]
         for raw in rawLines {
             let tr = raw.trimmingCharacters(in: .whitespaces)
             let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
             if let colon = tr.firstIndex(of: ":"), let key = speakerKey(String(tr[..<colon])) {
                 speakerCounts[key, default: 0] += 1
-            } else if isLikelyCue(tr, indentation: indentation) {
+            } else if isPlausibleCueName(tr),
+                      let mlClass = mlAvailable ? (runner.classifySync(line: raw) ?? runner.classifySync(line: tr)) : nil,
+                      mlClass == .characterCue, !isTransition(tr), !isBlacklistedNoticeWord(tr) {
+                let key = cueName(tr).uppercased()
+                speakerCounts[key, default: 0] += 1
+            } else if isLikelyCue(tr, indentation: indentation) || isLikelyIndentedCue(tr, raw: raw) {
                 let key = cueName(tr).uppercased()
                 speakerCounts[key, default: 0] += 1
             }
         }
         let speakers = Set(speakerCounts.filter { $0.value >= 2 || isSameCharacter(normalizedName($0.key), roleName) }.keys)
-        // Sides often hold more than one scene, each opening on a slugline ("INT. KITCHEN — NIGHT")
-        // or a "SCENE 2" header; each becomes its own scene so it can be prepared and shot alone.
+
         var scenes: [(heading: String, lines: [ScriptLine])] = []
         var heading = "SIDES"
         var lines: [ScriptLine] = []
@@ -139,12 +141,11 @@ enum ScriptParser {
                 continue
             }
 
-            // Watermarks, timestamps, and page numbering
             if isWatermarkOrHeader(trimmed) {
                 continue
             }
 
-            // Character header in multi-character sides packet (e.g. "NOOR · She/her · Early 60s")
+            // Casting sides character overview block (e.g. "NOOR · She/her · Early 60s")
             if let match = characterHeaderRegex?.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
                let r = Range(match.range(at: 1), in: trimmed) {
                 flush()
@@ -165,6 +166,15 @@ enum ScriptParser {
                 activeCharacter = String(trimmed[r]).capitalized
             }
 
+            // Core ML Semantic Line Evaluation
+            let mlClass = mlAvailable ? (runner.classifySync(line: raw) ?? runner.classifySync(line: trimmed)) : nil
+
+            let isCue = isPlausibleCueName(trimmed) && (
+                isLikelyCue(trimmed, indentation: indentation)
+                || (mlClass == .characterCue)
+                || isLikelyIndentedCue(trimmed, raw: raw)
+            )
+
             if isSceneHeading(trimmed) {
                 flush()
                 currentCharacter = nil
@@ -173,11 +183,11 @@ enum ScriptParser {
                     scenes.append((heading, lines))
                     lines = []
                 }
-                if trimmed.uppercased().hasPrefix("SIDE ") {
+                if upper.hasPrefix("SIDE ") {
                     heading = "Side " + trimmed.dropFirst(5)
-                } else if trimmed.uppercased().hasPrefix("THE SIDE") {
+                } else if upper.hasPrefix("THE SIDE") {
                     heading = "The Side" + trimmed.dropFirst(8)
-                } else if trimmed.uppercased().hasPrefix("START") || trimmed.uppercased().hasPrefix("[START") {
+                } else if upper.hasPrefix("START") || upper.hasPrefix("[START") {
                     let nextNum = scenes.count + (lines.isEmpty ? 1 : 2)
                     heading = "Scene \(nextNum)"
                 } else {
@@ -188,11 +198,10 @@ enum ScriptParser {
                 flush()
                 currentCharacter = nil
             } else if isLineOrPageNumber(trimmed) {
-                // Line numbers or page numbers (e.g. "91", "92", "Page 4") - ignore without ending dialogue
                 continue
             } else if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
                 let inner = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-                if isLikelyCue(inner) {
+                if isLikelyCue(inner) || (isPlausibleCueName(inner) && mlClass == .characterCue) {
                     flush()
                     currentCharacter = cueName(inner)
                     continue
@@ -205,7 +214,7 @@ enum ScriptParser {
             } else if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
                 // Standalone parenthetical stage direction (e.g. "(whispering)") — ignore without flushing speaker
                 continue
-            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) {
+            } else if isTransition(trimmed) || isActionOrDescription(trimmed, knownSpeakers: speakers) || (currentCharacter == nil && mlClass == .action) {
                 flush()
                 currentCharacter = nil
                 if upper.hasPrefix("SETTING:") || upper.hasPrefix("SETTINGS:") || upper.hasPrefix("DIRECTOR NOTE:") {
@@ -225,7 +234,7 @@ enum ScriptParser {
                         currentText += (currentText.isEmpty ? "" : " ") + trimmed
                     }
                 }
-            } else if upper.hasPrefix("VIDEO:") || upper.hasPrefix("VISUAL:") || upper.hasPrefix("SFX:") || upper.hasPrefix("SUPER:") || upper.hasPrefix("GRAPHIC:") || upper.hasPrefix("DISCLAIMER:") {
+            } else if upper.hasPrefix("VIDEO:") || upper.hasPrefix("VISUAL:") || upper.hasPrefix("SFX:") || upper.hasPrefix("SUPER:") || upper.hasPrefix("GRAPHIC:") || upper.hasPrefix("DISCLAIMER:") || (!isCue && mlClass == .metadata) {
                 flush()
                 currentCharacter = nil
                 continue
@@ -256,7 +265,7 @@ enum ScriptParser {
                 flush()
                 currentCharacter = cueName(String(trimmed[..<colon]))
                 currentText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if isLikelyCue(trimmed, indentation: indentation) {
+            } else if isCue {
                 flush()
                 currentCharacter = cueName(trimmed)
             } else if currentCharacter != nil {
@@ -265,17 +274,15 @@ enum ScriptParser {
                 currentCharacter = activeCharacter
                 currentText += (currentText.isEmpty ? "" : " ") + trimmed
             }
-            // Anything before the first cue (stray header text, action lines) is skipped.
         }
         flush()
         if !lines.isEmpty { scenes.append((heading, lines)) }
 
         var finalScenes = scenes.enumerated().map { i, scene in
-            // ~150 wpm reading pace is a reasonable estimate for "how long this will take to shoot".
             let wordCount = scene.lines.reduce(0) { $0 + $1.text.split(separator: " ").count }
             let estimatedSeconds = max(15, Int(Double(wordCount) / 150.0 * 60))
             return ScriptScene(number: i + 1, title: "Scene \(i + 1)", heading: scene.heading,
-                               lines: scene.lines, estimatedSeconds: estimatedSeconds)
+                                lines: scene.lines, estimatedSeconds: estimatedSeconds)
         }
 
         if !roleName.isEmpty {
@@ -291,20 +298,16 @@ enum ScriptParser {
         return finalScenes
     }
 
-    /// Regex for matching scene headers ("SCENE 1", "SC. 2", "SCENE 14A"), using standard NSRegularExpression
-    /// for full compatibility across iOS 14 and earlier.
     private static let sceneHeaderRegex: NSRegularExpression? = {
         try? NSRegularExpression(pattern: "^(SCENE|SC\\.?)\\s*(\\d+[A-Z]?)\\b", options: [.caseInsensitive])
     }()
 
-    /// Where a new scene starts: a slugline ("INT. CAFÉ — DAY", "EXT/INT CAR", "I/E") or a scene
-    /// header like "SCENE 2" / "SC. 14" or sides header like "THE SIDE", "SIDE A". Compatible with iOS 14 and earlier.
+    /// Identifies where a new scene starts: sluglines, scene headers, and sides markers.
     static func isSceneHeading(_ raw: String) -> Bool {
         let line = raw.trimmingCharacters(in: .whitespaces)
         guard !line.isEmpty, line.count < 80 else { return false }
         let upper = line.uppercased()
 
-        // Casting side start/stop markers
         let startMarkers: Set<String> = ["START", "[START]", "START SCENE", "START OF SCENE", "START SIDE", "START SIDES", "START OF SIDES"]
         if startMarkers.contains(upper) || upper.hasPrefix("START SIDE ") || upper.hasPrefix("START SCENE ") || upper.hasPrefix("[START ") {
             return true
@@ -316,8 +319,6 @@ enum ScriptParser {
         let sidePrefixes = ["THE SIDE", "SIDE A", "SIDE B", "SIDE C", "SIDE D", "SIDE 1", "SIDE 2", "SIDE 3", "SIDE 4", "SIDE I", "SIDE II", "SIDE III", "SIDE IV"]
         if sidePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        // Roman numeral act/scene headers: "ACT I", "ACT II", "ACT 1", "ACT 2", "SCENE I", "SCENE II"
-        // Must be the whole line or followed by a separator (e.g. "SCENE 2 — KITCHEN") not prose ("Scene 2 was better.")
         if let actSceneRegex = try? NSRegularExpression(pattern: #"^(?:ACT|SCENE)\s+(?:[IVXLCDM]+|\d+[A-Z]?)\s*(?:$|[\-–—:.(])"#, options: [.caseInsensitive]),
            actSceneRegex.firstMatch(in: upper, options: [], range: NSRange(location: 0, length: (upper as NSString).length)) != nil {
             return true
@@ -334,10 +335,8 @@ enum ScriptParser {
     static func isActionOrDescription(_ raw: String, knownSpeakers: Set<String> = []) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
-
         let upper = trimmed.uppercased()
 
-        // Setting / Director / Slate note lines, theatrical transitions, and commercial metadata
         let notePrefixes = [
             "TRANSITION:", "TRANSITION ", "BLACKOUT", "CURTAIN", "LIGHTS FADE", "FADE TO BLACK",
             "SETTING:", "SETTINGS:", "DIRECTOR NOTE:", "DIRECTOR NOTES:", "SLATE INSTRUCTION",
@@ -348,18 +347,15 @@ enum ScriptParser {
         ]
         if notePrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        // Standalone bracketed or parenthetical stage directions (e.g. "[speaking on phone]", "(whispering)")
         if (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
             return true
         }
 
-        // All-caps full sentence with punctuation (e.g. "KAT FRETS OVER OSCAR WHO IS TOUCHING HIS CHEST.")
         if upper == trimmed && (trimmed.hasSuffix(".") || trimmed.hasSuffix("!")) {
             let words = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
             if words.count >= 3 { return true }
         }
 
-        // Common standalone stage directions and scene time/setting markers
         let directions: Set<String> = [
             "BEAT", "BEAT.", "A BEAT.", "PAUSE", "PAUSE.", "SILENCE", "SILENCE.",
             "SLIGHT PAUSE", "SLIGHT PAUSE.", "SHORT PAUSE", "SHORT PAUSE.",
@@ -368,18 +364,15 @@ enum ScriptParser {
         ]
         if directions.contains(upper) { return true }
 
-        // Camera directions
         let cameraPrefixes = ["ANGLE ON", "CLOSE ON", "CLOSE-UP", "WIDE SHOT", "INSERT", "P.O.V.", "POV", "SOUND OF", "WE HEAR", "WE SEE", "CAMERA", "IN THE DISTANCE"]
         if cameraPrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        // Third-person narration starts: "He ", "She ", "They ", "The door ", etc.
         let narrationPrefixes = ["HE ", "SHE ", "THEY ", "BOTH ", "THE DOOR ", "THE PHONE ", "A CAR ", "SUDDENLY ", "HER EYES ", "HIS EYES "]
         if narrationPrefixes.contains(where: { upper.hasPrefix($0) }) { return true }
 
-        // Character action verbs: e.g. "Maya looks at him", "Arjun walks to the door", "Maggie tosses..."
         let words = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         if words.count >= 2 {
-            let firstWordKey = words[0].trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—,")) .uppercased()
+            let firstWordKey = words[0].trimmingCharacters(in: CharacterSet(charactersIn: ":.-–—,")).uppercased()
             let secondWord = words[1].lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",."))
             let actionVerbs: Set<String> = [
                 "walks", "looks", "turns", "enters", "exits", "sits", "stands", "takes", "grabs",
@@ -400,7 +393,6 @@ enum ScriptParser {
     }
 
     /// Checks if a line following stage directions/actions is likely dialogue spoken by the active character
-    /// (e.g. "Hey!", "-Always less busy on a Sunday.", "Come back.", "So. What did you come for?")
     static func isLikelyDialogueAfterAction(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
@@ -420,22 +412,7 @@ enum ScriptParser {
         return tokens.contains(where: { dialogueWords.contains($0) })
     }
 
-    /// Strips parentheticals like "(whispering)" or "[laughing]" from dialogue lines so actor/reader
-    /// doesn't read stage directions out loud.
-    static func stripParentheticals(_ text: String) -> String {
-        var result = text
-        while let open = result.firstIndex(of: "("), let close = result[open...].firstIndex(of: ")") {
-            result.removeSubrange(open...close)
-        }
-        while let open = result.firstIndex(of: "["), let close = result[open...].firstIndex(of: "]") {
-            result.removeSubrange(open...close)
-        }
-        return result.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Formats raw dialogue text extracted from scripts, PDFs, scans, or text files:
-    /// - Unwraps physical line breaks into clean, flowing prose rather than disjointed line wraps.
-    /// Strips recurring watermarks and headers (e.g. "CONFIDENTIAL", page numbers like "Page 1 of 5", agency stamps).
+    /// Strips recurring watermarks, timestamps, and page numbering headers
     static func isWatermarkOrHeader(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
@@ -447,171 +424,23 @@ enum ScriptParser {
         if upper.contains("NOT FOR DISTRIBUTION") || upper.contains("DO NOT DISTRIBUTE") {
             return true
         }
-        // Running script header/footer with page number (e.g. "Eve's Ale - Shanna Allman (7.28.26) - p.39", "PILOT - p. 12")
         if let scriptHeaderRegex = try? NSRegularExpression(pattern: #"^.+[\-–—|•·]\s*(?:p\.|page|pg\.)\s*\d+\.?$"#, options: [.caseInsensitive]),
            scriptHeaderRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
             return true
         }
-        // Running header ending in a dash number like "SHOW TITLE - 39"
         if let scriptHeaderDashNumRegex = try? NSRegularExpression(pattern: #"^.+[\-–—]\s*\d+\s*$"#),
            scriptHeaderDashNumRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
             return true
         }
-        // Page numbering: "Page 1", "PAGE 1 OF 4", "1 of 5", "p. 39", "p.39"
         if let pageRegex = try? NSRegularExpression(pattern: #"^(?:PAGE|P\.|PG\.)\s*\d+(\s+OF\s+\d+)?$"#, options: [.caseInsensitive]),
            pageRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
             return true
         }
-        // Timestamp / date lines: "11/02/2026 14:30" or "02-11-2026"
         if let dateRegex = try? NSRegularExpression(pattern: #"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?)?$"#),
            dateRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
             return true
         }
         return false
-    }
-
-    /// Sanitizes and properly formats text pasted from clipboard (emails, Notes, PDF text, Word docs):
-    /// - Normalizes line breaks (\r\n and \r -> \n).
-    /// - Strips zero-width and non-breaking unicode artifacts (\u{200B}, \u{FEFF}, \u{00A0}).
-    /// - Converts smart quotes (‘, ’, “, ”) to standard typewriter quotes (', ").
-    /// - Fixes broken contractions from PDF/OCR copies (e.g. "don ' t" -> "don't", "I ' m" -> "I'm").
-    /// - Fixes spacing before and after punctuation marks (commas, periods, question marks, colons).
-    /// - Preserves screenplay formatting: keeps ALL-CAPS character cue lines and dialogue blocks intact.
-    static func cleanPastedText(_ raw: String) -> String {
-        guard !raw.isEmpty else { return "" }
-
-        var text = raw
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(of: "\u{FEFF}", with: "")
-            .replacingOccurrences(of: "\u{200B}", with: "")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "’", with: "'")
-            .replacingOccurrences(of: "‘", with: "'")
-            .replacingOccurrences(of: "“", with: "\"")
-            .replacingOccurrences(of: "”", with: "\"")
-
-        // Heal split contractions
-        if let contractionRegex = try? NSRegularExpression(pattern: #"\b([A-Za-z]+)\s*'\s*([stmdre]|ve|ll)\b"#, options: [.caseInsensitive]) {
-            text = contractionRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1'$2")
-        }
-        if let cantRegex = try? NSRegularExpression(pattern: #"\b([Cc])\s*a\s*n\s*'\s*t\b"#) {
-            text = cantRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1an't")
-        }
-        if let wontRegex = try? NSRegularExpression(pattern: #"\b([Ww])\s*o\s*n\s*'\s*t\b"#) {
-            text = wontRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1on't")
-        }
-
-        // Heal hyphenated line-wrap word breaks across newlines: e.g. "inter-\nrogation" -> "interrogation"
-        if let hyphenRegex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s*\n\s*([a-z]{2,}\b)"#) {
-            text = hyphenRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
-        }
-
-        // Clean up line-by-line whitespace while preserving dots/colons in email addresses and URLs
-        let lines = text.components(separatedBy: "\n").map { line -> String in
-            let leadingIndentation = String(line.prefix(while: { $0 == " " || $0 == "\t" }))
-            var l = line.trimmingCharacters(in: .whitespaces)
-            let hasEmailOrURL = l.contains("@") || l.contains("http://") || l.contains("https://") || l.contains("www.") || l.range(of: #"[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(?:/|\b)"#, options: .regularExpression) != nil
-            if !hasEmailOrURL {
-                // Fix spaces before punctuation: "hello , world" -> "hello, world"
-                if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
-                    l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
-                }
-                // Fix missing space after punctuation when followed directly by letter
-                if let missingSpace = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
-                    l = missingSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
-                }
-            } else {
-                // On email or URL lines, only normalize commas/semicolons so domains and email addresses are never split
-                if let spaceBefore = try? NSRegularExpression(pattern: #"\s+([,;?!])"#) {
-                    l = spaceBefore.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1")
-                }
-                if let commaSpace = try? NSRegularExpression(pattern: #"([,;])([A-Za-z])"#) {
-                    l = commaSpace.stringByReplacingMatches(in: l, range: NSRange(l.startIndex..., in: l), withTemplate: "$1 $2")
-                }
-            }
-            if leadingIndentation.count >= 14, isLikelyCue(l) {
-                return leadingIndentation + l
-            }
-            return l
-        }
-
-        // PDFKit often preserves each printed line but drops the blank spacer between dialogue
-        // turns. Recreate that structural gap from screenplay cue lines so native-text PDFs and
-        // pasted sides read like sides even when OCR was not needed.
-        var formattedLines: [String] = []
-        for line in lines {
-            if !line.isEmpty, isLikelyCue(line), let previous = formattedLines.last, !previous.isEmpty {
-                formattedLines.append("")
-            }
-            formattedLines.append(line)
-        }
-
-        return formattedLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Formats dialogue extracted from sides OCR:
-    /// - Normalizes smart quotes and apostrophes.
-    /// - Heals broken split contractions (e.g. "don ' t" -> "don't", "I ' m" -> "I'm", "can ' t" -> "can't").
-    /// - Heals hyphenated line-wrap word breaks (e.g. "inter- / rogation" -> "interrogation").
-    /// - Preserves and normalizes all commas, full stops, question marks, and exclamation marks.
-    /// - Ensures valid punctuation spacing (e.g. "word,word" -> "word, word", "word , word" -> "word, word").
-    /// - Ensures complete ending punctuation if missing from an utterance.
-    static func formatDialogueText(_ raw: String) -> String {
-        let unparenthetical = stripParentheticals(raw)
-        guard !unparenthetical.isEmpty else { return "" }
-
-        // 1. Unify newlines, tabs, and non-breaking spaces into standard whitespace
-        var text = unparenthetical
-            .replacingOccurrences(of: "\r\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\u{200B}", with: "")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "’", with: "'")
-            .replacingOccurrences(of: "‘", with: "'")
-            .replacingOccurrences(of: "“", with: "\"")
-            .replacingOccurrences(of: "”", with: "\"")
-
-        // 2. Heal split contractions caused by OCR (e.g. "don ' t" -> "don't", "I ' m" -> "I'm")
-        if let contractionRegex = try? NSRegularExpression(pattern: #"\b([A-Za-z]+)\s*'\s*([stmdre]|ve|ll)\b"#, options: [.caseInsensitive]) {
-            text = contractionRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1'$2")
-        }
-        if let cantRegex = try? NSRegularExpression(pattern: #"\b([Cc])\s*a\s*n\s*'\s*t\b"#) {
-            text = cantRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1an't")
-        }
-        if let wontRegex = try? NSRegularExpression(pattern: #"\b([Ww])\s*o\s*n\s*'\s*t\b"#) {
-            text = wontRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1on't")
-        }
-
-        // 3. Heal hyphenated line-wrap word breaks: e.g. "inter- rogation" -> "interrogation"
-        if let regex = try? NSRegularExpression(pattern: #"(\b[A-Za-z]{2,})-\s+([a-z]{2,}\b)"#) {
-            text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1$2")
-        }
-
-        // 4. Fix spacing before punctuation (commas, periods, exclamation, question marks, semicolons)
-        if let spaceBeforePunct = try? NSRegularExpression(pattern: #"\s+([,.:;?!])"#) {
-            text = spaceBeforePunct.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1")
-        }
-
-        // 5. Fix missing space after commas, periods, exclamation points, question marks when followed directly by a letter
-        if let missingSpaceAfter = try? NSRegularExpression(pattern: #"([,.:;?!])([A-Za-z])"#) {
-            text = missingSpaceAfter.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1 $2")
-        }
-
-        // 6. Clean up multiple spaces
-        text = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // 7. Ensure sentence ends with a full stop if missing ending punctuation and it's not trailing with an ellipsis or dash
-        if !text.isEmpty {
-            let lastChar = text.last!
-            if !".!?…\"'—".contains(lastChar) {
-                text.append(".")
-            }
-        }
-
-        return text
     }
 
     /// Notice headers, flyer keywords, and locations that must never be treated as screenplay cues.
@@ -667,27 +496,23 @@ enum ScriptParser {
         return indicators.contains(where: { lower.contains($0) })
     }
 
-    /// A line is a plausible character cue if it's short, has no lowercase letters, and has at least
-    /// one real letter (filters out page numbers, "---", scene-heading punctuation runs, etc).
-    private static func isLikelyCue(_ raw: String, indentation: Int? = nil) -> Bool {
+    /// A line is a plausible character cue if it's short, uppercase, and not punctuation or notice keyword.
+    static func isLikelyCue(_ raw: String, indentation: Int? = nil) -> Bool {
         var trimmed = raw.trimmingCharacters(in: .whitespaces)
-        // OCR may preserve a centered screenplay cue's measured x-position. A short uppercase
-        // line with smaller indentation is more likely an action/dialogue line than a speaker cue.
-        if let indentation, indentation > 0, indentation < 14 { return false }
-        // Allow cues with a trailing period, e.g. "HAMLET." or "NORA."
+        if let indentation, indentation > 0, indentation < 14, !raw.contains("\t") {
+            let words = trimmed.split(separator: " ")
+            if words.count > 3 { return false }
+        }
         if trimmed.hasSuffix(".") && !trimmed.contains(" ") {
             trimmed = String(trimmed.dropLast())
         }
         guard trimmed.count > 1, trimmed.count < 28 else { return false }
         guard trimmed.rangeOfCharacter(from: .lowercaseLetters) == nil else { return false }
         guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
-        // Cues never contain digits (filters out "1W", "8A", page markers)
         guard trimmed.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
-        // Cues never end with exclamation, question mark, or colons
         if trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(":") { return false }
         let upper = trimmed.uppercased()
         if upper.hasPrefix("ACT ") || upper.hasPrefix("SCENE ") || upper.hasPrefix("SC.") || upper.hasPrefix("SC ") { return false }
-        // Reject screenplay sluglines (INT./EXT.) which are also all-caps and short.
         if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") || upper.hasPrefix("INT/EXT") { return false }
         let nonCueAbbreviations: Set<String> = ["INT", "EXT", "MR", "DR", "MRS", "MS", "SC", "ACT", "NO", "P", "PG", "VS", "ETC", "ST"]
         if nonCueAbbreviations.contains(upper) { return false }
@@ -696,8 +521,45 @@ enum ScriptParser {
         return true
     }
 
-    /// "Maya" / "Dr. Rao" / "Maya Kapoor" before a colon — a short, capitalised name, not a label like
-    /// "Note" or "Due". Returns the upper-cased key used to count how often someone speaks.
+    /// Verifies whether a line can plausibly be a character cue (e.g. capitalized name, no lowercase sentence prose)
+    static func isPlausibleCueName(_ trimmed: String) -> Bool {
+        guard trimmed.count >= 2, trimmed.count < 35 else { return false }
+        if trimmed.contains(":") { return false }
+        if trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix(",") || trimmed.hasSuffix(";") {
+            return false
+        }
+        let allowedSingleWordPeriod: Set<String> = ["DR.", "MR.", "MRS.", "MS.", "PROF.", "CAPT.", "LT.", "SGT.", "REV."]
+        if trimmed.hasSuffix(".") && !allowedSingleWordPeriod.contains(trimmed.uppercased()) {
+            return false
+        }
+        if isTransition(trimmed) || isBlacklistedNoticeWord(trimmed) || isActHeading(trimmed) || isSceneHeading(trimmed) {
+            return false
+        }
+        let bareName = cueName(trimmed)
+        guard !bareName.isEmpty else { return false }
+        let words = bareName.split(separator: " ")
+        guard (1...4).contains(words.count) else { return false }
+        return words.allSatisfy { word in
+            guard let first = word.first else { return false }
+            return first.isUppercase || first.isNumber || first == "#"
+        }
+    }
+
+    /// Indented cues with tabs or spaces, supporting standard screenplay margin offsets and mixed-case cues
+    static func isLikelyIndentedCue(_ trimmed: String, raw: String) -> Bool {
+        let hasIndent = raw.hasPrefix(" ") || raw.hasPrefix("\t")
+        guard hasIndent else { return false }
+        guard trimmed.count >= 2, trimmed.count <= 25 else { return false }
+        guard !trimmed.hasSuffix("."), !trimmed.hasSuffix("!"), !trimmed.hasSuffix("?"), !trimmed.hasSuffix(",") else { return false }
+        guard !isTransition(trimmed), !isBlacklistedNoticeWord(trimmed), !isActHeading(trimmed), !isSceneHeading(trimmed) else { return false }
+        let words = trimmed.split(separator: " ")
+        guard (1...3).contains(words.count) else { return false }
+        return words.allSatisfy { word in
+            word.first?.isUppercase == true && word.unicodeScalars.allSatisfy { CharacterSet.letters.union(CharacterSet(charactersIn: "'-")).contains($0) }
+        }
+    }
+
+    /// "Maya" / "Dr. Rao" / "Maya Kapoor" before a colon — a short, capitalised name.
     private static func speakerKey(_ raw: String) -> String? {
         let name = cueName(raw.trimmingCharacters(in: .whitespaces))
         guard name.count >= 2, name.count <= 24 else { return nil }
@@ -728,7 +590,6 @@ enum ScriptParser {
         let exact: Set<String> = ["FADE IN", "FADE OUT", "FADE TO BLACK", "CUT TO BLACK", "THE END",
                                   "CONTINUED", "(CONTINUED)", "MORE", "(MORE)", "BACK TO SCENE", "INTERCUT"]
         if exact.contains(bare) { return true }
-        // "CUT TO:", "SMASH CUT TO:", "DISSOLVE TO:", "MATCH CUT TO:" …
         return bare.hasSuffix(" TO") && bare.count < 28
     }
 
@@ -761,8 +622,7 @@ enum ScriptParser {
         isSameCharacter(normalizedName(cueString), normalizedName(roleString))
     }
 
-    /// Whole-word match, so a cue of "MAYA" matches the role "Maya Kapoor" (and vice versa) but a
-    /// short cue like "AN" no longer matches "Anaya" the way a substring check did.
+    /// Whole-word match, so a cue of "MAYA" matches the role "Maya Kapoor" (and vice versa).
     private static func isSameCharacter(_ cue: [String], _ role: [String]) -> Bool {
         guard !cue.isEmpty, !role.isEmpty else { return false }
         let cueSet = Set(cue), roleSet = Set(role)
@@ -798,16 +658,6 @@ enum ScriptParser {
         if lower.contains("%2f") || lower.contains("http://") || lower.contains("https://") || lower.contains("www.") || lower.contains("image%2b") || lower.contains(".jpg") || lower.contains(".png") || lower.contains("%2b") {
             return true
         }
-        let chromePhrases = ["visit ›", "visit >", "share", "@ share", "• save", "save", "bookmark", "view on", "click here", "read more"]
-        if chromePhrases.contains(where: { lower == $0 || lower.hasPrefix($0 + " ") || lower.hasSuffix(" " + $0) }) {
-            return true
-        }
-        if trimmed.hasPrefix("• ") || trimmed.hasPrefix("› ") || trimmed.hasSuffix(" ›") || trimmed.hasSuffix(" >") {
-            return true
-        }
-        if lower.contains("writers guild") || lower.contains("spec script") || lower.contains("all rights reserved") || lower.contains("copyright ©") {
-            return true
-        }
         return false
     }
 
@@ -816,309 +666,4 @@ enum ScriptParser {
         let upper = raw.trimmingCharacters(in: .whitespaces).uppercased()
         return upper.hasPrefix("ACT ") || upper.hasPrefix("ACT ONE") || upper.hasPrefix("ACT TWO") || upper.hasPrefix("COLD OPEN") || upper.hasPrefix("PROLOGUE") || upper.hasPrefix("EPILOGUE")
     }
-
-    // MARK: - Thought Unit & Beat Division (Algorithmic Model)
-
-    /// Divides long dialogue blocks or monologues into natural, deliverable thought units / breath beats
-    /// (typically 8 to 22 words) so that:
-    /// 1. Teleprompter cards are easily readable at high font sizes without overwhelming blocks of text.
-    /// 2. Speech recognition matches each beat smoothly and advances accurately.
-    /// 3. Memory drills (First Letter, Mask & Reveal) operate on digestible chunks.
-    /// Works offline deterministically with high accuracy across all iOS versions.
-    static func divideIntoThoughtUnits(_ text: String) -> [String] {
-        // Strip parenthetical/bracketed stage directions like (beat) or [whispering]
-        let stripped = text.replacingOccurrences(of: #"\([^\)]*\)|\[[^\]]*\]"#, with: " ", options: .regularExpression)
-        let cleaned = stripped.split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return [] }
-
-        // Short lines (under 22 words) stay intact
-        let words = cleaned.split(separator: " ")
-        if words.count <= 22 {
-            return [cleaned]
-        }
-
-        // 1. Split into raw sentences using punctuation boundaries (. ! ? …) while protecting abbreviations
-        let rawSentences = splitIntoSentences(cleaned)
-        guard rawSentences.count > 1 || words.count > 28 else {
-            return [cleaned]
-        }
-
-        var units: [String] = []
-        var currentUnit = ""
-        var currentWordCount = 0
-
-        for sentence in rawSentences {
-            let sTrimmed = sentence.trimmingCharacters(in: .whitespaces)
-            guard !sTrimmed.isEmpty else { continue }
-            let sWords = sTrimmed.split(separator: " ").count
-
-            // If a single sentence is very long (> 28 words), split it at clause boundaries
-            if sWords > 28 {
-                if !currentUnit.isEmpty {
-                    units.append(currentUnit)
-                    currentUnit = ""
-                    currentWordCount = 0
-                }
-                let clauses = splitLongSentenceIntoClauses(sTrimmed)
-                for clause in clauses {
-                    units.append(clause)
-                }
-                continue
-            }
-
-            // If adding this sentence keeps the unit under ~20 words, group them (e.g. short question + short answer)
-            if currentUnit.isEmpty {
-                currentUnit = sTrimmed
-                currentWordCount = sWords
-            } else if currentWordCount + sWords <= 20 {
-                currentUnit += " " + sTrimmed
-                currentWordCount += sWords
-            } else {
-                units.append(currentUnit)
-                currentUnit = sTrimmed
-                currentWordCount = sWords
-            }
-        }
-
-        if !currentUnit.isEmpty {
-            units.append(currentUnit)
-        }
-
-        return units.isEmpty ? [cleaned] : units
-    }
-
-    /// Splits text into sentences by looking for punctuation followed by whitespace,
-    /// protecting common titles, abbreviations, initials, and decimal numbers.
-    private static func splitIntoSentences(_ text: String) -> [String] {
-        var protected = text
-
-        // Known abbreviations
-        let abbrevs = [
-            "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Rev.", "Capt.", "Lt.", "Col.", "Gen.", "Sgt.", "St.",
-            "U.S.", "U.K.", "E.U.", "N.Y.", "D.C.", "e.g.", "i.e.", "etc.", "vs.", "a.m.", "p.m.",
-            "I-H-R-A-M."
-        ]
-        let token = "\u{FFFC}"
-        for abbrev in abbrevs {
-            let escaped = abbrev.replacingOccurrences(of: ".", with: token)
-            protected = protected.replacingOccurrences(of: abbrev, with: escaped)
-            protected = protected.replacingOccurrences(of: abbrev.lowercased(), with: escaped.lowercased())
-        }
-
-        // Single letter initials like "J. Doe" or "A. Smith"
-        if let regex = try? NSRegularExpression(pattern: #"\b([A-Za-z])\."#) {
-            let range = NSRange(protected.startIndex..., in: protected)
-            protected = regex.stringByReplacingMatches(in: protected, range: range, withTemplate: "$1\(token)")
-        }
-
-        // Decimals like "3.5"
-        if let regex = try? NSRegularExpression(pattern: #"(\d)\.(\d)"#) {
-            let range = NSRange(protected.startIndex..., in: protected)
-            protected = regex.stringByReplacingMatches(in: protected, range: range, withTemplate: "$1\(token)$2")
-        }
-
-        // Split on sentence terminals: . ! ? … followed by whitespace or quotes
-        var sentences: [String] = []
-        var current = ""
-        let chars = Array(protected)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            current.append(c)
-
-            let isTerminal = (c == "." || c == "!" || c == "?" || c == "…")
-            if isTerminal {
-                // Check if followed by quote and then whitespace, or directly whitespace
-                var peek = i + 1
-                while peek < chars.count && (chars[peek] == "\"" || chars[peek] == "”" || chars[peek] == "’" || chars[peek] == "'") {
-                    current.append(chars[peek])
-                    peek += 1
-                    i = peek - 1
-                }
-
-                if peek < chars.count && chars[peek].isWhitespace {
-                    let restored = current.replacingOccurrences(of: token, with: ".").trimmingCharacters(in: .whitespaces)
-                    if !restored.isEmpty {
-                        sentences.append(restored)
-                        current = ""
-                    }
-                    while peek < chars.count && chars[peek].isWhitespace {
-                        peek += 1
-                    }
-                    i = peek - 1
-                }
-            }
-            i += 1
-        }
-
-        let remaining = current.replacingOccurrences(of: token, with: ".").trimmingCharacters(in: .whitespaces)
-        if !remaining.isEmpty {
-            sentences.append(remaining)
-        }
-
-        return sentences
-    }
-
-    /// Breaks a long sentence (> 28 words) at natural clause boundaries (semicolons, dashes, or conjunction commas)
-    private static func splitLongSentenceIntoClauses(_ sentence: String) -> [String] {
-        // First try splitting on semicolons, em-dashes, or ellipses
-        let dashOrSemiSeparators = ["; ", " — ", "—", " -- ", " --", " ... ", "… "]
-        for sep in dashOrSemiSeparators {
-            if sentence.contains(sep) {
-                let parts = sentence.components(separatedBy: sep)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                if parts.count > 1 && parts.allSatisfy({ $0.split(separator: " ").count >= 5 }) {
-                    return parts
-                }
-            }
-        }
-
-        // Try splitting on conjunction commas
-        let conjunctions = [", but ", ", so ", ", and ", ", because ", ", which ", ", where ", ", though ", ", although ", ", while ", ", yet ", ", unless "]
-        for conj in conjunctions {
-            if let range = sentence.range(of: conj) {
-                let first = String(sentence[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-                let second = String(sentence[range.lowerBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", ").union(.whitespaces))
-                let fCount = first.split(separator: " ").count
-                let sCount = second.split(separator: " ").count
-                if fCount >= 8 && sCount >= 8 {
-                    return [first, second]
-                }
-            }
-        }
-
-        return [sentence]
-    }
-
-    // MARK: - Hierarchical Scene Portion Chunking (Pass 2)
-
-    /// A bounded, independently parseable chunk of a sides document representing a single scene or monologue.
-    struct ScenePortion: Identifiable, Hashable, Sendable {
-        var id: String
-        var number: Int
-        var heading: String
-        var characters: [String]
-        var rawText: String
-        var lineCount: Int
-        var pageNumber: Int?
-
-        var displayTitle: String {
-            if heading.isEmpty { return "Scene \(number)" }
-            return heading
-        }
-    }
-
-    /// Identifies individual scene portions from a multi-page sides document without parsing all lines yet.
-    /// Splits by scene headings (e.g. ACT ONE SCENE SIX, INT. / EXT., SCENE 1) or monologue cuts.
-    static func identifyScenePortions(from text: String, pages: [String] = []) -> [ScenePortion] {
-        var portions: [ScenePortion] = []
-
-        let sceneHeadingRegex = try? NSRegularExpression(
-            pattern: #"(?im)^[\s>*—\-\[\]]*(?:ACT\s+(?:ONE|TWO|THREE|[0-9IVX]+)(?:[\s,]+SCENE\s+[0-9IVX]+)?|(?:INT\.|EXT\.|INT/EXT|EXT/INT)\s+.*|SCENE\s+[0-9A-Z]+|For\s+(?:Female|Male|Any)\s+(?:Identifying|Gender)|[A-Z]{2,20}\s*[-—–]\s*(?:Page|Pg\.?)\s*\d+)\b"#
-        )
-
-        let lines = text.components(separatedBy: .newlines)
-        var currentHeading: String? = nil
-        var currentLines: [String] = []
-        var sceneCounter = 1
-
-        func saveCurrentPortion() {
-            guard !currentLines.isEmpty else { return }
-            let rawChunk = currentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rawChunk.isEmpty, rawChunk.count > 40 else { return }
-
-            let chars = extractCharacters(from: rawChunk).map { $0.uppercased() }
-            // A heading alone (or a casting notice page) is not a selectable scene. Require
-            // actual dialogue cues so page chunks cannot create empty/fake scene checklist items.
-            guard !chars.isEmpty else { return }
-
-            let heading = currentHeading ?? "Scene \(sceneCounter)"
-            let estimatedLines = rawChunk.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
-
-            let portion = ScenePortion(
-                id: "scene-\(sceneCounter)-\(abs(heading.hashValue))",
-                number: sceneCounter,
-                heading: heading,
-                characters: chars,
-                rawText: rawChunk,
-                lineCount: estimatedLines,
-                pageNumber: nil
-            )
-            portions.append(portion)
-            sceneCounter += 1
-            currentLines.removeAll()
-        }
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let isHeading: Bool
-            if let regex = sceneHeadingRegex,
-               let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-               match.range.location == 0 {
-                isHeading = true
-            } else {
-                isHeading = false
-            }
-
-            if isHeading {
-                saveCurrentPortion()
-                currentHeading = trimmed
-                currentLines.append(line)
-            } else {
-                currentLines.append(line)
-            }
-        }
-        saveCurrentPortion()
-
-        // Fallback: If no explicit headings split the text but multiple pages exist, use page boundaries
-        if portions.count <= 1 && pages.count > 1 {
-            portions.removeAll()
-            let startIdx = pages.count >= 3 ? 1 : 0
-            for (idx, pageText) in pages[startIdx...].enumerated() {
-                let trimmed = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                let chars = extractCharacters(from: trimmed).map { $0.uppercased() }
-                guard !chars.isEmpty else { continue }
-                let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespaces) ?? "Page \(idx + startIdx + 1)"
-                portions.append(
-                    ScenePortion(
-                        id: "page-\(idx + startIdx + 1)",
-                        number: idx + 1,
-                        heading: firstLine,
-                        characters: chars,
-                        rawText: trimmed,
-                        lineCount: trimmed.components(separatedBy: .newlines).count,
-                        pageNumber: idx + startIdx + 1
-                    )
-                )
-            }
-        }
-
-        return portions
-    }
-
-    /// Pass 2: Parses only the user-selected scene portions independently, then concatenates them
-    /// into a unified list of [ScriptScene] with consistent sequential numbering.
-    static func parseSelectedPortions(_ portions: [ScenePortion], myRole: String) -> [ScriptScene] {
-        var allScenes: [ScriptScene] = []
-        var sceneNumber = 1
-
-        for portion in portions {
-            let scenes = parseScenes(from: portion.rawText, myRole: myRole)
-            for s in scenes {
-                let renumbered = ScriptScene(
-                    number: sceneNumber,
-                    title: "Scene \(sceneNumber)",
-                    heading: portion.heading.isEmpty ? s.heading : portion.heading,
-                    lines: s.lines,
-                    estimatedSeconds: s.estimatedSeconds
-                )
-                allScenes.append(renumbered)
-                sceneNumber += 1
-            }
-        }
-        return allScenes
-    }
-
 }
