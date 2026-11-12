@@ -25,8 +25,10 @@
 		0E09F4E3FCB14A95B88ABCC5 /* UpNextCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = E986CD44A2A0A43FA32C603B /* UpNextCard.swift */; };
 		0E18ED7204C309622709EFA4 /* Date+Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 099FE34DCCCC1566CF0FDFC5 /* Date+Formatting.swift */; };
 		0E368BEC06BF8587463472F9 /* SidesChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5441C66F856CEE4732591BFD /* SidesChip.swift */; };
+		0ED36A4BB76B491A96B5019C /* VoiceWaveformBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99ECCF92127C243535771BA /* VoiceWaveformBars.swift */; };
 		11D2AA7005DE26EC266B9AF4 /* onetake-empty-auditions-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */; };
 		140BD37D610F74BC7C425B06 /* HeadshotFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA5710AC2BDDD011AC9253C /* HeadshotFlow.swift */; };
+		147F8BFD925BA74680A85A71 /* PracticeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */; };
 		197EC6D70F6160902E817A8E /* SendFailedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957ABF69D00593FC9B2BBADD /* SendFailedView.swift */; };
 		1C5C9BDBA6B5666D9AE7EC63 /* SlateStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22931DCB24C8F6C94C778502 /* SlateStage.swift */; };
 		220FFEBDEA8026D1F22EFBC8 /* FieldEvidenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */; };
@@ -77,6 +79,7 @@
 		68C89CFF3C327AF5500F433B /* AuditionResumePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 046A195600318F6CFADD7100 /* AuditionResumePicker.swift */; };
 		6FF03F5EDF17FC3651DFB0C8 /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D84E01FBB8E70E40D159423 /* Persistence.swift */; };
 		74D38FFB7A26798AEA314EF9 /* DesignSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */; };
+		76C680E4981D418ADE7304C8 /* PracticeTakeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377B421D266653B466B02FDD /* PracticeTakeView.swift */; };
 		79265908887FC29123E33E90 /* OneTakeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695D3713FCFD661E5D195C71 /* OneTakeApp.swift */; };
 		797192CA8514AB4FE57F6595 /* TapePreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89EE2F0ABA59B4A4249C9095 /* TapePreviewTests.swift */; };
 		7993E18E2FBF296B5F646E46 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4AC23E5EF6436ABB7546050 /* Models.swift */; };
@@ -106,6 +109,7 @@
 		A1592113016E726FE38EC6F6 /* onetake-empty-auditions-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */; };
 		A1BDE0F6CECBF4790D00E329 /* OneTakeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0B39B03980DDCB0CA2D8282D /* OneTakeUI */; };
 		A97E3795948E39014530F08D /* ProjectDetailsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD979F10FD71F886E0B18745 /* ProjectDetailsCard.swift */; };
+		A9A48B807BB4350F67146CE8 /* PracticeSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667B35392F06BE17F7A058ED /* PracticeSetupView.swift */; };
 		AB66178E85B1DF25FB57241D /* KeyboardAutofillBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6E54F00A5182B469BA6BE96 /* KeyboardAutofillBar.swift */; };
 		AD42241F536B296ECE03039C /* CallbackSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B6E503066862F3579C471E /* CallbackSheet.swift */; };
 		AD904B94C5A09A4C8715C41D /* SubmissionInstructionsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 264A54A5599A0766B5054EA7 /* SubmissionInstructionsCard.swift */; };
@@ -114,10 +118,12 @@
 		AF9CA7A43589A347FF9455BE /* MediaExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F07E8CD4E38F2C00DC4954 /* MediaExporter.swift */; };
 		B1B8376B9F0B468147770E84 /* TapeAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362CEE988894A0013A23BB66 /* TapeAnalyzer.swift */; };
 		B7EC6FF506E9C7EBE4FA1A63 /* AuditionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525B1005F89E4C1A30FD8A25 /* AuditionCard.swift */; };
+		B876F12AA6DF9477B20525CB /* StandalonePracticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D949B18840549716EBC4B7 /* StandalonePracticeView.swift */; };
 		B90EF3FBF432130FC88EB68B /* onetake-empty-auditions.svg in Resources */ = {isa = PBXBuildFile; fileRef = 55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */; };
 		BA8DA81A6467676A34AAC0C9 /* PackageFormatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EABD3AB4243733BEB44E5DA /* PackageFormatSheet.swift */; };
 		BBA8EEA8380F26FC8FA18FE0 /* RevisedSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08A1C6A317A6ED1B2D0C51F /* RevisedSidesSheet.swift */; };
 		BC3BB8EB674D505E7EE08457 /* MediaExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */; };
+		BC746A1FD8973F64531E9D01 /* PracticeVideoPlayerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4BDEEC12894F174E3FE004D /* PracticeVideoPlayerSheet.swift */; };
 		BD8BC110A6956924B84FC2BE /* CloudLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD96D30DE39A1B603221171D /* CloudLink.swift */; };
 		BDC061D0DF21363694884120 /* ReadinessDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBB8972D64BA4BE42F495CF /* ReadinessDial.swift */; };
 		C02FB5C3617CC569478B644C /* RecordReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B846849D64201B575CC65D3D /* RecordReaderView.swift */; };
@@ -147,8 +153,8 @@
 		DC76594B325BF1E2DCC01B43 /* AppStore+Auditions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8263A4AB65F8E9A5C7D9250 /* AppStore+Auditions.swift */; };
 		DDEE23D4B7DB2C3015470D2F /* HeadshotPoseClassifier.mlmodel in Sources */ = {isa = PBXBuildFile; fileRef = 1682A1C77933D57D71A13045 /* HeadshotPoseClassifier.mlmodel */; };
 		DF1CEBDB7A74768EE6697F62 /* CameraGuidanceSpeaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4837E566F04BDB97DF56C497 /* CameraGuidanceSpeaker.swift */; };
-		E07B9B2C8B44517E50469497 /* PracticeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2243180F0C1E051434DC9C78 /* PracticeViews.swift */; };
 		E1163A19733684D3D9629C41 /* PrompterSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 718A5EC11ABB65BB2762F3AB /* PrompterSettingsSheet.swift */; };
+		E19FE2CBDDF894B7FC60F903 /* PracticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6AEEE356E499E1769847F1A /* PracticeView.swift */; };
 		E27D01490A6955CD0B7FB847 /* ReaderAudioTrimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1569411E189E2CFBE4AB984 /* ReaderAudioTrimmer.swift */; };
 		E3B634112D6DCEB7EC217229 /* AddDraftSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53878A5700DD2BD2F1A0B5A7 /* AddDraftSidesSheet.swift */; };
 		E75FBB7D97E3F0EBD81F1B46 /* onetake-practice-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = 16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */; };
@@ -233,7 +239,6 @@
 		1682A1C77933D57D71A13045 /* HeadshotPoseClassifier.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = HeadshotPoseClassifier.mlmodel; sourceTree = "<group>"; };
 		1F3C3E7FE6604DACFD7CB84C /* EditSlateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditSlateView.swift; sourceTree = "<group>"; };
 		1F8B7DE74999D1A51FACAC77 /* TapePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapePreviewView.swift; sourceTree = "<group>"; };
-		2243180F0C1E051434DC9C78 /* PracticeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeViews.swift; sourceTree = "<group>"; };
 		22931DCB24C8F6C94C778502 /* SlateStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlateStage.swift; sourceTree = "<group>"; };
 		24B649484D3F91B8AAD97DEB /* RunLinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLinesView.swift; sourceTree = "<group>"; };
 		25CFE061CCE5B4F2B436C20C /* ProfileButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileButton.swift; sourceTree = "<group>"; };
@@ -249,6 +254,7 @@
 		34ADE5709E655C12F39B1734 /* ReaderLineRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderLineRecorder.swift; sourceTree = "<group>"; };
 		362CEE988894A0013A23BB66 /* TapeAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeAnalyzer.swift; sourceTree = "<group>"; };
 		376609F267CE6C4D17246645 /* LocalBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBackup.swift; sourceTree = "<group>"; };
+		377B421D266653B466B02FDD /* PracticeTakeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeTakeView.swift; sourceTree = "<group>"; };
 		39B6E503066862F3579C471E /* CallbackSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallbackSheet.swift; sourceTree = "<group>"; };
 		3AAE801E067E75B586B84E10 /* AudioWalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWalkView.swift; sourceTree = "<group>"; };
 		3B63CC1AF6213D0B721D3D8A /* OneTakeUIExports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeUIExports.swift; sourceTree = "<group>"; };
@@ -284,6 +290,7 @@
 		6418EE24E351898A84179441 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		650B8EB9BF4FC589B17C44F9 /* OneTakeUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OneTakeUI; path = Packages/OneTakeUI; sourceTree = SOURCE_ROOT; };
 		65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageAndSentTests.swift; sourceTree = "<group>"; };
+		667B35392F06BE17F7A058ED /* PracticeSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeSetupView.swift; sourceTree = "<group>"; };
 		6869F867905084EB551A3504 /* LegacyAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyAliases.swift; sourceTree = "<group>"; };
 		695D3713FCFD661E5D195C71 /* OneTakeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeApp.swift; sourceTree = "<group>"; };
 		69669BF4964888649591F9C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -341,9 +348,11 @@
 		C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
 		C390CBD7F82C19E1E1F91462 /* AuditionMaterialKindPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionMaterialKindPicker.swift; sourceTree = "<group>"; };
+		C4BDEEC12894F174E3FE004D /* PracticeVideoPlayerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeVideoPlayerSheet.swift; sourceTree = "<group>"; };
 		C6A28569A7196FC071F1CA96 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		C6E54F00A5182B469BA6BE96 /* KeyboardAutofillBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAutofillBar.swift; sourceTree = "<group>"; };
 		C74F497EF5215F15004D79F9 /* PhotoSourceMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSourceMenu.swift; sourceTree = "<group>"; };
+		C99ECCF92127C243535771BA /* VoiceWaveformBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWaveformBars.swift; sourceTree = "<group>"; };
 		CC376E296C1D6BCD7673B002 /* AccountAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAuth.swift; sourceTree = "<group>"; };
 		CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldEvidenceSection.swift; sourceTree = "<group>"; };
 		CFFF4AC426749F4C75944696 /* RecallGapHintText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecallGapHintText.swift; sourceTree = "<group>"; };
@@ -360,6 +369,7 @@
 		E1C54E6CD740BB288C0FE5F0 /* NoticeOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeOCR.swift; sourceTree = "<group>"; };
 		E3ABF9BB6CAA102F14F3D4FE /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E4AC23E5EF6436ABB7546050 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		E4D949B18840549716EBC4B7 /* StandalonePracticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandalonePracticeView.swift; sourceTree = "<group>"; };
 		E866457125717F491B8505F7 /* VoicePracticeReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePracticeReview.swift; sourceTree = "<group>"; };
 		E8F93C4304EAC4F812D89450 /* VideoTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmer.swift; sourceTree = "<group>"; };
 		E986CD44A2A0A43FA32C603B /* UpNextCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextCard.swift; sourceTree = "<group>"; };
@@ -373,7 +383,9 @@
 		F0C8E74565195D0807BEA41A /* RoleBreakdownCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleBreakdownCard.swift; sourceTree = "<group>"; };
 		F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions-illustration.svg"; sourceTree = "<group>"; };
 		F54488E2EF7744CB0CF44FBD /* EditAuditionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditAuditionSheet.swift; sourceTree = "<group>"; };
+		F6AEEE356E499E1769847F1A /* PracticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeView.swift; sourceTree = "<group>"; };
 		F6D7611002CD74670871C5F7 /* LineDrillView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDrillView.swift; sourceTree = "<group>"; };
+		F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeOptionsView.swift; sourceTree = "<group>"; };
 		FA90EF3CAFB6B7B891958C6F /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		FD2C695DFE3285BEC8084796 /* AppStore+Practice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Practice.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -670,7 +682,13 @@
 		9BAA5B8FE12DCAC95F1DC8F0 /* Practice */ = {
 			isa = PBXGroup;
 			children = (
-				2243180F0C1E051434DC9C78 /* PracticeViews.swift */,
+				F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */,
+				667B35392F06BE17F7A058ED /* PracticeSetupView.swift */,
+				377B421D266653B466B02FDD /* PracticeTakeView.swift */,
+				C4BDEEC12894F174E3FE004D /* PracticeVideoPlayerSheet.swift */,
+				F6AEEE356E499E1769847F1A /* PracticeView.swift */,
+				E4D949B18840549716EBC4B7 /* StandalonePracticeView.swift */,
+				C99ECCF92127C243535771BA /* VoiceWaveformBars.swift */,
 			);
 			path = Practice;
 			sourceTree = "<group>";
@@ -1096,7 +1114,11 @@
 				E9E8C90AD9B7C259C001EC0B /* PackageView.swift in Sources */,
 				6FF03F5EDF17FC3651DFB0C8 /* Persistence.swift in Sources */,
 				7CCBABA55A68D8BD8AF21B97 /* PhotoSourceMenu.swift in Sources */,
-				E07B9B2C8B44517E50469497 /* PracticeViews.swift in Sources */,
+				147F8BFD925BA74680A85A71 /* PracticeOptionsView.swift in Sources */,
+				A9A48B807BB4350F67146CE8 /* PracticeSetupView.swift in Sources */,
+				76C680E4981D418ADE7304C8 /* PracticeTakeView.swift in Sources */,
+				BC746A1FD8973F64531E9D01 /* PracticeVideoPlayerSheet.swift in Sources */,
+				E19FE2CBDDF894B7FC60F903 /* PracticeView.swift in Sources */,
 				CC432487F936A0B875940CC9 /* PrepareView.swift in Sources */,
 				5B1F695C1200956F9D311448 /* PrivacyView.swift in Sources */,
 				D0280FF0BC15EA371812EF0C /* ProfileButton.swift in Sources */,
@@ -1142,6 +1164,7 @@
 				988823D109AE5B141B1D5DCF /* SilentReactionCue.swift in Sources */,
 				1C5C9BDBA6B5666D9AE7EC63 /* SlateStage.swift in Sources */,
 				C41795CA51A09866D4ACB151 /* SpeechFollower.swift in Sources */,
+				B876F12AA6DF9477B20525CB /* StandalonePracticeView.swift in Sources */,
 				2D2F07F59468A23CE4085186 /* SubmissionCheckSummary.swift in Sources */,
 				AD904B94C5A09A4C8715C41D /* SubmissionInstructionsCard.swift in Sources */,
 				41CE0655397DAD990145718F /* SwipeBack.swift in Sources */,
@@ -1156,6 +1179,7 @@
 				F732645F802A7B4F205B1C2E /* VideoTrimmer.swift in Sources */,
 				F8B756C91BED3470EA428A8D /* VoiceFollowingPill.swift in Sources */,
 				457C06E245F7F7ECC2F93408 /* VoicePracticeReview.swift in Sources */,
+				0ED36A4BB76B491A96B5019C /* VoiceWaveformBars.swift in Sources */,
 				D00E8516D7D41537D0806843 /* WidgetSnapshot.swift in Sources */,
 				C8978DDF5A0F3F127562817C /* WidgetSync.swift in Sources */,
 				004054539E0207BCAF82DA0F /* ZipArchive.swift in Sources */,
