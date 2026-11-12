@@ -24,12 +24,15 @@ enum NoticeOCR {
                     request.recognitionLanguages = matched
                     return
                 }
-                let prefixMatched = preferredLanguages.filter { pref in
+                var matchedSupported: [String] = []
+                for pref in preferredLanguages {
                     let prefix = String(pref.prefix(2))
-                    return supported.contains(where: { $0.hasPrefix(prefix) })
+                    if let match = supported.first(where: { $0.hasPrefix(prefix) && !matchedSupported.contains($0) }) {
+                        matchedSupported.append(match)
+                    }
                 }
-                if !prefixMatched.isEmpty {
-                    request.recognitionLanguages = prefixMatched
+                if !matchedSupported.isEmpty {
+                    request.recognitionLanguages = matchedSupported
                     return
                 }
                 request.recognitionLanguages = supported.contains("en-US") ? ["en-US"] : Array(supported.prefix(3))
@@ -105,16 +108,16 @@ enum NoticeOCR {
             // Pass 4: Bounded enlargement retry for small-print flyers
             // When fine text drops below Vision's character detector threshold,
             // upscale up to 2.0x (bounded to maxDimension 4096) to bring glyphs into readable range.
+            // Uses cgImage directly since it is already normalized upright via normalizedCGImage.
             if isWeakOCR(bestResult) {
-                let sourceCG = image.cgImage ?? cgImage
-                let longest = max(sourceCG.width, sourceCG.height)
+                let longest = max(cgImage.width, cgImage.height)
                 let maxBound: CGFloat = 4096
                 let candidateCG: CGImage?
                 if longest < 2500 {
                     let scale = min(2.0, maxBound / CGFloat(max(longest, 1)))
-                    candidateCG = scaledCGImage(sourceCG, scale: scale)
+                    candidateCG = scaledCGImage(cgImage, scale: scale)
                 } else {
-                    candidateCG = sourceCG
+                    candidateCG = cgImage
                 }
 
                 if let candidateCG {
@@ -127,11 +130,12 @@ enum NoticeOCR {
                         let enlargedResult = performVisionOCR(on: processedEnlarged)
                         if isBetterOCRResult(enlargedResult, than: bestResult) {
                             bestResult = enlargedResult
-                        } else if let invertedEnlarged = enhancedCGImage(candidateCG, forceInvert: true) {
-                            let invertedResult = performVisionOCR(on: invertedEnlarged)
-                            if isBetterOCRResult(invertedResult, than: bestResult) {
-                                bestResult = invertedResult
-                            }
+                        }
+                    }
+                    if isWeakOCR(bestResult), let invertedEnlarged = enhancedCGImage(candidateCG, forceInvert: true) {
+                        let invertedResult = performVisionOCR(on: invertedEnlarged)
+                        if isBetterOCRResult(invertedResult, than: bestResult) {
+                            bestResult = invertedResult
                         }
                     }
                 }
@@ -173,7 +177,7 @@ enum NoticeOCR {
         guard scale > 1.0 else { return source }
         let newWidth = Int(CGFloat(source.width) * scale)
         let newHeight = Int(CGFloat(source.height) * scale)
-        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(
             data: nil,
             width: newWidth,

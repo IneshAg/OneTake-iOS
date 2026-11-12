@@ -111,7 +111,22 @@ final class CameraController: NSObject {
     @ObservationIgnored private var videoDevice: AVCaptureDevice?
     @ObservationIgnored private var subjectAreaChangeObserver: Any?
     @ObservationIgnored private var interruptionObserver: Any?
-    private var wasInterrupted = false
+    @ObservationIgnored private let interruptionLock = NSLock()
+    @ObservationIgnored private var _wasInterrupted = false
+
+    private func markInterrupted() {
+        interruptionLock.lock()
+        _wasInterrupted = true
+        interruptionLock.unlock()
+    }
+
+    private func consumeInterruption() -> Bool {
+        interruptionLock.lock()
+        defer { interruptionLock.unlock() }
+        let current = _wasInterrupted
+        _wasInterrupted = false
+        return current
+    }
 
     deinit {
         if let obs = subjectAreaChangeObserver {
@@ -247,6 +262,7 @@ final class CameraController: NSObject {
                     object: self.session,
                     queue: nil
                 ) { [weak self] note in
+                    self?.markInterrupted()
                     let reasonCode = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
                     let reasonText: String
                     switch reasonCode {
@@ -599,7 +615,7 @@ final class CameraController: NSObject {
 
     private func handleSessionInterruption(reason: String) {
         guard state == .recording || state == .paused else { return }
-        wasInterrupted = true
+        markInterrupted()
         timer?.invalidate()
         movieOutput.stopRecording()
     }
@@ -685,6 +701,7 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
         let hasSavedContent = fileSize > 1024
+        let wasInterrupted = consumeInterruption()
         let hadInterruption = wasInterrupted || (!finished && error != nil)
 
         Task { @MainActor in
@@ -694,14 +711,13 @@ extension CameraController: AVCaptureFileOutputRecordingDelegate {
             self.isStopping = false
 
             if hadInterruption {
-                let reason = self.wasInterrupted ? "Recording interrupted by system" : (error?.localizedDescription ?? "Recording interrupted")
+                let reason = wasInterrupted ? "Recording interrupted by system" : (error?.localizedDescription ?? "Recording interrupted")
                 self.lastInterruption = InterruptionEvent(
                     url: hasSavedContent ? outputFileURL : nil,
                     duration: self.elapsed,
                     hasSavedContent: hasSavedContent,
                     reason: reason
                 )
-                self.wasInterrupted = false
             }
 
             let handler = self.recordingFinishedHandler
