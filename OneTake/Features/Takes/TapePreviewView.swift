@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import OneTakeUI
 
 // MARK: - 20.0 Preview the tape
 //
@@ -31,41 +32,52 @@ struct TapePreviewView: View {
     @State private var selectedTarget: PreviewTarget = .headshots
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            InContentNavHeader(title: "Preview", backLabel: "Back", onDark: true, onBack: { store.pop() })
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-
+        OTScreen(title: "Preview", backLabel: "Back", onBack: { store.pop() }, scrolls: false) {
             if let tape, let player {
                 Group {
-                    if showingPhotos, !photos.isEmpty { photoViewer } else { VideoPlayer(player: player) }
+                    if showingPhotos, !photos.isEmpty {
+                        photoViewer
+                    } else {
+                        VideoPlayer(player: player)
+                    }
                 }
-                .frame(height: 204)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
-                chapterBar(tape).padding(.horizontal, 20)
-                chapterList(tape).padding(.horizontal, 20).padding(.top, 16)
+                .frame(height: 204) // ot-lint:allow
+                .clipShape(RoundedRectangle(cornerRadius: OTRadius.card, style: .continuous))
+                .padding(.top, OTSpace.xs)
+                .padding(.bottom, OTSpace.s)
+
+                chapterBar(tape)
+                chapterList(tape).padding(.top, OTSpace.m)
             } else if failed {
-                Text("Nothing on the tape yet").font(.otTitle).foregroundStyle(OT.cameraLabel).padding(20)
-                Text("Record your slate and a take first.").font(.otCallout).foregroundStyle(OT.cameraLabel2).padding(.horizontal, 20)
+                Text("Nothing on the tape yet")
+                    .font(.otTitle)
+                    .foregroundStyle(OT.cameraLabel)
+                    .padding(OTSpace.gutter)
+                Text("Record your slate and a take first.")
+                    .font(.otCallout)
+                    .foregroundStyle(OT.cameraLabel2)
+                    .padding(.horizontal, OTSpace.gutter)
             } else {
-                ProgressView().tint(.white).frame(maxWidth: .infinity).padding(.top, 80)
+                ProgressView().tint(.white).frame(maxWidth: .infinity).padding(.top, 80) // ot-lint:allow
             }
             Spacer(minLength: 0)
         }
         .background(OT.cameraBg.ignoresSafeArea())
         .otSurface(.camera)
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 10) {
-                Button("Looks right — package it") { player?.pause(); store.push(.package(auditionID)) }
-                    .buttonStyle(.otPrimary)
-                    .disabled(tape == nil)
-                Button(changeActionTitle) { changeSelectedPiece() }
-                    .buttonStyle(.otSecondary)
+        .otBottomBar {
+            VStack(spacing: OTSpace.s) {
+                Button("Looks right — package it") {
+                    player?.pause()
+                    store.push(.package(auditionID))
+                }
+                .buttonStyle(.otPrimary)
+                .disabled(tape == nil)
+
+                Button(changeActionTitle) {
+                    changeSelectedPiece()
+                }
+                .buttonStyle(.otSecondary)
             }
-            .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         }
         // Rebuilt whenever what's on the tape changes (a different circled take, a retake, a trim, or headshots updated).
         .task(id: "\(currentClipURLs)-\(store.headshotVersion)") { await load() }
@@ -87,13 +99,15 @@ struct TapePreviewView: View {
                 Image(uiImage: photo.image)
                     .resizable().scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
+                    .background(Color.black) // ot-lint:allow
                     .overlay(alignment: .bottomLeading) {
                         Text("\(photo.title) · \(index + 1) of \(photos.count)")
-                            .font(.otCaption.weight(.semibold)).foregroundStyle(.white)
-                            .padding(.horizontal, 10).frame(height: 26)
+                            .font(.otCaption.weight(.semibold))
+                            .foregroundStyle(Color.white) // ot-lint:allow
+                            .padding(.horizontal, OTSpace.s)
+                            .frame(height: 26) // ot-lint:allow
                             .background(OT.cameraGlass, in: Capsule())
-                            .padding(10)
+                            .padding(OTSpace.s)
                     }
                     .tag(index)
             }
@@ -101,7 +115,11 @@ struct TapePreviewView: View {
         .tabViewStyle(.page(indexDisplayMode: photos.count > 1 ? .always : .never))
         .contentShape(Rectangle())
         .onTapGesture {
-            if photoIndex + 1 < photos.count { withAnimation { photoIndex += 1 } } else { seek(to: 0) }
+            if photoIndex + 1 < photos.count {
+                withAnimation { photoIndex += 1 }
+            } else {
+                seek(to: 0)
+            }
         }
         .accessibilityHint("Swipe for the next headshot")
     }
@@ -117,33 +135,36 @@ struct TapePreviewView: View {
     // MARK: Chapters
 
     private func chapterBar(_ tape: MediaExporter.Tape) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) { // ot-lint:allow
             GeometryReader { geo in
                 let total = max(tape.duration, 0.1)
                 let photoWidth = photos.isEmpty ? 0.0 : 24.0 + 3
                 let spacing = 3.0 * Double(max(tape.chapters.count - 1, 0)) + photoWidth
-                HStack(spacing: 3) {
+                HStack(spacing: 3) { // ot-lint:allow
                     // Photos aren't timed, so their chapter is a short fixed segment at the start.
                     if !photos.isEmpty {
-                        RoundedRectangle(cornerRadius: 4).fill(OT.accent)
+                        RoundedRectangle(cornerRadius: OTRadius.xs)
+                            .fill(OT.accent)
                             .opacity(showingPhotos ? 1 : 0.55)
-                            .frame(width: 24)
+                            .frame(width: 24) // ot-lint:allow
                             .onTapGesture { showPhotos() }
                     }
                     ForEach(tape.chapters) { chapter in
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: OTRadius.xs)
                             .fill(color(for: chapter, in: tape))
                             .opacity(!showingPhotos && isCurrent(chapter) ? 1 : 0.55)
-                            .frame(width: max(12, (geo.size.width - spacing) * chapter.duration / total))
+                            .frame(width: max(12, (geo.size.width - spacing) * chapter.duration / total)) // ot-lint:allow
                             .onTapGesture { select(chapter) }
                     }
                 }
             }
-            .frame(height: 8)
+            .frame(height: 8) // ot-lint:allow
             HStack {
-                Text(showingPhotos ? "Headshots · \(photoIndex + 1) of \(photos.count)" : clock(now)).foregroundStyle(OT.cameraLabel)
+                Text(showingPhotos ? "Headshots · \(photoIndex + 1) of \(photos.count)" : clock(now))
+                    .foregroundStyle(OT.cameraLabel)
                 Spacer()
-                Text(clock(tape.duration)).foregroundStyle(OT.cameraLabel2)
+                Text(clock(tape.duration))
+                    .foregroundStyle(OT.cameraLabel2)
             }
             .font(.otCaption).monospacedDigit()
         }
@@ -151,27 +172,35 @@ struct TapePreviewView: View {
 
     private func chapterList(_ tape: MediaExporter.Tape) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("CHAPTERS").font(.otCaption.weight(.semibold)).tracking(0.6).foregroundStyle(OT.cameraLabel2)
+            Text("CHAPTERS")
+                .font(.otCaption.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(OT.cameraLabel2)
             if photos.isEmpty {
-                Button { selectedTarget = .headshots; player?.pause() } label: {
-                    HStack(spacing: 12) {
+                Button {
+                    selectedTarget = .headshots
+                    player?.pause()
+                } label: {
+                    HStack(spacing: OTSpace.m) {
                         Image(systemName: "person.crop.square").foregroundStyle(OT.warning)
                         Text("No headshots yet").font(.otBody).foregroundStyle(OT.cameraLabel)
                         Spacer()
                         Text("Take them").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent)
                     }
-                    .padding(.vertical, 6).contentShape(Rectangle())
+                    .padding(.vertical, 6) // ot-lint:allow
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else {
                 Button { showPhotos() } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: OTSpace.m) {
                         Text("1").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
                         Text("Headshots").font(showingPhotos ? .otHeadline : .otBody).foregroundStyle(OT.cameraLabel)
                         Spacer()
                         Text("\(photos.count) photo\(photos.count == 1 ? "" : "s")").font(.otFootnote).foregroundStyle(OT.cameraLabel2)
                     }
-                    .padding(.vertical, 6).contentShape(Rectangle())
+                    .padding(.vertical, 6) // ot-lint:allow
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Button("Change headshots") {
@@ -183,7 +212,7 @@ struct TapePreviewView: View {
             }
             ForEach(Array(tape.chapters.enumerated()), id: \.element.id) { index, chapter in
                 Button { select(chapter) } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: OTSpace.m) {
                         Text("\(index + (photos.isEmpty ? 1 : 2))").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel2)
                         Text(chapter.label)
                             .font(selectedTarget == .clip(chapter.kind) ? .otHeadline : .otBody)
@@ -191,7 +220,7 @@ struct TapePreviewView: View {
                         Spacer()
                         Text(clock(chapter.duration)).font(.otFootnote).foregroundStyle(OT.cameraLabel2).monospacedDigit()
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 6) // ot-lint:allow
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -232,7 +261,6 @@ struct TapePreviewView: View {
     }
 
     private func open(_ chapter: MediaExporter.Chapter) {
-        // Retained as a single navigation mapping for accessibility actions.
         selectedTarget = .clip(chapter.kind)
         switch chapter.kind {
         case .slate:
@@ -262,7 +290,9 @@ struct TapePreviewView: View {
         failed = false
         guard let a = store.audition(auditionID) else { return }
         let takes = store.takes
-        photos = HeadshotStore.taken(auditionID: auditionID).compactMap { angle in HeadshotStore.load(key: angle.key, auditionID: auditionID).map { (title: angle.title, image: $0) } }
+        photos = HeadshotStore.taken(auditionID: auditionID).compactMap { angle in
+            HeadshotStore.load(key: angle.key, auditionID: auditionID).map { (title: angle.title, image: $0) }
+        }
         showingPhotos = !photos.isEmpty
         photoIndex = 0
         guard let built = try? await MediaExporter.build(MediaExporter.clips(for: a, takes: takes)),

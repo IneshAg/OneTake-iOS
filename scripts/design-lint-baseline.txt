@@ -1,10 +1,10 @@
-# Design system lint baseline (Task 11: Prepare + Line Learning migrated)
-radius 74
-font-size 110
-frame-literal 100
-padding-literal 181
-raw-color 52
-system-button-style 7
-manual-surface 12
-hidden-navbar 13
-on-dark-flag 8
+# Design system lint baseline (Task 12: Shoot + Takes migrated)
+radius 36
+font-size 70
+frame-literal 47
+padding-literal 105
+raw-color 28
+system-button-style 4
+manual-surface 8
+hidden-navbar 9
+on-dark-flag 5
