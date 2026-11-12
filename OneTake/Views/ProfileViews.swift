@@ -1089,45 +1089,29 @@ struct HeadshotsView: View {
 
                 if let auditionID {
                     if taken > 0 {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.title3).foregroundStyle(OT.success)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Saved for this audition")
-                                        .font(.otHeadline).foregroundStyle(OT.labelPrimary)
-                                    Text("These photos stay on this iPhone and go with this tape.")
-                                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-                                }
-                                Spacer(minLength: 4)
-                                Button(role: .destructive) {
-                                    HeadshotStore.removeAuditionHeadshots(for: auditionID)
-                                    store.headshotVersion += 1
-                                    store.syncHeadshotPieces()
-                                    Haptics.warning()
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.danger)
-                                        .frame(width: 36, height: 36)
-                                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                                }
-                                .accessibilityLabel("Remove audition headshots")
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3).foregroundStyle(OT.success)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Saved for this audition")
+                                    .font(.otHeadline).foregroundStyle(OT.labelPrimary)
+                                let crop = savedCropRatio(for: "front", auditionID: auditionID)
+                                Text("\(taken) of 3 headshots ready · Crop \(crop)")
+                                    .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                             }
-
-                            ForEach(HeadshotStore.taken(auditionID: auditionID), id: \.key) { photo in
-                                HStack(spacing: 10) {
-                                    if let image = HeadshotStore.load(key: photo.key, auditionID: auditionID) {
-                                        Image(uiImage: image).resizable().scaledToFill()
-                                            .frame(width: 42, height: 52).clipShape(RoundedRectangle(cornerRadius: 8))
-                                    }
-                                    Text(photo.title).font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
-                                    Spacer()
-                                    Text("Crop \(savedCropRatio(for: photo.key, auditionID: auditionID))")
-                                        .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelSecondary)
-                                }
-                                .padding(8)
-                                .background(OT.bgCanvas.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            Spacer(minLength: 4)
+                            Button(role: .destructive) {
+                                HeadshotStore.removeAuditionHeadshots(for: auditionID)
+                                store.headshotVersion += 1
+                                store.syncHeadshotPieces()
+                                Haptics.warning()
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.otFootnote.weight(.semibold)).foregroundStyle(OT.danger)
+                                    .frame(width: 36, height: 36)
+                                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                             }
+                            .accessibilityLabel("Remove audition headshots")
                         }
                         .padding(14)
                         .background(OT.fillField, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -1194,36 +1178,9 @@ struct HeadshotsView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .frame(height: 300)
+                .frame(height: 280)
 
-                if taken > 0 {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Menu {
-                            ForEach(HeadshotPreset.allCases) { preset in
-                                Button {
-                                    framingPreset = preset
-                                    autoFrameAllHeadshots(preset: preset)
-                                } label: {
-                                    if framingPreset == preset {
-                                        Label(preset.title, systemImage: "checkmark")
-                                    } else {
-                                        Label(preset.title, systemImage: preset.icon)
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if isFraming { ProgressView() } else { Image(systemName: "sparkles") }
-                                Text(isFraming ? "Framing…" : "Auto-frame · \(framingPreset.shortTitle)")
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption2)
-                                    .foregroundStyle(OT.labelTertiary)
-                            }
-                        }
-                        .buttonStyle(.otSecondary)
-                        .disabled(isFraming)
-                    }
-                }
+                photoActionsBar
             }
             .padding(.horizontal, OT.gutter)
             .padding(.bottom, 120)
@@ -1237,93 +1194,43 @@ struct HeadshotsView: View {
                 if let auditionID {
                     if taken > 0 {
                         HStack(spacing: 6) {
-                            Label("Headshots saved on this iPhone", systemImage: "checkmark.circle.fill")
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.subheadline)
                                 .foregroundStyle(OT.success)
+                            Text("Headshots saved on this iPhone")
+                                .font(.otFootnote.weight(.medium))
+                                .foregroundStyle(OT.labelPrimary)
                             if let next = nextStepAfterHeadshots {
                                 Text("· Next: \(next)")
+                                    .font(.otFootnote)
                                     .foregroundStyle(OT.labelSecondary)
                             }
+                            Spacer()
                         }
-                        .font(.otFootnote.weight(.medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Button(continueButtonTitle) {
                         handleContinue(auditionID)
                     }
                     .buttonStyle(.otPrimary)
-
-                    HStack(spacing: 12) {
-                        Button(taken < 3 ? "Camera" : "Retake camera") { store.camera = .headshot(auditionID: auditionID) }
-                            .buttonStyle(.otSecondary)
-
-                        Menu {
-                            Button {
-                                pickAngle = "front"
-                                showPicker = true
-                            } label: {
-                                Label("Front Headshot", systemImage: HeadshotStore.exists(key: "front", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
-                            }
-                            Button {
-                                pickAngle = "left"
-                                showPicker = true
-                            } label: {
-                                Label("Left Profile", systemImage: HeadshotStore.exists(key: "left", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
-                            }
-                            Button {
-                                pickAngle = "right"
-                                showPicker = true
-                            } label: {
-                                Label("Right Profile", systemImage: HeadshotStore.exists(key: "right", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "photo.on.rectangle")
-                                Text("Pick from Photos")
-                            }
-                            .font(.otHeadline)
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                    }
                 } else {
-                    Button(taken == 0 ? "Take with Camera" : taken < 3 ? "Add profiles (Camera)" : "Retake with Camera") {
-                        store.camera = .headshot(auditionID: nil)
+                    Button(taken == 0 ? "Take with Camera" : "Done") {
+                        if taken == 0 {
+                            store.camera = .headshot(auditionID: nil)
+                        } else {
+                            store.pop()
+                        }
                     }
                     .buttonStyle(.otPrimary)
-
-                    Menu {
-                        Button {
-                            pickAngle = "front"
-                            showPicker = true
-                        } label: {
-                            Label("Front Headshot", systemImage: HeadshotStore.exists(key: "front", auditionID: nil) ? "checkmark.circle.fill" : "circle")
-                        }
-                        Button {
-                            pickAngle = "left"
-                            showPicker = true
-                        } label: {
-                            Label("Left Profile", systemImage: HeadshotStore.exists(key: "left", auditionID: nil) ? "checkmark.circle.fill" : "circle")
-                        }
-                        Button {
-                            pickAngle = "right"
-                            showPicker = true
-                        } label: {
-                            Label("Right Profile", systemImage: HeadshotStore.exists(key: "right", auditionID: nil) ? "checkmark.circle.fill" : "circle")
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "photo.on.rectangle")
-                            Text("Pick from Photos")
-                        }
-                        .font(.otHeadline)
-                        .foregroundStyle(OT.labelPrimary)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
                 }
             }
-            .padding(OT.gutter)
+            .padding(.horizontal, OT.gutter)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            .background(
+                OT.bgCanvas
+                    .ignoresSafeArea(edges: .bottom)
+                    .shadow(color: Color.black.opacity(0.4), radius: 12, x: 0, y: -4)
+            )
         }
         .onAppear {
             store.syncHeadshotPieces()
@@ -1380,10 +1287,90 @@ struct HeadshotsView: View {
         }
     }
 
+    private var photoActionsBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                store.camera = .headshot(auditionID: auditionID)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "camera.fill")
+                    Text(taken == 0 ? "Camera" : "Retake")
+                }
+                .font(.otSubhead.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.otSecondary)
+
+            Menu {
+                Button {
+                    pickAngle = "front"
+                    showPicker = true
+                } label: {
+                    Label("Front Headshot", systemImage: HeadshotStore.exists(key: "front", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
+                }
+                Button {
+                    pickAngle = "left"
+                    showPicker = true
+                } label: {
+                    Label("Left Profile", systemImage: HeadshotStore.exists(key: "left", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
+                }
+                Button {
+                    pickAngle = "right"
+                    showPicker = true
+                } label: {
+                    Label("Right Profile", systemImage: HeadshotStore.exists(key: "right", auditionID: auditionID) ? "checkmark.circle.fill" : "circle")
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "photo.on.rectangle")
+                    Text("Photos")
+                }
+                .font(.otSubhead.weight(.semibold))
+                .foregroundStyle(OT.labelPrimary)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            if taken > 0 {
+                Menu {
+                    ForEach(HeadshotPreset.allCases) { preset in
+                        Button {
+                            framingPreset = preset
+                            autoFrameAllHeadshots(preset: preset)
+                        } label: {
+                            if framingPreset == preset {
+                                Label(preset.title, systemImage: "checkmark")
+                            } else {
+                                Label(preset.title, systemImage: preset.icon)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isFraming {
+                            ProgressView().scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(framingPreset.shortTitle)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                    .font(.otSubhead.weight(.semibold))
+                    .foregroundStyle(OT.labelPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(OT.fillField, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .disabled(isFraming)
+            }
+        }
+    }
+
     /// The app stores one current crop per headshot; report its real pixel ratio instead of
     /// suggesting that several export sizes have already been generated.
-    private func savedCropRatio(for key: String, auditionID: Audition.ID) -> String {
-        guard let image = HeadshotStore.load(key: key, auditionID: auditionID), image.size.height > 0 else { return "Unknown" }
+    private func savedCropRatio(for key: String, auditionID: Audition.ID?) -> String {
+        guard let image = HeadshotStore.load(key: key, auditionID: auditionID), image.size.height > 0 else { return "4:5" }
         let ratio = image.size.width / image.size.height
         let known: [(CGFloat, String)] = [(4.0 / 5.0, "4:5"), (3.0 / 4.0, "3:4"), (1.0, "1:1")]
         return known.first(where: { abs($0.0 - ratio) < 0.035 })?.1 ?? "Custom"
