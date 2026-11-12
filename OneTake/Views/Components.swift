@@ -2,16 +2,7 @@ import SwiftUI
 
 // MARK: - Section label (v2/Section Label)
 
-struct SectionLabel: View {
-    let text: String
-    var body: some View {
-        Text(text.uppercased())
-            .font(.otEyebrow)
-            .kerning(0.4)
-            .foregroundStyle(OT.labelTertiary)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
+typealias SectionLabel = OTSectionLabel
 
 /// Makes a printed `?` or silent reaction cue read as a playable non-verbal expression while retaining its script meaning.
 struct SilentReactionCue: View {
@@ -255,19 +246,7 @@ struct ReadinessDial: View {
 
 // MARK: - Continuous progress ring (v2/Progress Ring, weekly minutes)
 
-struct ProgressRing: View {
-    let value: Double
-    var lineWidth: CGFloat = 8
-    var body: some View {
-        ZStack {
-            Circle().stroke(OT.fillQuiet, lineWidth: lineWidth)
-            Circle().trim(from: 0, to: value)
-                .stroke(OT.accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .accessibilityElement().accessibilityValue("\(Int(value * 100)) percent")
-    }
-}
+typealias ProgressRing = OTProgressRing
 
 // MARK: - Readiness dashes (v2/Readiness Dashes)
 
@@ -320,117 +299,12 @@ struct PackageStepsBar: View {
 
 
 
-// MARK: - Schedule row (v2/Schedule Row)
+// MARK: - Legacy aliases for design system migration
 
-struct ScheduleRow: View {
-    let eyebrow: String
-    let value: String
-    let title: String
-    let detail: String
-    var trailing: AnyView? = nil
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(eyebrow).font(.system(size: 11, weight: .semibold)).foregroundStyle(OT.labelTertiary)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                Text(value).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-            }
-            .frame(width: 76, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.otBody).foregroundStyle(OT.labelPrimary).lineLimit(1)
-                Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if let trailing { trailing }
-            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
-        }
-        .frame(minHeight: OT.rowHeight)
-        .contentShape(Rectangle())
-    }
-}
-
-// MARK: - Inline status (v2/Inline Status)
-
-enum InlineStatusKind { case saving, processing, uploading, delivered, failed, offline }
-
-struct InlineStatus: View {
-    let kind: InlineStatusKind
-    let text: String
-    var body: some View {
-        HStack(spacing: 6) {
-            switch kind {
-            case .saving, .processing, .uploading: ProgressView().controlSize(.mini)
-            case .delivered: Image(systemName: "checkmark.circle.fill").foregroundStyle(OT.success)
-            case .failed:    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(OT.danger)
-            case .offline:   Image(systemName: "wifi.slash").foregroundStyle(OT.warning)
-            }
-            Text(text).font(.otFootnote).foregroundStyle(OT.labelSecondary)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(OT.fillQuiet, in: Capsule())
-    }
-}
-
-// MARK: - Sheet header (v2/Sheet Header)
-
-struct SheetHeader: View {
-    let title: String
-    var leading: String? = "Cancel"
-    var trailing: String? = nil
-    var onLeading: () -> Void = {}
-    var onTrailing: () -> Void = {}
-
-    var body: some View {
-        HStack {
-            if let leading {
-                Button(leading, action: onLeading)
-                    .font(.system(size: 17))
-                    .foregroundStyle(OT.accent)
-                    .frame(minHeight: 44)
-            }
-            Spacer()
-            Text(title).font(.otHeadline)
-            Spacer()
-            if let trailing {
-                Button(trailing, action: onTrailing)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(OT.accent)
-                    .frame(minHeight: 44)
-            }
-            else if leading != nil { Color.clear.frame(width: 72, height: 1) }
-        }
-        .padding(.horizontal, OT.gutter)
-        .padding(.top, 12)
-    }
-}
-
-// MARK: - Icon list row (used by Add audition, Shoot setup, error states)
-
-struct IconRow: View {
-    let symbol: String
-    let title: String
-    let detail: String
-    var tint: Color = OT.accent
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 40, height: 40)
-                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.otBody).foregroundStyle(OT.labelPrimary)
-                Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-            }
-            Spacer()
-            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-    }
-}
+typealias ScheduleRow = OTScheduleRow
+typealias InlineStatus = OTStatusLine
+typealias SheetHeader = OTSheetHeader
+typealias IconRow = OTIconRow
 
 // MARK: - Headshot photo
 
@@ -512,60 +386,19 @@ extension Date {
     var otDayMonth: String { formatted(.dateTime.day().month(.abbreviated)) }
 }
 
-// MARK: - Native iOS Glass Back Button
+// MARK: - Navigation components (legacy compatibility)
 
 struct GlassBackButton: View {
     var label: String = "Back"
     var onDark: Bool = false
     var action: () -> Void
 
-    private var isDismissStyle: Bool {
-        label.caseInsensitiveCompare("Cancel") == .orderedSame ||
-        label.caseInsensitiveCompare("Done") == .orderedSame
-    }
-
-    private var isCloseStyle: Bool {
-        label.caseInsensitiveCompare("Close") == .orderedSame
-    }
-
     var body: some View {
-        Button(action: {
-            Haptics.tick()
-            action()
-        }) {
-            Group {
-                if isDismissStyle {
-                    // Standard iOS navigation sheet dismiss text
-                    Text(label)
-                        .font(.system(size: 17, weight: label == "Done" ? .semibold : .regular))
-                        .foregroundStyle(onDark ? .white : OT.accent)
-                        .frame(height: 44)
-                        .contentShape(Rectangle())
-                } else if isCloseStyle {
-                    // Circular close button (xmark) for camera/media viewports
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(onDark ? .white : OT.labelPrimary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                } else {
-                    // Back is an icon-only glass control throughout the app. Context is kept
-                    // accessible without making the visual control look like a text link.
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(onDark ? Color.white : OT.accent)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .modifier(GlassButtonCompatibility(enabled: !isDismissStyle))
-        .accessibilityLabel(label.isEmpty ? "Back" : label)
+        OTIconButton("chevron.left", accessibilityLabel: label, action: action)
+            .otSurface(onDark ? .camera : .standard)
     }
 }
 
-/// Shared circular glass control for floating header actions such as Add and Close.
 struct GlassIconButton: View {
     let systemName: String
     let accessibilityLabel: String
@@ -573,18 +406,8 @@ struct GlassIconButton: View {
     var action: () -> Void
 
     var body: some View {
-        Button {
-            Haptics.tick()
-            action()
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(onDark ? Color.white : OT.labelPrimary)
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-        }
-        .modifier(GlassButtonCompatibility(enabled: true))
-        .accessibilityLabel(accessibilityLabel)
+        OTIconButton(systemName, accessibilityLabel: accessibilityLabel, action: action)
+            .otSurface(onDark ? .camera : .standard)
     }
 }
 
@@ -593,20 +416,6 @@ struct GlassButtonCompatibility: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if !enabled {
-            // Text actions such as Cancel and Done must stay text actions. Applying the legacy
-            // circular material fallback here wrapped those labels in a stray circle on iOS 26.
-            content.buttonStyle(.plain)
-        } else if #available(iOS 26.0, *) {
-            content.buttonStyle(.glass).buttonBorderShape(.circle)
-        } else {
-            content
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7))
-                .buttonStyle(OTPressStyle(.nav))
-        }
-        #else
         if enabled {
             content
                 .background(.ultraThinMaterial, in: Circle())
@@ -615,58 +424,10 @@ struct GlassButtonCompatibility: ViewModifier {
         } else {
             content.buttonStyle(.plain)
         }
-        #endif
     }
 }
 
-// MARK: - In-content Navigation Header
-
-struct InContentNavHeader<TrailingContent: View>: View {
-    var title: String = ""
-    var backLabel: String = "Back"
-    var onDark: Bool = false
-    var onBack: (() -> Void)? = nil
-    @ViewBuilder var trailing: () -> TrailingContent
-    @Environment(\.dismiss) private var dismiss
-
-    init(title: String = "", backLabel: String = "Back", onDark: Bool = false, onBack: (() -> Void)? = nil, @ViewBuilder trailing: @escaping () -> TrailingContent) {
-        self.title = title
-        self.backLabel = backLabel
-        self.onDark = onDark
-        self.onBack = onBack
-        self.trailing = trailing
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            GlassBackButton(label: backLabel, onDark: onDark) {
-                if let onBack { onBack() } else { dismiss() }
-            }
-
-            Spacer()
-
-            if !title.isEmpty {
-                Text(title)
-                    .font(.otHeadline)
-                    .foregroundStyle(onDark ? OT.cameraLabel : OT.labelPrimary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            trailing()
-        }
-        .frame(minHeight: 44)
-    }
-}
-
-extension InContentNavHeader where TrailingContent == AnyView {
-    init(title: String = "", backLabel: String = "Back", onDark: Bool = false, onBack: (() -> Void)? = nil) {
-        self.init(title: title, backLabel: backLabel, onDark: onDark, onBack: onBack) {
-            AnyView(Color.clear.frame(width: 44, height: 44).accessibilityHidden(true))
-        }
-    }
-}
+typealias InContentNavHeader = OTNavHeader
 
 // MARK: - Sides Input Tiles & Chips (Native iOS quick action buttons)
 

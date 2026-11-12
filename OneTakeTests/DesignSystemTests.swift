@@ -64,6 +64,18 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(px.a, 1, accuracy: 0.01)
         XCTAssertFalse(px.r > 0.9 && px.g < 0.1 && px.b < 0.1, "content bleeds through the bar")
     }
+
+    func testNavHeaderHeight() { XCTAssertEqual(height(OTNavHeader(title: "Audition Headshots")), 44) }
+    func testIconButtonIsMinimumTapTarget() {
+        let size = UIHostingController(rootView: OTIconButton("xmark", accessibilityLabel: "Close") {})
+            .sizeThatFits(in: CGSize(width: 200, height: 200))
+        XCTAssertEqual(size, CGSize(width: 44, height: 44))
+    }
+    func testChipKeepsTapTarget() { XCTAssertGreaterThanOrEqual(height(OTChip("Front") {}), 44) }
+    func testScreenStartsWithHeader() {
+        // header (44) + content (100) + stack spacing (16) + bottom padding (24), non-scrolling
+        XCTAssertEqual(height(OTScreen(title: "T", scrolls: false) { Color.clear.frame(height: 100) }), 184)
+    }
 }
 
 extension UIImage {
