@@ -1,0 +1,96 @@
+import SwiftUI
+
+struct RootTabView: View {
+    @Environment(AppStore.self) private var store
+    @AppStorage("appearance") private var appearance = "system"
+
+    /// Search is useful once there are auditions or standalone practice pieces to query.
+    private var isSearchAvailable: Bool {
+        !store.auditions.isEmpty || !store.practice.isEmpty
+    }
+
+    var body: some View {
+        @Bindable var store = store
+        TabView(selection: $store.tab) {
+            Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
+                NavigationStack(path: $store.auditionsPath) {
+                    AuditionsView()
+                        .showSystemTabBar()
+                        .withRoutes()
+                }
+            }
+
+            Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
+                NavigationStack(path: $store.practicePath) {
+                    PracticeView()
+                        .showSystemTabBar()
+                        .withRoutes()
+                }
+            }
+
+            if isSearchAvailable {
+                if #available(iOS 27.0, *) {
+                    // Keep Search as the distinct third control. iOS 27's prominent role
+                    // prevents it from being folded into the two destination tabs.
+                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
+                        NavigationStack(path: $store.searchPath) {
+                            SearchView()
+                                .showSystemTabBar()
+                                .withRoutes()
+                        }
+                    }
+                } else {
+                    // Earlier iOS versions still get the native dedicated Search tab role.
+                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                        NavigationStack(path: $store.searchPath) {
+                            SearchView()
+                                .showSystemTabBar()
+                                .withRoutes()
+                        }
+                    }
+                }
+            }
+        }
+        .applySearchTabActivation()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(OT.bgCanvas.ignoresSafeArea())
+        .onChange(of: isSearchAvailable) { _, available in
+            if !available && store.tab == .search {
+                store.tab = .auditions
+            }
+        }
+        .sheet(isPresented: $store.showProfile, onDismiss: {
+            store.profilePath.removeAll()
+        }) {
+            NavigationStack(path: $store.profilePath) {
+                ProfileView()
+                    .withRoutes()
+            }
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+        }
+        .sheet(isPresented: $store.showAddAudition, onDismiss: {
+            if let pending = store.pendingRouteAfterAdd {
+                store.pendingRouteAfterAdd = nil
+                store.push(pending)
+            } else if let id = store.continueAfterAdd {
+                store.continueAfterAdd = nil
+                store.continueAudition(id)
+            }
+        }) {
+            AddAuditionFlow()
+                .presentationDetents([.height(315)])
+                .presentationDragIndicator(.visible)
+                .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+        }
+        .fullScreenCover(item: $store.camera) { flow in
+            switch flow {
+            case .shoot(let id, let scene, let start): ShootFlow(auditionID: id, initialScene: scene, initialStage: start)
+            case .headshot(let auditionID): HeadshotFlow(auditionID: auditionID)
+            case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
+            case .practiceTake(let pieceID, let displayMode, let recordMode):
+                PracticeTakeView(pieceID: pieceID, initialDisplayMode: displayMode, initialRecordMode: recordMode)
+            }
+        }
+    }
+}
