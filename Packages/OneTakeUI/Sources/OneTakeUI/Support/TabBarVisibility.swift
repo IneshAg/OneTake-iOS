@@ -99,6 +99,7 @@ public struct TabBarShower: UIViewControllerRepresentable {
         }
 
         func showTabBar(animated: Bool) {
+            guard isTopOrVisible() else { return }
             guard let tbc = findTabBarController() else { return }
             if #available(iOS 18.0, *) {
                 if tbc.isTabBarHidden {
@@ -107,6 +108,26 @@ public struct TabBarShower: UIViewControllerRepresentable {
             } else {
                 tbc.tabBar.isHidden = false
             }
+        }
+
+        private func isTopOrVisible() -> Bool {
+            guard let nav = findNavigationController() else { return true }
+            if nav.viewControllers.count > 1 {
+                if nav.topViewController !== self && nav.topViewController !== parent {
+                    return false
+                }
+            }
+            return true
+        }
+
+        private func findNavigationController() -> UINavigationController? {
+            if let nav = navigationController { return nav }
+            var current: UIViewController? = self
+            while let p = current?.parent {
+                if let nav = p as? UINavigationController ?? p.navigationController { return nav }
+                current = p
+            }
+            return nil
         }
 
         private func findTabBarController() -> UITabBarController? {
