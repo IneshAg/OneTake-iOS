@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 // MARK: - Milestone Dates List Card
 
@@ -7,7 +8,7 @@ struct MilestoneDatesListCard: View {
     var onAddDate: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: OTSpace.s) {
             HStack {
                 Label("Key Dates & Deadlines", systemImage: "calendar.badge.clock")
                     .font(.otCaption.weight(.bold))
@@ -15,7 +16,7 @@ struct MilestoneDatesListCard: View {
                 Spacer()
                 if let onAddDate {
                     Button(action: onAddDate) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: OTSpace.xs) {
                             Image(systemName: "plus.circle.fill")
                             Text("Add date")
                         }
@@ -30,15 +31,15 @@ struct MilestoneDatesListCard: View {
                 Text("No additional milestone dates detected.")
                     .font(.otFootnote)
                     .foregroundStyle(OT.labelTertiary)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, OTSpace.xs)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: OTSpace.s) {
                     ForEach(dates) { item in
-                        HStack(spacing: 10) {
+                        HStack(spacing: OTSpace.s) {
                             Image(systemName: item.kind.icon)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.otIcon(.s))
                                 .foregroundStyle(item.kind == .submissionDeadline ? OT.due : OT.accent)
-                                .frame(width: 24)
+                                .frame(width: 24) // ot-lint:allow
 
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.label.isEmpty ? item.kind.title : item.label)
@@ -46,7 +47,7 @@ struct MilestoneDatesListCard: View {
                                     .foregroundStyle(OT.labelPrimary)
                                 if let text = item.sourceText, !text.isEmpty {
                                     Text(text)
-                                        .font(.system(size: 11))
+                                        .font(.otCaption)
                                         .foregroundStyle(OT.labelTertiary)
                                         .lineLimit(1)
                                 }
@@ -55,10 +56,10 @@ struct MilestoneDatesListCard: View {
                             Spacer()
 
                             Text(item.formattedDate)
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .font(.otCaption.weight(.bold).monospaced())
                                 .foregroundStyle(item.kind == .submissionDeadline ? OT.due : OT.labelSecondary)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, OTSpace.xs)
                         if item.id != dates.last?.id {
                             Divider()
                         }
@@ -66,7 +67,6 @@ struct MilestoneDatesListCard: View {
                 }
             }
         }
-        .padding(14)
-        .otCard(radius: 16)
+        .otCard(.grouped)
     }
 }

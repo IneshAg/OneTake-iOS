@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 // MARK: - Audition Material Kind Picker
 
@@ -6,7 +7,7 @@ struct AuditionMaterialKindPicker: View {
     @Binding var selected: AuditionMaterialKind
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: OTSpace.s) {
             Menu {
                 ForEach(AuditionMaterialKind.allCases) { kind in
                     Button {
@@ -17,7 +18,7 @@ struct AuditionMaterialKindPicker: View {
                     }
                 }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: OTSpace.m) {
                     Image(systemName: selected.icon)
                         .foregroundStyle(OT.accent)
                     Text(selected.shortLabel)
@@ -25,12 +26,12 @@ struct AuditionMaterialKindPicker: View {
                         .foregroundStyle(OT.labelPrimary)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.otIcon(.xs))
                         .foregroundStyle(OT.labelTertiary)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(OT.fillField, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .padding(.horizontal, OTSpace.m)
+                .padding(.vertical, OTSpace.s)
+                .background(OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.control, style: .continuous)) // ot-lint:allow
             }
 
             Text(selected.description)

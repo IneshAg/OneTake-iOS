@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 // MARK: - Project Details & Production Info Card
 
@@ -6,14 +7,14 @@ struct ProjectDetailsCard: View {
     var details: AuditionProjectDetails
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: OTSpace.m) {
             Label("About this project", systemImage: "building.2.crop.circle")
                 .font(.otCaption.weight(.bold))
                 .foregroundStyle(OT.labelPrimary)
 
             if let synopsis = details.synopsis, !synopsis.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Project summary").font(.system(size: 11, weight: .semibold)).foregroundStyle(OT.labelTertiary)
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Text("Project summary").font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                     Text(synopsis)
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelSecondary)
@@ -28,18 +29,18 @@ struct ProjectDetailsCard: View {
             ].filter { $0.1 != nil && $0.1?.isEmpty == false }
 
             if !terms.isEmpty {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: OTSpace.s) {
                     ForEach(terms, id: \.0) { item in
-                        HStack(alignment: .top, spacing: 8) {
+                        HStack(alignment: .top, spacing: OTSpace.s) {
                             Image(systemName: item.2)
-                                .font(.system(size: 13))
+                                .font(.otIcon(.s))
                                 .foregroundStyle(OT.accent)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.0)
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(.otCaption.weight(.semibold))
                                     .foregroundStyle(OT.labelTertiary)
                                 Text(item.1 ?? "")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.otCaption.weight(.medium))
                                     .foregroundStyle(OT.labelPrimary)
                                     .lineLimit(2)
                             }
@@ -48,7 +49,6 @@ struct ProjectDetailsCard: View {
                 }
             }
         }
-        .padding(14)
-        .otCard(radius: 16)
+        .otCard(.grouped)
     }
 }
