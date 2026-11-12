@@ -117,6 +117,7 @@ struct PracticeView: View {
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .showSystemTabBar()
         .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
             if let id = sidesAuditionID { RevisedSidesSheet(auditionID: id) }
         }

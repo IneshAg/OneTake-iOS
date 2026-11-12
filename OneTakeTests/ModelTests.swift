@@ -256,6 +256,30 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
+    func testContinueAuditionAdvancesPastHeadshotsWhenAlreadyOnHeadshotScreen() {
+        let store = AppStore()
+        var a = audition()
+        let id = a.id
+        a.pieces = [
+            Piece(kind: .headshot, title: "Headshot", detail: "", isDone: false, isOptional: true),
+            Piece(kind: .slate, title: "Slate", detail: "", isDone: false, isOptional: false)
+        ]
+        store.auditions = [a]
+        store.auditionsPath = [.headshots(for: id)]
+
+        // When continueAudition is called from headshots screen, it must NOT push another headshots screen
+        store.continueAudition(id)
+
+        XCTAssertFalse(store.auditionsPath.filter { $0 == .headshots(for: id) }.count > 1, "Must never push duplicate headshots screen")
+        if case .shoot(let targetID, _, let start) = store.camera {
+            XCTAssertEqual(targetID, id)
+            XCTAssertEqual(start, .slate, "Must advance to slate")
+        } else {
+            XCTFail("Expected camera to open for slate")
+        }
+    }
+
+    @MainActor
     func testCameraGuidanceSpeakerRepeatsAndThrottles() {
         let speaker = CameraGuidanceSpeaker()
         speaker.speak("Move closer", minInterval: 0.1, repeatInterval: 0.2)

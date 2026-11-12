@@ -634,7 +634,16 @@ final class AppStore {
     func continueAudition(_ id: Audition.ID) {
         syncPieces()
         guard let a = audition(id) else { return }
-        guard let next = a.nextPiece else {
+
+        // If we are already on the headshot screen, advance to the next piece after headshots
+        let targetPiece: Piece?
+        if currentPath.contains(.headshots(for: id)) {
+            targetPiece = a.pieces.first { $0.kind != .headshot && !$0.isDone }
+        } else {
+            targetPiece = a.nextPiece
+        }
+
+        guard let next = targetPiece else {
             push(.preview(id))
             return
         }
@@ -647,7 +656,9 @@ final class AppStore {
             let idx = sceneIndex(for: next, in: id)
             camera = .shoot(id, scene: idx)
         case .headshot:
-            push(.headshots(for: id))
+            if !currentPath.contains(.headshots(for: id)) {
+                push(.headshots(for: id))
+            }
         }
     }
 
@@ -1196,14 +1207,21 @@ final class AppStore {
     /// Push a route on the currently selected tab's stack (or the profile sheet stack if open).
     func push(_ route: Route) {
         if showProfile {
-            profilePath.append(route)
+            if profilePath.last != route {
+                profilePath.append(route)
+            }
             return
         }
+        func appendUnique(to path: inout [Route]) {
+            if path.last != route {
+                path.append(route)
+            }
+        }
         switch tab {
-        case .auditions: auditionsPath.append(route)
-        case .search:    searchPath.append(route)
-        case .practice:  practicePath.append(route)
-        case .profile:   profilePath.append(route)
+        case .auditions: appendUnique(to: &auditionsPath)
+        case .search:    appendUnique(to: &searchPath)
+        case .practice:  appendUnique(to: &practicePath)
+        case .profile:   appendUnique(to: &profilePath)
         }
     }
 

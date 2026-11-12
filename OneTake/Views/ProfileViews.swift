@@ -1389,6 +1389,10 @@ struct HeadshotsView: View {
         return known.first(where: { abs($0.0 - ratio) < 0.035 })?.1 ?? "Custom"
     }
 
+    private func nextPieceAfterHeadshot(in audition: Audition) -> Piece? {
+        audition.pieces.first { $0.kind != .headshot && !$0.isDone }
+    }
+
     private var continueButtonTitle: String {
         guard let auditionID else { return "Continue" }
         let hasPreview = store.currentPath.contains {
@@ -1414,21 +1418,21 @@ struct HeadshotsView: View {
             guard let audition = store.audition(auditionID) else {
                 return taken > 0 ? "Continue" : "Skip & continue"
             }
-            guard !audition.isPackageReady, let next = audition.nextPiece else { return "Continue to preview" }
+            guard !audition.isPackageReady, let next = nextPieceAfterHeadshot(in: audition) else { return "Continue to preview" }
             switch next.kind {
             case .slate: return taken > 0 ? "Continue to slate" : "Skip headshots · go to slate"
             case .fullLength: return taken > 0 ? "Continue to full-body shot" : "Skip headshots · go to full-body shot"
             case .scene: return taken > 0 ? "Continue to \(next.title)" : "Skip headshots · go to \(next.title)"
-            case .headshot: return taken > 0 ? "Continue" : "Skip & continue"
+            case .headshot: return "Continue to preview"
             }
         }
     }
 
     private var nextStepAfterHeadshots: String? {
         guard let auditionID, let audition = store.audition(auditionID) else { return nil }
-        guard !audition.isPackageReady, let next = audition.nextPiece else { return "Preview" }
+        guard !audition.isPackageReady, let next = nextPieceAfterHeadshot(in: audition) else { return "Preview" }
         switch next.kind {
-        case .headshot: return "more headshots"
+        case .headshot: return "Preview"
         case .slate: return "slate"
         case .fullLength: return "full-body shot"
         case .scene: return next.title
@@ -1465,21 +1469,33 @@ struct HeadshotsView: View {
             return
         }
 
-        // If all required pieces are completed, advance to Preview
         guard let a = store.audition(id) else { return }
-        if a.isPackageReady {
-            // Leave the camera/photo editing route behind the audition overview. Otherwise Back
-            // from Preview can land on Headshots even though that editing task is complete.
-            if store.currentPath.contains(.auditionDetail(id)) {
-                store.popTo(.auditionDetail(id))
-            } else {
-                store.popToRoot()
+
+        // Advance to the next unfinished piece after headshots
+        if let next = nextPieceAfterHeadshot(in: a) {
+            store.pop()
+
+            switch next.kind {
+            case .slate:
+                store.camera = .shoot(id, start: .slate)
+            case .fullLength:
+                store.camera = .shoot(id, start: .fullLength)
+            case .scene:
+                let idx = store.sceneIndex(for: next, in: id)
+                store.camera = .shoot(id, scene: idx)
+            case .headshot:
+                break
             }
-            store.push(.preview(id))
             return
         }
 
-        store.continueAudition(id)
+        // If all required pieces are completed or no more pieces, advance to Preview
+        if store.currentPath.contains(.auditionDetail(id)) {
+            store.popTo(.auditionDetail(id))
+        } else {
+            store.popToRoot()
+        }
+        store.push(.preview(id))
     }
 
     @ViewBuilder

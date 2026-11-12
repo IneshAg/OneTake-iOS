@@ -65,6 +65,7 @@ struct AuditionsView: View {
         .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .showSystemTabBar()
     }
 
     private func inlineDeleteConfirmation(for audition: Audition) -> some View {

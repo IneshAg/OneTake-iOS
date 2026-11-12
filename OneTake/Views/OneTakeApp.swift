@@ -98,18 +98,18 @@ struct RootTabView: View {
         TabView(selection: $store.tab) {
             Tab("Auditions", systemImage: "movieclapper.fill", value: AppTab.auditions) {
                 NavigationStack(path: $store.auditionsPath) {
-                    AuditionsView().withRoutes()
+                    AuditionsView()
+                        .showSystemTabBar()
+                        .withRoutes()
                 }
-                .toolbarVisibility(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
-                .toolbar(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
 
             Tab("Practice", systemImage: "theatermasks.fill", value: AppTab.practice) {
                 NavigationStack(path: $store.practicePath) {
-                    PracticeView().withRoutes()
+                    PracticeView()
+                        .showSystemTabBar()
+                        .withRoutes()
                 }
-                .toolbarVisibility(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
-                .toolbar(store.practicePath.isEmpty ? .visible : .hidden, for: .tabBar)
             }
 
             if isSearchAvailable {
@@ -118,19 +118,19 @@ struct RootTabView: View {
                     // prevents it from being folded into the two destination tabs.
                     Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
                         NavigationStack(path: $store.searchPath) {
-                            SearchView().withRoutes()
+                            SearchView()
+                                .showSystemTabBar()
+                                .withRoutes()
                         }
-                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
-                        .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                     }
                 } else {
                     // Earlier iOS versions still get the native dedicated Search tab role.
                     Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                         NavigationStack(path: $store.searchPath) {
-                            SearchView().withRoutes()
+                            SearchView()
+                                .showSystemTabBar()
+                                .withRoutes()
                         }
-                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
-                        .toolbar(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
                     }
                 }
             }
@@ -233,6 +233,15 @@ extension View {
             .toolbar(.hidden, for: .tabBar)
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
+            .background(TabBarHider())
+    }
+
+    @ViewBuilder
+    func showSystemTabBar() -> some View {
+        self
+            .toolbarVisibility(.visible, for: .tabBar)
+            .toolbar(.visible, for: .tabBar)
+            .background(TabBarShower())
     }
 
     @ViewBuilder
