@@ -255,7 +255,7 @@ struct AddAuditionFlow: View {
                     PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
                     Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
                     Button { showFileImporter = true } label: { way("folder", "File") }
-                    Button { store.startAuditionDraft(NoticeParser.Draft.blank) } label: { way("keyboard", "Type it") }
+                    Button { store.startAuditionDraft(NoticeParser.Draft.blank, directToReview: true) } label: { way("keyboard", "Type it") }
                 }
                 .buttonStyle(.plain)
 

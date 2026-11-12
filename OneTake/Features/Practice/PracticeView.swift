@@ -13,11 +13,14 @@ struct PracticeView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            header
+
             if displayedPractice.isEmpty {
                 EmptyPracticeView(showSample: showSample) {
                     store.push(.practiceSample)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: OTSpace.l) {
@@ -122,7 +125,6 @@ struct PracticeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
         .navigationBarBackButtonHidden(true)
         .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
@@ -186,33 +188,14 @@ struct PracticeView: View {
 struct EmptyPracticeView: View {
     var showSample = true
     var openSample: () -> Void = {}
+    @Environment(AppStore.self) private var store
 
     var body: some View {
-        VStack(spacing: OTSpace.m) {
-            Spacer()
-
-            Image("onetake-practice-illustration")
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: 340, maxHeight: 300) // ot-lint:allow
-                .accessibilityLabel("No practice pieces yet illustration")
-
-            Text("No practice pieces yet")
-                .font(.system(size: 26, weight: .bold)) // ot-lint:allow
-                .foregroundStyle(OT.labelPrimary)
-
-            if showSample {
-                Button(action: openSample) {
-                    Label("Try a sample scene", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.otPrimary)
-                .padding(.horizontal, OTSpace.xl)
-            }
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, OTSpace.gutter)
+        OTEmptyState(
+            illustration: Image("onetake-practice-illustration"),
+            title: "No practice pieces yet",
+            message: "Add a personal scene, monologue, or audition sides to start practising.",
+            action: showSample ? ("Try a sample scene", openSample) : ("Practise a scene", { store.push(.practiceSetup) })
+        )
     }
 }

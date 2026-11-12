@@ -24,24 +24,25 @@ public struct OTScreen<Content: View, Trailing: View>: View {
         self.content = content
     }
 
-    @ViewBuilder
-    private var innerContent: some View {
-        VStack(alignment: .leading, spacing: OTSpace.l) {
-            OTNavHeader(title: title, backLabel: backLabel, onBack: onBack, trailing: trailing)
-            content()
-        }
-        .padding(.horizontal, OTSpace.gutter)
-        .padding(.bottom, OTSpace.xl)
-    }
-
     public var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            OTNavHeader(title: title, backLabel: backLabel, onBack: onBack, trailing: trailing)
+                .padding(.horizontal, OTSpace.m)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.s)
+                .background(OT.bgCanvas)
+
             if scrolls {
                 ScrollView {
-                    innerContent
+                    content()
+                        .padding(.horizontal, OTSpace.m)
+                        .padding(.bottom, OTSpace.xl)
                 }
             } else {
-                innerContent
+                content()
+                    .padding(.horizontal, OTSpace.m)
+                    .padding(.bottom, OTSpace.xl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .otCanvas()

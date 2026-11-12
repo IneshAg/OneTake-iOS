@@ -4,10 +4,10 @@ import AVFoundation
 // MARK: - AppStore Auditions Extension
 
 extension AppStore {
-    func startAuditionDraft(_ draft: NoticeParser.Draft) {
+    func startAuditionDraft(_ draft: NoticeParser.Draft, directToReview: Bool = false) {
         auditionDraft = draft
         showAddAudition = false
-        pendingRouteAfterAdd = draft.missingRequiredDetails.isEmpty ? .noticeReview : .missingDetails
+        pendingRouteAfterAdd = (directToReview || draft.missingRequiredDetails.isEmpty) ? .noticeReview : .missingDetails
     }
 
     /// Commits a confirmed draft directly into a persistent Audition, skipping redundant review screens

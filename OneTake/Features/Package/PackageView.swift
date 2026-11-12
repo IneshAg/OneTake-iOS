@@ -154,15 +154,17 @@ struct PackageView: View {
                 // 4. Preview & Tape Check
                 VStack(spacing: 0) {
                     Button { store.push(.preview(a.id)) } label: {
-                        row(symbol: "play.rectangle", title: "Preview tape", detail: "Watch it and change a selected piece", value: nil)
+                        row(symbol: "play.rectangle", title: "Preview tape", detail: "Watch it and change a selected piece", value: nil, showDivider: true)
                     }
                     .buttonStyle(.plain)
 
                     Button { store.push(.tapeCheck(a.id)) } label: {
-                        row(symbol: "checkmark.seal.fill", title: "Tape check", detail: "Picture and audio checks", value: "Review", tint: OT.success)
+                        row(symbol: "checkmark.seal.fill", title: "Tape check", detail: "Picture and audio checks", value: "Review", tint: OT.success, showDivider: false)
                     }
                     .buttonStyle(.plain)
                 }
+                .padding(.horizontal, OTSpace.m)
+                .otCard(.grouped)
             }
         }
         .otBottomBar {
@@ -240,19 +242,25 @@ struct PackageView: View {
         }
     }
 
-    private func row(symbol: String, title: String, detail: String?, value: String?, tint: Color = OT.labelSecondary) -> some View {
-        HStack(spacing: OTSpace.m) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: 24) // ot-lint:allow
-            VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                Text(title).font(.otBody).lineLimit(1)
-                if let detail { Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+    private func row(symbol: String, title: String, detail: String?, value: String?, tint: Color = OT.labelSecondary, showDivider: Bool = false) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: OTSpace.m) {
+                Image(systemName: symbol).foregroundStyle(tint).frame(width: 24) // ot-lint:allow
+                VStack(alignment: .leading, spacing: OTSpace.xxs) {
+                    Text(title).font(.otBody).lineLimit(1).foregroundStyle(OT.labelPrimary)
+                    if let detail { Text(detail).font(.otFootnote).foregroundStyle(OT.labelTertiary) }
+                }
+                Spacer()
+                if let value { Text(value).font(.otFootnote).foregroundStyle(OT.labelSecondary) }
+                Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
             }
-            Spacer()
-            if let value { Text(value).font(.otFootnote).foregroundStyle(OT.labelSecondary) }
-            Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+            .frame(minHeight: 54) // ot-lint:allow
+
+            if showDivider {
+                Divider()
+                    .padding(.leading, 38) // ot-lint:allow
+            }
         }
-        .frame(minHeight: 54) // ot-lint:allow
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private func tapeLegend(_ a: Audition) -> [(String, String, Color)] {
@@ -323,7 +331,9 @@ struct PackageView: View {
                         exportStage = .archiving
                         progress = max(progress, needsVideo ? 0.52 : 0.10)
                     }
-                    clipArchiveURL = try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
+                    clipArchiveURL = try await Task.detached(priority: .userInitiated) {
+                        try MediaExporter.makeSeparateArchive(a, takes: takesForAudition, slate: slate)
+                    }.value
                     if let clipArchiveURL {
                         await MainActor.run { store.setSeparateArchive(clipArchiveURL, for: a.id) }
                     }
@@ -340,15 +350,19 @@ struct PackageView: View {
                     guard !photos.isEmpty else { throw MediaExporter.ExportError.nothingToExport }
                     if asLink {
                         await MainActor.run { exportStage = .archiving; progress = 0.4 }
-                        hostedArtifactURL = try MediaExporter.makeHeadshotsArchive(a, slate: slate)
+                        hostedArtifactURL = try await Task.detached(priority: .userInitiated) {
+                            try MediaExporter.makeHeadshotsArchive(a, slate: slate)
+                        }.value
                     }
                 case .completePackage:
                     guard let videoURL else { throw MediaExporter.ExportError.nothingToExport }
                     if asLink {
                         await MainActor.run { exportStage = .archiving; progress = 0.68 }
-                        hostedArtifactURL = try MediaExporter.makeCompletePackageArchive(
-                            a, combinedVideoURL: videoURL, takes: takesForAudition, slate: slate
-                        )
+                        hostedArtifactURL = try await Task.detached(priority: .userInitiated) {
+                            try MediaExporter.makeCompletePackageArchive(
+                                a, combinedVideoURL: videoURL, takes: takesForAudition, slate: slate
+                            )
+                        }.value
                     }
                 }
 

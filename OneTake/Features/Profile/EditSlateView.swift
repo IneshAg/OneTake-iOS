@@ -91,8 +91,8 @@ struct EditSlateView: View {
                         .font(.otHeadline)
                         .foregroundStyle(draft.spoken.isEmpty ? OT.labelTertiary : OT.labelPrimary)
                 }
-                .scrollContentBackground(.hidden)
             }
+            .scrollContentBackground(.hidden)
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {

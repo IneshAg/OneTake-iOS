@@ -30,39 +30,32 @@ struct RootTabView: View {
                 .background(TabBarShower(isVisible: store.practicePath.isEmpty))
             }
 
-            if isSearchAvailable {
-                if #available(iOS 27.0, *) {
-                    // Keep Search as the distinct third control. iOS 27's prominent role
-                    // prevents it from being folded into the two destination tabs.
-                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
-                        NavigationStack(path: $store.searchPath) {
-                            SearchView()
-                                .withRoutes()
-                        }
-                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
-                        .background(TabBarShower(isVisible: store.searchPath.isEmpty))
+            if #available(iOS 27.0, *) {
+                // Keep Search as the distinct third control. iOS 27's prominent role
+                // prevents it from being folded into the two destination tabs.
+                Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .prominent) {
+                    NavigationStack(path: $store.searchPath) {
+                        SearchView()
+                            .withRoutes()
                     }
-                } else {
-                    // Earlier iOS versions still get the native dedicated Search tab role.
-                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                        NavigationStack(path: $store.searchPath) {
-                            SearchView()
-                                .withRoutes()
-                        }
-                        .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
-                        .background(TabBarShower(isVisible: store.searchPath.isEmpty))
+                    .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                    .background(TabBarShower(isVisible: store.searchPath.isEmpty))
+                }
+            } else {
+                // Earlier iOS versions still get the native dedicated Search tab role.
+                Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                    NavigationStack(path: $store.searchPath) {
+                        SearchView()
+                            .withRoutes()
                     }
+                    .toolbarVisibility(store.searchPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                    .background(TabBarShower(isVisible: store.searchPath.isEmpty))
                 }
             }
         }
         .applySearchTabActivation()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(OT.bgCanvas.ignoresSafeArea())
-        .onChange(of: isSearchAvailable) { _, available in
-            if !available && store.tab == .search {
-                store.tab = .auditions
-            }
-        }
         .sheet(isPresented: $store.showProfile, onDismiss: {
             store.profilePath.removeAll()
         }) {

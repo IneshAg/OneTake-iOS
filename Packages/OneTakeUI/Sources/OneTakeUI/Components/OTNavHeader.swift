@@ -42,37 +42,44 @@ public struct OTNavHeader<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: OTSpace.m) {
-            // Leading
-            if isDismissStyle {
-                Button(action: {
-                    Haptics.tick()
-                    handleBack()
-                }) {
-                    Text(backLabel)
-                        .font(.body)
-                        .foregroundStyle(effectiveSurface == .camera ? OT.cameraLabel : OT.accent)
-                        .frame(height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            } else if isCloseStyle {
-                OTIconButton("xmark", accessibilityLabel: "Close", action: handleBack)
-            } else {
-                OTIconButton("chevron.left", accessibilityLabel: backLabel.isEmpty ? "Back" : backLabel, action: handleBack)
+        ZStack {
+            // Truly Centered Title
+            if !title.isEmpty {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(effectiveSurface == .camera ? OT.cameraLabel : OT.labelPrimary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 64)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
 
-            // Center Title
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(effectiveSurface == .camera ? OT.cameraLabel : OT.labelPrimary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: OTSpace.m) {
+                // Leading
+                if isDismissStyle {
+                    Button(action: {
+                        Haptics.tick()
+                        handleBack()
+                    }) {
+                        Text(backLabel)
+                            .font(.body)
+                            .foregroundStyle(effectiveSurface == .camera ? OT.cameraLabel : OT.accent)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else if isCloseStyle {
+                    OTIconButton("xmark", accessibilityLabel: "Close", action: handleBack)
+                } else {
+                    OTIconButton("chevron.left", accessibilityLabel: backLabel.isEmpty ? "Back" : backLabel, action: handleBack)
+                }
 
-            // Trailing
-            trailing()
-                .frame(minWidth: 44, alignment: .trailing)
-                .frame(height: 44)
+                Spacer()
+
+                // Trailing
+                trailing()
+                    .frame(minWidth: 44, alignment: .trailing)
+                    .frame(height: 44)
+            }
         }
         .frame(height: 44)
     }

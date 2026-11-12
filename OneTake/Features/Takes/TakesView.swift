@@ -84,6 +84,8 @@ struct TakesView: View {
                                 .onLongPressGesture { store.circleOnly(take); Haptics.success() }
                         }
                     }
+                    .padding(.horizontal, 4) // ot-lint:allow
+                    .padding(.vertical, 4) // ot-lint:allow
                 }
 
                 HStack {
@@ -249,16 +251,17 @@ struct TakeThumbnail: View {
                     HeadshotImage()
                 }
             }
-            .frame(width: 104, height: 64) // ot-lint:allow
+            .frame(width: 116, height: 72) // ot-lint:allow
             .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: OTRadius.m)
+                RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
                     .stroke(isSelected ? OT.accent : Color.clear, lineWidth: 2.5) // ot-lint:allow
-                    .padding(-3) // ot-lint:allow
             )
 
             HStack(spacing: 4) {
-                Text("Take \(take.number)").font(.otHeadline)
+                Text("Take \(take.number)")
+                    .font(.otHeadline)
+                    .lineLimit(1)
                 if take.isCircled {
                     Image(systemName: "star.fill").font(.caption).foregroundStyle(OT.accent)
                 }
@@ -266,7 +269,9 @@ struct TakeThumbnail: View {
             Text("\(Int(take.duration) / 60):\(String(format: "%02d", Int(take.duration) % 60)) · \(take.recordedAt.formatted(.relative(presentation: .numeric)))")
                 .font(.otCaption)
                 .foregroundStyle(OT.labelTertiary)
+                .lineLimit(1)
         }
+        .frame(width: 116, alignment: .leading) // ot-lint:allow
         .accessibilityElement(children: .combine)
         .accessibilityHint("Long-press to circle this take")
     }

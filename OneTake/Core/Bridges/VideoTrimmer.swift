@@ -78,26 +78,10 @@ struct VideoTrimmer: View {
                         }
                         .tint(OT.accent)
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Trim range").font(.otHeadline)
-                            VStack(spacing: 4) {
-                                HStack {
-                                    Text("Start").foregroundStyle(OT.labelSecondary)
-                                    Spacer()
-                                    Text(timeLabel(trimStart)).monospacedDigit()
-                                }
-                                Slider(value: $trimStart, in: 0...max(0, trimEnd - 0.5))
-                                HStack {
-                                    Text("End").foregroundStyle(OT.labelSecondary)
-                                    Spacer()
-                                    Text(timeLabel(trimEnd)).monospacedDigit()
-                                }
-                                Slider(value: $trimEnd, in: min(duration, trimStart + 0.5)...duration)
-                            }
-                            .font(.otFootnote)
-                            .tint(OT.accent)
+                        GeometryReader { geo in
+                            timelineScrubber(totalWidth: geo.size.width)
                         }
-                        .otCard(.grouped)
+                        .frame(height: 108) // ot-lint:allow
 
                         Text("Your original recording will remain available so you can restore it later.")
                             .font(.otFootnote).foregroundStyle(OT.labelSecondary)
@@ -155,6 +139,140 @@ struct VideoTrimmer: View {
         player?.pause()
         onFinish(nil)
         dismiss()
+    }
+
+    private func timelineScrubber(totalWidth: CGFloat) -> some View {
+        let width = max(120, totalWidth)
+        let safeDuration = max(0.1, duration)
+        let startX = max(0, min(width - 24, CGFloat(trimStart / safeDuration) * width))
+        let endX = max(startX + 24, min(width, CGFloat(trimEnd / safeDuration) * width))
+        let playheadX = max(0, min(width, CGFloat(playhead / safeDuration) * width))
+
+        return VStack(spacing: OTSpace.xs) {
+            HStack {
+                HStack(spacing: 4) {
+                    Text("START")
+                        .font(.system(size: 10, weight: .bold)) // ot-lint:allow
+                        .foregroundStyle(OT.labelTertiary)
+                    Text(timeLabel(trimStart))
+                        .font(.otFootnote.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Image(systemName: "scissors")
+                        .font(.caption2)
+                        .foregroundStyle(OT.accent)
+                    Text(timeLabel(max(0, trimEnd - trimStart)))
+                        .font(.otFootnote.monospacedDigit().weight(.bold))
+                        .foregroundStyle(OT.accent)
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Text("END")
+                        .font(.system(size: 10, weight: .bold)) // ot-lint:allow
+                        .foregroundStyle(OT.labelTertiary)
+                    Text(timeLabel(trimEnd))
+                        .font(.otFootnote.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                }
+            }
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                    .fill(OT.fillField)
+                    .frame(height: 52) // ot-lint:allow
+                    .overlay(
+                        HStack(spacing: 8) { // ot-lint:allow
+                            ForEach(0..<16, id: \.self) { _ in
+                                Rectangle()
+                                    .fill(OT.labelTertiary.opacity(0.15))
+                                    .frame(width: 1, height: 24) // ot-lint:allow
+                                Spacer()
+                            }
+                        }
+                        .padding(.horizontal, 8) // ot-lint:allow
+                    )
+
+                if startX > 0 {
+                    RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                        .fill(Color.black.opacity(0.6)) // ot-lint:allow
+                        .frame(width: startX, height: 52) // ot-lint:allow
+                }
+
+                if endX < width {
+                    RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                        .fill(Color.black.opacity(0.6)) // ot-lint:allow
+                        .frame(width: width - endX, height: 52) // ot-lint:allow
+                        .offset(x: endX)
+                }
+
+                RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                    .stroke(OT.accent, lineWidth: 3) // ot-lint:allow
+                    .background(OT.accentSoft.opacity(0.35))
+                    .frame(width: max(24, endX - startX), height: 52) // ot-lint:allow
+                    .offset(x: startX)
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous) // ot-lint:allow
+                        .fill(OT.accent)
+                        .frame(width: 18, height: 52) // ot-lint:allow
+                    Image(systemName: "chevron.compact.left")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.black) // ot-lint:allow
+                }
+                .offset(x: startX)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let rawX = startX + value.translation.width
+                            let newSec = Double(max(0, min(endX - 24, rawX)) / width) * duration
+                            trimStart = max(0, min(trimEnd - 0.5, newSec))
+                            playhead = trimStart
+                            seek(to: trimStart)
+                        }
+                )
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous) // ot-lint:allow
+                        .fill(OT.accent)
+                        .frame(width: 18, height: 52) // ot-lint:allow
+                    Image(systemName: "chevron.compact.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.black) // ot-lint:allow
+                }
+                .offset(x: max(0, endX - 18))
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let rawX = endX + value.translation.width
+                            let newSec = Double(max(startX + 24, min(width, rawX)) / width) * duration
+                            trimEnd = min(duration, max(trimStart + 0.5, newSec))
+                            playhead = trimEnd
+                            seek(to: trimEnd)
+                        }
+                )
+
+                Rectangle()
+                    .fill(Color.white) // ot-lint:allow
+                    .frame(width: 2, height: 56) // ot-lint:allow
+                    .shadow(color: .black.opacity(0.5), radius: 2)
+                    .offset(x: playheadX - 1)
+            }
+            .frame(height: 56) // ot-lint:allow
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                let tappedSec = Double(max(0, min(width, location.x)) / width) * duration
+                playhead = min(duration, max(0, tappedSec))
+                seek(to: playhead)
+            }
+        }
+        .padding(OTSpace.m)
+        .otCard(.grouped)
     }
 
     private func exportTrim() {

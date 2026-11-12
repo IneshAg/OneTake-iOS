@@ -26,9 +26,14 @@ struct AuditionDetailView: View {
             trailing: {
                 HStack(spacing: OTSpace.s) {
                     Button { showEdit = true } label: {
-                        Label("Edit details", systemImage: "pencil")
+                        Image(systemName: "pencil")
+                            .font(.otIcon(.m, weight: .semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                            .frame(width: 44, height: 44) // ot-lint:allow
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.ot(.glass, size: .medium, fullWidth: false))
+                    .modifier(GlassButtonCompatibility(enabled: true))
+                    .accessibilityLabel("Edit details")
 
                     Menu {
                         Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
@@ -46,6 +51,26 @@ struct AuditionDetailView: View {
             }
         ) {
             VStack(alignment: .leading, spacing: OTSpace.l) {
+                // Sides Revision Banner
+                if a.currentSidesRevision > 0 {
+                    HStack(spacing: OTSpace.s) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.otIcon(.s, weight: .semibold))
+                            .foregroundStyle(OT.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sides Revision \(a.currentSidesRevision)")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text("Updated sides in use. Prior takes and audio are archived.")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(OTSpace.m)
+                    .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                }
+
                 // Header
                 VStack(alignment: .leading, spacing: OTSpace.xs) {
                     OTSectionLabel("\(a.resolvedMaterialKind.shortLabel) · \(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
@@ -121,6 +146,42 @@ struct AuditionDetailView: View {
 
                 if a.nextPiece?.kind != .headshot {
                     headshotsCard(a)
+                }
+
+                let previousTakes = store.takes.filter { $0.auditionID == a.id && $0.previousSides }
+                if !previousTakes.isEmpty {
+                    VStack(alignment: .leading, spacing: OTSpace.s) {
+                        OTSectionLabel("Previous Takes (Earlier Sides)")
+                        ForEach(previousTakes) { take in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(take.previousSidesLabel ?? "Take \(take.number)")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("Recorded for earlier sides · Revision \(take.sidesRevision ?? 0)")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                                Button("Review") {
+                                    store.push(.takes(a.id, sceneIndex: take.sceneIndex))
+                                }
+                                .buttonStyle(.otCompact)
+                            }
+                            .padding(OTSpace.m)
+                            .otCard(.grouped)
+                        }
+                    }
+                }
+
+                if a.status != .sent && a.readyCount == a.totalCount && a.totalCount > 0 {
+                    Button {
+                        store.markSent(a.id)
+                        Haptics.success()
+                    } label: {
+                        Label("Mark as Submitted", systemImage: "paperplane.fill")
+                    }
+                    .buttonStyle(.ot(.primary, size: .large))
                 }
             }
         }
