@@ -19,7 +19,6 @@
 		277D028621EC5489DEC3C250 /* ScriptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FCB73CA66CEE5334E343F45 /* ScriptParserTests.swift */; };
 		2DB4EEED6CCB3AB5293B5123 /* ProfileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4775F41DA1D4F7C97E61944 /* ProfileViews.swift */; };
 		2DD0793B2CC09C86B31EEB69 /* UIKitBridges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BA8F494C0871C4D1DD64F6 /* UIKitBridges.swift */; };
-		31022610F2D31A7350B5704C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7CCA4D9370E5C22F8DF2A5 /* Theme.swift */; };
 		312257371A8AF25746C8D948 /* OneTakeWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 25D4B89A52AB1B4E186168C9 /* OneTakeWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		31CB0D7CA9B96EE883514C11 /* ImageFraming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 357C2E79A46F8149660C5687 /* ImageFraming.swift */; };
 		32A08AF8200DBE734B58573B /* NoticeOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B13A70FD81767C1DF2E89E7 /* NoticeOCR.swift */; };
@@ -31,29 +30,32 @@
 		53FA17736D7040154E7B9C93 /* AuditionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC08FB686E225E684CB7703 /* AuditionDetailView.swift */; };
 		59F390BC248596E558552218 /* PackageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBF07451290B9BF7E698086 /* PackageViews.swift */; };
 		5CDDECBBECF12B916DFC47D8 /* onetake-practice-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = 16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */; };
-		6091B20EC3E5DE215F2AB4B7 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 4597CC1E3292EB32B531A09A /* GoogleSignIn */; };
+		6091B20EC3E5DE215F2AB4B7 /* OneTakeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 8AD53CC9D3045D5F58DFF96F /* OneTakeUI */; };
 		6393E47A44F7C0A31CC09BD8 /* CoreMLParserRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7CBD0AAEB7F1F7AAD1ADC80 /* CoreMLParserRunner.swift */; };
 		6681EE883734F76B6F65B008 /* OnDeviceIntelligence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A43BB6A01AD4B59AE6F4B81 /* OnDeviceIntelligence.swift */; };
 		6A625351D7AF664615D5A84F /* OCRLayoutReconstructor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B1E899AE72E7BED27F7B3DD /* OCRLayoutReconstructor.swift */; };
 		6C40B59D2452CA3CBCB14BE6 /* TakesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E112EEF90E879C6F5060EFF /* TakesViews.swift */; };
+		74D38FFB7A26798AEA314EF9 /* DesignSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */; };
 		762B7CB28A207B3FA5529792 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380B11616B09C0C2DBE746D0 /* WidgetSync.swift */; };
 		797192CA8514AB4FE57F6595 /* TapePreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89EE2F0ABA59B4A4249C9095 /* TapePreviewTests.swift */; };
 		7A89B5EBE27316D81D2C5009 /* LineLearningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE04313D351125DAF5F36F9D /* LineLearningViews.swift */; };
+		7AB370BB64897BD02B0785E3 /* OneTakeUIExports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B63CC1AF6213D0B721D3D8A /* OneTakeUIExports.swift */; };
 		83EAFBFA094DDD4F55EEAD8B /* AuditionLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72457A986AA8E51013E5A54D /* AuditionLiveActivity.swift */; };
 		85A00B53D86B4FE0ACC730BE /* OneTakeWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */; };
 		8645C9F9CD407AECCAA3706A /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345483DF2D07C4F4A026610E /* ShareInbox.swift */; };
-		8BFEC2139BA1A69B1E3FC766 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7CCA4D9370E5C22F8DF2A5 /* Theme.swift */; };
 		8C2D19A7A992C4A0EEEF221C /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */; };
 		91AD8EEAF54A7A52D5AC6921 /* CameraAndImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */; };
 		9579471C80A58E1EF8BBFDD3 /* AddAuditionFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420C638D520B20BF6473C722 /* AddAuditionFlow.swift */; };
 		9D6C6D048490FB21329683AD /* AuditionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4509313198F4602E87FE342 /* AuditionsView.swift */; };
 		A1592113016E726FE38EC6F6 /* onetake-empty-auditions-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */; };
+		A1BDE0F6CECBF4790D00E329 /* OneTakeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0B39B03980DDCB0CA2D8282D /* OneTakeUI */; };
 		A4A3FA7AA3ABF39ABE040A55 /* HeadshotPoseClassifier.mlmodel in Sources */ = {isa = PBXBuildFile; fileRef = C855DD3D620EC45169C5C6C2 /* HeadshotPoseClassifier.mlmodel */; };
 		A9C950465C3AA7291946E4CF /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E484C298023813F1D543898A /* CameraController.swift */; };
 		AD1731975A6FEFE52881B5FE /* ZipArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2C48D3E3F5495F19E84A97 /* ZipArchive.swift */; };
 		ADF8F3061E280D18A5E872EE /* ScriptParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BE02287A84AFF0026A11D9 /* ScriptParser.swift */; };
 		AEA03AA9B6CBD5EC73F0B329 /* NoticeParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */; };
 		AED75A25102C0E36AFCBB885 /* LocalBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21AF5ABDAC361833F78C1C8B /* LocalBackup.swift */; };
+		AF7FF35468FBFB1416AEDA48 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 4597CC1E3292EB32B531A09A /* GoogleSignIn */; };
 		B28449FF951EEEB1D842B8AA /* ShootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C68945FA271E04C4891187A /* ShootViews.swift */; };
 		B45F089242DC93EEB8BDC140 /* BPETokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F018C2ADBEAFB9DCF90ED4DE /* BPETokenizer.swift */; };
 		B7E6D53E275571CBA72644BC /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7945A0F0998DA01355F40B /* AppStore.swift */; };
@@ -73,11 +75,13 @@
 		D63C56AA4AB180D999A28922 /* CloudLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B95B82BBE87FF55E057D26 /* CloudLink.swift */; };
 		DF7FF09964719C9CF31C2278 /* PracticeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DBAA5591E60CE035B2B1C1 /* PracticeViews.swift */; };
 		E75FBB7D97E3F0EBD81F1B46 /* onetake-practice-illustration.svg in Resources */ = {isa = PBXBuildFile; fileRef = 16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */; };
+		E7A4951FB07BD77B558A2285 /* OneTakeUIExports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C775470F4928CB89D236C3 /* OneTakeUIExports.swift */; };
 		EBDA71A046B1C03E2A43BB5C /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ABF9BB6CAA102F14F3D4FE /* ShareViewController.swift */; };
 		ECC7A89D55FB6BDEDF79FB0A /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */; };
 		ECE27836FDFB3BC75BD35C28 /* Reminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE5A48B4511431ADB462065A /* Reminders.swift */; };
 		F5B1BC702AF850593577636C /* TapeAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A27E38623AE9A362D6659EB /* TapeAnalyzer.swift */; };
 		F6D607FE489CCC4AAB84F483 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596522E487CA40F53189C34F /* Models.swift */; };
+		FD8F03207382D227F9901449 /* OneTakeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 12B8FC24F5C71C2CAC296961 /* OneTakeUI */; };
 		FE083DA350754CF63E78F99C /* AuditionActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9676917ACB7373FAB6B00F /* AuditionActivity.swift */; };
 /* End PBXBuildFile section */
 
@@ -134,6 +138,7 @@
 		357C2E79A46F8149660C5687 /* ImageFraming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageFraming.swift; sourceTree = "<group>"; };
 		380B11616B09C0C2DBE746D0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		3B1E899AE72E7BED27F7B3DD /* OCRLayoutReconstructor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRLayoutReconstructor.swift; sourceTree = "<group>"; };
+		3B63CC1AF6213D0B721D3D8A /* OneTakeUIExports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeUIExports.swift; sourceTree = "<group>"; };
 		3C7945A0F0998DA01355F40B /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		3E112EEF90E879C6F5060EFF /* TakesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakesViews.swift; sourceTree = "<group>"; };
 		3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeParserTests.swift; sourceTree = "<group>"; };
@@ -142,17 +147,18 @@
 		54EF3D86C5F7F4163C8558A9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
 		5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraAndImageTests.swift; sourceTree = "<group>"; };
+		58C775470F4928CB89D236C3 /* OneTakeUIExports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeUIExports.swift; sourceTree = "<group>"; };
 		596522E487CA40F53189C34F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		5B13A70FD81767C1DF2E89E7 /* NoticeOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeOCR.swift; sourceTree = "<group>"; };
 		5D2C48D3E3F5495F19E84A97 /* ZipArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchive.swift; sourceTree = "<group>"; };
 		5EDD268AAAE54F380B409C97 /* TapeCheckFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeCheckFilterTests.swift; sourceTree = "<group>"; };
 		5FCB73CA66CEE5334E343F45 /* ScriptParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptParserTests.swift; sourceTree = "<group>"; };
+		650B8EB9BF4FC589B17C44F9 /* OneTakeUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OneTakeUI; path = Packages/OneTakeUI; sourceTree = SOURCE_ROOT; };
 		65B95B82BBE87FF55E057D26 /* CloudLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLink.swift; sourceTree = "<group>"; };
 		65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageAndSentTests.swift; sourceTree = "<group>"; };
 		66041554030D687F6CF987C3 /* OneTakeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeApp.swift; sourceTree = "<group>"; };
 		69669BF4964888649591F9C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6E3CCFBC5B55BDFCD0799277 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		6F7CCA4D9370E5C22F8DF2A5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
 		72457A986AA8E51013E5A54D /* AuditionLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionLiveActivity.swift; sourceTree = "<group>"; };
 		78560845B703490EEFDB1035 /* OneTakeShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OneTakeShare.entitlements; sourceTree = "<group>"; };
@@ -172,6 +178,7 @@
 		AE5A48B4511431ADB462065A /* Reminders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reminders.swift; sourceTree = "<group>"; };
 		B245A39836FB8059F5D14CBE /* VoicePracticeReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePracticeReview.swift; sourceTree = "<group>"; };
 		B78AD2F25369510B879F81D3 /* OneTake.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OneTake.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemTests.swift; sourceTree = "<group>"; };
 		C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		C1F3701B43B2AC9EB8401891 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeWidgetsBundle.swift; sourceTree = "<group>"; };
@@ -194,11 +201,28 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		037C2BBE3AC11DA05DA03D90 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FD8F03207382D227F9901449 /* OneTakeUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41EB771C84516057881AB4AD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1BDE0F6CECBF4790D00E329 /* OneTakeUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		627B5C446C37E8267BBB853C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6091B20EC3E5DE215F2AB4B7 /* GoogleSignIn in Frameworks */,
+				6091B20EC3E5DE215F2AB4B7 /* OneTakeUI in Frameworks */,
+				AF7FF35468FBFB1416AEDA48 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -212,6 +236,7 @@
 				1DCE2142E9A69EF78CB71D19 /* OneTakeShare */,
 				C69CB004E284815BC1DA2479 /* OneTakeTests */,
 				9260480DAC7E6A69984872D8 /* OneTakeWidgets */,
+				99A85680AFEF38900240EF7C /* Packages */,
 				106B1FD3A6FC6724FE21D486 /* Shared */,
 				09279F5926989B679229E8D4 /* Products */,
 			);
@@ -236,7 +261,6 @@
 				7C68945FA271E04C4891187A /* ShootViews.swift */,
 				3E112EEF90E879C6F5060EFF /* TakesViews.swift */,
 				EC1A04C39259BC1ED1A20D80 /* TapePreviewView.swift */,
-				6F7CCA4D9370E5C22F8DF2A5 /* Theme.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -280,11 +304,20 @@
 			children = (
 				6E3CCFBC5B55BDFCD0799277 /* Info.plist */,
 				028B032E8486094FD043953F /* OneTake.entitlements */,
+				68E466C1BC17347A5BCED5C9 /* App */,
 				D04E5E2C4BD4B29FFD294BFE /* Models */,
 				FA73AEC5F65BF3C349DA8130 /* ModelViews */,
 				06A33965DD5EB3540F4EE502 /* Views */,
 			);
 			path = OneTake;
+			sourceTree = "<group>";
+		};
+		68E466C1BC17347A5BCED5C9 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				3B63CC1AF6213D0B721D3D8A /* OneTakeUIExports.swift */,
+			);
+			path = App;
 			sourceTree = "<group>";
 		};
 		9260480DAC7E6A69984872D8 /* OneTakeWidgets */ = {
@@ -293,16 +326,26 @@
 				72457A986AA8E51013E5A54D /* AuditionLiveActivity.swift */,
 				69669BF4964888649591F9C2 /* Info.plist */,
 				DFF68400BDFE82B20F4D14B6 /* NextAuditionWidget.swift */,
+				58C775470F4928CB89D236C3 /* OneTakeUIExports.swift */,
 				A267C72320E5F3AB1B4F7E2E /* OneTakeWidgets.entitlements */,
 				C347C33CD771D66DFD19D791 /* OneTakeWidgetsBundle.swift */,
 			);
 			path = OneTakeWidgets;
 			sourceTree = "<group>";
 		};
+		99A85680AFEF38900240EF7C /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				650B8EB9BF4FC589B17C44F9 /* OneTakeUI */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
 		C69CB004E284815BC1DA2479 /* OneTakeTests */ = {
 			isa = PBXGroup;
 			children = (
 				5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */,
+				B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */,
 				D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */,
 				9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */,
 				3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */,
@@ -362,6 +405,7 @@
 			buildPhases = (
 				EA292FEAB22CD6A220EF4E4B /* Sources */,
 				9A932EE6AC26E0D648A1D07C /* Resources */,
+				037C2BBE3AC11DA05DA03D90 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -369,6 +413,7 @@
 			);
 			name = OneTakeWidgets;
 			packageProductDependencies = (
+				12B8FC24F5C71C2CAC296961 /* OneTakeUI */,
 			);
 			productName = OneTakeWidgets;
 			productReference = 25D4B89A52AB1B4E186168C9 /* OneTakeWidgets.appex */;
@@ -409,6 +454,7 @@
 			);
 			name = OneTake;
 			packageProductDependencies = (
+				8AD53CC9D3045D5F58DFF96F /* OneTakeUI */,
 				4597CC1E3292EB32B531A09A /* GoogleSignIn */,
 			);
 			productName = OneTake;
@@ -420,6 +466,7 @@
 			buildConfigurationList = 9FB7820DF2FA2F0250E38C4D /* Build configuration list for PBXNativeTarget "OneTakeTests" */;
 			buildPhases = (
 				DD4D80415D979D32A233EFA9 /* Sources */,
+				41EB771C84516057881AB4AD /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -428,6 +475,7 @@
 			);
 			name = OneTakeTests;
 			packageProductDependencies = (
+				0B39B03980DDCB0CA2D8282D /* OneTakeUI */,
 			);
 			productName = OneTakeTests;
 			productReference = 4C7F2C48BCCB512CB89891E2 /* OneTakeTests.xctest */;
@@ -467,6 +515,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2EF6810D49A2E3D2FFB59C81 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				FE806F1940554BF5F0DEAF3F /* XCLocalSwiftPackageReference "Packages/OneTakeUI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 09279F5926989B679229E8D4 /* Products */;
@@ -544,6 +593,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				91AD8EEAF54A7A52D5AC6921 /* CameraAndImageTests.swift in Sources */,
+				74D38FFB7A26798AEA314EF9 /* DesignSystemTests.swift in Sources */,
 				BC3BB8EB674D505E7EE08457 /* MediaExporterTests.swift in Sources */,
 				ECC7A89D55FB6BDEDF79FB0A /* ModelTests.swift in Sources */,
 				AEA03AA9B6CBD5EC73F0B329 /* NoticeParserTests.swift in Sources */,
@@ -582,6 +632,7 @@
 				6681EE883734F76B6F65B008 /* OnDeviceIntelligence.swift in Sources */,
 				20774D3C47FD8565F3706D5B /* OnboardingFlow.swift in Sources */,
 				C924488F8BB4E517D32F8D7C /* OneTakeApp.swift in Sources */,
+				7AB370BB64897BD02B0785E3 /* OneTakeUIExports.swift in Sources */,
 				59F390BC248596E558552218 /* PackageViews.swift in Sources */,
 				16A14A731305B6F070EA748B /* Persistence.swift in Sources */,
 				DF7FF09964719C9CF31C2278 /* PracticeViews.swift in Sources */,
@@ -595,7 +646,6 @@
 				6C40B59D2452CA3CBCB14BE6 /* TakesViews.swift in Sources */,
 				F5B1BC702AF850593577636C /* TapeAnalyzer.swift in Sources */,
 				BE884AB6D8ED4CEFBFAC53DE /* TapePreviewView.swift in Sources */,
-				8BFEC2139BA1A69B1E3FC766 /* Theme.swift in Sources */,
 				2DD0793B2CC09C86B31EEB69 /* UIKitBridges.swift in Sources */,
 				CF59B49BB7D28D775F0CB70A /* VoicePracticeReview.swift in Sources */,
 				D00E8516D7D41537D0806843 /* WidgetSnapshot.swift in Sources */,
@@ -611,9 +661,9 @@
 				CE73BFE1ABF480C993FA85E1 /* AuditionActivity.swift in Sources */,
 				83EAFBFA094DDD4F55EEAD8B /* AuditionLiveActivity.swift in Sources */,
 				04A2B536D5431AE8BF8CE637 /* NextAuditionWidget.swift in Sources */,
+				E7A4951FB07BD77B558A2285 /* OneTakeUIExports.swift in Sources */,
 				85A00B53D86B4FE0ACC730BE /* OneTakeWidgetsBundle.swift in Sources */,
 				8645C9F9CD407AECCAA3706A /* ShareInbox.swift in Sources */,
-				31022610F2D31A7350B5704C /* Theme.swift in Sources */,
 				8C2D19A7A992C4A0EEEF221C /* WidgetSnapshot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -978,6 +1028,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		FE806F1940554BF5F0DEAF3F /* XCLocalSwiftPackageReference "Packages/OneTakeUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/OneTakeUI;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		2EF6810D49A2E3D2FFB59C81 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -990,10 +1047,22 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0B39B03980DDCB0CA2D8282D /* OneTakeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OneTakeUI;
+		};
+		12B8FC24F5C71C2CAC296961 /* OneTakeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OneTakeUI;
+		};
 		4597CC1E3292EB32B531A09A /* GoogleSignIn */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2EF6810D49A2E3D2FFB59C81 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
+		};
+		8AD53CC9D3045D5F58DFF96F /* OneTakeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OneTakeUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

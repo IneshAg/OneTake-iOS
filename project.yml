@@ -11,6 +11,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: "SCY3DW3F4W"
 packages:
+  OneTakeUI:
+    path: Packages/OneTakeUI
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: 8.0.0
@@ -50,6 +52,7 @@ targets:
     dependencies:
       - target: OneTakeWidgets
       - target: OneTakeShare
+      - package: OneTakeUI
       - package: GoogleSignIn
         product: GoogleSignIn
     preBuildScripts:
@@ -84,7 +87,8 @@ targets:
     sources:
       - path: OneTakeWidgets
       - path: Shared
-      - path: OneTake/Views/Theme.swift
+    dependencies:
+      - package: OneTakeUI
     info:
       path: OneTakeWidgets/Info.plist
       properties:
@@ -146,6 +150,7 @@ targets:
       - path: OneTakeTests
     dependencies:
       - target: OneTake
+      - package: OneTakeUI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.porage.onetake.tests

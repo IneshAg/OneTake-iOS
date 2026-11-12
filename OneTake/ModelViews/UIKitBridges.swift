@@ -5,17 +5,6 @@ import VisionKit
 @preconcurrency import Speech
 import AVFoundation
 
-// MARK: - Haptics (UIKit feedback generators)
-
-enum Haptics {
-    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
-        UIImpactFeedbackGenerator(style: style).impactOccurred()
-    }
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-    static func tick() { UISelectionFeedbackGenerator().selectionChanged() }
-}
-
 // MARK: - Share sheet (UIActivityViewController)
 
 /// "More ways to share" on the package screen — AirDrop, Mail, Messages, Files, or the casting
