@@ -1,8 +1,8 @@
-# Design system lint baseline (Task 14: Practice & Onboarding migrated)
-radius 10
-font-size 33
+# Design system lint baseline (Task 15: Widgets migrated)
+radius 9
+font-size 5
 frame-literal 11
-padding-literal 10
+padding-literal 8
 raw-color 7
 system-button-style 0
 manual-surface 3

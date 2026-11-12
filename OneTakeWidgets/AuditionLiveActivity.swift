@@ -20,23 +20,30 @@ struct AuditionLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(context.attributes.project)
-                        .font(.system(size: 17, weight: .semibold)).tracking(-0.4)
-                        .foregroundStyle(.white).lineLimit(1)
+                        .font(.otHeadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     if let progress = state.uploadProgress {
-                        Text("\(Int(progress * 100))%").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                        Text("\(Int(progress * 100))%")
+                            .font(.otHeadline)
+                            .foregroundStyle(.white)
                     } else {
-                        Text("\(left.number)\(left.unit) left").font(.system(size: 17, weight: .semibold)).foregroundStyle(OT.due)
+                        Text("\(left.number)\(left.unit) left")
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.due)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: OTSpace.xs) {
                         PieceBar(pieces: state.pieces, spacing: 3, nextColor: OT.due, todoColor: OT.cameraGlass)
                         Text(state.uploadProgress != nil
                              ? "Uploading your tape to iCloud"
                              : "\(state.progressLine) · due \(context.attributes.due.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
-                            .font(.system(size: 12)).foregroundStyle(OT.cameraLabel2).lineLimit(1)
+                            .font(.otCaption)
+                            .foregroundStyle(OT.cameraLabel2)
+                            .lineLimit(1)
                     }
                 }
             } compactLeading: {
@@ -47,9 +54,13 @@ struct AuditionLiveActivity: Widget {
                 }
             } compactTrailing: {
                 if let progress = state.uploadProgress {
-                    Text("\(Int(progress * 100))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("\(Int(progress * 100))%")
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(.white)
                 } else {
-                    Text("\(left.number)\(left.unit)").font(.system(size: 13, weight: .semibold)).foregroundStyle(OT.due)
+                    Text("\(left.number)\(left.unit)")
+                        .font(.otFootnote.weight(.semibold))
+                        .foregroundStyle(OT.due)
                 }
             } minimal: {
                 Image(systemName: state.uploadProgress != nil ? "arrow.up.circle.fill" : "movieclapper.fill")
@@ -66,36 +77,46 @@ struct LockScreenActivityView: View {
     let state: AuditionActivityAttributes.ContentState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: OTSpace.s) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 1) { // ot-lint:allow
                     Text(attributes.project)
-                        .font(.system(size: 17, weight: .semibold)).tracking(-0.4)
-                        .foregroundStyle(OT.cameraLabel).lineLimit(1)
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.cameraLabel)
+                        .lineLimit(1)
                     Text("\(attributes.role) · due \(attributes.due.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
-                        .font(.system(size: 13)).tracking(-0.1).foregroundStyle(OT.cameraLabel2).lineLimit(1)
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.cameraLabel2)
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Spacer(minLength: OTSpace.xs)
+                HStack(alignment: .firstTextBaseline, spacing: OTSpace.xxs) {
                     if let progress = state.uploadProgress {
-                        Text("\(Int(progress * 100))%").font(.system(size: 36, weight: .bold)).tracking(-0.8)
-                        Text("sent").font(.system(size: 13)).foregroundStyle(OT.cameraLabel2)
+                        Text("\(Int(progress * 100))%")
+                            .font(.system(size: 36, weight: .bold)) // ot-lint:allow
+                            .tracking(-0.8)
+                        Text("sent").font(.otFootnote).foregroundStyle(OT.cameraLabel2)
                     } else if attributes.due > .now {
                         // Ticks down live without the app updating it.
                         Text(timerInterval: Date.now...attributes.due, countsDown: true)
-                            .font(.system(size: 36, weight: .bold)).tracking(-0.8).monospacedDigit()
-                            .multilineTextAlignment(.trailing).frame(maxWidth: 150, alignment: .trailing)
-                        Text("left").font(.system(size: 13)).foregroundStyle(OT.cameraLabel2)
+                            .font(.system(size: 36, weight: .bold)) // ot-lint:allow
+                            .tracking(-0.8)
+                            .monospacedDigit()
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 150, alignment: .trailing) // ot-lint:allow
+                        Text("left").font(.otFootnote).foregroundStyle(OT.cameraLabel2)
                     } else {
-                        Text("Due now").font(.system(size: 20, weight: .bold))
+                        Text("Due now").font(.otHeadline.weight(.bold))
                     }
                 }
                 .foregroundStyle(OT.cameraLabel)
             }
             PieceBar(pieces: state.pieces, spacing: 3, nextColor: OT.accent.opacity(0.45), todoColor: OT.cameraStroke)
             Text(state.uploadProgress != nil ? "Uploading your tape to iCloud" : state.progressLine)
-                .font(.system(size: 13)).tracking(-0.1).foregroundStyle(OT.cameraLabel2).lineLimit(1)
+                .font(.otFootnote)
+                .foregroundStyle(OT.cameraLabel2)
+                .lineLimit(1)
         }
-        .padding(16)
+        .padding(OTSpace.m)
     }
 }

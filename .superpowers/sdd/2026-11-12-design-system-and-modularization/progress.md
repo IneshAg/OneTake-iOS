@@ -29,3 +29,4 @@ Task 11: complete (tests: ./scripts/lint-design-system.sh → radius 74, 0 viola
 Task 12: complete (tests: ./scripts/lint-design-system.sh → radius 36, 0 violations in Features/Shoot & Features/Takes, 41/41 tests green)
 Task 13: complete (tests: ./scripts/lint-design-system.sh → radius 27, 0 violations in Features/Package, 41/41 tests green)
 Task 14: complete (tests: ./scripts/lint-design-system.sh → radius 10, 0 violations in Features/Practice & Features/Onboarding, 41/41 tests green)
+Task 15: complete (tests: ./scripts/lint-design-system.sh → radius 9, 0 violations in OneTakeWidgets, 41/41 tests green)

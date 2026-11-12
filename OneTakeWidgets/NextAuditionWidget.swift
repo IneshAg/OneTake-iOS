@@ -59,6 +59,7 @@ struct NextAuditionWidgetView: View {
         Group {
             if let next = entry.next {
                 switch family {
+                case .systemSmall:          small(next)
                 case .systemMedium:         medium(next)
                 case .accessoryRectangular: lockScreen(next)
                 default:                    small(next)
@@ -76,18 +77,23 @@ struct NextAuditionWidgetView: View {
     // 23 · Widget · small
     private func small(_ item: WidgetSnapshot.Item) -> some View {
         let left = otTimeLeft(until: item.due, from: entry.date)
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: OTSpace.xxs) {
             Text("Due in")
-                .font(.system(size: 12, weight: .semibold)).tracking(0.6).textCase(.uppercase)
+                .font(.otCaption.weight(.semibold))
+                .tracking(0.6)
+                .textCase(.uppercase)
                 .foregroundStyle(OT.due)
             TimeLeft(number: left.number, unit: left.unit, numberSize: 52, unitSize: 20)
             Text(item.project)
-                .font(.system(size: 15, weight: .semibold)).tracking(-0.2)
-                .foregroundStyle(OT.labelPrimary).lineLimit(1)
-            HStack(spacing: 6) {
+                .font(.otSubhead.weight(.semibold))
+                .tracking(-0.2)
+                .foregroundStyle(OT.labelPrimary)
+                .lineLimit(1)
+            HStack(spacing: 6) { // ot-lint:allow
                 ReadinessDots(pieces: item.pieces)
                 Text("\(item.readyCount) of \(item.pieces.count)")
-                    .font(.system(size: 12)).foregroundStyle(OT.labelSecondary)
+                    .font(.otCaption)
+                    .foregroundStyle(OT.labelSecondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -96,25 +102,33 @@ struct NextAuditionWidgetView: View {
     // 23 · Widget · medium
     private func medium(_ item: WidgetSnapshot.Item) -> some View {
         let left = otTimeLeft(until: item.due, from: entry.date)
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) { // ot-lint:allow
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 1) { // ot-lint:allow
                     Text("NEXT UP")
-                        .font(.system(size: 13, weight: .semibold)).tracking(0.6)
-                        .foregroundStyle(OT.labelTertiary).padding(.horizontal, 4)
+                        .font(.otFootnote.weight(.semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(OT.labelTertiary)
+                        .padding(.horizontal, OTSpace.xxs)
                     Text(item.project)
-                        .font(.system(size: 17, weight: .semibold)).tracking(-0.4)
-                        .foregroundStyle(OT.labelPrimary).lineLimit(1)
+                        .font(.otHeadline)
+                        .tracking(-0.4)
+                        .foregroundStyle(OT.labelPrimary)
+                        .lineLimit(1)
                     Text(item.due.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
-                        .font(.system(size: 13)).tracking(-0.1).foregroundStyle(OT.labelSecondary)
+                        .font(.otFootnote)
+                        .tracking(-0.1)
+                        .foregroundStyle(OT.labelSecondary)
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: OTSpace.xs)
                 TimeLeft(number: left.number, unit: left.unit, numberSize: 44, unitSize: 17)
             }
             PieceBar(pieces: item.pieces, showLabels: true)
             if let then = entry.then {
                 Text("Then · \(then.project) · \(then.due.formatted(.dateTime.weekday(.abbreviated)))")
-                    .font(.system(size: 12)).foregroundStyle(OT.labelTertiary).lineLimit(1)
+                    .font(.otCaption)
+                    .foregroundStyle(OT.labelTertiary)
+                    .lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -125,20 +139,28 @@ struct NextAuditionWidgetView: View {
         let left = otTimeLeft(until: item.due, from: entry.date)
         return VStack(alignment: .leading, spacing: 0) {
             Text("\(left.number)\(left.unit) · \(item.project)")
-                .font(.system(size: 13, weight: .semibold)).tracking(-0.1).lineLimit(1)
+                .font(.otFootnote.weight(.semibold))
+                .tracking(-0.1)
+                .lineLimit(1)
             Text(item.progressLine)
-                .font(.system(size: 11, weight: .semibold)).tracking(0.06)
-                .foregroundStyle(.secondary).lineLimit(1)
+                .font(.otCaption.weight(.semibold))
+                .tracking(0.06)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var empty: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: OTSpace.xxs) {
             Image(systemName: "movieclapper.fill").foregroundStyle(OT.accent)
-            Text("No auditions due").font(.system(size: 15, weight: .semibold)).foregroundStyle(OT.labelPrimary)
+            Text("No auditions due")
+                .font(.otSubhead.weight(.semibold))
+                .foregroundStyle(OT.labelPrimary)
             if family != .accessoryRectangular {
-                Text("Add one in OneTake").font(.system(size: 12)).foregroundStyle(OT.labelSecondary)
+                Text("Add one in OneTake")
+                    .font(.otCaption)
+                    .foregroundStyle(OT.labelSecondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -156,9 +178,14 @@ struct TimeLeft: View {
     var color: Color = OT.due
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 2) {
-            Text(number).font(.system(size: numberSize, weight: .bold)).tracking(-0.8).monospacedDigit()
-            Text(unit).font(.system(size: unitSize, weight: .semibold)).tracking(-0.4)
+        HStack(alignment: .firstTextBaseline, spacing: OTSpace.xxs) {
+            Text(number)
+                .font(.system(size: numberSize, weight: .bold)) // ot-lint:allow
+                .tracking(-0.8)
+                .monospacedDigit()
+            Text(unit)
+                .font(.system(size: unitSize, weight: .semibold)) // ot-lint:allow
+                .tracking(-0.4)
         }
         .foregroundStyle(color)
     }
@@ -169,12 +196,12 @@ struct ReadinessDots: View {
     let pieces: [WidgetSnapshot.Piece]
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: OTSpace.xxs) {
             ForEach(Array(pieces.prefix(8).enumerated()), id: \.offset) { _, piece in
                 switch piece.status {
-                case .done: Circle().fill(OT.accent).frame(width: 7, height: 7)
-                case .next: Circle().fill(OT.accent.opacity(0.45)).frame(width: 7, height: 7)
-                case .todo: Circle().strokeBorder(OT.labelTertiary, lineWidth: 1.2).frame(width: 7, height: 7)
+                case .done: Circle().fill(OT.accent).frame(width: 7, height: 7) // ot-lint:allow
+                case .next: Circle().fill(OT.accent.opacity(0.45)).frame(width: 7, height: 7) // ot-lint:allow
+                case .todo: Circle().strokeBorder(OT.labelTertiary, lineWidth: 1.2).frame(width: 7, height: 7) // ot-lint:allow
                 }
             }
         }
@@ -193,19 +220,22 @@ struct PieceBar: View {
     var todoColor: Color = OT.fillQuiet
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: OTSpace.xs) {
             HStack(spacing: spacing) {
                 ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
-                    RoundedRectangle(cornerRadius: 3).fill(color(piece.status)).frame(height: 6)
+                    RoundedRectangle(cornerRadius: OTRadius.xs)
+                        .fill(color(piece.status))
+                        .frame(height: 6) // ot-lint:allow
                 }
             }
             if showLabels {
                 HStack(spacing: spacing) {
                     ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                         Text(piece.title)
-                            .font(.system(size: 12, weight: piece.status == .next ? .semibold : .regular))
+                            .font(.otCaption.weight(piece.status == .next ? .semibold : .regular))
                             .foregroundStyle(piece.status == .next ? OT.accent : piece.status == .done ? OT.labelSecondary : OT.labelTertiary)
-                            .lineLimit(1).minimumScaleFactor(0.8)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
