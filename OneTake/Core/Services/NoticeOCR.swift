@@ -4,6 +4,24 @@ import PDFKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
+/// Structured errors surfaced during notice/sides document extraction.
+enum NoticeImportError: Error, LocalizedError, Sendable, Equatable {
+    case encryptedPDF
+    case corruptDocument
+    case unsupportedFormat
+
+    var errorDescription: String? {
+        switch self {
+        case .encryptedPDF:
+            return "This PDF is password-protected. Unlock or export an unencrypted copy and try again."
+        case .corruptDocument:
+            return "This document could not be read. It may be damaged or incomplete."
+        case .unsupportedFormat:
+            return "This file format is not supported for text extraction."
+        }
+    }
+}
+
 /// Real, on-device text extraction for Add Audition's "bring it in" paths — a photo, a scan, or a
 /// file all end up as plain text here, which is what actually gets parsed. Nothing leaves the
 /// iPhone: Vision OCR and PDFKit both run entirely on-device.
@@ -81,10 +99,14 @@ enum NoticeOCR {
     // MARK: - Single-image recognition
 
     private static func recognizeText(in image: UIImage) -> String {
+        recognizeLayout(in: image, pageIndex: 0).text
+    }
+
+    private static func recognizeLayout(in image: UIImage, pageIndex: Int) -> (lines: [LayoutLine], text: String) {
         autoreleasepool {
             guard let cgImage = normalizedCGImage(image) else {
                 print("[NoticeOCR] no CGImage for this UIImage")
-                return ""
+                return ([], "")
             }
             // Pass 1: Try normalized CGImage directly (preserves fine glyphs, periods, email syntax)
             let primaryBoxes = performVisionOCRBoxes(on: cgImage)
@@ -156,26 +178,28 @@ enum NoticeOCR {
                 }
 
                 if let candidateCG {
-                    let cleanEnlargedResult = performVisionOCR(on: candidateCG)
-                    if isBetterOCRResult(cleanEnlargedResult, than: bestResult) {
-                        bestResult = cleanEnlargedResult
-                    }
-                    if isWeakOCR(bestResult), let processedEnlarged = enhancedCGImage(candidateCG) {
-                        let enlargedResult = performVisionOCR(on: processedEnlarged)
-                        if isBetterOCRResult(enlargedResult, than: bestResult) {
-                            bestResult = enlargedResult
-                        }
-                    }
-                    if isWeakOCR(bestResult), let invertedEnlarged = enhancedCGImage(candidateCG, forceInvert: true) {
-                        let invertedResult = performVisionOCR(on: invertedEnlarged)
-                        if isBetterOCRResult(invertedResult, than: bestResult) {
-                            bestResult = invertedResult
+                    let candidateBuilders: [() -> CGImage?] = [
+                        { candidateCG },
+                        { enhancedCGImage(candidateCG) },
+                        { enhancedCGImage(candidateCG, forceInvert: true) }
+                    ]
+                    for buildVariant in candidateBuilders {
+                        guard isWeakOCR(bestResult) else { break }
+                        guard let variant = buildVariant() else { continue }
+                        let variantBoxes = performVisionOCRBoxes(on: variant)
+                        let variantText = OCRLayoutReconstructor.reconstruct(boxes: variantBoxes)
+                        if isBetterOCRResult(variantText, than: bestResult) {
+                            mergedBoxes = variantBoxes
+                            bestResult = variantText
                         }
                     }
                 }
             }
 
-            return bestResult
+            let layoutLines = mergedBoxes.map {
+                LayoutLine(text: $0.text, rect: $0.rect, pageIndex: pageIndex)
+            }
+            return (layoutLines, bestResult)
         }
     }
 
@@ -294,12 +318,6 @@ enum NoticeOCR {
         context.interpolationQuality = .high
         context.draw(source, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
         return context.makeImage()
-    }
-
-    /// Performs Vision OCR across accurate and fast recognition levels, returning reconstructed text.
-    private static func performVisionOCR(on cgImage: CGImage) -> String {
-        let boxes = performVisionOCRBoxes(on: cgImage)
-        return OCRLayoutReconstructor.reconstruct(boxes: boxes)
     }
 
     /// Performs Vision OCR and returns raw 2D bounding boxes before layout reconstruction.
@@ -543,60 +561,118 @@ enum NoticeOCR {
         }
     }
 
-    /// Extracts a multi-page document preserving page boundaries for hierarchical chunking.
-    static func extractDocument(fromFileAt url: URL) async -> ExtractedDocument? {
+    /// Extracts a multi-page `LayoutDocument` preserving normalized line geometry and page boundaries.
+    static func extractLayoutDocument(fromFileAt url: URL) async throws -> LayoutDocument {
         switch url.pathExtension.lowercased() {
         case "pdf":
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
-            guard let doc else { return nil }
-            var pages: [String] = []
-            for i in 0..<doc.pageCount {
-                guard let page = doc.page(at: i) else {
-                    pages.append("")
-                    continue
-                }
-                let extractedText = page.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if looksReadable(extractedText) {
-                    pages.append(extractedText)
-                } else if let image = renderPDFPage(page) {
-                    // PDFs can mix selectable text and scanned/image-only pages. OCR each page
-                    // independently so a readable first page doesn't hide missing later pages.
-                    let recognized = await recognizeText(in: [image]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    pages.append(looksReadable(recognized) ? recognized : extractedText)
-                } else {
-                    pages.append(extractedText)
-                }
-            }
-            let document = ExtractedDocument(pages: pages)
-            return looksReadable(document.fullText) ? document : nil
+            guard let doc else { throw NoticeImportError.corruptDocument }
+            return try await extractPDFLayoutDocument(from: doc)
         case "rtf":
             guard let data = try? Data(contentsOf: url),
-                  let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
-            else { return nil }
+                  let attributed = try? NSAttributedString(
+                    data: data,
+                    options: [.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+                  ) else {
+                throw NoticeImportError.corruptDocument
+            }
             let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard looksReadable(text) else { return nil }
-            let rawPages = text.components(separatedBy: "\u{000C}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            return ExtractedDocument(pages: rawPages.isEmpty ? [text] : rawPages)
+            guard looksReadable(text) else { throw NoticeImportError.corruptDocument }
+            return syntheticLayoutDocument(from: text)
         default:
-            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
-                var pages: [String] = []
-                for i in 0..<doc.pageCount {
-                    let pageStr = doc.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    pages.append(pageStr)
+            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }) {
+                if doc.isEncrypted && doc.isLocked {
+                    throw NoticeImportError.encryptedPDF
                 }
-                if looksReadable(pages.joined(separator: "\n")) {
-                    return ExtractedDocument(pages: pages)
+                if doc.pageCount > 0, let pdfLayout = try? await extractPDFLayoutDocument(from: doc) {
+                    return pdfLayout
                 }
             }
             if let str = try? String(contentsOf: url, encoding: .utf8) {
                 let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
-                if looksReadable(trimmed) {
-                    let rawPages = trimmed.components(separatedBy: "\u{000C}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                    return ExtractedDocument(pages: rawPages.isEmpty ? [trimmed] : rawPages)
-                }
+                guard looksReadable(trimmed) else { throw NoticeImportError.corruptDocument }
+                return syntheticLayoutDocument(from: trimmed)
             }
+            if (try? Data(contentsOf: url)) != nil {
+                throw NoticeImportError.unsupportedFormat
+            }
+            throw NoticeImportError.corruptDocument
+        }
+    }
+
+    private static func extractPDFLayoutDocument(from doc: PDFDocument) async throws -> LayoutDocument {
+        if doc.isEncrypted && doc.isLocked {
+            throw NoticeImportError.encryptedPDF
+        }
+        guard doc.pageCount > 0 else {
+            throw NoticeImportError.corruptDocument
+        }
+
+        var layoutPages: [[LayoutLine]] = []
+        var reconstructedPages: [String] = []
+        layoutPages.reserveCapacity(doc.pageCount)
+        reconstructedPages.reserveCapacity(doc.pageCount)
+
+        for i in 0..<doc.pageCount {
+            guard let page = doc.page(at: i) else {
+                layoutPages.append([])
+                reconstructedPages.append("")
+                continue
+            }
+            let geometryLines = PDFGeometryExtractor.extractLines(from: page, pageIndex: i)
+            let reconstructed = OCRLayoutReconstructor.reconstruct(layoutLines: geometryLines)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if looksReadable(reconstructed) {
+                layoutPages.append(geometryLines)
+                reconstructedPages.append(reconstructed)
+            } else if let image = renderPDFPage(page) {
+                // PDFs can mix selectable text and scanned/image-only pages. OCR each page
+                // independently so a readable first page doesn't hide missing later pages.
+                let recognized = await Task.detached(priority: .userInitiated) {
+                    recognizeLayout(in: image, pageIndex: i)
+                }.value
+                let ocrText = recognized.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if looksReadable(ocrText) {
+                    layoutPages.append(recognized.lines)
+                    reconstructedPages.append(ocrText)
+                } else {
+                    layoutPages.append(geometryLines)
+                    reconstructedPages.append(reconstructed)
+                }
+            } else {
+                layoutPages.append(geometryLines)
+                reconstructedPages.append(reconstructed)
+            }
+        }
+
+        let document = LayoutDocument(pages: layoutPages, reconstructedPages: reconstructedPages)
+        guard looksReadable(document.fullText) else {
+            throw NoticeImportError.corruptDocument
+        }
+        return document
+    }
+
+    private static func syntheticLayoutDocument(from text: String) -> LayoutDocument {
+        let rawPages = text
+            .components(separatedBy: "\u{000C}")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let pagesText = rawPages.isEmpty ? [text] : rawPages
+        let layoutPages = pagesText.enumerated().map { idx, pageText in
+            PDFGeometryExtractor.syntheticLines(from: pageText, pageIndex: idx)
+        }
+        return LayoutDocument(pages: layoutPages, reconstructedPages: pagesText)
+    }
+
+    /// Extracts a multi-page document preserving page boundaries for hierarchical chunking.
+    static func extractDocument(fromFileAt url: URL) async -> ExtractedDocument? {
+        guard let layoutDocument = try? await extractLayoutDocument(fromFileAt: url) else {
             return nil
         }
+        let document = ExtractedDocument(pages: layoutDocument.reconstructedPages)
+        return looksReadable(document.fullText) ? document : nil
     }
 
     /// Extracts text from a file the user picked with the file importer: PDF via PDFKit, RTF via
@@ -604,71 +680,18 @@ enum NoticeOCR {
     /// without selectable text, automatically rasterizes its pages and runs Apple Vision OCR.
     /// Caller is responsible for the security-scoped resource around `url`.
     static func extractText(fromFileAt url: URL) async -> String? {
-        if url.pathExtension.lowercased() == "pdf" {
-            return await extractDocument(fromFileAt: url)?.fullText
+        if let doc = await extractDocument(fromFileAt: url) {
+            return doc.fullText
         }
-        switch url.pathExtension.lowercased() {
-        case "pdf":
-            let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
-            guard let doc else { return nil }
-            var text = ""
-            for i in 0..<doc.pageCount {
-                if let pageStr = doc.page(at: i)?.string {
-                    text += pageStr + "\n"
-                }
-            }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if looksReadable(trimmed) { return trimmed }
-
-            // Scanned PDF fallback: render pages to high-res images and run on-device Apple Vision OCR
-            var images: [UIImage] = []
-            let pageLimit = min(doc.pageCount, 30)
-            if doc.pageCount > 30 {
-                #if DEBUG
-                print("[NoticeOCR] Note: Scanned PDF has \(doc.pageCount) pages; processing first \(pageLimit) pages to protect memory.")
-                #endif
-            }
-            for i in 0..<pageLimit {
-                if let page = doc.page(at: i), let img = renderPDFPage(page) {
-                    images.append(img)
-                }
-            }
-            if !images.isEmpty {
-                let ocrText = await recognizeText(in: images)
-                let ocrTrimmed = ocrText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if looksReadable(ocrTrimmed) { return ocrTrimmed }
-            }
-            // If OCR produced nothing but digital PDF text was extracted and readable, return it
-            return looksReadable(trimmed) ? trimmed : nil
-        case "rtf":
-            guard let data = try? Data(contentsOf: url),
-                  let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
-            else { return nil }
-            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return looksReadable(text) ? text : nil
-        default:
-            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }), doc.pageCount > 0 {
-                var text = ""
-                for i in 0..<doc.pageCount {
-                    if let pageStr = doc.page(at: i)?.string {
-                        text += pageStr + "\n"
-                    }
-                }
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if looksReadable(trimmed) { return trimmed }
-            }
-            if let str = try? String(contentsOf: url, encoding: .utf8), looksReadable(str) { return str }
-            if let str = try? String(contentsOf: url, encoding: .ascii), looksReadable(str) { return str }
-            if let str = try? String(contentsOf: url, encoding: .isoLatin1), looksReadable(str) { return str }
-            if let data = try? Data(contentsOf: url), let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii), looksReadable(str) {
-                return str
-            }
-            return nil
-        }
+        return extractSynchronousText(fromFileAt: url)
     }
 
     /// Synchronous quick extraction for digital text files.
     static func extractText(fromFileAt url: URL) -> String? {
+        extractSynchronousText(fromFileAt: url)
+    }
+
+    private static func extractSynchronousText(fromFileAt url: URL) -> String? {
         switch url.pathExtension.lowercased() {
         case "pdf":
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }

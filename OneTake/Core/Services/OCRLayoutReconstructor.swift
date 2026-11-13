@@ -1,6 +1,52 @@
 import Foundation
 import CoreGraphics
 
+/// A normalized line-level text element in Vision [0, 1] page coordinates
+/// (origin at bottom-left, X increasing right, Y increasing up).
+struct LayoutLine: Sendable, Equatable {
+    let text: String
+    let rect: CGRect
+    let pageIndex: Int
+    let estimatedIndent: CGFloat
+
+    init(
+        text: String,
+        rect: CGRect,
+        pageIndex: Int,
+        estimatedIndent: CGFloat? = nil
+    ) {
+        self.text = text
+        self.rect = rect
+        self.pageIndex = pageIndex
+        self.estimatedIndent = estimatedIndent ?? rect.minX
+    }
+}
+
+/// Multi-page extracted document preserving normalized line geometry and reconstructed page text.
+struct LayoutDocument: Sendable, Equatable {
+    let pages: [[LayoutLine]]
+    let reconstructedPages: [String]
+
+    var fullText: String {
+        reconstructedPages.joined(separator: "\n\n")
+    }
+
+    var pageCount: Int {
+        max(pages.count, reconstructedPages.count)
+    }
+
+    var noticeHeaderPagesText: String {
+        reconstructedPages.prefix(2).joined(separator: "\n\n")
+    }
+
+    init(pages: [[LayoutLine]], reconstructedPages: [String]? = nil) {
+        self.pages = pages
+        self.reconstructedPages = reconstructedPages ?? pages.map {
+            OCRLayoutReconstructor.reconstruct(layoutLines: $0)
+        }
+    }
+}
+
 /// 2D visual layout reconstructor for OCR observations.
 /// Solves multi-column casting breakdown pairing ("Role: Lead", "Date: 25 Nov") and
 /// prevents watermarks, column interleaving, or out-of-order column lines from corrupting dialogue flow.
@@ -29,6 +75,24 @@ struct OCRLayoutReconstructor {
         let leftBoxes: [TextBoundingBox]
         let rightBoxes: [TextBoundingBox]
         let footerBoxes: [TextBoundingBox]
+    }
+
+    /// Reconstructs normalized `LayoutLine` observations into reading-order lines using the shared
+    /// table-pairing and two-column gutter pipeline.
+    static func reconstruct(layoutLines: [LayoutLine]) -> String {
+        guard !layoutLines.isEmpty else { return "" }
+        let boxes = layoutLines.map { line -> TextBoundingBox in
+            let minX = max(0, min(1, line.rect.minX))
+            let minY = max(0, min(1, line.rect.minY))
+            let maxX = max(minX, min(1, line.rect.maxX))
+            let maxY = max(minY, min(1, line.rect.maxY))
+            return TextBoundingBox(
+                text: line.text,
+                rect: CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY),
+                confidence: 1.0
+            )
+        }
+        return reconstruct(boxes: boxes)
     }
 
     /// Reconstructs a list of bounding boxes into reading-order lines with table-column pairing
@@ -159,7 +223,7 @@ struct OCRLayoutReconstructor {
 
     /// Detects a vertical column gutter separating independent columns (e.g. Left: Roles, Right: Dates).
     private static func detectTwoColumns(boxes: [TextBoundingBox]) -> TwoColumnPartition? {
-        guard boxes.count >= 6 else { return nil }
+        guard boxes.count >= 4 else { return nil }
 
         // Test potential gutter split boundaries in the middle 35% - 65% of the page
         let candidateXs: [CGFloat] = [0.38, 0.40, 0.42, 0.45, 0.48, 0.50, 0.52, 0.55, 0.58, 0.60, 0.62]
@@ -191,7 +255,7 @@ struct OCRLayoutReconstructor {
             }
 
             // Must have substantial content in both columns
-            guard leftBoxes.count >= 3, rightBoxes.count >= 3 else { continue }
+            guard leftBoxes.count >= 2, rightBoxes.count >= 2 else { continue }
 
             // Vertical range of columns
             let leftTop = leftBoxes.map(\.rect.maxY).max() ?? 0
@@ -209,7 +273,9 @@ struct OCRLayoutReconstructor {
             let leftEdge = leftBoxes.map(\.rect.maxX).max() ?? 0
             let rightEdge = rightBoxes.map(\.rect.minX).min() ?? 1
             let gutterWidth = rightEdge - leftEdge
-            guard sharedHeight > 0.15, gutterWidth >= 0.08 else { continue }
+            let minColumnSpan = min(leftTop - leftBottom, rightTop - rightBottom)
+            let hasAlignedShortColumns = sharedHeight > 0 && minColumnSpan > 0 && (sharedHeight / minColumnSpan) >= 0.5 && gutterWidth >= 0.10
+            guard (sharedHeight > 0.15 || hasAlignedShortColumns), gutterWidth >= 0.08 else { continue }
 
             // Classify crossing boxes: top crossing boxes are headers, bottom crossing boxes are footers
             var unassignedCrossing: [TextBoundingBox] = []

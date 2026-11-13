@@ -32,6 +32,7 @@
 		147F8BFD925BA74680A85A71 /* PracticeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */; };
 		197EC6D70F6160902E817A8E /* SendFailedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957ABF69D00593FC9B2BBADD /* SendFailedView.swift */; };
 		1C5C9BDBA6B5666D9AE7EC63 /* SlateStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22931DCB24C8F6C94C778502 /* SlateStage.swift */; };
+		219F0AFF6C8F0EA671F97ACA /* GeometryAndFormatParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FFF4E72CAEDD26CF86DE20 /* GeometryAndFormatParserTests.swift */; };
 		220FFEBDEA8026D1F22EFBC8 /* FieldEvidenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */; };
 		233BB04071439B2528223DB3 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */; };
 		248F8871CF3CD0CDED7D0D04 /* TakesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7217EF455FEFCD94A243D9 /* TakesView.swift */; };
@@ -192,6 +193,7 @@
 		FD8F03207382D227F9901449 /* OneTakeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 12B8FC24F5C71C2CAC296961 /* OneTakeUI */; };
 		FDC7A102C877A0A333D2B7F7 /* ProfileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC8484EA25EFB11C3E9573 /* ProfileModels.swift */; };
 		FE083DA350754CF63E78F99C /* AuditionActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9676917ACB7373FAB6B00F /* AuditionActivity.swift */; };
+		FE843CC5BA2F61B2C4AB73BD /* PDFGeometryExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CBF56DE6A2AEC93F88C079 /* PDFGeometryExtractor.swift */; };
 		FF2066EC65202B9D46BDB6FA /* ReaderTrackPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEC49289E1EC61B12136CEC /* ReaderTrackPlayer.swift */; };
 /* End PBXBuildFile section */
 
@@ -279,6 +281,7 @@
 		3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeParserTests.swift; sourceTree = "<group>"; };
 		3F18102B007D3ED5412F7B1E /* AuditionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionDetailView.swift; sourceTree = "<group>"; };
 		421506E5D25D69A219EAD138 /* PackageStepsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageStepsBar.swift; sourceTree = "<group>"; };
+		43FFF4E72CAEDD26CF86DE20 /* GeometryAndFormatParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryAndFormatParserTests.swift; sourceTree = "<group>"; };
 		460F7FE883F565AADEE6B75D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4837E566F04BDB97DF56C497 /* CameraGuidanceSpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraGuidanceSpeaker.swift; sourceTree = "<group>"; };
 		4C7F2C48BCCB512CB89891E2 /* OneTakeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OneTakeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -383,6 +386,7 @@
 		CC376E296C1D6BCD7673B002 /* AccountAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAuth.swift; sourceTree = "<group>"; };
 		CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldEvidenceSection.swift; sourceTree = "<group>"; };
 		CFFF4AC426749F4C75944696 /* RecallGapHintText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecallGapHintText.swift; sourceTree = "<group>"; };
+		D1CBF56DE6A2AEC93F88C079 /* PDFGeometryExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFGeometryExtractor.swift; sourceTree = "<group>"; };
 		D3C862636A91E49DDCE338B8 /* ScriptElementClassifier.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = ScriptElementClassifier.mlmodel; sourceTree = "<group>"; };
 		D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaExporterTests.swift; sourceTree = "<group>"; };
 		D5BDCF145FDBD841EE702951 /* ZipArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchiveTests.swift; sourceTree = "<group>"; };
@@ -806,6 +810,7 @@
 			children = (
 				5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */,
 				B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */,
+				43FFF4E72CAEDD26CF86DE20 /* GeometryAndFormatParserTests.swift */,
 				D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */,
 				9B3FF7EDCFB5D15E08D9EFB4 /* ModelTests.swift */,
 				3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */,
@@ -866,6 +871,7 @@
 				DB3D44D2BF13465D3C9A1425 /* NoticeParser+Detectors.swift */,
 				349651436C82AD6C605D23DD /* OCRLayoutReconstructor.swift */,
 				7D3245711D49BABB2BD45DD8 /* OnDeviceIntelligence.swift */,
+				D1CBF56DE6A2AEC93F88C079 /* PDFGeometryExtractor.swift */,
 				AF17CDBA0ED165A15FE03C34 /* Reminders.swift */,
 				82CE7508CCE609B0A14FF2A5 /* SilenceTrimmer.swift */,
 				362CEE988894A0013A23BB66 /* TapeAnalyzer.swift */,
@@ -1095,6 +1101,7 @@
 			files = (
 				91AD8EEAF54A7A52D5AC6921 /* CameraAndImageTests.swift in Sources */,
 				74D38FFB7A26798AEA314EF9 /* DesignSystemTests.swift in Sources */,
+				219F0AFF6C8F0EA671F97ACA /* GeometryAndFormatParserTests.swift in Sources */,
 				BC3BB8EB674D505E7EE08457 /* MediaExporterTests.swift in Sources */,
 				ECC7A89D55FB6BDEDF79FB0A /* ModelTests.swift in Sources */,
 				AEA03AA9B6CBD5EC73F0B329 /* NoticeParserTests.swift in Sources */,
@@ -1179,6 +1186,7 @@
 				05FE425E8DF2A8B368185FDB /* OnboardingFlow.swift in Sources */,
 				79265908887FC29123E33E90 /* OneTakeApp.swift in Sources */,
 				7AB370BB64897BD02B0785E3 /* OneTakeUIExports.swift in Sources */,
+				FE843CC5BA2F61B2C4AB73BD /* PDFGeometryExtractor.swift in Sources */,
 				BA8DA81A6467676A34AAC0C9 /* PackageFormatSheet.swift in Sources */,
 				EA3DD6F35D3A9FA28EA07DDF /* PackageSheet.swift in Sources */,
 				3042E8B4DDC45FC5F7BD2DBC /* PackageStepsBar.swift in Sources */,
