@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Unit tests for the Task 5 offline v2 corpus generator and evaluator."""
+"""Unit tests for the Task 5 & Task 6 offline v2 corpus, training, eval, and release scripts."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 import zlib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -377,6 +379,333 @@ class TestCorpusPipeline(unittest.TestCase):
             self.assertEqual(report["samples"], 2)
             self.assertEqual(report["exact_match"]["submission_email"], 1.0)
             self.assertEqual(report["core_f1"], 1.0)
+
+
+class TestColabTrainingAndRelease(unittest.TestCase):
+    def test_needle3_dry_run_config_and_command_validation(self) -> None:
+        from scripts.colab.train_needle3_lora import (
+            Needle3TrainConfig,
+            build_cactus_convert_command,
+            validate_needle_config,
+        )
+
+        cfg = Needle3TrainConfig()
+        validate_needle_config(cfg)
+        cmd = build_cactus_convert_command(
+            base_model=cfg.base_model,
+            output_dir=cfg.export_dir,
+            lora_dir=cfg.lora_dir,
+            bits=cfg.quant_bits,
+        )
+        self.assertEqual(cmd[:2], ["cactus", "convert"])
+        self.assertIn("--lora", cmd)
+        self.assertEqual(cmd[-2:], ["--bits", "2"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            build_corpus(output_dir=tmp_dir, train_count=4, eval_count=2, seed=11)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "train_needle3_lora.py"),
+                    "--dry-run",
+                    "--require-data",
+                    "--train-file",
+                    str(tmp_dir / "train_needle.jsonl"),
+                    "--eval-file",
+                    str(tmp_dir / "eval_needle.jsonl"),
+                    "--output-dir",
+                    str(tmp_dir / "out"),
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["config"]["quant_bits"], 2)
+            self.assertEqual(payload["config"]["max_seq_len"], 1024)
+            self.assertEqual(payload["config"]["output_name"], "needle3-onetake-cq2")
+            self.assertIn("--bits", payload["cactus_convert_command"])
+            self.assertIn("2", payload["cactus_convert_command"])
+            self.assertTrue(any("eval_offline_v2.py" in part for part in payload["eval_command"]))
+            self.assertEqual(payload["data_status"]["train_rows"], 4)
+            self.assertEqual(payload["data_status"]["eval_rows"], 2)
+
+            bad_proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "train_needle3_lora.py"),
+                    "--dry-run",
+                    "--max-seq-len",
+                    "2048",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(bad_proc.returncode, 0)
+
+    def test_lfm25_vl_dry_run_config_and_fallback_model(self) -> None:
+        from scripts.colab.train_lfm25_vl_lora import (
+            LFM25VLTrainConfig,
+            validate_vlm_config,
+        )
+
+        cfg = LFM25VLTrainConfig()
+        validate_vlm_config(cfg)
+        self.assertEqual(cfg.model_id, "LiquidAI/LFM2.5-VL-450M")
+        self.assertEqual(cfg.fallback_model_id, "LiquidAI/LFM2-VL-450M")
+        self.assertEqual(cfg.quant_bits, 4)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            build_corpus(output_dir=tmp_dir, train_count=4, eval_count=2, seed=17)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "train_lfm25_vl_lora.py"),
+                    "--dry-run",
+                    "--require-data",
+                    "--train-file",
+                    str(tmp_dir / "train_vlm.jsonl"),
+                    "--eval-file",
+                    str(tmp_dir / "eval_vlm.jsonl"),
+                    "--output-dir",
+                    str(tmp_dir / "out_vlm"),
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["config"]["model_id"], "LiquidAI/LFM2.5-VL-450M")
+            self.assertEqual(payload["config"]["fallback_model_id"], "LiquidAI/LFM2-VL-450M")
+            self.assertEqual(payload["config"]["output_name"], "lfm2.5-vl-450m-onetake-cq4")
+            self.assertEqual(payload["config"]["quant_bits"], 4)
+            self.assertEqual(payload["cactus_convert_command"][:3], ["cactus", "convert", "LiquidAI/LFM2.5-VL-450M"])
+            self.assertEqual(payload["cactus_convert_command"][-2:], ["--bits", "4"])
+            self.assertEqual(payload["data_status"]["train_rows"], 4)
+            self.assertEqual(payload["data_status"]["eval_rows"], 2)
+
+            fallback_proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "train_lfm25_vl_lora.py"),
+                    "--dry-run",
+                    "--model-id",
+                    "LiquidAI/LFM2-VL-450M",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(fallback_proc.returncode, 0, msg=fallback_proc.stderr)
+            fallback_payload = json.loads(fallback_proc.stdout)
+            self.assertEqual(fallback_payload["cactus_convert_command"][2], "LiquidAI/LFM2-VL-450M")
+
+            bad_bits_proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "train_lfm25_vl_lora.py"),
+                    "--dry-run",
+                    "--bits",
+                    "5",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(bad_bits_proc.returncode, 0)
+
+    def test_publish_release_manifest_sha256_and_deterministic_zip(self) -> None:
+        from scripts.colab.publish_release import (
+            REQUIRED_MANIFEST_KEYS,
+            publish_release,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            weights_dir = tmp_dir / "lfm2.5-vl-450m-onetake-cq4"
+            weights_dir.mkdir(parents=True)
+            (weights_dir / "config.json").write_text('{"arch": "lfm2.5-vl", "bits": 4}\n', encoding="utf-8")
+            (weights_dir / "weights.bin").write_bytes(b"CQ4_FAKE_WEIGHT_BYTES_0123456789" * 64)
+
+            eval_report_path = tmp_dir / "eval_report.json"
+            eval_report_path.write_text(
+                json.dumps(
+                    {
+                        "samples": 500,
+                        "valid_json_rate": 0.996,
+                        "schema_valid_rate": 0.992,
+                        "exact_match": {
+                            "submission_email": 0.99,
+                            "sides_link": 0.985,
+                        },
+                        "core_f1": 0.935,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            out_a = tmp_dir / "release_a"
+            result_a = publish_release(
+                weights_path=weights_dir,
+                eval_report_path=eval_report_path,
+                output_dir=out_a,
+                model_id="lfm2.5-vl-450m-onetake-cq4",
+                version="2.0.0",
+                min_app_version="2.0.0",
+                download_url="https://huggingface.co/OneTake/models/resolve/main/lfm2.5-vl-450m-onetake-cq4-2.0.0.zip",
+                target="local",
+            )
+            manifest_path = Path(result_a["manifest_path"])
+            archive_path = Path(result_a["archive_path"])
+            self.assertTrue(manifest_path.exists())
+            self.assertTrue(archive_path.exists())
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertTrue(set(REQUIRED_MANIFEST_KEYS).issubset(manifest.keys()))
+            self.assertEqual(manifest["modelId"], "lfm2.5-vl-450m-onetake-cq4")
+            self.assertEqual(manifest["version"], "2.0.0")
+            self.assertEqual(manifest["minAppVersion"], "2.0.0")
+            self.assertEqual(
+                manifest["downloadURL"],
+                "https://huggingface.co/OneTake/models/resolve/main/lfm2.5-vl-450m-onetake-cq4-2.0.0.zip",
+            )
+
+            actual_bytes = archive_path.read_bytes()
+            expected_sha256 = hashlib.sha256(actual_bytes).hexdigest()
+            self.assertEqual(manifest["byteSize"], len(actual_bytes))
+            self.assertEqual(manifest["sha256"], expected_sha256)
+
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                self.assertEqual(sorted(zf.namelist()), ["config.json", "weights.bin"])
+
+            # Packaging the same weights directory again must yield identical SHA-256
+            out_b = tmp_dir / "release_b"
+            result_b = publish_release(
+                weights_path=weights_dir,
+                eval_report_path=eval_report_path,
+                output_dir=out_b,
+                model_id="lfm2.5-vl-450m-onetake-cq4",
+                version="2.0.0",
+                min_app_version="2.0.0",
+                download_url="https://huggingface.co/OneTake/models/resolve/main/lfm2.5-vl-450m-onetake-cq4-2.0.0.zip",
+                target="local",
+            )
+            self.assertEqual(result_a["manifest"]["sha256"], result_b["manifest"]["sha256"])
+
+            # Dry-run CLI with huggingface target must not require huggingface_hub or network
+            dry_proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "publish_release.py"),
+                    "--weights-dir",
+                    str(weights_dir),
+                    "--eval-report",
+                    str(eval_report_path),
+                    "--output-dir",
+                    str(tmp_dir / "release_dry"),
+                    "--model-id",
+                    "lfm2.5-vl-450m-onetake-cq4",
+                    "--version",
+                    "2.0.0",
+                    "--target",
+                    "huggingface",
+                    "--hf-repo",
+                    "OneTake/offline-v2-models",
+                    "--dry-run",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(dry_proc.returncode, 0, msg=dry_proc.stderr)
+            dry_payload = json.loads(dry_proc.stdout)
+            self.assertTrue(dry_payload["dry_run"])
+            self.assertEqual(dry_payload["manifest"]["sha256"], expected_sha256)
+
+    def test_publish_release_accuracy_gate_thresholds(self) -> None:
+        from scripts.colab.publish_release import check_accuracy_gate
+
+        # Boundary pass
+        passed = check_accuracy_gate(
+            {
+                "samples": 500,
+                "exact_match": {"submission_email": 0.98, "sides_link": 0.98},
+                "core_f1": 0.90,
+            }
+        )
+        self.assertTrue(passed["passed"])
+
+        # Fail on email < 0.98
+        with self.assertRaises(ValueError):
+            check_accuracy_gate(
+                {
+                    "samples": 500,
+                    "exact_match": {"submission_email": 0.979, "sides_link": 0.99},
+                    "core_f1": 0.95,
+                }
+            )
+
+        # Fail on core_f1 < 0.90
+        with self.assertRaises(ValueError):
+            check_accuracy_gate(
+                {
+                    "samples": 500,
+                    "exact_match": {"submission_email": 0.99, "sides_link": 0.99},
+                    "core_f1": 0.899,
+                }
+            )
+
+        # CLI must exit non-zero and refuse to write manifest when gate fails
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            weights_dir = tmp_dir / "weights"
+            weights_dir.mkdir()
+            (weights_dir / "weights.bin").write_bytes(b"1234")
+            failing_report = tmp_dir / "failing_eval.json"
+            failing_report.write_text(
+                json.dumps(
+                    {
+                        "samples": 500,
+                        "exact_match": {"submission_email": 0.95, "sides_link": 0.98},
+                        "core_f1": 0.92,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out_dir = tmp_dir / "out"
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "colab" / "publish_release.py"),
+                    "--weights-dir",
+                    str(weights_dir),
+                    "--eval-report",
+                    str(failing_report),
+                    "--output-dir",
+                    str(out_dir),
+                    "--model-id",
+                    "lfm2.5-vl-450m-onetake-cq4",
+                    "--version",
+                    "2.0.0",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertFalse((out_dir / "manifest.json").exists())
 
 
 if __name__ == "__main__":
