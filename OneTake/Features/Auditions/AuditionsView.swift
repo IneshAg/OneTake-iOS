@@ -54,6 +54,16 @@ struct AuditionsView: View {
                                 .foregroundStyle(OT.labelSecondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, OTSpace.xl)
+                            if selectedTab != .active {
+                                Button("Show active auditions") {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                        selectedTab = .active
+                                    }
+                                    Haptics.tick()
+                                }
+                                .buttonStyle(.ot(.secondary, size: .small))
+                                .padding(.top, OTSpace.s)
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -222,30 +232,105 @@ struct AuditionsView: View {
     }
 
     private var header: some View {
-        VStack(spacing: OTSpace.m) {
+        VStack(alignment: .leading, spacing: OTSpace.xs) {
             HStack(alignment: .center, spacing: OTSpace.s) {
                 Text("Auditions")
                     .font(.otLargeTitle)
                     .foregroundStyle(OT.labelPrimary)
+
                 Spacer()
+
+                if !store.auditions.isEmpty {
+                    filterMenu
+                }
+
                 OTIconButton("plus", accessibilityLabel: "Add an audition") {
                     store.showAddAudition = true
                 }
                 ProfileButton { store.showProfile = true }
             }
 
-            if !store.auditions.isEmpty {
-                Picker("Filter auditions", selection: $selectedTab) {
-                    ForEach(FilterTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
+            if selectedTab != .active {
+                activeFilterBadge
             }
         }
         .padding(.horizontal, OTSpace.gutter)
         .padding(.bottom, OTSpace.s)
         .background(OT.bgCanvas)
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("Filter", selection: $selectedTab) {
+                ForEach(FilterTab.allCases) { tab in
+                    let count = countFor(tab)
+                    Label(
+                        count > 0 ? "\(tab.rawValue) (\(count))" : tab.rawValue,
+                        systemImage: filterSystemImage(for: tab)
+                    )
+                    .tag(tab)
+                }
+            }
+        } label: {
+            Image(systemName: selectedTab == .active ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                .font(.otIcon(.l))
+                .foregroundStyle(selectedTab == .active ? OT.labelPrimary : OT.accent)
+                .frame(width: 44, height: 44) // ot-lint:allow
+                .background(
+                    Circle()
+                        .fill(selectedTab == .active ? Color.white.opacity(0.12) : OT.accent.opacity(0.2)) // ot-lint:allow
+                        .background(.ultraThinMaterial, in: Circle())
+                )
+                .overlay(
+                    Circle()
+                        .stroke(selectedTab == .active ? Color.white.opacity(0.5) : OT.accent.opacity(0.6), lineWidth: 0.7) // ot-lint:allow
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(OTPressStyle(.icon))
+        .accessibilityLabel("Filter auditions. Currently showing \(selectedTab.rawValue)")
+    }
+
+    private var activeFilterBadge: some View {
+        HStack(spacing: OTSpace.xs) {
+            OTChip(
+                "Showing \(selectedTab.rawValue) (\(countFor(selectedTab)))",
+                systemImage: filterSystemImage(for: selectedTab),
+                tint: OT.accent
+            )
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    selectedTab = .active
+                }
+                Haptics.tick()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.otIcon(.s))
+                    .foregroundStyle(OT.labelTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reset to Active auditions")
+
+            Spacer()
+        }
+        .padding(.top, OTSpace.xxs)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func countFor(_ tab: FilterTab) -> Int {
+        switch tab {
+        case .active: store.active.count
+        case .submitted: store.sent.count
+        case .archived: store.archived.count
+        }
+    }
+
+    private func filterSystemImage(for tab: FilterTab) -> String {
+        switch tab {
+        case .active: "sparkles"
+        case .submitted: "paperplane.fill"
+        case .archived: "archivebox.fill"
+        }
     }
 }
 
