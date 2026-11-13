@@ -258,7 +258,11 @@ struct AuditionsView: View {
     }
 
     private var filterMenu: some View {
-        Menu {
+        OTMenuIconButton(
+            selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill",
+            accessibilityLabel: "Filter auditions. Currently showing \(selectedTab.rawValue)",
+            tintColor: selectedTab == .active ? nil : OT.accent
+        ) {
             Picker("Filter", selection: $selectedTab) {
                 ForEach(FilterTab.allCases) { tab in
                     let count = countFor(tab)
@@ -269,15 +273,7 @@ struct AuditionsView: View {
                     .tag(tab)
                 }
             }
-        } label: {
-            Image(systemName: selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                .font(.otIcon(.m, weight: .semibold))
-                .foregroundStyle(selectedTab == .active ? OT.labelPrimary : OT.accent)
-                .frame(width: 44, height: 44) // ot-lint:allow
-                .contentShape(Circle())
         }
-        .modifier(GlassButtonCompatibility(enabled: true))
-        .accessibilityLabel("Filter auditions. Currently showing \(selectedTab.rawValue)")
     }
 
     private var activeFilterBadge: some View {
