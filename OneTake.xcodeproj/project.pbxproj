@@ -519,6 +519,7 @@
 		17F019F0158DC0B3AB027252 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				31605229E48B5D29FB34B733 /* DemoModeCatalog.swift */,
 				D7084B2A74FE16A826479AE4 /* BPETokenizer.swift */,
 				12135370EA7626AAE1F89985 /* CoreMLParserRunner.swift */,
 				5A19C046137DB871790F8BE6 /* CoreMLScriptParserRunner.swift */,
@@ -558,32 +559,6 @@
 				E3ABF9BB6CAA102F14F3D4FE /* ShareViewController.swift */,
 			);
 			path = OneTakeShare;
-			sourceTree = "<group>";
-		};
-		3283BBC5AF76025C4F8D83E2 /* Persistence */ = {
-			isa = PBXGroup;
-			children = (
-				376609F267CE6C4D17246645 /* LocalBackup.swift */,
-				4D84E01FBB8E70E40D159423 /* Persistence.swift */,
-			);
-			path = Persistence;
-			sourceTree = "<group>";
-		};
-		3CE3BD69334534EEC8773A83 /* Bridges */ = {
-			isa = PBXGroup;
-			children = (
-				4837E566F04BDB97DF56C497 /* CameraGuidanceSpeaker.swift */,
-				AFF6200D8A8B211F169BB4E9 /* DocumentScannerView.swift */,
-				AE1BF20A65C0E653298E38D5 /* KeepScreenAwake.swift */,
-				A1569411E189E2CFBE4AB984 /* ReaderAudioTrimmer.swift */,
-				34ADE5709E655C12F39B1734 /* ReaderLineRecorder.swift */,
-				EFEC49289E1EC61B12136CEC /* ReaderTrackPlayer.swift */,
-				3C8C2A74AB0472CBE8C58150 /* ScriptTextEditor.swift */,
-				0F68A42EEEB97AEB53D0BCE5 /* ShareSheet.swift */,
-				B4D2FF9035789E3577CD9541 /* SpeechFollower.swift */,
-				E8F93C4304EAC4F812D89450 /* VideoTrimmer.swift */,
-			);
-			path = Bridges;
 			sourceTree = "<group>";
 		};
 		5547B660975BFD756B47DBB0 /* OneTake */ = {
@@ -646,7 +621,7 @@
 				24B649484D3F91B8AAD97DEB /* RunLinesView.swift */,
 				13E316830211E6F487E33D00 /* SceneAudioFlowView.swift */,
 				3285754951A4C509DDFABF0A /* SilentReactionCue.swift */,
-				DB0B36B294B7480472DF79C1 /* Components */,
+				0A1ED964F77F4BC9E2B71C1B /* RecordReaderReviewRow.swift */,
 			);
 			path = Prepare;
 			sourceTree = "<group>";
@@ -676,10 +651,7 @@
 		8D181F9C42CBAFB0F73905A1 /* Core */ = {
 			isa = PBXGroup;
 			children = (
-				3CE3BD69334534EEC8773A83 /* Bridges */,
-				E8D563A1F591C50D5380C491 /* Demo */,
 				17F019F0158DC0B3AB027252 /* Models */,
-				3283BBC5AF76025C4F8D83E2 /* Persistence */,
 				E15A68C5AE1135C2BBF192A6 /* Services */,
 				1889E29549D051F275E19E2A /* Store */,
 			);
@@ -691,13 +663,24 @@
 			children = (
 				C0325D12C321B003DC6C16F4 /* AddAuditionFlow.swift */,
 				53878A5700DD2BD2F1A0B5A7 /* AddDraftSidesSheet.swift */,
+				C390CBD7F82C19E1E1F91462 /* AuditionMaterialKindPicker.swift */,
+				046A195600318F6CFADD7100 /* AuditionResumePicker.swift */,
+				CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */,
 				C6E54F00A5182B469BA6BE96 /* KeyboardAutofillBar.swift */,
+				EA9C34EF1D2926C64AF0409F /* MilestoneDatesListCard.swift */,
 				F0B20E600CCBF666E2C6F656 /* MissingDetailsView.swift */,
+				F0A0BFFE02780B2CB10D5E59 /* NoticeDestinationAndNotesCards.swift */,
 				4E0B7EB471887ECAA637F32B /* NoticeErrorView.swift */,
 				6B897CB1750A41F53FF22A51 /* NoticeReviewView.swift */,
 				85CC163C7829EE87A10EDC56 /* OCRReviewSheet.swift */,
+				BD979F10FD71F886E0B18745 /* ProjectDetailsCard.swift */,
+				A10680EC51C91F4CC4AF0011 /* ReviewStepProjectView.swift */,
+				A10680EC51C91F4CC4AF0021 /* ReviewStepScenesView.swift */,
+				A10680EC51C91F4CC4AF0031 /* ReviewStepSpecsView.swift */,
+				F0C8E74565195D0807BEA41A /* RoleBreakdownCard.swift */,
 				752C11ECEAD4F7F545798CDA /* ScriptReviewAndEditView.swift */,
-				A10680EC51C91F4CC4AF52FA /* Components */,
+				5441C66F856CEE4732591BFD /* SidesChip.swift */,
+				876C9EE6D294A7DECD651C0C /* SidesInputTile.swift */,
 			);
 			path = AddAudition;
 			sourceTree = "<group>";
@@ -762,25 +745,6 @@
 				25CFE061CCE5B4F2B436C20C /* ProfileButton.swift */,
 			);
 			path = UI;
-			sourceTree = "<group>";
-		};
-		A10680EC51C91F4CC4AF52FA /* Components */ = {
-			isa = PBXGroup;
-			children = (
-				C390CBD7F82C19E1E1F91462 /* AuditionMaterialKindPicker.swift */,
-				A10680EC51C91F4CC4AF0011 /* ReviewStepProjectView.swift */,
-				A10680EC51C91F4CC4AF0021 /* ReviewStepScenesView.swift */,
-				A10680EC51C91F4CC4AF0031 /* ReviewStepSpecsView.swift */,
-				046A195600318F6CFADD7100 /* AuditionResumePicker.swift */,
-				CCC9E061798A59AB1C45D2BE /* FieldEvidenceSection.swift */,
-				EA9C34EF1D2926C64AF0409F /* MilestoneDatesListCard.swift */,
-				F0A0BFFE02780B2CB10D5E59 /* NoticeDestinationAndNotesCards.swift */,
-				BD979F10FD71F886E0B18745 /* ProjectDetailsCard.swift */,
-				F0C8E74565195D0807BEA41A /* RoleBreakdownCard.swift */,
-				5441C66F856CEE4732591BFD /* SidesChip.swift */,
-				876C9EE6D294A7DECD651C0C /* SidesInputTile.swift */,
-			);
-			path = Components;
 			sourceTree = "<group>";
 		};
 		A5C11FB7C388C39F4D9D7F97 /* Package */ = {
@@ -862,14 +826,6 @@
 			path = Profile;
 			sourceTree = "<group>";
 		};
-		DB0B36B294B7480472DF79C1 /* Components */ = {
-			isa = PBXGroup;
-			children = (
-				0A1ED964F77F4BC9E2B71C1B /* RecordReaderReviewRow.swift */,
-			);
-			path = Components;
-			sourceTree = "<group>";
-		};
 		DCF985BF45C2AF27A633EA67 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
@@ -881,6 +837,19 @@
 		E15A68C5AE1135C2BBF192A6 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				4837E566F04BDB97DF56C497 /* CameraGuidanceSpeaker.swift */,
+				11988E0C2B8E0B2AB42E4DB0 /* DemoMediaGenerator.swift */,
+				AFF6200D8A8B211F169BB4E9 /* DocumentScannerView.swift */,
+				AE1BF20A65C0E653298E38D5 /* KeepScreenAwake.swift */,
+				376609F267CE6C4D17246645 /* LocalBackup.swift */,
+				4D84E01FBB8E70E40D159423 /* Persistence.swift */,
+				A1569411E189E2CFBE4AB984 /* ReaderAudioTrimmer.swift */,
+				34ADE5709E655C12F39B1734 /* ReaderLineRecorder.swift */,
+				EFEC49289E1EC61B12136CEC /* ReaderTrackPlayer.swift */,
+				3C8C2A74AB0472CBE8C58150 /* ScriptTextEditor.swift */,
+				0F68A42EEEB97AEB53D0BCE5 /* ShareSheet.swift */,
+				B4D2FF9035789E3577CD9541 /* SpeechFollower.swift */,
+				E8F93C4304EAC4F812D89450 /* VideoTrimmer.swift */,
 				CC376E296C1D6BCD7673B002 /* AccountAuth.swift */,
 				97B00C1CC0D902062C97DE0A /* CameraController.swift */,
 				C0CB185A591C3F450AAAF532 /* CameraController+FaceDetection.swift */,
@@ -916,15 +885,6 @@
 				5FED4D098BC0B7C740474AAC /* Pilgrimage_Casting_Sides.pdf */,
 			);
 			path = Resources;
-			sourceTree = "<group>";
-		};
-		E8D563A1F591C50D5380C491 /* Demo */ = {
-			isa = PBXGroup;
-			children = (
-				11988E0C2B8E0B2AB42E4DB0 /* DemoMediaGenerator.swift */,
-				31605229E48B5D29FB34B733 /* DemoModeCatalog.swift */,
-			);
-			path = Demo;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
