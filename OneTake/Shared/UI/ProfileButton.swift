@@ -1,30 +1,23 @@
 import SwiftUI
+import OneTakeUI
 
-// MARK: - Top bar Profile button
-
+/// A profile button displaying the actor's front headshot if taken, or a fallback person icon.
 struct ProfileButton: View {
-    var action: () -> Void
     @Environment(AppStore.self) private var store
+    let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                if let front = HeadshotStore.load(key: "front") {
-                    Image(uiImage: front)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.fill")
-                        .font(.otIcon(.m, weight: .semibold))
-                        .foregroundStyle(OT.labelPrimary)
-                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
-                        .contentShape(Circle())
-                }
+            if let front = HeadshotStore.load(key: "front") {
+                Image(uiImage: front)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 30, height: 30) // ot-lint:allow nav-bar avatar size
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)) // ot-lint:allow
+            } else {
+                Label("Profile", systemImage: "person")
             }
-            .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
-            .contentShape(Circle())
         }
         .modifier(GlassButtonCompatibility(enabled: true))
         .id(store.headshotVersion)

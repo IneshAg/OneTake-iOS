@@ -7,14 +7,12 @@ struct DestinationSheet: View {
     @State private var showSignIn = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(title: "Where’s it going?", leading: nil, trailing: "Done", onTrailing: { dismiss() })
-                .padding(.top, OTSpace.m)
-
-            if let audition = store.binding(for: auditionID) {
-                let current = audition.wrappedValue.destination
-                let wasChosen = audition.wrappedValue.destinationWasChosen ?? false
-                List {
+        NavigationStack {
+            Group {
+                if let audition = store.binding(for: auditionID) {
+                    let current = audition.wrappedValue.destination
+                    let wasChosen = audition.wrappedValue.destinationWasChosen ?? false
+                    List {
                     Section("Destination & Submission Method") {
                         ForEach(Destination.allCases) { d in
                             destinationRow(for: d, isSelected: wasChosen && current == d) {
@@ -74,11 +72,19 @@ struct DestinationSheet: View {
                             .foregroundStyle(OT.labelSecondary)
                         }
                     }
+                    }
+                    .scrollContentBackground(.hidden)
                 }
-                .otCompactList()
+            }
+            .otCanvas()
+            .navigationTitle("Where’s it going?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
-        .otCanvas()
         .sheet(isPresented: $showSignIn) {
             SignInView(reason: "Sign in here to use a hosted link. You’ll return to this audition afterward.") { account in
                 store.account = account

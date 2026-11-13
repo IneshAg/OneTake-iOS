@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 // MARK: - Route table
 
@@ -38,7 +39,7 @@ struct RouteDestinations: ViewModifier {
         case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
         case .missingDetails:                    MissingDetailsView()
         case .noticeReview:                      NoticeReviewView()
-        case .testSides:                         AddDraftSidesSheet(draft: .constant(NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))))
+        case .testSides:                         AddDraftSidesSheet(draft: .constant(NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))), isSheet: false)
         }
     }
 }
@@ -50,10 +51,7 @@ extension View {
     func hideSystemBars() -> some View {
         self
             .toolbarVisibility(.hidden, for: .tabBar)
-            .toolbarVisibility(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
-            .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-            .navigationBarBackButtonHidden(true)
             .background(TabBarHider())
     }
 
@@ -87,6 +85,48 @@ extension View {
         }
         #else
         self
+        #endif
+    }
+}
+
+/// Renders a root tab title inline on the leading side of the navigation bar without an iOS 26 glass pill.
+struct OTInlineRootTitle: ToolbarContent {
+    let title: String
+
+    var body: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) {
+                titleLabel
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                titleLabel
+            }
+        }
+        #else
+        ToolbarItem(placement: .topBarLeading) {
+            titleLabel
+        }
+        #endif
+    }
+
+    private var titleLabel: some View {
+        Text(title)
+            .font(.otLargeTitle)
+            .foregroundStyle(OT.labelPrimary)
+            .fixedSize()
+    }
+}
+
+/// Inserts a fixed toolbar spacer on iOS 26+ so adjacent trailing toolbar buttons stay visually separate.
+struct OTTrailingToolbarSpacer: ToolbarContent {
+    var body: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        }
         #endif
     }
 }

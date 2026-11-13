@@ -22,11 +22,7 @@ struct LineDrillView: View {
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
-            OTScreen(
-                title: "Scene \(scene.number) of \(a.scenes.count)",
-                backLabel: "Back",
-                onBack: { store.pop() }
-            ) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: OTSpace.m) {
                     Text(scene.title).font(.otLargeTitle)
                     Picker("Practice display", selection: $displayMode) {
@@ -35,7 +31,13 @@ struct LineDrillView: View {
                     .pickerStyle(.segmented)
                     ForEach(scene.lines) { line in lineView(line) }
                 }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.xl)
             }
+            .otCanvas()
+            .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
+            .navigationBarTitleDisplayMode(.inline)
             .otBottomBar {
                 Button("Done") { store.pop() }
                     .buttonStyle(.ot(.primary))

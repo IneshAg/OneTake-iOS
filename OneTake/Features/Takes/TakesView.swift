@@ -42,18 +42,7 @@ struct TakesView: View {
         let current = takes.first { $0.id == (selected ?? takes.first(where: \.isCircled)?.id) } ?? takes.last
         let circled = takes.first(where: \.isCircled)
 
-        OTScreen(
-            title: "Your takes",
-            backLabel: "Back",
-            onBack: { store.pop() },
-            trailing: {
-                OTIconButton("scissors", accessibilityLabel: "Trim") {
-                    trimming = current
-                }
-                .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
-                .opacity((current?.fileURL.map(VideoTrimmer.canTrim) ?? false) ? 1.0 : 0.4)
-            }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 if scenes.count > 1 {
                     Picker("Scene", selection: Binding(get: { shownScene }, set: { scene = $0; selected = nil })) {
@@ -124,6 +113,22 @@ struct TakesView: View {
                     }
                 }
                 .tint(OT.labelPrimary)
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationTitle("Your takes")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    trimming = current
+                } label: {
+                    Label("Trim", systemImage: "scissors")
+                }
+                .disabled(!(current?.fileURL.map(VideoTrimmer.canTrim) ?? false))
             }
         }
         .otBottomBar {

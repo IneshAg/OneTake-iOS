@@ -15,38 +15,10 @@ struct EditAuditionSheet: View {
     @State private var recordReaderAfterSave = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: "Edit details",
-                leading: "Cancel",
-                trailing: "Done",
-                onLeading: { dismiss() },
-                onTrailing: {
-                    if let audition = store.audition(auditionID) {
-                        let isProjectEmpty = audition.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        let isRoleEmpty = audition.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        if isProjectEmpty || isRoleEmpty {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showValidationErrors = true
-                            }
-                            Haptics.warning()
-                            return
-                        }
-                    }
-                    store.updateSceneCount(for: auditionID, count: sceneCount)
-                    store.reclassifyRole(for: auditionID)
-                    dismiss()
-                    if recordReaderAfterSave,
-                       let updated = store.audition(auditionID),
-                       let firstScene = updated.scenes.indices.first(where: { !updated.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-                        store.push(.reader(auditionID, sceneIndex: firstScene))
-                    }
-                }
-            )
-            .padding(.top, OTSpace.m)
-
-            if let audition = store.binding(for: auditionID) {
-                Form {
+        NavigationStack {
+            Group {
+                if let audition = store.binding(for: auditionID) {
+                    Form {
                     Section("Audition Type") {
                         Picker("Type", selection: Binding(
                             get: { audition.wrappedValue.resolvedMaterialKind },
@@ -518,13 +490,42 @@ struct EditAuditionSheet: View {
                     } footer: {
                         Text("Private rehearsal notes, intentions, and character choices. Kept handy while preparing.")
                     }
+                    }
+                    .scrollContentBackground(.hidden)
                 }
-                .otCompactList()
+            }
+            .otCanvas()
+            .navigationTitle("Edit details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        if let audition = store.audition(auditionID) {
+                            let isProjectEmpty = audition.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            let isRoleEmpty = audition.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            if isProjectEmpty || isRoleEmpty {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showValidationErrors = true
+                                }
+                                Haptics.warning()
+                                return
+                            }
+                        }
+                        store.updateSceneCount(for: auditionID, count: sceneCount)
+                        store.reclassifyRole(for: auditionID)
+                        dismiss()
+                        if recordReaderAfterSave,
+                           let updated = store.audition(auditionID),
+                           let firstScene = updated.scenes.indices.first(where: { !updated.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                            store.push(.reader(auditionID, sceneIndex: firstScene))
+                        }
+                    }
+                }
             }
         }
-        .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
         .onAppear {
             if let a = store.audition(auditionID) {
                 let count = max(a.scenes.count, a.pieces.filter { $0.kind == .scene }.count)

@@ -23,51 +23,47 @@ struct AudioWalkView: View {
                 ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: $0)
             }.count
 
-            OTScreen(
-                title: "Audio Walk",
-                backLabel: "Back",
-                onBack: {
-                    walker.stop()
-                    store.pop()
-                },
-                scrolls: false
-            ) {
-                VStack(spacing: OTSpace.l) {
-                    Spacer()
-                    Image(systemName: "headphones")
-                        .font(.otIcon(.xxl))
-                        .foregroundStyle(OT.accent)
-                    Text(playing ? "Looping \(scene.title)…" : "Ready to loop \(scene.title)")
-                        .font(.otTitle)
-                    Text("Your recorded reader lines, with a pause the length of each of yours, on repeat. Say your lines into the gaps.")
-                        .font(.otCallout)
-                        .foregroundStyle(OT.labelSecondary)
-                        .multilineTextAlignment(.center)
+            VStack(spacing: OTSpace.l) {
+                Spacer()
+                Image(systemName: "headphones")
+                    .font(.otIcon(.xxl))
+                    .foregroundStyle(OT.accent)
+                Text(playing ? "Looping \(scene.title)…" : "Ready to loop \(scene.title)")
+                    .font(.otTitle)
+                Text("Your recorded reader lines, with a pause the length of each of yours, on repeat. Say your lines into the gaps.")
+                    .font(.otCallout)
+                    .foregroundStyle(OT.labelSecondary)
+                    .multilineTextAlignment(.center)
 
-                    if recorded < readerLines {
-                        Text("\(recorded) of \(readerLines) reader lines recorded. Record the rest before starting the Audio Walk.")
-                            .font(.otFootnote)
-                            .foregroundStyle(OT.warning)
-                        Button {
-                            store.push(.recordReader(auditionID, sceneIndex: sceneIndex))
-                        } label: {
-                            Label("Record the reader", systemImage: "mic")
-                        }
-                        .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                if recorded < readerLines {
+                    Text("\(recorded) of \(readerLines) reader lines recorded. Record the rest before starting the Audio Walk.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.warning)
+                    Button {
+                        store.push(.recordReader(auditionID, sceneIndex: sceneIndex))
+                    } label: {
+                        Label("Record the reader", systemImage: "mic")
                     }
-                    if readerLines == 0 {
-                        Text("This scene has no reader lines to play.")
-                            .font(.otFootnote)
-                            .foregroundStyle(OT.labelTertiary)
-                    }
-                    Text("The screen stays on while it loops, so it keeps going in your pocket.")
+                    .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                }
+                if readerLines == 0 {
+                    Text("This scene has no reader lines to play.")
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelTertiary)
-                        .multilineTextAlignment(.center)
-                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
+                Text("The screen stays on while it loops, so it keeps going in your pocket.")
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelTertiary)
+                    .multilineTextAlignment(.center)
+                Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+            .otCanvas()
+            .navigationTitle("Audio Walk")
+            .navigationBarTitleDisplayMode(.inline)
             .otBottomBar {
                 VStack(spacing: OTSpace.s) {
                     Button(playing ? "Stop" : "Start looping") {

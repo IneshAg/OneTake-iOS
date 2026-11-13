@@ -25,16 +25,7 @@ struct PrepareView: View {
         let _ = store.readerTrackVersion
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex) {
             let scene = a.scenes[sceneIndex]
-            OTScreen(
-                title: "Scene \(scene.number) of \(a.scenes.count)",
-                backLabel: "Back",
-                onBack: { store.pop() },
-                trailing: {
-                    OTIconButton("textformat.size", accessibilityLabel: "Text size") {
-                        showPrompterSettings = true
-                    }
-                }
-            ) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: OTSpace.m) {
                     Text(scene.title).font(.otLargeTitle)
 
@@ -131,6 +122,21 @@ struct PrepareView: View {
                         lineView(line)
                     }
                 }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.xl)
+            }
+            .otCanvas()
+            .navigationTitle("Scene \(scene.number) of \(a.scenes.count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showPrompterSettings = true
+                    } label: {
+                        Label("Text size", systemImage: "textformat.size")
+                    }
+                }
             }
             .otBottomBar {
                 HStack(spacing: OTSpace.m) {
@@ -154,16 +160,20 @@ struct PrepareView: View {
             }
         } else {
             // No scenes were read from what was added — say so and offer the fix instead of a blank page.
-            OTScreen(title: "Sides", backLabel: "Back", onBack: { store.pop() }, scrolls: false) {
-                Spacer()
-                OTEmptyState(
-                    illustration: Image(systemName: "doc.text.magnifyingglass"),
-                    title: "No sides yet",
-                    message: "OneTake couldn’t find any character lines in what was added. Paste, import or scan the pages and it will split them into scenes. Cues work as NAME on its own line, or “Maya: line”.",
-                    action: (title: "Add sides", run: { showSides = true })
-                )
-                Spacer()
+            ContentUnavailableView {
+                Label("No sides yet", systemImage: "doc.text.magnifyingglass")
+            } description: {
+                Text("OneTake couldn’t find any character lines in what was added. Paste, import or scan the pages and it will split them into scenes. Cues work as NAME on its own line, or “Maya: line”.")
+            } actions: {
+                Button("Add sides") {
+                    showSides = true
+                }
+                .buttonStyle(.ot(.primary, size: .medium, fullWidth: false))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .otCanvas()
+            .navigationTitle("Sides")
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showSides) {
                 RevisedSidesSheet(auditionID: auditionID)
             }

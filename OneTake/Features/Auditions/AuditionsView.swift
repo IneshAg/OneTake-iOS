@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 /// 05 Auditions — light, single column library with swipe actions.
 struct AuditionsView: View {
@@ -23,7 +24,11 @@ struct AuditionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if selectedTab != .active {
+                activeFilterBadge
+                    .padding(.horizontal, OTSpace.gutter)
+                    .padding(.vertical, OTSpace.xs)
+            }
 
             if store.auditions.isEmpty {
                 EmptyAuditionsView()
@@ -36,24 +41,21 @@ struct AuditionsView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .contentMargins(.top, OTSpace.s, for: .scrollContent)
                 .overlay {
                     if items.isEmpty {
-                        VStack(spacing: OTSpace.s) {
-                            Image(systemName: selectedTab == .active ? "tray" : (selectedTab == .submitted ? "paperplane.circle" : "archivebox"))
-                                .font(.otIcon(.xl))
-                                .foregroundStyle(OT.labelTertiary)
-                            Text("No \(selectedTab.rawValue.lowercased()) auditions")
-                                .font(.otHeadline)
-                                .foregroundStyle(OT.labelPrimary)
+                        ContentUnavailableView {
+                            Label(
+                                "No \(selectedTab.rawValue.lowercased()) auditions",
+                                systemImage: selectedTab == .active ? "tray" : (selectedTab == .submitted ? "paperplane.circle" : "archivebox")
+                            )
+                        } description: {
                             Text(selectedTab == .submitted
                                  ? "Auditions you mark as submitted will appear here."
                                  : selectedTab == .archived
                                  ? "Swipe an audition in Active or Submitted to archive it."
                                  : "Tap + to add your next audition.")
-                                .font(.otCallout)
-                                .foregroundStyle(OT.labelSecondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, OTSpace.xl)
+                        } actions: {
                             if selectedTab != .active {
                                 Button("Show active auditions") {
                                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -62,18 +64,32 @@ struct AuditionsView: View {
                                     Haptics.tick()
                                 }
                                 .buttonStyle(.ot(.secondary, size: .small))
-                                .padding(.top, OTSpace.s)
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            OTInlineRootTitle(title: "Auditions")
+            ToolbarItem(placement: .topBarTrailing) {
+                filterMenu
+            }
+            OTTrailingToolbarSpacer()
+            ToolbarItem(placement: .topBarTrailing) {
+                OTIconButton("plus", accessibilityLabel: "Add an audition") {
+                    store.showAddAudition = true
+                }
+            }
+            OTTrailingToolbarSpacer()
+            ToolbarItem(placement: .topBarTrailing) {
+                ProfileButton { store.showProfile = true }
+            }
+        }
     }
 
     @ViewBuilder
@@ -122,62 +138,51 @@ struct AuditionsView: View {
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
-            .tint(OT.reader)
-        }
-
-        if audition.status != .sent && !audition.archived {
-            Button {
-                store.markSent(audition.id)
-                Haptics.success()
-            } label: {
-                Label("Mark sent", systemImage: "paperplane.fill")
-            }
-            .tint(OT.success)
+            .tint(OT.warning)
         }
     }
 
     @ViewBuilder
     private func auditionContextMenu(for audition: Audition) -> some View {
-        if !audition.archived {
+        Button {
+            store.continueAudition(audition.id)
+        } label: {
+            Label("Continue audition", systemImage: "arrow.right.circle")
+        }
+
+        Divider()
+
+        if audition.archived {
             Button {
-                store.archiveAudition(audition.id)
-                Haptics.tick()
+                store.unarchiveAudition(audition.id)
             } label: {
-                Label("Archive audition", systemImage: "archivebox")
+                Label("Unarchive", systemImage: "arrow.uturn.backward")
             }
         } else {
             Button {
-                store.unarchiveAudition(audition.id)
-                Haptics.success()
+                store.archiveAudition(audition.id)
             } label: {
-                Label("Unarchive audition", systemImage: "arrow.uturn.backward")
+                Label("Archive", systemImage: "archivebox")
             }
         }
-        if audition.status != .sent && !audition.archived {
-            Button {
-                store.markSent(audition.id)
-                Haptics.success()
-            } label: {
-                Label("Mark sent", systemImage: "paperplane.fill")
-            }
-        }
+
         Button(role: .destructive) {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 pendingDelete = audition
             }
         } label: {
-            Label("Delete", systemImage: "trash")
+            Label("Delete...", systemImage: "trash")
         }
     }
 
+    @ViewBuilder
     private func inlineDeleteConfirmation(for audition: Audition) -> some View {
         VStack(alignment: .leading, spacing: OTSpace.s) {
-            HStack(spacing: OTSpace.s) {
-                Image(systemName: "trash.fill")
-                    .font(.subheadline)
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(OT.danger)
-                Text("Delete “\(audition.project)”?")
-                    .font(.otHeadline)
+                Text("Delete \"\(audition.displayTitle)\"?")
+                    .font(.otSubhead.weight(.semibold))
                     .foregroundStyle(OT.labelPrimary)
                 Spacer()
                 Button {
@@ -185,9 +190,10 @@ struct AuditionsView: View {
                         pendingDelete = nil
                     }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(OT.labelTertiary)
+                    Image(systemName: "xmark")
+                        .font(.otCaption.weight(.bold))
+                        .foregroundStyle(OT.labelSecondary)
+                        .padding(OTSpace.xs)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss delete confirmation")
@@ -231,32 +237,6 @@ struct AuditionsView: View {
         ))
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: OTSpace.xs) {
-            HStack(alignment: .center, spacing: OTSpace.s) {
-                Text("Auditions")
-                    .font(.otLargeTitle)
-                    .foregroundStyle(OT.labelPrimary)
-
-                Spacer()
-
-                filterMenu
-
-                OTIconButton("plus", accessibilityLabel: "Add an audition") {
-                    store.showAddAudition = true
-                }
-                ProfileButton { store.showProfile = true }
-            }
-
-            if selectedTab != .active {
-                activeFilterBadge
-            }
-        }
-        .padding(.horizontal, OTSpace.gutter)
-        .padding(.bottom, OTSpace.s)
-        .background(OT.bgCanvas)
-    }
-
     private var filterMenu: some View {
         OTMenuIconButton(
             selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill",
@@ -298,7 +278,6 @@ struct AuditionsView: View {
 
             Spacer()
         }
-        .padding(.top, OTSpace.xxs)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 

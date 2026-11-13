@@ -10,17 +10,11 @@ struct PackageSheet: View {
 
     var body: some View {
         if let a = store.audition(auditionID) {
-            VStack(alignment: .leading, spacing: OTSpace.m) {
-                HStack {
-                    VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                        Text("Package").font(.otTitle)
-                        Text("In tape order · \(a.readyCount) of \(a.totalCount) ready").font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                    }
-                    Spacer()
-                    OTIconButton("xmark", accessibilityLabel: "Close") {
-                        dismiss()
-                    }
-                }
+            NavigationStack {
+                VStack(alignment: .leading, spacing: OTSpace.m) {
+                    Text("In tape order · \(a.readyCount) of \(a.totalCount) ready")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelTertiary)
                 ForEach(Array(a.pieces.enumerated()), id: \.element.id) { i, piece in
                     HStack(spacing: OTSpace.m) {
                         Button { dismiss(); open(piece, a) } label: {
@@ -50,8 +44,19 @@ struct PackageSheet: View {
                     .frame(minHeight: 56) // ot-lint:allow
                 }
                 Spacer()
+                }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.gutter)
+                .otCanvas()
+                .navigationTitle("Package")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
             }
-            .padding(OTSpace.gutter)
         }
     }
 

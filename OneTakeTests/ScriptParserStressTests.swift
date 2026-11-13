@@ -226,4 +226,63 @@ final class ScriptParserStressTests: XCTestCase {
         let isNotice = NoticeParser.isNoticeOnly(adversarialNotice)
         XCTAssertTrue(isNotice, "Adversarial notice must be recognized as notice-only")
     }
+
+    /// Verifies contextual geometry-aware classification distinguishes left-aligned action from indented cues.
+    func testContextualScriptParserUsesIndentAndNeighborContext() {
+        let lines = [
+            LayoutLine(text: "INT. APARTMENT - NIGHT", rect: CGRect(x: 0.15, y: 0.85, width: 0.4, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "PAGE 4", rect: CGRect(x: 0.85, y: 0.95, width: 0.08, height: 0.015), pageIndex: 0),
+            LayoutLine(text: "MAYA picks up the phone.", rect: CGRect(x: 0.15, y: 0.78, width: 0.5, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "MAYA", rect: CGRect(x: 0.42, y: 0.72, width: 0.10, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Are you still awake?", rect: CGRect(x: 0.28, y: 0.69, width: 0.35, height: 0.02), pageIndex: 0)
+        ]
+        let scenes = ScriptParser.parseScenes(from: lines, myRole: "Maya")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 1)
+        XCTAssertEqual(scenes[0].lines[0].character, "Maya")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "Are you still awake?")
+    }
+
+    /// Verifies `classifyContextual(lines:)` geometry/neighbor predictions, mixed-case indented cues, and v2 tokenizer parity.
+    func testContextualClassificationFallbackAndTokenParity() {
+        let lines = [
+            LayoutLine(text: "INT. APARTMENT - NIGHT", rect: CGRect(x: 0.15, y: 0.85, width: 0.40, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "PAGE 4", rect: CGRect(x: 0.85, y: 0.95, width: 0.08, height: 0.015), pageIndex: 0),
+            LayoutLine(text: "MAYA picks up the phone.", rect: CGRect(x: 0.15, y: 0.78, width: 0.50, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Maya", rect: CGRect(x: 0.40, y: 0.72, width: 0.09, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "(whispering)", rect: CGRect(x: 0.34, y: 0.695, width: 0.16, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Are you still awake?", rect: CGRect(x: 0.28, y: 0.67, width: 0.35, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "MAYA (CONT'D)", rect: CGRect(x: 0.40, y: 0.62, width: 0.18, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Please answer me.", rect: CGRect(x: 0.28, y: 0.595, width: 0.30, height: 0.02), pageIndex: 0)
+        ]
+
+        let classes = CoreMLScriptParserRunner.shared.classifyContextual(lines: lines)
+        XCTAssertEqual(classes, [
+            .sceneHeading,
+            .metadata,
+            .action,
+            .characterCue,
+            .parenthetical,
+            .dialogue,
+            .characterCue,
+            .dialogue
+        ])
+
+        let scenes = ScriptParser.parseScenes(from: lines, myRole: "Maya")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines.map(\.character), ["Maya", "Maya"])
+        XCTAssertEqual(scenes[0].lines.map(\.text), ["Are you still awake?", "Please answer me."])
+
+        // Exact FNV-1a token ID parity with `scripts/colab/train_script_classifier_v2.py`
+        XCTAssertEqual(
+            Array(CoreMLScriptParserRunner.tokenizeForV2("MAYA picks up the phone.").prefix(8)),
+            [34, 253, 2923, 2344, 606, 2628, 2790, 3662]
+        )
+        XCTAssertEqual(
+            Array(CoreMLScriptParserRunner.tokenizeForV2("(whispering)").prefix(6)),
+            [263, 534, 214, 1663, 1034, 2462]
+        )
+    }
 }

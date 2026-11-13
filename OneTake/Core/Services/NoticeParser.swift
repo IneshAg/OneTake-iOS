@@ -189,24 +189,59 @@ enum NoticeParser {
 
     /// Asynchronous parsing pipeline: runs deterministic regex/anchor extraction first,
     /// then enriches with the on-device Foundation Model when supported on this iPhone.
-    static func parseAsync(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) async -> Draft {
-        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments)
+    static func parseAsync(
+        _ rawText: String,
+        pages: [String] = [],
+        sourceDocuments: [AuditionSource] = [],
+        layoutDocument: LayoutDocument? = nil
+    ) async -> Draft {
+        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments, layoutDocument: layoutDocument)
         var refined = await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
-        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: pages)
+        let effectivePages = pages.isEmpty ? (layoutDocument?.reconstructedPages ?? []) : pages
+        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: effectivePages)
         return refined
     }
 
-    static func parse(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) -> Draft {
+    static func parse(
+        _ rawText: String,
+        pages: [String] = [],
+        sourceDocuments: [AuditionSource] = [],
+        layoutDocument: LayoutDocument? = nil
+    ) -> Draft {
         var d = Draft()
         let cleaned = ScriptParser.cleanPastedText(rawText)
         d.sourceText = cleaned
         d.sourceDocuments = sourceDocuments
+        let effectivePages = pages.isEmpty ? (layoutDocument?.reconstructedPages ?? []) : pages
 
-        // Pass 1 (Notice Extractor): If multi-page packet, focus notice field extraction on Pages 1–2
-        let isLongPacket = pages.count >= 2 || rawText.count > 3500
-        let noticeSource = isLongPacket && !pages.isEmpty
-            ? pages.prefix(2).joined(separator: "\n\n")
-            : (rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned)
+        // Pass 1 (Notice Extractor): Route multi-page packets through `DocumentPageRouter` so
+        // cover notices, breakdown tables, and tail submission pages feed notice extraction within budget.
+        let routed: RoutedDocument?
+        if let layoutDocument {
+            routed = DocumentPageRouter.route(layoutDocument, tokenBudget: 900)
+        } else if !effectivePages.isEmpty {
+            let layoutPages = effectivePages.enumerated().map { idx, pageText in
+                PDFGeometryExtractor.syntheticLines(from: pageText, pageIndex: idx, preserveIndentation: true)
+            }
+            routed = DocumentPageRouter.route(
+                LayoutDocument(pages: layoutPages, reconstructedPages: effectivePages),
+                tokenBudget: 900
+            )
+        } else {
+            routed = nil
+        }
+
+        let noticeSource: String
+        if let routed, !routed.noticePages.isEmpty {
+            noticeSource = routed.noticeTextSlice
+        } else if !effectivePages.isEmpty {
+            let isLongPacket = effectivePages.count >= 2 || rawText.count > 3500
+            noticeSource = isLongPacket
+                ? effectivePages.prefix(2).joined(separator: "\n\n")
+                : cleaned
+        } else {
+            noticeSource = rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned
+        }
 
         let text = tidy(noticeSource)
         let lower = text.lowercased()
@@ -249,7 +284,7 @@ enum NoticeParser {
             d.castingOffice = office
         }
         // Hierarchical Scene Portions (Pass 2 identification)
-        let portions = noticeOnly ? [] : ScriptParser.identifyScenePortions(from: cleaned, pages: pages)
+        let portions = noticeOnly ? [] : ScriptParser.identifyScenePortions(from: cleaned, pages: effectivePages)
         d.availablePortions = portions
 
         let targetRole = d.role.isEmpty ? (d.candidateRoles.first ?? "") : d.role
@@ -448,7 +483,7 @@ enum NoticeParser {
                 }
             }
         }
-        populateStructuredNoticeData(&d, text: cleaned, pages: pages)
+        populateStructuredNoticeData(&d, text: cleaned, pages: effectivePages)
         return d
     }
 }

@@ -42,19 +42,20 @@ struct PrivacyView: View {
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
 
     var body: some View {
-        OTScreen(title: "Privacy & data", onBack: { store.pop() }, scrolls: false, insetContent: false) {
-            List {
-                overviewSection
-                transferSection
-                cloudSection
-                localStorageSection
-                accountSection
-                dataResetSection
-                legalSection
-            }
-            .id(storageRefreshID)
-            .scrollContentBackground(.hidden)
+        List {
+            overviewSection
+            transferSection
+            cloudSection
+            localStorageSection
+            accountSection
+            dataResetSection
+            legalSection
         }
+        .id(storageRefreshID)
+        .scrollContentBackground(.hidden)
+        .otCanvas()
+        .navigationTitle("Privacy & data")
+        .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
             importBackup(result)
         }
@@ -382,10 +383,8 @@ struct PrivacyView: View {
 }
 
 struct PrivacyPolicyView: View {
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
-        OTScreen(title: "Privacy policy", onBack: { dismiss() }) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 section("Private by design", "OneTake has no ads, analytics or tracking. Your work stays on this iPhone unless you share it.")
                 section("Signing in", "An account is optional. Sign in only to send a tape as an iCloud link.")
@@ -396,7 +395,13 @@ struct PrivacyPolicyView: View {
                 section("Reminders and widgets", "These use audition details stored on this iPhone.")
                 section("Deleting data", "Clean local data in Profile → Privacy & data. Takes, headshots, reader tracks, and practice pieces are removed from this iPhone. Previously shared iCloud links remain in your iCloud Drive.")
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle("Privacy policy")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func section(_ title: String, _ body: String) -> some View {

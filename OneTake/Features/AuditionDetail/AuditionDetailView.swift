@@ -19,37 +19,7 @@ struct AuditionDetailView: View {
     }
 
     private func content(_ a: Audition) -> some View {
-        OTScreen(
-            title: "",
-            backLabel: "Auditions",
-            onBack: { store.pop() },
-            trailing: {
-                HStack(spacing: OTSpace.s) {
-                    Button { showEdit = true } label: {
-                        Image(systemName: "pencil")
-                            .font(.otIcon(.m, weight: .semibold))
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 44, height: 44) // ot-lint:allow
-                            .contentShape(Circle())
-                    }
-                    .modifier(GlassButtonCompatibility(enabled: true))
-                    .accessibilityLabel("Edit details")
-
-                    Menu {
-                        Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
-                        Divider()
-                        Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.otIcon(.m, weight: .semibold))
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 44, height: 44) // ot-lint:allow
-                            .contentShape(Circle())
-                    }
-                    .modifier(GlassButtonCompatibility(enabled: true))
-                }
-            }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 // Sides Revision Banner
                 if a.currentSidesRevision > 0 {
@@ -181,6 +151,26 @@ struct AuditionDetailView: View {
                         Label("Mark as Submitted", systemImage: "paperplane.fill")
                     }
                     .buttonStyle(.ot(.primary, size: .large))
+                }
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") { showEdit = true }
+            }
+            OTTrailingToolbarSpacer()
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
+                    Divider()
+                    Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
+                } label: {
+                    Label("More", systemImage: "ellipsis")
                 }
             }
         }

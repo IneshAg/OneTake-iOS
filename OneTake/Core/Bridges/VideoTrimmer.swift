@@ -23,26 +23,7 @@ struct VideoTrimmer: View {
     static func canTrim(_ url: URL) -> Bool { url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Text("Edit video")
-                    .font(.otHeadline)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                HStack {
-                    Button(action: cancel) {
-                        Image(systemName: "xmark")
-                            .font(.otIcon(.m, weight: .semibold))
-                            .frame(width: 44, height: 44) // ot-lint:allow
-                            .background(OT.fillField, in: Circle()) // ot-lint:allow
-                    }
-                    .accessibilityLabel("Close video editor")
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, OT.gutter)
-            .padding(.top, OTSpace.m)
-            .padding(.bottom, OTSpace.xs)
-
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) { // ot-lint:allow
                     if let player {
@@ -83,15 +64,21 @@ struct VideoTrimmer: View {
                         .tint(OT.accent)
 
                         timelineCard
-
-                        Text("Your original recording will remain available so you can restore it later.")
-                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                     }
+
+                    Text("Your original recording will remain available so you can restore it later.")
+                        .font(.otFootnote).foregroundStyle(OT.labelSecondary)
                 }
                 .padding(OT.gutter)
             }
+            .background(OT.bgCanvas)
+        .navigationTitle("Edit video")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: cancel)
+            }
         }
-        .background(OT.bgCanvas)
         .safeAreaInset(edge: .bottom) {
             Button(action: exportTrim) {
                 HStack(spacing: 8) { // ot-lint:allow
@@ -122,6 +109,7 @@ struct VideoTrimmer: View {
             } catch {
                 exportError = true
             }
+        }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)

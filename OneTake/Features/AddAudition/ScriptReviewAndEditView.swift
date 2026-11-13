@@ -121,10 +121,6 @@ struct ScriptReviewAndEditView: View {
         )) { payload in
             NavigationStack {
                 VStack(spacing: OTSpace.l) {
-                    Text("Edit Line Text")
-                        .font(.otHeadline)
-                        .padding(.top, OTSpace.l)
-
                     TextEditor(text: $editedText)
                         .foregroundStyle(OT.labelPrimary)
                         .tint(OT.accent)
@@ -133,12 +129,16 @@ struct ScriptReviewAndEditView: View {
                         .background(OT.surfaceCard, in: RoundedRectangle(cornerRadius: OTRadius.m)) // ot-lint:allow
                         .frame(minHeight: 120) // ot-lint:allow
 
-                    HStack(spacing: OTSpace.m) {
-                        Button("Cancel") {
-                            editingLine = nil
-                        }
-                        .buttonStyle(.ot(.secondary, size: .medium))
-
+                    Spacer()
+                }
+                .padding(OTSpace.l)
+                .navigationTitle("Edit Line Text")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { editingLine = nil }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
                             if scenes.indices.contains(payload.sceneIndex),
                                scenes[payload.sceneIndex].lines.indices.contains(payload.lineIndex) {
@@ -147,13 +147,8 @@ struct ScriptReviewAndEditView: View {
                             editingLine = nil
                             Haptics.success()
                         }
-                        .buttonStyle(.ot(.primary, size: .medium))
                     }
-                    .padding(.horizontal, OTSpace.l)
-
-                    Spacer()
                 }
-                .padding(OTSpace.l)
                 .preferredColorScheme(.dark)
             }
             .presentationDetents([.height(300)]) // ot-lint:allow

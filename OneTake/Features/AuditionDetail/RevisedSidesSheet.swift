@@ -49,23 +49,7 @@ struct RevisedSidesSheet: View {
 
     var body: some View {
         let role = audition?.role ?? ""
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: isNewSides ? "Add sides" : "Edit sides",
-                leading: "Cancel",
-                trailing: isNewSides ? "Add" : "Save changes",
-                onLeading: { dismiss() },
-                onTrailing: {
-                    store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
-                    dismiss()
-                    if readerAudioPlan == .recordNow,
-                       let firstScene = activeScenes.indices.first(where: { !activeScenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-                        store.push(.reader(auditionID, sceneIndex: firstScene))
-                    }
-                }
-            )
-            .padding(.top, OTSpace.m)
-
+        NavigationStack {
             ScrollView {
                 VStack(spacing: OTSpace.m) {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: OTSpace.m), GridItem(.flexible(), spacing: OTSpace.m)], spacing: OTSpace.m) {
@@ -237,20 +221,35 @@ struct RevisedSidesSheet: View {
                 .padding(.top, OTSpace.s)
                 .padding(.bottom, 90) // ot-lint:allow
             }
-        }
-        .otBottomBar {
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button(isNewSides ? "Add sides" : "Save changes") {
-                    store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
-                    dismiss()
+            .otBottomBar {
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button(isNewSides ? "Add sides" : "Save changes") {
+                        store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
+                        dismiss()
+                    }
+                    .buttonStyle(.otPrimary)
+                    .disabled(activeScenes.isEmpty)
                 }
-                .buttonStyle(.otPrimary)
-                .disabled(activeScenes.isEmpty)
+            }
+            .otCanvas()
+            .navigationTitle(isNewSides ? "Add sides" : "Edit sides")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isNewSides ? "Add" : "Save changes") {
+                        store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
+                        dismiss()
+                        if readerAudioPlan == .recordNow,
+                           let firstScene = activeScenes.indices.first(where: { !activeScenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                            store.push(.reader(auditionID, sceneIndex: firstScene))
+                        }
+                    }
+                }
             }
         }
-        .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
         .onAppear {
             if !isNewSides, let existing = audition?.scriptText, !existing.isEmpty {
                 text = existing

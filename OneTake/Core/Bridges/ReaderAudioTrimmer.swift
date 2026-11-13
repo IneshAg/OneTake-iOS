@@ -16,11 +16,7 @@ struct ReaderAudioTrimmer: View {
     @State private var showExportError = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTNavHeader(title: "Trim reader audio", backLabel: "Cancel", onBack: cancel)
-                .padding(.horizontal, OTSpace.gutter)
-                .padding(.top, OTSpace.m)
-
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: OTSpace.l) {
                     HStack(spacing: OTSpace.m) {
@@ -88,28 +84,35 @@ struct ReaderAudioTrimmer: View {
                 }
                 .padding(OTSpace.gutter)
             }
-        }
-        .background(OT.bgCanvas)
-        .safeAreaInset(edge: .bottom) {
-            Button(action: exportTrim) {
-                HStack(spacing: OTSpace.xs) {
-                    if isExporting { ProgressView().tint(.white) }
-                    Text(isExporting ? "Saving trimmed audio…" : "Save trimmed audio")
+            .background(OT.bgCanvas)
+            .navigationTitle("Trim reader audio")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: cancel)
                 }
             }
-            .buttonStyle(.otPrimary)
-            .disabled(duration <= 0.5 || trimEnd - trimStart < 0.5 || isExporting)
-            .padding(.horizontal, OTSpace.gutter)
-            .padding(.vertical, 10) // ot-lint:allow
-            .background(.ultraThinMaterial)
+            .safeAreaInset(edge: .bottom) {
+                Button(action: exportTrim) {
+                    HStack(spacing: OTSpace.xs) {
+                        if isExporting { ProgressView().tint(.white) }
+                        Text(isExporting ? "Saving trimmed audio…" : "Save trimmed audio")
+                    }
+                }
+                .buttonStyle(.otPrimary)
+                .disabled(duration <= 0.5 || trimEnd - trimStart < 0.5 || isExporting)
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.vertical, 10) // ot-lint:allow
+                .background(.ultraThinMaterial)
+            }
+            .alert("Couldn’t save the trim", isPresented: $showExportError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Your reader recording is unchanged. Try saving again.")
+            }
+            .task(id: url) { await loadAudio() }
+            .onDisappear { stopPreview() }
         }
-        .alert("Couldn’t save the trim", isPresented: $showExportError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Your reader recording is unchanged. Try saving again.")
-        }
-        .task(id: url) { await loadAudio() }
-        .onDisappear { stopPreview() }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }

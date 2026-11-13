@@ -4,6 +4,7 @@ import OneTakeUI
 
 struct AddDraftSidesSheet: View {
     @Binding var draft: NoticeParser.Draft
+    var isSheet: Bool = true
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var editableScenes: [ScriptScene] = []
@@ -13,7 +14,9 @@ struct AddDraftSidesSheet: View {
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sidesParseTask: Task<Void, Never>?
+    @State private var importedTextSnapshot: String?
     @State private var importError = false
+    @State private var importErrorMessage: String?
     @State private var emptyClipboardAlert = false
 
     private var activeScenes: [ScriptScene] {
@@ -21,19 +24,17 @@ struct AddDraftSidesSheet: View {
     }
 
     var body: some View {
-        OTScreen(
-            title: draft.hasSides ? "Replace sides" : "Add sides",
-            backLabel: "Cancel",
-            onBack: { dismiss() },
-            trailing: {
-                Button(draft.hasSides ? "Replace" : "Add") {
-                    commitSides()
-                }
-                .font(.otHeadline)
-                .foregroundStyle(OT.accent)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if isSheet {
+            NavigationStack {
+                screenContent
             }
-        ) {
+        } else {
+            screenContent
+        }
+    }
+
+    private var screenContent: some View {
+        ScrollView {
             VStack(spacing: OTSpace.l) {
                 if let sidesLink = draft.sidesLink, !sidesLink.isEmpty {
                     sidesLinkCard(sidesLink)
@@ -131,6 +132,10 @@ struct AddDraftSidesSheet: View {
                         ScriptTextEditor(text: $text)
                             .frame(minHeight: 140, maxHeight: 220) // ot-lint:allow
                             .onChange(of: text) { _, newText in
+                                if let snapshot = importedTextSnapshot, newText == snapshot {
+                                    return
+                                }
+                                importedTextSnapshot = nil
                                 sidesParseTask?.cancel()
                                 let role = draft.role
                                 sidesParseTask = Task {
@@ -187,6 +192,25 @@ struct AddDraftSidesSheet: View {
                     }
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationTitle(draft.hasSides ? "Replace sides" : "Add sides")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(draft.hasSides ? "Replace" : "Add") {
+                    commitSides()
+                }
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
         .otBottomBar {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -210,7 +234,7 @@ struct AddDraftSidesSheet: View {
             }
         }
         .onDisappear { sidesParseTask?.cancel() }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
             switch result {
             case .success(let url):
                 reading = true
@@ -220,23 +244,32 @@ struct AddDraftSidesSheet: View {
                         resolved.cleanup()
                         reading = false
                     }
-                    if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
+                    do {
+                        let (doc, preParsedScenes) = try await NoticeOCR.extractSidesDocument(fromFileAt: resolved.url)
+                        let scenes = preParsedScenes ?? ScriptParser.parseScenes(from: doc.fullText, myRole: draft.role)
+                        let reclassified = (preParsedScenes != nil && !draft.role.isEmpty)
+                            ? ScriptParser.reclassify(scenes, myRole: draft.role)
+                            : scenes
                         await MainActor.run {
+                            importedTextSnapshot = preParsedScenes != nil ? doc.fullText : nil
                             text = doc.fullText
-                            editableScenes = ScriptParser.parseScenes(from: doc.fullText, myRole: draft.role)
+                            editableScenes = reclassified
                             Haptics.success()
                         }
-                    } else if let parsedText = await NoticeOCR.extractText(fromFileAt: resolved.url) {
+                    } catch let error as NoticeImportError {
                         await MainActor.run {
-                            text = parsedText
-                            editableScenes = ScriptParser.parseScenes(from: parsedText, myRole: draft.role)
-                            Haptics.success()
+                            importErrorMessage = error.localizedDescription
+                            importError = true
                         }
-                    } else {
-                        await MainActor.run { importError = true }
+                    } catch {
+                        await MainActor.run {
+                            importErrorMessage = nil
+                            importError = true
+                        }
                     }
                 }
             case .failure:
+                importErrorMessage = nil
                 importError = true
             }
         }
@@ -288,7 +321,7 @@ struct AddDraftSidesSheet: View {
         .alert("Couldn't read this file", isPresented: $importError) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Try choosing another PDF or text file, or paste the script text.")
+            Text(importErrorMessage ?? "Try choosing another PDF, script, or text file, or paste the script text.")
         }
         .alert("Nothing to paste", isPresented: $emptyClipboardAlert) {
             Button("OK", role: .cancel) {}

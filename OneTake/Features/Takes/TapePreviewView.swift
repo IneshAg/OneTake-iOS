@@ -32,7 +32,7 @@ struct TapePreviewView: View {
     @State private var selectedTarget: PreviewTarget = .headshots
 
     var body: some View {
-        OTScreen(title: "Preview", backLabel: "Back", onBack: { store.pop() }, scrolls: false) {
+        VStack(alignment: .leading, spacing: OTSpace.l) {
             if let tape, let player {
                 Group {
                     if showingPhotos, !photos.isEmpty {
@@ -62,8 +62,15 @@ struct TapePreviewView: View {
             }
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, OTSpace.gutter)
+        .padding(.top, OTSpace.s)
+        .padding(.bottom, OTSpace.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(OT.cameraBg.ignoresSafeArea())
         .otSurface(.camera)
+        .navigationTitle("Preview")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .otBottomBar {
             VStack(spacing: OTSpace.s) {
                 Button("Looks right — package it") {

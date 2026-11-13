@@ -8,30 +8,14 @@ struct AuditionMaterialKindPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: OTSpace.s) {
-            Menu {
+            Picker("Audition Type", selection: $selected) {
                 ForEach(AuditionMaterialKind.allCases) { kind in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) { selected = kind }
-                        Haptics.tick()
-                    } label: {
-                        Label(kind.shortLabel, systemImage: kind.icon)
-                    }
+                    Label(kind.shortLabel, systemImage: kind.icon).tag(kind)
                 }
-            } label: {
-                HStack(spacing: OTSpace.m) {
-                    Image(systemName: selected.icon)
-                        .foregroundStyle(OT.accent)
-                    Text(selected.shortLabel)
-                        .font(.otSubhead.weight(.semibold))
-                        .foregroundStyle(OT.labelPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.otIcon(.xs))
-                        .foregroundStyle(OT.labelTertiary)
-                }
-                .padding(.horizontal, OTSpace.m)
-                .padding(.vertical, OTSpace.s)
-                .background(OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.control, style: .continuous)) // ot-lint:allow
+            }
+            .pickerStyle(.menu)
+            .onChange(of: selected) { _, _ in
+                Haptics.tick()
             }
 
             Text(selected.description)

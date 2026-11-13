@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 
 /// Writes a standards-compliant, store-only ZIP without loading video files into memory.
 /// ZIP64 is intentionally not implemented; a single archive and each entry must fit classic ZIP limits.
@@ -113,9 +114,25 @@ enum ZipArchive {
         try write(fileEntries, to: url)
     }
 
-    /// Extracts the store-only ZIPs produced by `write`. Paths are validated before writing so an
+    private struct CentralDirectoryEntry {
+        let name: String
+        let flags: UInt16
+        let method: UInt16
+        let checksum: UInt32
+        let compressedSize: UInt64
+        let uncompressedSize: UInt64
+        let localHeaderOffset: UInt64
+    }
+
+    /// Extracts store (`method == 0`) and deflate (`method == 8`) ZIP archives (including streaming
+    /// entries whose sizes live in the central directory). Paths are validated before writing so an
     /// imported archive cannot escape its staging directory.
-    static func extract(from archiveURL: URL, to destination: URL) throws {
+    static func extract(
+        from archiveURL: URL,
+        to destination: URL,
+        maxExtractedBytes: UInt64 = 8 * 1024 * 1024 * 1024,
+        maxEntryCount: Int = 20_000
+    ) throws {
         let manager = FileManager.default
         try manager.createDirectory(at: destination, withIntermediateDirectories: true)
         let input = try FileHandle(forReadingFrom: archiveURL)
@@ -126,83 +143,243 @@ enum ZipArchive {
         }
 
         let archiveSize = UInt64((try archiveURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let entries = try readCentralDirectory(from: input, archiveSize: archiveSize, maxEntryCount: maxEntryCount)
+        guard !entries.isEmpty else { throw ArchiveError.invalid("archive is empty") }
+
         var extractedBytes: UInt64 = 0
         var entryCount = 0
+        let standardizedRoot = destination.standardizedFileURL.path + "/"
 
-        while true {
-            guard let signatureData = try input.read(upToCount: 4), signatureData.count == 4 else { break }
-            let signature = readUInt32(signatureData, at: 0)
-            if signature == 0x02014b50 || signature == 0x06054b50 { break }
-            guard signature == 0x04034b50 else { throw ArchiveError.invalid("unexpected ZIP record") }
+        for entry in entries {
+            guard entry.flags & 0x0001 == 0 else {
+                throw ArchiveError.unsupported("encrypted entries")
+            }
+            guard entry.method == 0 || entry.method == 8 else {
+                throw ArchiveError.unsupported("compression method \(entry.method)")
+            }
+            if entry.method == 0 && entry.compressedSize != entry.uncompressedSize {
+                throw ArchiveError.invalid("mismatched store entry sizes")
+            }
 
-            let rest = try readExactly(input, count: 26)
-            let header = signatureData + rest
-            let flags = readUInt16(header, at: 6)
-            let method = readUInt16(header, at: 8)
-            let checksum = readUInt32(header, at: 14)
-            let compressedSize = UInt64(readUInt32(header, at: 18))
-            let uncompressedSize = UInt64(readUInt32(header, at: 22))
-            let nameLength = Int(readUInt16(header, at: 26))
-            let extraLength = Int(readUInt16(header, at: 28))
-
-            guard flags & 0x0001 == 0, flags & 0x0008 == 0 else {
-                throw ArchiveError.unsupported("encrypted or streaming entries")
-            }
-            guard method == 0, compressedSize == uncompressedSize else {
-                throw ArchiveError.unsupported("compressed entries")
-            }
-            let nameData = try readExactly(input, count: nameLength)
-            guard let name = String(data: nameData, encoding: .utf8) else {
-                throw ArchiveError.invalid("file name is not UTF-8")
-            }
-            let components = name.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-            guard !name.hasPrefix("/"), !name.contains("\\"), !components.isEmpty,
+            let components = entry.name.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard !entry.name.hasPrefix("/"), !entry.name.contains("\\"), !components.isEmpty,
                   components.allSatisfy({ $0 != "." && $0 != ".." }) else {
                 throw ArchiveError.invalid("unsafe file path")
             }
 
-            let extraStart = try input.offset()
-            try input.seek(toOffset: extraStart + UInt64(extraLength))
-            let dataStart = try input.offset()
-            guard dataStart <= archiveSize, compressedSize <= archiveSize - dataStart else {
+            guard entry.localHeaderOffset + 30 <= archiveSize else {
+                throw ArchiveError.invalid("local header extends beyond archive")
+            }
+            try input.seek(toOffset: entry.localHeaderOffset)
+            let localHeader = try readExactly(input, count: 30)
+            guard readUInt32(localHeader, at: 0) == 0x04034b50 else {
+                throw ArchiveError.invalid("unexpected ZIP local header")
+            }
+            let localNameLength = UInt64(readUInt16(localHeader, at: 26))
+            let localExtraLength = UInt64(readUInt16(localHeader, at: 28))
+            let dataStart = entry.localHeaderOffset + 30 + localNameLength + localExtraLength
+            guard dataStart <= archiveSize, entry.compressedSize <= archiveSize - dataStart else {
                 throw ArchiveError.invalid("entry extends beyond the archive")
             }
-            extractedBytes += uncompressedSize
-            guard extractedBytes <= 8 * 1024 * 1024 * 1024, entryCount < 20_000 else {
-                throw ArchiveError.tooLarge(name)
+
+            let (addedBytes, overflow) = extractedBytes.addingReportingOverflow(entry.uncompressedSize)
+            guard !overflow, addedBytes <= maxExtractedBytes, entryCount < maxEntryCount else {
+                throw ArchiveError.tooLarge(entry.name)
             }
+            extractedBytes = addedBytes
             entryCount += 1
 
             let outputURL = components.reduce(destination) { $0.appendingPathComponent($1) }
-            let standardizedRoot = destination.standardizedFileURL.path + "/"
             guard outputURL.standardizedFileURL.path.hasPrefix(standardizedRoot) else {
                 throw ArchiveError.invalid("unsafe file path")
             }
-            if name.hasSuffix("/") {
+
+            if entry.name.hasSuffix("/") {
                 try manager.createDirectory(at: outputURL, withIntermediateDirectories: true)
             } else {
                 try manager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 guard manager.createFile(atPath: outputURL.path, contents: nil) else {
                     throw ArchiveError.invalid("could not create an extracted file")
                 }
+                try input.seek(toOffset: dataStart)
                 let output = try FileHandle(forWritingTo: outputURL)
                 defer { try? output.close() }
-                var remaining = compressedSize
-                while remaining > 0 {
-                    let count = Int(min(remaining, 1024 * 1024))
-                    try output.write(contentsOf: readExactly(input, count: count))
-                    remaining -= UInt64(count)
+                if entry.method == 0 {
+                    var remaining = entry.compressedSize
+                    while remaining > 0 {
+                        let count = Int(min(remaining, 1024 * 1024))
+                        try output.write(contentsOf: readExactly(input, count: count))
+                        remaining -= UInt64(count)
+                    }
+                } else {
+                    try decompressDeflateEntry(
+                        from: input,
+                        compressedSize: entry.compressedSize,
+                        expectedUncompressedSize: entry.uncompressedSize,
+                        to: output
+                    )
                 }
                 try output.synchronize()
-                guard try crc32(of: outputURL) == checksum else {
-                    throw ArchiveError.invalid("checksum mismatch for \(name)")
+                guard try crc32(of: outputURL) == entry.checksum else {
+                    throw ArchiveError.invalid("checksum mismatch for \(entry.name)")
                 }
             }
-            try input.seek(toOffset: dataStart + compressedSize)
         }
 
-        guard entryCount > 0 else { throw ArchiveError.invalid("archive is empty") }
         succeeded = true
+    }
+
+    private static func readCentralDirectory(
+        from input: FileHandle,
+        archiveSize: UInt64,
+        maxEntryCount: Int
+    ) throws -> [CentralDirectoryEntry] {
+        guard archiveSize >= 22 else {
+            throw ArchiveError.invalid("archive too small")
+        }
+        let searchWindow = Int(min(archiveSize, 65_557))
+        let windowStart = archiveSize - UInt64(searchWindow)
+        try input.seek(toOffset: windowStart)
+        let tail = try readExactly(input, count: searchWindow)
+
+        var eocdOffsetInTail: Int?
+        for idx in stride(from: tail.count - 22, through: 0, by: -1) {
+            if readUInt32(tail, at: idx) == 0x06054b50 {
+                let commentLength = Int(readUInt16(tail, at: idx + 20))
+                if idx + 22 + commentLength == tail.count {
+                    eocdOffsetInTail = idx
+                    break
+                }
+            }
+        }
+        guard let eocdIdx = eocdOffsetInTail else {
+            throw ArchiveError.invalid("missing end of central directory")
+        }
+
+        let totalEntries = Int(readUInt16(tail, at: eocdIdx + 10))
+        let centralSize = UInt64(readUInt32(tail, at: eocdIdx + 12))
+        let centralOffset = UInt64(readUInt32(tail, at: eocdIdx + 16))
+        guard centralOffset <= archiveSize, centralSize <= archiveSize - centralOffset else {
+            throw ArchiveError.invalid("central directory extends beyond archive")
+        }
+        guard totalEntries <= maxEntryCount else {
+            throw ArchiveError.tooLarge("archive")
+        }
+
+        try input.seek(toOffset: centralOffset)
+        var entries: [CentralDirectoryEntry] = []
+        entries.reserveCapacity(totalEntries)
+
+        for _ in 0..<totalEntries {
+            let record = try readExactly(input, count: 46)
+            guard readUInt32(record, at: 0) == 0x02014b50 else {
+                throw ArchiveError.invalid("unexpected central directory record")
+            }
+            let flags = readUInt16(record, at: 8)
+            let method = readUInt16(record, at: 10)
+            let checksum = readUInt32(record, at: 16)
+            let compressedSize = UInt64(readUInt32(record, at: 20))
+            let uncompressedSize = UInt64(readUInt32(record, at: 24))
+            let nameLength = Int(readUInt16(record, at: 28))
+            let extraLength = Int(readUInt16(record, at: 30))
+            let commentLength = Int(readUInt16(record, at: 32))
+            let localOffset = UInt64(readUInt32(record, at: 42))
+
+            let nameData = try readExactly(input, count: nameLength)
+            guard let name = String(data: nameData, encoding: .utf8) else {
+                throw ArchiveError.invalid("file name is not UTF-8")
+            }
+            let skipLen = UInt64(extraLength + commentLength)
+            if skipLen > 0 {
+                let current = try input.offset()
+                try input.seek(toOffset: current + skipLen)
+            }
+            entries.append(CentralDirectoryEntry(
+                name: name,
+                flags: flags,
+                method: method,
+                checksum: checksum,
+                compressedSize: compressedSize,
+                uncompressedSize: uncompressedSize,
+                localHeaderOffset: localOffset
+            ))
+        }
+        return entries
+    }
+
+    private static func decompressDeflateEntry(
+        from input: FileHandle,
+        compressedSize: UInt64,
+        expectedUncompressedSize: UInt64,
+        to output: FileHandle
+    ) throws {
+        if compressedSize == 0 && expectedUncompressedSize == 0 {
+            return
+        }
+        let sentinel = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        defer { sentinel.deallocate() }
+        var stream = compression_stream(dst_ptr: sentinel, dst_size: 0, src_ptr: sentinel, src_size: 0, state: nil)
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) != COMPRESSION_STATUS_ERROR else {
+            throw ArchiveError.invalid("unable to initialize deflate decoder")
+        }
+        defer { compression_stream_destroy(&stream) }
+
+        let chunkSize = 64 * 1024
+        var outBuffer = [UInt8](repeating: 0, count: chunkSize)
+        var remaining = compressedSize
+        var totalWritten: UInt64 = 0
+        var inBuffer = Data()
+        var inOffset = 0
+
+        while true {
+            if inOffset >= inBuffer.count && remaining > 0 {
+                let toRead = Int(min(remaining, UInt64(chunkSize)))
+                inBuffer = try readExactly(input, count: toRead)
+                remaining -= UInt64(toRead)
+                inOffset = 0
+            }
+
+            let processFlags: Int32 = (remaining == 0) ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
+            let status: compression_status = try inBuffer.withUnsafeBytes { rawIn -> compression_status in
+                let inBase = rawIn.bindMemory(to: UInt8.self).baseAddress
+                return try outBuffer.withUnsafeMutableBufferPointer { rawOut -> compression_status in
+                    guard let outBase = rawOut.baseAddress else {
+                        throw ArchiveError.invalid("output buffer allocation failed")
+                    }
+                    stream.src_ptr = inBase.map { $0.advanced(by: inOffset) } ?? UnsafePointer(sentinel)
+                    stream.src_size = inBuffer.count - inOffset
+                    stream.dst_ptr = outBase
+                    stream.dst_size = chunkSize
+
+                    let s = compression_stream_process(&stream, processFlags)
+                    let consumed = (inBuffer.count - inOffset) - stream.src_size
+                    inOffset += consumed
+                    let produced = chunkSize - stream.dst_size
+                    if produced > 0 {
+                        totalWritten += UInt64(produced)
+                        if totalWritten > expectedUncompressedSize + 1024 * 1024 {
+                            throw ArchiveError.invalid("deflated output exceeds declared size")
+                        }
+                        try output.write(contentsOf: Data(rawOut[0..<produced]))
+                    }
+                    return s
+                }
+            }
+
+            if status == COMPRESSION_STATUS_ERROR {
+                throw ArchiveError.invalid("corrupt deflate stream")
+            }
+            if status == COMPRESSION_STATUS_END {
+                break
+            }
+            if remaining == 0 && inOffset >= inBuffer.count && stream.dst_size > 0 {
+                throw ArchiveError.invalid("unexpected end of deflate stream")
+            }
+        }
+
+        if totalWritten != expectedUncompressedSize {
+            throw ArchiveError.invalid("uncompressed size mismatch")
+        }
     }
 
     private static func createEmptyFile(at url: URL) throws -> URL {

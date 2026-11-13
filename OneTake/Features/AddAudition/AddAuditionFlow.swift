@@ -18,6 +18,7 @@ struct AddAuditionFlow: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var unreadableNoticeError = false
+    @State private var importError: NoticeImportError?
     @State private var emptyClipboardAlert = false
     /// Parsed draft pending the actor's review — shown in OCRReviewSheet before being committed.
     @State private var pendingReviewDraft: NoticeParser.Draft? = nil
@@ -63,7 +64,7 @@ struct AddAuditionFlow: View {
                     pendingReviewImage = nil
                 }
             }
-            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
                 switch result {
                 case .success(let url):
                     pendingReviewImage = nil
@@ -73,25 +74,41 @@ struct AddAuditionFlow: View {
                         : nil
                     Task {
                         defer { resolved.cleanup() }
-                        if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
-                            let draft = await NoticeParser.parseAsync(doc.fullText, pages: doc.pages, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)])
+                        do {
+                            let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
+                            let draft = await NoticeParser.parseAsync(
+                                doc.fullText,
+                                pages: doc.reconstructedPages,
+                                sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)]
+                            )
                             await MainActor.run {
                                 pendingReviewImage = pdfPreview
                                 pendingReviewDraft = draft
                             }
-                        } else if let text = await NoticeOCR.extractText(fromFileAt: resolved.url), NoticeOCR.looksReadable(text) {
-                            let draft = await NoticeParser.parseAsync(text, sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: 1)])
-                            await MainActor.run {
-                                pendingReviewImage = pdfPreview
-                                pendingReviewDraft = draft
-                            }
-                        } else {
+                        } catch let error as NoticeImportError {
+                            await MainActor.run { importError = error }
+                        } catch {
                             await MainActor.run { unreadableNoticeError = true }
                         }
                     }
                 case .failure:
                     unreadableNoticeError = true
                 }
+            }
+            .alert(
+                importErrorTitle,
+                isPresented: Binding(
+                    get: { importError != nil },
+                    set: { if !$0 { importError = nil } }
+                )
+            ) {
+                Button("Type details") {
+                    importError = nil
+                    store.startAuditionDraft(NoticeParser.Draft.blank)
+                }
+                Button("Cancel", role: .cancel) { importError = nil }
+            } message: {
+                Text(importError?.localizedDescription ?? "This file couldn't be imported.")
             }
             .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
                 Button("OK", role: .cancel) {}
@@ -131,6 +148,14 @@ struct AddAuditionFlow: View {
                     }
                 }
             }
+    }
+
+    private var importErrorTitle: String {
+        switch importError {
+        case .encryptedPDF: return "This PDF is locked"
+        case .corruptDocument: return "We couldn't read this file"
+        case .unsupportedFormat, .none: return "Unsupported file format"
+        }
     }
 
     private func openScanner() {
@@ -202,17 +227,10 @@ struct AddAuditionFlow: View {
     }
 
     private var capture: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: OTSpace.m) {
-                HStack {
-                    Text("Add an audition").font(.otTitle)
-                    Spacer()
-                    OTIconButton("xmark", accessibilityLabel: "Close") {
-                        dismiss()
-                    }
-                }
-
-                Button {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: OTSpace.m) {
+                    Button {
                     handlePasteNotice()
                 } label: {
                     HStack(spacing: OTSpace.m) {
@@ -259,15 +277,23 @@ struct AddAuditionFlow: View {
                 }
                 .buttonStyle(.plain)
 
-                Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
-                    .font(.otFootnote).foregroundStyle(OT.accent)
+                    Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
+                        .font(.otFootnote).foregroundStyle(OT.accent)
+                }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.xs)
+                .padding(.bottom, OTSpace.m)
             }
-            .padding(.horizontal, OTSpace.gutter)
-            .padding(.top, OTSpace.m)
-            .padding(.bottom, OTSpace.l)
+            .scrollBounceBehavior(.basedOnSize)
+            .otCanvas()
+            .navigationTitle("Add an audition")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .otCanvas()
     }
 
     private func way(_ symbol: String, _ title: String) -> some View {
