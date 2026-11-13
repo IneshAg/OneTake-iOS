@@ -138,8 +138,8 @@ struct OCRReviewSheet: View {
             VStack(spacing: 0) {
                 // Top step progress pills
                 stepIndicator
-                    .padding(.vertical, OTSpace.s)
-                    .background(OT.surfaceRaised)
+                    .padding(.top, OTSpace.xs)
+                    .padding(.bottom, OTSpace.s)
 
                 // Current step content
                 Group {
@@ -244,7 +244,7 @@ struct OCRReviewSheet: View {
     // MARK: - Step Indicator
 
     private var stepIndicator: some View {
-        HStack(spacing: OTSpace.xs) {
+        HStack(spacing: OTSpace.s) {
             ForEach(Array(availableSteps.enumerated()), id: \.offset) { index, step in
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -258,7 +258,7 @@ struct OCRReviewSheet: View {
                         Text(step.shortTitle)
                             .font(.otCaption.weight(.semibold))
                     }
-                    .padding(.horizontal, OTSpace.s)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, OTSpace.xs)
                     .background(
                         index == currentStepIndex
@@ -275,6 +275,7 @@ struct OCRReviewSheet: View {
                 .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, OTSpace.gutter)
     }
 
     // MARK: - Bottom Navigation Bar
