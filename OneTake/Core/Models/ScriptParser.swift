@@ -91,10 +91,7 @@ enum ScriptParser {
         var hadBlankLine = true
         var previousContentLine: LayoutLine?
 
-        let runner = CoreMLScriptParserRunner.shared
-        let contextualClasses: [ScriptElementClass?] = runner.isAvailable
-            ? runner.classifyContextual(lines: layoutLines)
-            : Array(repeating: nil, count: layoutLines.count)
+        let contextualClasses = CoreMLScriptParserRunner.shared.classifyContextual(lines: layoutLines)
 
         // Index speaker cues across the document to assist narration action filtering
         var speakerCounts: [String: Int] = [:]
@@ -156,10 +153,16 @@ enum ScriptParser {
             }
 
             if let prev = previousContentLine {
-                if prev.pageIndex != layoutLine.pageIndex || hasVerticalGap(between: prev, and: layoutLine) {
+                if CoreMLScriptParserRunner.verticalGapIndicatesBlank(between: prev, and: layoutLine) {
                     inSettingOrNoteBlock = false
                     inParenthetical = false
                     hadBlankLine = true
+                } else if prev.pageIndex != layoutLine.pageIndex {
+                    inSettingOrNoteBlock = false
+                    inParenthetical = false
+                    if currentCharacter == nil {
+                        hadBlankLine = true
+                    }
                 }
             }
             previousContentLine = layoutLine
@@ -376,12 +379,6 @@ enum ScriptParser {
             )
         }
         return result
-    }
-
-    private static func hasVerticalGap(between first: LayoutLine, and second: LayoutLine) -> Bool {
-        let avgHeight = max(0.004, (first.rect.height + second.rect.height) * 0.5)
-        let gap = max(first.rect.minY - second.rect.maxY, second.rect.minY - first.rect.maxY)
-        return gap > avgHeight * 1.15
     }
 
     private static func smallIndentHint(for estimatedIndent: CGFloat) -> Int? {
@@ -744,7 +741,7 @@ enum ScriptParser {
     }
 
     /// Standalone line numbers, page counters, or script numbering (e.g. "91", "92", "p. 14")
-    private static func isLineOrPageNumber(_ raw: String) -> Bool {
+    static func isLineOrPageNumber(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
         if trimmed.allSatisfy(\.isNumber) { return true }
@@ -754,7 +751,7 @@ enum ScriptParser {
         if lower.hasPrefix("page ") || lower.hasPrefix("p. ") || lower.hasPrefix("pg. ") || lower.hasPrefix("p.") {
             let prefixLen = lower.hasPrefix("page ") ? 5 : (lower.hasPrefix("pg. ") ? 4 : (lower.hasPrefix("p. ") ? 3 : 2))
             let after = lower.dropFirst(prefixLen).trimmingCharacters(in: .whitespaces)
-            if after.allSatisfy(\.isNumber) { return true }
+            if !after.isEmpty && after.allSatisfy(\.isNumber) { return true }
         }
         return false
     }

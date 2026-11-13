@@ -227,21 +227,81 @@ final class ScriptParserStressTests: XCTestCase {
         XCTAssertTrue(isNotice, "Adversarial notice must be recognized as notice-only")
     }
 
-    /// Verifies contextual geometry-aware classification distinguishes left-aligned action from indented cues.
+    /// Verifies contextual geometry-aware classification distinguishes left-aligned action from indented cues
+    /// without relying on hardcoded character lists or action-verb heuristics.
     func testContextualScriptParserUsesIndentAndNeighborContext() {
         let lines = [
-            LayoutLine(text: "INT. APARTMENT - NIGHT", rect: CGRect(x: 0.15, y: 0.85, width: 0.4, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "INT. APARTMENT - NIGHT", rect: CGRect(x: 0.15, y: 0.85, width: 0.40, height: 0.02), pageIndex: 0),
             LayoutLine(text: "PAGE 4", rect: CGRect(x: 0.85, y: 0.95, width: 0.08, height: 0.015), pageIndex: 0),
-            LayoutLine(text: "MAYA picks up the phone.", rect: CGRect(x: 0.15, y: 0.78, width: 0.5, height: 0.02), pageIndex: 0),
-            LayoutLine(text: "MAYA", rect: CGRect(x: 0.42, y: 0.72, width: 0.10, height: 0.02), pageIndex: 0),
-            LayoutLine(text: "Are you still awake?", rect: CGRect(x: 0.28, y: 0.69, width: 0.35, height: 0.02), pageIndex: 0)
+            LayoutLine(text: "TESSA unplugs the lamp.", rect: CGRect(x: 0.15, y: 0.78, width: 0.45, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "ELENA", rect: CGRect(x: 0.42, y: 0.72, width: 0.10, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Are you still awake?", rect: CGRect(x: 0.28, y: 0.69, width: 0.35, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "TESSA unplugs the kettle.", rect: CGRect(x: 0.15, y: 0.62, width: 0.45, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Tessa", rect: CGRect(x: 0.42, y: 0.56, width: 0.09, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Almost ready.", rect: CGRect(x: 0.28, y: 0.53, width: 0.25, height: 0.02), pageIndex: 0)
         ]
+
+        let classes = CoreMLScriptParserRunner.shared.classifyContextual(lines: lines)
+        XCTAssertEqual(classes, [
+            .sceneHeading,
+            .metadata,
+            .action,
+            .characterCue,
+            .dialogue,
+            .action,
+            .characterCue,
+            .dialogue
+        ])
+
+        // Contrast unindented left-margin mixed-case text vs centered cue
+        let unindentedCheck = CoreMLScriptParserRunner.shared.classifyContextual(lines: [
+            LayoutLine(text: "Tessa", rect: CGRect(x: 0.15, y: 0.70, width: 0.09, height: 0.02), pageIndex: 0)
+        ])
+        XCTAssertNotEqual(unindentedCheck, [.characterCue])
+
+        let scenes = ScriptParser.parseScenes(from: lines, myRole: "Elena")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes[0].lines.count, 2)
+        XCTAssertEqual(scenes[0].lines[0].character, "Elena")
+        XCTAssertTrue(scenes[0].lines[0].isMine)
+        XCTAssertEqual(scenes[0].lines[0].text, "Are you still awake?")
+        XCTAssertEqual(scenes[0].lines[1].character, "Tessa")
+        XCTAssertFalse(scenes[0].lines[1].isMine)
+        XCTAssertEqual(scenes[0].lines[1].text, "Almost ready.")
+    }
+
+    /// Verifies dialogue starting with "Page "/"P. " is never dropped as metadata and wrapped dialogue survives page breaks.
+    func testPageMetadataNegativeAndPageBreakDialogueContinuation() {
+        let lines = [
+            LayoutLine(text: "INT. OFFICE - DAY", rect: CGRect(x: 0.15, y: 0.88, width: 0.40, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "MAYA", rect: CGRect(x: 0.42, y: 0.80, width: 0.10, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Page me when you get there.", rect: CGRect(x: 0.28, y: 0.77, width: 0.38, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "P. Sherman called earlier.", rect: CGRect(x: 0.28, y: 0.74, width: 0.36, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "I told you we shouldn't go back", rect: CGRect(x: 0.28, y: 0.12, width: 0.42, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "PAGE 2", rect: CGRect(x: 0.85, y: 0.95, width: 0.08, height: 0.015), pageIndex: 1),
+            LayoutLine(text: "without checking the locks first.", rect: CGRect(x: 0.15, y: 0.88, width: 0.45, height: 0.02), pageIndex: 1)
+        ]
+
+        let classes = CoreMLScriptParserRunner.shared.classifyContextual(lines: lines)
+        XCTAssertEqual(classes, [
+            .sceneHeading,
+            .characterCue,
+            .dialogue,
+            .dialogue,
+            .dialogue,
+            .metadata,
+            .dialogue
+        ])
+
         let scenes = ScriptParser.parseScenes(from: lines, myRole: "Maya")
         XCTAssertEqual(scenes.count, 1)
         XCTAssertEqual(scenes[0].lines.count, 1)
         XCTAssertEqual(scenes[0].lines[0].character, "Maya")
         XCTAssertTrue(scenes[0].lines[0].isMine)
-        XCTAssertEqual(scenes[0].lines[0].text, "Are you still awake?")
+        XCTAssertEqual(
+            scenes[0].lines[0].text,
+            "Page me when you get there. P. Sherman called earlier. I told you we shouldn't go back without checking the locks first."
+        )
     }
 
     /// Verifies `classifyContextual(lines:)` geometry/neighbor predictions, mixed-case indented cues, and v2 tokenizer parity.
