@@ -1,6 +1,8 @@
 import XCTest
 import PDFKit
 import UIKit
+import Compression
+import UniformTypeIdentifiers
 @testable import OneTake
 
 final class GeometryAndFormatParserTests: XCTestCase {
@@ -248,5 +250,262 @@ final class GeometryAndFormatParserTests: XCTestCase {
         } catch let error as NoticeImportError {
             XCTAssertEqual(error, .corruptDocument)
         }
+    }
+
+    func testFDXParserExtractsExactScenesAndDialogue() throws {
+        let fdx = """
+        <?xml version="1.0" encoding="UTF-8" ?>
+        <FinalDraft DocumentType="Script" Template="No" Version="5">
+          <Content>
+            <Paragraph Type="Scene Heading"><Text>INT. STUDIO - NIGHT</Text></Paragraph>
+            <Paragraph Type="Action"><Text>Rain lashes the skylight.</Text></Paragraph>
+            <Paragraph Type="Character"><Text>SANDY</Text></Paragraph>
+            <Paragraph Type="Parenthetical"><Text>(softly)</Text></Paragraph>
+            <Paragraph Type="Dialogue"><Text>Wait </Text><Text Style="Italic">for me.</Text></Paragraph>
+            <Paragraph Type="Scene Heading"><Text>EXT. ALLEY - CONTINUOUS</Text></Paragraph>
+            <Paragraph Type="Character"><Text>MARCUS (V.O.)</Text></Paragraph>
+            <Paragraph Type="Dialogue"><Text>Too late.</Text></Paragraph>
+          </Content>
+        </FinalDraft>
+        """.data(using: .utf8)!
+
+        let (scenes, doc) = try StructuredDocumentParsers.parseFDX(data: fdx)
+        XCTAssertEqual(scenes.count, 2)
+        XCTAssertEqual(scenes[0].heading, "INT. STUDIO - NIGHT")
+        XCTAssertEqual(scenes[0].lines.first?.character, "SANDY")
+        XCTAssertEqual(scenes[0].lines.first?.text, "Wait for me.")
+        XCTAssertEqual(scenes[1].heading, "EXT. ALLEY - CONTINUOUS")
+        XCTAssertEqual(scenes[1].lines.first?.character, "MARCUS")
+        XCTAssertEqual(scenes[1].lines.first?.text, "Too late.")
+        XCTAssertTrue(doc.fullText.contains("INT. STUDIO - NIGHT"))
+        XCTAssertTrue(doc.fullText.contains("(softly)"))
+
+        let allLines = doc.pages.flatMap { $0 }
+        let headingLine = try XCTUnwrap(allLines.first { $0.text.contains("INT. STUDIO - NIGHT") })
+        let cueLine = try XCTUnwrap(allLines.first { $0.text == "SANDY" })
+        let dialogueLine = try XCTUnwrap(allLines.first { $0.text.contains("Wait for me.") })
+        XCTAssertLessThan(headingLine.estimatedIndent, dialogueLine.estimatedIndent)
+        XCTAssertLessThan(dialogueLine.estimatedIndent, cueLine.estimatedIndent)
+    }
+
+    func testFountainParserHandlesSluglinesForcedCuesAndDualDialogue() throws {
+        let fountain = """
+        Title: Night Shift
+        Author: Jane Doe
+
+        INT. PRECINCT - NIGHT
+
+        Glass crunches underfoot.
+
+        @McLane
+        (breathless)
+        Drop the radio now.
+
+        .ROOFTOP - LATER
+
+        HANS ^
+        Don't move!
+
+        @McLane ^
+        I wasn't planning on it.
+        """
+
+        let (scenes, doc) = StructuredDocumentParsers.parseFountain(text: fountain)
+        XCTAssertEqual(scenes.count, 2)
+        XCTAssertEqual(scenes[0].heading, "INT. PRECINCT - NIGHT")
+        XCTAssertEqual(scenes[0].lines.count, 1)
+        XCTAssertEqual(scenes[0].lines[0].character, "McLane")
+        XCTAssertEqual(scenes[0].lines[0].text, "Drop the radio now.")
+
+        XCTAssertEqual(scenes[1].heading, "ROOFTOP - LATER")
+        XCTAssertEqual(scenes[1].lines.count, 2)
+        XCTAssertEqual(scenes[1].lines[0].character, "HANS")
+        XCTAssertEqual(scenes[1].lines[0].text, "Don't move!")
+        XCTAssertEqual(scenes[1].lines[1].character, "McLane")
+        XCTAssertEqual(scenes[1].lines[1].text, "I wasn't planning on it.")
+        XCTAssertTrue(doc.fullText.contains("INT. PRECINCT - NIGHT"))
+
+        let allLines = doc.pages.flatMap { $0 }
+        let cueLine = try XCTUnwrap(allLines.first { $0.text == "McLane" })
+        let dialogueLine = try XCTUnwrap(allLines.first { $0.text == "Drop the radio now." })
+        XCTAssertLessThan(dialogueLine.estimatedIndent, cueLine.estimatedIndent)
+    }
+
+    func testDOCXAndStructuredFormatsThroughNoticeOCRExtractLayoutDocument() async throws {
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p>
+              <w:pPr><w:ind w:left="0"/></w:pPr>
+              <w:r><w:t>INT. CAFE - DAY</w:t></w:r>
+            </w:p>
+            <w:p>
+              <w:pPr><w:ind w:left="3600"/></w:pPr>
+              <w:r><w:t>MAYA</w:t></w:r>
+            </w:p>
+            <w:p>
+              <w:pPr><w:ind w:left="1440"/></w:pPr>
+              <w:r><w:t>Coffee is getting cold.</w:t></w:r>
+            </w:p>
+          </w:body>
+        </w:document>
+        """
+        let docxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sides-\(UUID().uuidString).docx")
+        try ZipArchive.write([
+            ("[Content_Types].xml", Data("<Types/>".utf8)),
+            ("word/document.xml", Data(documentXML.utf8))
+        ], to: docxURL)
+        defer { try? FileManager.default.removeItem(at: docxURL) }
+
+        let docxDoc = try await NoticeOCR.extractLayoutDocument(fromFileAt: docxURL)
+        XCTAssertTrue(docxDoc.fullText.contains("INT. CAFE - DAY"))
+        XCTAssertTrue(docxDoc.fullText.contains("Coffee is getting cold."))
+        let docxLines = docxDoc.pages.flatMap { $0 }
+        let headingLine = try XCTUnwrap(docxLines.first { $0.text == "INT. CAFE - DAY" })
+        let dialogueLine = try XCTUnwrap(docxLines.first { $0.text == "Coffee is getting cold." })
+        let cueLine = try XCTUnwrap(docxLines.first { $0.text == "MAYA" })
+        XCTAssertLessThan(headingLine.estimatedIndent, dialogueLine.estimatedIndent)
+        XCTAssertLessThan(dialogueLine.estimatedIndent, cueLine.estimatedIndent)
+
+        let fountainURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sides-\(UUID().uuidString).fountain")
+        try Data("INT. OFFICE - DAY\n\n@McLane\nCheck the files.".utf8).write(to: fountainURL)
+        defer { try? FileManager.default.removeItem(at: fountainURL) }
+        let fountainDoc = try await NoticeOCR.extractLayoutDocument(fromFileAt: fountainURL)
+        XCTAssertTrue(fountainDoc.fullText.contains("Check the files."))
+        let fountainSync = { NoticeOCR.extractText(fromFileAt: fountainURL) }()
+        XCTAssertTrue(fountainSync?.contains("Check the files.") == true)
+        let fountainAsync = await NoticeOCR.extractText(fromFileAt: fountainURL)
+        XCTAssertTrue(fountainAsync?.contains("Check the files.") == true)
+
+        XCTAssertTrue(NoticeOCR.supportedImportContentTypes.contains(where: { $0.preferredFilenameExtension == "fdx" }))
+        XCTAssertTrue(NoticeOCR.supportedImportContentTypes.contains(where: { $0.preferredFilenameExtension == "fountain" }))
+        XCTAssertTrue(NoticeOCR.supportedImportContentTypes.contains(where: { $0.preferredFilenameExtension == "docx" }))
+
+        let fdxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sides-\(UUID().uuidString).fdx")
+        try Data("""
+        <?xml version="1.0" encoding="UTF-8" ?>
+        <FinalDraft DocumentType="Script" Template="No" Version="5">
+          <Content>
+            <Paragraph Type="Scene Heading"><Text>INT. LAB - NIGHT</Text></Paragraph>
+            <Paragraph Type="Character"><Text>ELENA</Text></Paragraph>
+            <Paragraph Type="Dialogue"><Text>We are out of time.</Text></Paragraph>
+          </Content>
+        </FinalDraft>
+        """.utf8).write(to: fdxURL)
+        defer { try? FileManager.default.removeItem(at: fdxURL) }
+        let fdxDoc = try await NoticeOCR.extractLayoutDocument(fromFileAt: fdxURL)
+        XCTAssertTrue(fdxDoc.fullText.contains("We are out of time."))
+    }
+
+    func testCorruptDocxOrFDXThrowsStructuredError() async throws {
+        let corruptDocxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("broken-\(UUID().uuidString).docx")
+        try Data("not-a-zip".utf8).write(to: corruptDocxURL)
+        defer { try? FileManager.default.removeItem(at: corruptDocxURL) }
+        do {
+            _ = try await NoticeOCR.extractLayoutDocument(fromFileAt: corruptDocxURL)
+            XCTFail("Expected NoticeImportError.corruptDocument for corrupt .docx")
+        } catch let error as NoticeImportError {
+            XCTAssertEqual(error, .corruptDocument)
+        }
+
+        let corruptFDXURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("broken-\(UUID().uuidString).fdx")
+        try Data("<FinalDraft><Content><Paragraph".utf8).write(to: corruptFDXURL)
+        defer { try? FileManager.default.removeItem(at: corruptFDXURL) }
+        do {
+            _ = try await NoticeOCR.extractLayoutDocument(fromFileAt: corruptFDXURL)
+            XCTFail("Expected NoticeImportError.corruptDocument for corrupt .fdx")
+        } catch let error as NoticeImportError {
+            XCTAssertEqual(error, .corruptDocument)
+        }
+    }
+
+    func testDeflateCompressedDOCXExtraction() async throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:r><w:t>EXT. HARBOR - DAWN</w:t></w:r></w:p>
+            <w:p><w:pPr><w:ind w:left="3600"/></w:pPr><w:r><w:t>CAPTAIN</w:t></w:r></w:p>
+            <w:p><w:pPr><w:ind w:left="1440"/></w:pPr><w:r><w:t>All hands on deck before the tide turns.</w:t></w:r></w:p>
+          </w:body>
+        </w:document>
+        """.utf8)
+
+        let deflatedData: Data = xml.withUnsafeBytes { rawIn -> Data in
+            let src = rawIn.bindMemory(to: UInt8.self).baseAddress!
+            var dst = [UInt8](repeating: 0, count: xml.count + 256)
+            let compressedCount = compression_encode_buffer(&dst, dst.count, src, xml.count, nil, COMPRESSION_ZLIB)
+            return Data(dst.prefix(compressedCount))
+        }
+        XCTAssertGreaterThan(deflatedData.count, 0)
+
+        let entryName = Data("word/document.xml".utf8)
+        let crc = ZipArchive.crc32(xml)
+
+        func le16(_ v: UInt16) -> Data { Data([UInt8(v & 0xff), UInt8(v >> 8)]) }
+        func le32(_ v: UInt32) -> Data {
+            Data([UInt8(v & 0xff), UInt8((v >> 8) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 24) & 0xff)])
+        }
+
+        var archive = Data()
+        // Local header with data descriptor flag (0x0008) and zeroed sizes, like streaming Word/Java writers
+        archive.append(le32(0x04034b50))
+        archive.append(le16(20))
+        archive.append(le16(0x0808)) // UTF-8 + data descriptor
+        archive.append(le16(8))      // Deflate
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le32(0))
+        archive.append(le32(0))
+        archive.append(le32(0))
+        archive.append(le16(UInt16(entryName.count)))
+        archive.append(le16(0))
+        archive.append(entryName)
+        archive.append(deflatedData)
+
+        let centralStart = UInt32(archive.count)
+        archive.append(le32(0x02014b50))
+        archive.append(le16(20))
+        archive.append(le16(20))
+        archive.append(le16(0x0808))
+        archive.append(le16(8))
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le32(crc))
+        archive.append(le32(UInt32(deflatedData.count)))
+        archive.append(le32(UInt32(xml.count)))
+        archive.append(le16(UInt16(entryName.count)))
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le32(0))
+        archive.append(le32(0)) // local header offset
+        archive.append(entryName)
+
+        let centralSize = UInt32(archive.count) - centralStart
+        archive.append(le32(0x06054b50))
+        archive.append(le16(0))
+        archive.append(le16(0))
+        archive.append(le16(1))
+        archive.append(le16(1))
+        archive.append(le32(centralSize))
+        archive.append(le32(centralStart))
+        archive.append(le16(0))
+
+        let docxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("deflated-\(UUID().uuidString).docx")
+        try archive.write(to: docxURL)
+        defer { try? FileManager.default.removeItem(at: docxURL) }
+
+        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: docxURL)
+        XCTAssertTrue(doc.fullText.contains("EXT. HARBOR - DAWN"))
+        XCTAssertTrue(doc.fullText.contains("All hands on deck before the tide turns."))
     }
 }

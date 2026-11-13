@@ -14,6 +14,7 @@ struct AddDraftSidesSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sidesParseTask: Task<Void, Never>?
     @State private var importError = false
+    @State private var importErrorMessage: String?
     @State private var emptyClipboardAlert = false
 
     private var activeScenes: [ScriptScene] {
@@ -210,7 +211,7 @@ struct AddDraftSidesSheet: View {
             }
         }
         .onDisappear { sidesParseTask?.cancel() }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText, .rtf, .text]) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
             switch result {
             case .success(let url):
                 reading = true
@@ -220,23 +221,27 @@ struct AddDraftSidesSheet: View {
                         resolved.cleanup()
                         reading = false
                     }
-                    if let doc = await NoticeOCR.extractDocument(fromFileAt: resolved.url) {
+                    do {
+                        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
                         await MainActor.run {
                             text = doc.fullText
                             editableScenes = ScriptParser.parseScenes(from: doc.fullText, myRole: draft.role)
                             Haptics.success()
                         }
-                    } else if let parsedText = await NoticeOCR.extractText(fromFileAt: resolved.url) {
+                    } catch let error as NoticeImportError {
                         await MainActor.run {
-                            text = parsedText
-                            editableScenes = ScriptParser.parseScenes(from: parsedText, myRole: draft.role)
-                            Haptics.success()
+                            importErrorMessage = error.localizedDescription
+                            importError = true
                         }
-                    } else {
-                        await MainActor.run { importError = true }
+                    } catch {
+                        await MainActor.run {
+                            importErrorMessage = nil
+                            importError = true
+                        }
                     }
                 }
             case .failure:
+                importErrorMessage = nil
                 importError = true
             }
         }
@@ -288,7 +293,7 @@ struct AddDraftSidesSheet: View {
         .alert("Couldn't read this file", isPresented: $importError) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Try choosing another PDF or text file, or paste the script text.")
+            Text(importErrorMessage ?? "Try choosing another PDF, script, or text file, or paste the script text.")
         }
         .alert("Nothing to paste", isPresented: $emptyClipboardAlert) {
             Button("OK", role: .cancel) {}

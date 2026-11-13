@@ -136,15 +136,25 @@ struct PracticeSetupView: View {
             }
             .ignoresSafeArea()
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText, .rtf]) { result in
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
             switch result {
             case .success(let url):
                 let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
                 Task {
                     defer { resolved.cleanup() }
-                    let text = await NoticeOCR.extractText(fromFileAt: resolved.url) ?? ""
-                    await MainActor.run {
-                        importText(text)
+                    do {
+                        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
+                        await MainActor.run {
+                            importText(doc.fullText)
+                        }
+                    } catch let error as NoticeImportError {
+                        await MainActor.run {
+                            errorMessage = error.localizedDescription
+                        }
+                    } catch {
+                        await MainActor.run {
+                            importText("")
+                        }
                     }
                 }
             case .failure:
