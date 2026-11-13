@@ -62,7 +62,11 @@ public struct OTScreen<Content: View, Trailing: View>: View {
         .toolbar(.hidden, for: .tabBar) // ot-lint:allow
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow sole container allowed to hide navigationBar
         .navigationBarBackButtonHidden(true)
-        .background(TabBarHider())
+        .background {
+            if !inSheet {
+                TabBarHider()
+            }
+        }
     }
 }
 

@@ -53,21 +53,7 @@ public struct TabBarHider: UIViewControllerRepresentable {
         }
 
         private func findTabBarController() -> UITabBarController? {
-            if let tbc = tabBarController { return tbc }
-            if let tbc = navigationController?.tabBarController { return tbc }
-            var responder: UIResponder? = view
-            while let r = responder {
-                if let tbc = r as? UITabBarController { return tbc }
-                if let vc = r as? UIViewController, let tbc = vc.tabBarController { return tbc }
-                responder = r.next
-            }
-            if let root = view.window?.rootViewController {
-                if let tbc = root as? UITabBarController { return tbc }
-                for child in root.children {
-                    if let tbc = child as? UITabBarController { return tbc }
-                }
-            }
-            return nil
+            owningTabBarController()
         }
     }
 }
@@ -188,21 +174,24 @@ public struct TabBarShower: UIViewControllerRepresentable {
         }
 
         private func findTabBarController() -> UITabBarController? {
-            if let tbc = tabBarController { return tbc }
-            if let tbc = navigationController?.tabBarController { return tbc }
-            var responder: UIResponder? = view
-            while let r = responder {
-                if let tbc = r as? UITabBarController { return tbc }
-                if let vc = r as? UIViewController, let tbc = vc.tabBarController { return tbc }
-                responder = r.next
-            }
-            if let root = view.window?.rootViewController {
-                if let tbc = root as? UITabBarController { return tbc }
-                for child in root.children {
-                    if let tbc = child as? UITabBarController { return tbc }
-                }
-            }
-            return nil
+            owningTabBarController()
         }
+    }
+}
+
+private extension UIViewController {
+    /// Walks only the owning parent/responder chain so a controller presented in a
+    /// sheet cannot reach across to `view.window?.rootViewController` and mutate
+    /// the background tab bar behind the modal boundary.
+    func owningTabBarController() -> UITabBarController? {
+        if let tbc = tabBarController { return tbc }
+        if let tbc = navigationController?.tabBarController { return tbc }
+        var responder: UIResponder? = view
+        while let r = responder {
+            if let tbc = r as? UITabBarController { return tbc }
+            if let vc = r as? UIViewController, let tbc = vc.tabBarController { return tbc }
+            responder = r.next
+        }
+        return nil
     }
 }

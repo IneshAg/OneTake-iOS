@@ -186,14 +186,17 @@ struct PracticeView: View {
 struct EmptyPracticeView: View {
     var showSample = true
     var openSample: () -> Void = {}
-    @Environment(AppStore.self) private var store
+
+    var buttonAction: (title: String, run: () -> Void)? {
+        showSample ? ("Try a sample scene", openSample) : nil
+    }
 
     var body: some View {
         OTEmptyState(
             illustration: Image("onetake-practice-illustration"),
             title: "No practice pieces yet",
             message: "Add a personal scene, monologue, or audition sides to start practising.",
-            action: showSample ? ("Try a sample scene", openSample) : ("Practise a scene", { store.push(.practiceSetup) })
+            action: buttonAction
         )
     }
 }
