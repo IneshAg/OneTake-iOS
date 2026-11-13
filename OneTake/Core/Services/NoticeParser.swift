@@ -189,24 +189,57 @@ enum NoticeParser {
 
     /// Asynchronous parsing pipeline: runs deterministic regex/anchor extraction first,
     /// then enriches with the on-device Foundation Model when supported on this iPhone.
-    static func parseAsync(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) async -> Draft {
-        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments)
+    static func parseAsync(
+        _ rawText: String,
+        pages: [String] = [],
+        sourceDocuments: [AuditionSource] = [],
+        layoutDocument: LayoutDocument? = nil
+    ) async -> Draft {
+        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments, layoutDocument: layoutDocument)
         var refined = await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
         populateStructuredNoticeData(&refined, text: refined.sourceText, pages: pages)
         return refined
     }
 
-    static func parse(_ rawText: String, pages: [String] = [], sourceDocuments: [AuditionSource] = []) -> Draft {
+    static func parse(
+        _ rawText: String,
+        pages: [String] = [],
+        sourceDocuments: [AuditionSource] = [],
+        layoutDocument: LayoutDocument? = nil
+    ) -> Draft {
         var d = Draft()
         let cleaned = ScriptParser.cleanPastedText(rawText)
         d.sourceText = cleaned
         d.sourceDocuments = sourceDocuments
 
-        // Pass 1 (Notice Extractor): If multi-page packet, focus notice field extraction on Pages 1–2
-        let isLongPacket = pages.count >= 2 || rawText.count > 3500
-        let noticeSource = isLongPacket && !pages.isEmpty
-            ? pages.prefix(2).joined(separator: "\n\n")
-            : (rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned)
+        // Pass 1 (Notice Extractor): Route multi-page packets through `DocumentPageRouter` so
+        // cover notices, breakdown tables, and tail submission pages feed notice extraction within budget.
+        let routed: RoutedDocument?
+        if let layoutDocument {
+            routed = DocumentPageRouter.route(layoutDocument, tokenBudget: 900)
+        } else if !pages.isEmpty {
+            let layoutPages = pages.enumerated().map { idx, pageText in
+                syntheticLayoutLinesPreservingIndent(from: pageText, pageIndex: idx)
+            }
+            routed = DocumentPageRouter.route(
+                LayoutDocument(pages: layoutPages, reconstructedPages: pages),
+                tokenBudget: 900
+            )
+        } else {
+            routed = nil
+        }
+
+        let noticeSource: String
+        if let routed, !routed.noticePages.isEmpty {
+            noticeSource = routed.noticeTextSlice
+        } else if !pages.isEmpty {
+            let isLongPacket = pages.count >= 2 || rawText.count > 3500
+            noticeSource = isLongPacket
+                ? pages.prefix(2).joined(separator: "\n\n")
+                : cleaned
+        } else {
+            noticeSource = rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned
+        }
 
         let text = tidy(noticeSource)
         let lower = text.lowercased()
@@ -450,5 +483,29 @@ enum NoticeParser {
         }
         populateStructuredNoticeData(&d, text: cleaned, pages: pages)
         return d
+    }
+
+    private static func syntheticLayoutLinesPreservingIndent(from pageText: String, pageIndex: Int) -> [LayoutLine] {
+        let nonEmpty = pageText.components(separatedBy: .newlines).filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !nonEmpty.isEmpty else { return [] }
+        let usableHeight: CGFloat = 0.88
+        let lineStep = usableHeight / CGFloat(nonEmpty.count)
+        let lineHeight = min(0.025, lineStep * 0.85)
+        return nonEmpty.enumerated().map { idx, rawLine in
+            let leadingSpaces = rawLine.prefix(while: { $0 == " " || $0 == "\t" }).count
+            let indent = min(0.55, max(0.08, CGFloat(leadingSpaces) / 40.0))
+            let maxY = 0.94 - CGFloat(idx) * lineStep
+            let minY = max(0.02, maxY - lineHeight)
+            let width = max(0.15, 0.92 - indent)
+            let rect = CGRect(x: indent, y: minY, width: width, height: lineHeight)
+            return LayoutLine(
+                text: rawLine.trimmingCharacters(in: .whitespacesAndNewlines),
+                rect: rect,
+                pageIndex: pageIndex,
+                estimatedIndent: indent
+            )
+        }
     }
 }

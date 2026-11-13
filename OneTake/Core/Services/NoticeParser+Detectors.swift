@@ -638,7 +638,7 @@ extension NoticeParser {
 
     /// "under 3 minutes", "no more than 2 min", "max 5 minutes", "Maximum total video: 2 minutes".
     static func detectLengthLimit(in text: String) -> Int? {
-        let pattern = #"(?:under|less than|no more than|max(?:imum)?(?:\s+(?:total\s+)?(?:video|clip|tape|length|time|duration))?\s*[:\-]?|up to|within)\s*(?:of\s+)?(\d{1,2})\s*(?:min|minute)"#
+        let pattern = #"(?:under|less than|no more than|max(?:imum)?(?:\s+(?:total\s+)?(?:video|clip|tape|length|time|duration))?\s*[:\-]?|up to|within)\s*(?:of\s+)?(?:\d{1,2}\s*(?:[-–—]|to)\s*)?(\d{1,2})\s*(?:min|minute)"#
         guard let v = firstMatch(pattern, in: text, options: .caseInsensitive) else { return nil }
         return Int(v)
     }
