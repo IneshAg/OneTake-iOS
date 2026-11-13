@@ -19,7 +19,6 @@ struct ProfileButton: View {
                 Label("Profile", systemImage: "person")
             }
         }
-        .modifier(GlassButtonCompatibility(enabled: true))
         .id(store.headshotVersion)
         .accessibilityLabel("Profile")
     }

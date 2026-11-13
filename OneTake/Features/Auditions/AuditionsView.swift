@@ -81,8 +81,10 @@ struct AuditionsView: View {
             }
             OTTrailingToolbarSpacer()
             ToolbarItem(placement: .topBarTrailing) {
-                OTIconButton("plus", accessibilityLabel: "Add an audition") {
+                Button {
                     store.showAddAudition = true
+                } label: {
+                    Label("Add an audition", systemImage: "plus")
                 }
             }
             OTTrailingToolbarSpacer()
@@ -238,11 +240,7 @@ struct AuditionsView: View {
     }
 
     private var filterMenu: some View {
-        OTMenuIconButton(
-            selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill",
-            accessibilityLabel: "Filter auditions. Currently showing \(selectedTab.rawValue)",
-            tintColor: selectedTab == .active ? nil : OT.accent
-        ) {
+        Menu {
             Picker("Filter", selection: $selectedTab) {
                 ForEach(FilterTab.allCases) { tab in
                     let count = countFor(tab)
@@ -253,7 +251,13 @@ struct AuditionsView: View {
                     .tag(tab)
                 }
             }
+        } label: {
+            Label(
+                "Filter",
+                systemImage: selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill"
+            )
         }
+        .accessibilityLabel("Filter auditions. Currently showing \(selectedTab.rawValue)")
     }
 
     private var activeFilterBadge: some View {
