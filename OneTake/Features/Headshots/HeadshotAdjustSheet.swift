@@ -104,11 +104,7 @@ struct HeadshotAdjustSheet: View {
 
             // Bottom control panel
             VStack(spacing: OTSpace.s) {
-                OTMenuButton(
-                    "Auto-frame · \(selectedPreset.title)",
-                    systemImage: "sparkles",
-                    size: .medium
-                ) {
+                Menu {
                     ForEach(HeadshotPreset.allCases) { preset in
                         Button {
                             selectedPreset = preset
@@ -121,7 +117,21 @@ struct HeadshotAdjustSheet: View {
                             }
                         }
                     }
+                } label: {
+                    HStack(spacing: OTSpace.xs) {
+                        Image(systemName: "sparkles")
+                            .font(.otIcon(.s, weight: .semibold))
+                        Text("Auto-frame · \(selectedPreset.title)")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.otIcon(.xs, weight: .semibold))
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                } primaryAction: {
+                    autoFrame(preset: selectedPreset, animated: true)
                 }
+                .buttonStyle(.ot(.secondary, size: .medium))
                 .padding(.horizontal, OTSpace.gutter)
 
                 Text("Choose a preset, then pinch or drag the photo to fine-tune its size and position.")

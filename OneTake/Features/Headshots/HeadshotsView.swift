@@ -206,11 +206,7 @@ struct HeadshotsView: View {
             }
 
             if taken > 0 {
-                OTMenuButton(
-                    framingPreset.shortTitle,
-                    systemImage: isFraming ? nil : "sparkles",
-                    size: .medium
-                ) {
+                Menu {
                     ForEach(HeadshotPreset.allCases) { preset in
                         Button {
                             framingPreset = preset
@@ -223,7 +219,23 @@ struct HeadshotsView: View {
                             }
                         }
                     }
+                } label: {
+                    HStack(spacing: OTSpace.xxs) {
+                        if isFraming {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                                .font(.otIcon(.s, weight: .semibold))
+                        }
+                        Text("Auto-frame")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                } primaryAction: {
+                    autoFrameAllHeadshots(preset: framingPreset)
                 }
+                .buttonStyle(.ot(.secondary, size: .medium))
                 .disabled(isFraming)
             }
         }

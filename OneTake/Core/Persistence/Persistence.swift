@@ -240,10 +240,14 @@ enum HeadshotStore {
         directory(for: auditionID).appendingPathComponent("\(key.lowercased())_original.jpg")
     }
 
-    /// A fresh capture. Drops any original kept from a previous reframe — it belongs to the old photo.
+    /// A fresh capture. Immediately backs up the untouched capture so auto-framing always has the full original.
     static func save(_ image: UIImage, key: String, auditionID: UUID? = nil) {
-        try? FileManager.default.removeItem(at: originalURL(for: key, auditionID: auditionID))
+        let orig = originalURL(for: key, auditionID: auditionID)
+        try? FileManager.default.removeItem(at: orig)
         write(image, key: key, auditionID: auditionID)
+        if let data = image.jpegData(compressionQuality: 0.9) {
+            try? data.write(to: orig, options: .atomic)
+        }
     }
 
     /// An edit of the current photo (e.g. auto-framing). Keeps the original capture on the first edit.

@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import AVFoundation
+import Vision
 @testable import OneTake
 
 final class CameraAndImageTests: XCTestCase {
@@ -339,6 +340,21 @@ final class CameraAndImageTests: XCTestCase {
                 let expectedRatio = preset.ratio(isProfile: true)
                 XCTAssertEqual(actualRatio, expectedRatio, accuracy: 0.05, "Profile ratio for \(preset.title) matches expected")
             }
+        }
+    }
+
+    func testDetectSubjectFindsFaceOnEditorialPhoto() {
+        let path = "/Users/user1/Downloads/OneTake-refactor/docs/illustrations/concepts/concept_d_actor_editorial.jpg"
+        guard let img = UIImage(contentsOfFile: path), let cg = img.cgImage else {
+            XCTFail("Failed to load test photo")
+            return
+        }
+        let size = CGSize(width: cg.width, height: cg.height)
+        let detected = ImageFramer.detectSubject(in: cg, size: size, isProfile: false)
+        XCTAssertNotNil(detected, "detectSubject must detect a subject on the editorial photo")
+        if let box = detected {
+            XCTAssertGreaterThan(box.width, 0)
+            XCTAssertGreaterThan(box.height, 0)
         }
     }
 

@@ -244,24 +244,51 @@ enum ImageFramer {
         }
     }
 
-    /// The largest face, in top-left pixel space; falls back to human body pose / upper body for profile shots
-    /// where face detection can miss.
+    /// The largest face, in top-left pixel space; falls back to CIDetector, human body pose, or upper body.
     static func detectSubject(in cgImage: CGImage, size: CGSize, isProfile: Bool = false) -> CGRect? {
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
 
-        // 1. Standard face detection
+        // 1. Vision face detection with CPU fallback for simulator/ANE constraints
         let faces = VNDetectFaceRectanglesRequest()
-        #if compiler(>=6.0)
-        faces.revision = VNDetectFaceRectanglesRequestRevision3
+        #if targetEnvironment(simulator)
+        faces.usesCPUOnly = true
         #endif
-        try? handler.perform([faces])
-        if let face = faces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }),
+        if (try? handler.perform([faces])) != nil,
+           let face = faces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }),
            face.confidence > 0.3 {
             return pixelRect(face.boundingBox, in: size)
+        } else {
+            let cpuFaces = VNDetectFaceRectanglesRequest()
+            cpuFaces.usesCPUOnly = true
+            if (try? handler.perform([cpuFaces])) != nil,
+               let face = cpuFaces.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }),
+               face.confidence > 0.3 {
+                return pixelRect(face.boundingBox, in: size)
+            }
         }
 
-        // 2. Human body pose detection for tracking head joints even in side profile (ears, nose, neck)
+        // 2. CoreImage CIDetector fallback — resilient on all platforms with zero Neural Engine requirements
+        let ciImage = CIImage(cgImage: cgImage)
+        if let detector = CIDetector(ofType: CIDetectorTypeFace, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]) {
+            let features = detector.features(in: ciImage).compactMap { $0 as? CIFaceFeature }
+            if let best = features.max(by: { ($0.bounds.width * $0.bounds.height) < ($1.bounds.width * $1.bounds.height) }) {
+                let box = CGRect(
+                    x: best.bounds.minX,
+                    y: size.height - best.bounds.maxY,
+                    width: best.bounds.width,
+                    height: best.bounds.height
+                )
+                if box.width > 0, box.height > 0 {
+                    return box
+                }
+            }
+        }
+
+        // 3. Human body pose detection for tracking head joints even in side profile (ears, nose, neck)
         let poseRequest = VNDetectHumanBodyPoseRequest()
+        #if targetEnvironment(simulator)
+        poseRequest.usesCPUOnly = true
+        #endif
         try? handler.perform([poseRequest])
         if let pose = poseRequest.results?.first {
             let headJoints: [VNHumanBodyPoseObservation.JointName] = [.nose, .leftEye, .rightEye, .leftEar, .rightEar, .neck]
@@ -288,9 +315,12 @@ enum ImageFramer {
             }
         }
 
-        // 3. Upper body detection fallback
+        // 4. Upper body detection fallback
         let body = VNDetectHumanRectanglesRequest()
         body.upperBodyOnly = true
+        #if targetEnvironment(simulator)
+        body.usesCPUOnly = true
+        #endif
         try? handler.perform([body])
         if let person = body.results?.max(by: { area($0.boundingBox) < area($1.boundingBox) }) {
             // Approximate the head as the top part of an upper-body box.
