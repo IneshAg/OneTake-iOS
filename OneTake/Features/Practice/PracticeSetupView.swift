@@ -10,6 +10,8 @@ struct PracticeSetupView: View {
     @State private var sceneTitle = ""
     @State private var character = ""
     @State private var sidesText = ""
+    @State private var importedScenes: [ScriptScene]?
+    @State private var importedTextSnapshot: String?
     @State private var errorMessage: String?
     @State private var photoItem: PhotosPickerItem?
     @State private var showFileImporter = false
@@ -78,6 +80,11 @@ struct PracticeSetupView: View {
                         ScriptTextEditor(text: $sidesText)
                             .frame(minHeight: 150) // ot-lint:allow
                             .onChange(of: sidesText) { _, newSides in
+                                if let snapshot = importedTextSnapshot, newSides == snapshot {
+                                    return
+                                }
+                                importedTextSnapshot = nil
+                                importedScenes = nil
                                 autoFillFromSides(newSides)
                             }
                     }
@@ -143,9 +150,9 @@ struct PracticeSetupView: View {
                 Task {
                     defer { resolved.cleanup() }
                     do {
-                        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
+                        let (doc, preParsedScenes) = try await NoticeOCR.extractSidesDocument(fromFileAt: resolved.url)
                         await MainActor.run {
-                            importText(doc.fullText)
+                            importText(doc.fullText, preParsedScenes: preParsedScenes)
                         }
                     } catch let error as NoticeImportError {
                         await MainActor.run {
@@ -187,7 +194,9 @@ struct PracticeSetupView: View {
 
     private func createStandaloneScene() {
         let role = character.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let scene = ScriptParser.parseScenes(from: sidesText, myRole: role).first else {
+        let resolvedScenes = importedScenes.map { ScriptParser.reclassify($0, myRole: role) }
+            ?? ScriptParser.parseScenes(from: sidesText, myRole: role)
+        guard let scene = resolvedScenes.first(where: { $0.lines.contains(where: \.isMine) }) ?? resolvedScenes.first else {
             errorMessage = "No dialogue found. Add character cues and lines."
             return
         }
@@ -203,25 +212,41 @@ struct PracticeSetupView: View {
         else { scannerUnavailable = true }
     }
 
-    private func importText(_ text: String) {
+    private func importText(_ text: String, preParsedScenes: [ScriptScene]? = nil) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "No text found. Try a clearer image or paste the sides."
             return
         }
         let cleaned = ScriptParser.cleanPastedText(text)
+        importedScenes = preParsedScenes
+        importedTextSnapshot = preParsedScenes != nil ? cleaned : nil
         sidesText = cleaned
-        autoFillFromSides(cleaned)
+        autoFillFromSides(cleaned, preParsedScenes: preParsedScenes)
         errorMessage = nil
     }
 
-    private func autoFillFromSides(_ text: String) {
+    private func autoFillFromSides(_ text: String, preParsedScenes: [ScriptScene]? = nil) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let chars = ScriptParser.extractCharacters(from: text)
+        let chars: [String]
+        if let preParsedScenes {
+            var counts: [String: Int] = [:]
+            var order: [String] = []
+            for line in preParsedScenes.flatMap(\.lines) {
+                let name = line.character.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { continue }
+                if counts[name] == nil { order.append(name) }
+                counts[name, default: 0] += 1
+            }
+            chars = order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
+        } else {
+            chars = ScriptParser.extractCharacters(from: text)
+        }
         if character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let firstChar = chars.first {
             character = firstChar
         }
         if sceneTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if let firstScene = ScriptParser.parseScenes(from: text, myRole: character).first, firstScene.heading != "SIDES" {
+            let firstScene = preParsedScenes?.first ?? ScriptParser.parseScenes(from: text, myRole: character).first
+            if let firstScene, firstScene.heading != "SIDES" {
                 sceneTitle = firstScene.heading.capitalized
             } else if let firstChar = chars.first {
                 sceneTitle = "\(firstChar)'s scene"

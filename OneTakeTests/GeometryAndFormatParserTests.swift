@@ -508,4 +508,114 @@ final class GeometryAndFormatParserTests: XCTestCase {
         XCTAssertTrue(doc.fullText.contains("EXT. HARBOR - DAWN"))
         XCTAssertTrue(doc.fullText.contains("All hands on deck before the tide turns."))
     }
+
+    func testExtractSidesDocumentPreservesStructuredScenesAndBOMTitlePage() async throws {
+        let bomFountain = "\u{FEFF}\n\nTitle: Die Hard Sides\nAuthor: Jeb Stuart\n\n.ROOFTOP - LATER\n\n@McLane\nStill standing.\n"
+        let fountainURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bom-sides-\(UUID().uuidString).fountain")
+        try Data(bomFountain.utf8).write(to: fountainURL)
+        defer { try? FileManager.default.removeItem(at: fountainURL) }
+
+        let (fountainDoc, fountainScenes) = try await NoticeOCR.extractSidesDocument(fromFileAt: fountainURL)
+        let parsedFountain = try XCTUnwrap(fountainScenes)
+        XCTAssertEqual(parsedFountain.count, 1)
+        XCTAssertEqual(parsedFountain[0].heading, "ROOFTOP - LATER")
+        XCTAssertEqual(parsedFountain[0].lines.count, 1)
+        XCTAssertEqual(parsedFountain[0].lines[0].character, "McLane")
+        XCTAssertEqual(parsedFountain[0].lines[0].text, "Still standing.")
+        XCTAssertTrue(fountainDoc.fullText.contains("ROOFTOP - LATER"))
+
+        let fdx = """
+        <?xml version="1.0" encoding="UTF-8" ?>
+        <FinalDraft DocumentType="Script" Template="No" Version="5">
+          <Content>
+            <Paragraph Type="Scene Heading"><Text>INT. VAULT - NIGHT</Text></Paragraph>
+            <Paragraph Type="Character"><Text>ARGYLE</Text></Paragraph>
+            <Paragraph Type="Dialogue"><Text>Check the radio.</Text></Paragraph>
+          </Content>
+        </FinalDraft>
+        """.data(using: .utf8)!
+        let fdxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sides-ast-\(UUID().uuidString).fdx")
+        try fdx.write(to: fdxURL)
+        defer { try? FileManager.default.removeItem(at: fdxURL) }
+
+        let (_, fdxScenes) = try await NoticeOCR.extractSidesDocument(fromFileAt: fdxURL)
+        let parsedFDX = try XCTUnwrap(fdxScenes)
+        XCTAssertEqual(parsedFDX.count, 1)
+        XCTAssertEqual(parsedFDX[0].heading, "INT. VAULT - NIGHT")
+        XCTAssertEqual(parsedFDX[0].lines.first?.character, "ARGYLE")
+        XCTAssertEqual(parsedFDX[0].lines.first?.text, "Check the radio.")
+    }
+
+    func testDOCXZipBombLimitAndNestedTextboxParagraphs() async throws {
+        // 1. Nested <w:txbxContent><w:p> inside an outer <w:p> must not clear the outer paragraph
+        let nestedXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p>
+              <w:pPr><w:ind w:left="1440"/></w:pPr>
+              <w:r><w:t>First half </w:t></w:r>
+              <w:r><w:drawing><w:txbxContent><w:p><w:r><w:t>IGNORED BOX</w:t></w:r></w:p></w:txbxContent></w:drawing></w:r>
+              <w:r><w:t>second half.</w:t></w:r>
+            </w:p>
+          </w:body>
+        </w:document>
+        """
+        let nestedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nested-box-\(UUID().uuidString).docx")
+        try ZipArchive.write([("word/document.xml", Data(nestedXML.utf8))], to: nestedURL)
+        defer { try? FileManager.default.removeItem(at: nestedURL) }
+
+        let nestedDoc = try await NoticeOCR.extractLayoutDocument(fromFileAt: nestedURL)
+        XCTAssertTrue(nestedDoc.fullText.contains("First half second half."), "Got:\n\(nestedDoc.fullText)")
+        XCTAssertFalse(nestedDoc.fullText.contains("IGNORED BOX"))
+
+        // 2. Crafted archive declaring > 64 MB uncompressed size must fail with .corruptDocument
+        let payload = Data("hello".utf8)
+        let entryName = Data("word/document.xml".utf8)
+        func le16(_ v: UInt16) -> Data { Data([UInt8(v & 0xff), UInt8(v >> 8)]) }
+        func le32(_ v: UInt32) -> Data {
+            Data([UInt8(v & 0xff), UInt8((v >> 8) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 24) & 0xff)])
+        }
+
+        var bomb = Data()
+        bomb.append(le32(0x04034b50))
+        bomb.append(le16(20)); bomb.append(le16(0x0800)); bomb.append(le16(0))
+        bomb.append(le16(0)); bomb.append(le16(0))
+        bomb.append(le32(ZipArchive.crc32(payload)))
+        bomb.append(le32(UInt32(payload.count))); bomb.append(le32(UInt32(payload.count)))
+        bomb.append(le16(UInt16(entryName.count))); bomb.append(le16(0))
+        bomb.append(entryName); bomb.append(payload)
+
+        let cdStart = UInt32(bomb.count)
+        bomb.append(le32(0x02014b50))
+        bomb.append(le16(20)); bomb.append(le16(20)); bomb.append(le16(0x0800)); bomb.append(le16(0))
+        bomb.append(le16(0)); bomb.append(le16(0))
+        bomb.append(le32(ZipArchive.crc32(payload)))
+        bomb.append(le32(UInt32(payload.count)))
+        bomb.append(le32(100 * 1024 * 1024)) // declares 100 MB > 64 MB DOCX cap
+        bomb.append(le16(UInt16(entryName.count)))
+        bomb.append(le16(0)); bomb.append(le16(0)); bomb.append(le16(0)); bomb.append(le16(0))
+        bomb.append(le32(0)); bomb.append(le32(0))
+        bomb.append(entryName)
+
+        let cdSize = UInt32(bomb.count) - cdStart
+        bomb.append(le32(0x06054b50))
+        bomb.append(le16(0)); bomb.append(le16(0)); bomb.append(le16(1)); bomb.append(le16(1))
+        bomb.append(le32(cdSize)); bomb.append(le32(cdStart)); bomb.append(le16(0))
+
+        let bombURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bomb-\(UUID().uuidString).docx")
+        try bomb.write(to: bombURL)
+        defer { try? FileManager.default.removeItem(at: bombURL) }
+
+        do {
+            _ = try await NoticeOCR.extractLayoutDocument(fromFileAt: bombURL)
+            XCTFail("Expected NoticeImportError.corruptDocument for oversized DOCX archive")
+        } catch let error as NoticeImportError {
+            XCTAssertEqual(error, .corruptDocument)
+        }
+    }
 }

@@ -261,8 +261,15 @@ enum StructuredDocumentParsers {
     // MARK: - Fountain (.fountain)
 
     static func parseFountain(text: String) -> ([ScriptScene], LayoutDocument) {
-        let stripped = stripFountainComments(text)
-        let rawLines = stripped.components(separatedBy: .newlines)
+        var normalized = text
+        if normalized.hasPrefix("\u{FEFF}") {
+            normalized.removeFirst()
+        }
+        let stripped = stripFountainComments(normalized)
+        var rawLines = stripped.components(separatedBy: .newlines)
+        while let first = rawLines.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
+            rawLines.removeFirst()
+        }
 
         var bodyStartIndex = 0
         var layoutItems: [LayoutInputLine] = []
@@ -429,13 +436,18 @@ enum StructuredDocumentParsers {
     private final class DOCXParserDelegate: NSObject, XMLParserDelegate {
         var lines: [LayoutInputLine] = []
 
-        private var inParagraph = false
+        private var paragraphDepth = 0
+        private var txbxDepth = 0
         private var inTextRun = false
         private var inDeletedText = false
         private var currentText = ""
         private var currentIndentTwips: CGFloat = 0
         private var currentAlignment: String?
         private var pageBreakPending = false
+
+        private var inTopLevelParagraph: Bool {
+            paragraphDepth == 1 && txbxDepth == 0
+        }
 
         func parser(
             _ parser: XMLParser,
@@ -445,38 +457,46 @@ enum StructuredDocumentParsers {
             attributes attributeDict: [String: String] = [:]
         ) {
             let local = elementName.components(separatedBy: ":").last ?? elementName
+            if local == "txbxContent" {
+                txbxDepth += 1
+                return
+            }
+            guard txbxDepth == 0 else { return }
+
             switch local {
             case "p":
-                inParagraph = true
-                currentText = ""
-                currentIndentTwips = 0
-                currentAlignment = nil
+                paragraphDepth += 1
+                if paragraphDepth == 1 {
+                    currentText = ""
+                    currentIndentTwips = 0
+                    currentAlignment = nil
+                }
             case "ind":
-                if inParagraph {
+                if inTopLevelParagraph {
                     let leftStr = attributeDict["w:left"] ?? attributeDict["left"] ?? attributeDict["w:start"] ?? attributeDict["start"]
                     if let leftStr, let value = Double(leftStr) {
                         currentIndentTwips = CGFloat(value)
                     }
                 }
             case "jc":
-                if inParagraph {
+                if inTopLevelParagraph {
                     currentAlignment = (attributeDict["w:val"] ?? attributeDict["val"])?.lowercased()
                 }
             case "delText":
                 inDeletedText = true
             case "t":
-                if inParagraph && !inDeletedText {
+                if inTopLevelParagraph && !inDeletedText {
                     inTextRun = true
                 }
             case "tab":
-                if inParagraph && !inDeletedText {
+                if inTopLevelParagraph && !inDeletedText {
                     currentText.append(" ")
                 }
             case "br":
                 let brType = (attributeDict["w:type"] ?? attributeDict["type"])?.lowercased()
                 if brType == "page" {
                     pageBreakPending = true
-                } else if inParagraph && !inDeletedText {
+                } else if inTopLevelParagraph && !inDeletedText {
                     currentText.append("\n")
                 }
             default:
@@ -485,7 +505,7 @@ enum StructuredDocumentParsers {
         }
 
         func parser(_ parser: XMLParser, foundCharacters string: String) {
-            guard inParagraph, inTextRun, !inDeletedText else { return }
+            guard inTopLevelParagraph, inTextRun, !inDeletedText else { return }
             currentText.append(string)
         }
 
@@ -496,44 +516,61 @@ enum StructuredDocumentParsers {
             qualifiedName qName: String?
         ) {
             let local = elementName.components(separatedBy: ":").last ?? elementName
+            if local == "txbxContent" {
+                txbxDepth = max(0, txbxDepth - 1)
+                return
+            }
+            guard txbxDepth == 0 else { return }
+
             switch local {
             case "t":
                 inTextRun = false
             case "delText":
                 inDeletedText = false
             case "p":
-                let indent: CGFloat = {
-                    if currentIndentTwips > 0 {
-                        return min(0.85, max(0.05, 0.12 + currentIndentTwips / 12240.0))
+                if paragraphDepth == 1 {
+                    let indent: CGFloat = {
+                        if currentIndentTwips > 0 {
+                            return min(0.85, max(0.05, 0.12 + currentIndentTwips / 12240.0))
+                        }
+                        if currentAlignment == "center" {
+                            return ScreenplayIndent.character
+                        }
+                        return 0.12
+                    }()
+                    let sublines = currentText.components(separatedBy: .newlines)
+                    for subline in sublines {
+                        let trimmed = subline.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { continue }
+                        lines.append(LayoutInputLine(text: trimmed, indent: indent, pageBreakBefore: pageBreakPending))
+                        pageBreakPending = false
                     }
-                    if currentAlignment == "center" {
-                        return ScreenplayIndent.character
-                    }
-                    return 0.12
-                }()
-                let sublines = currentText.components(separatedBy: .newlines)
-                for subline in sublines {
-                    let trimmed = subline.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { continue }
-                    lines.append(LayoutInputLine(text: trimmed, indent: indent, pageBreakBefore: pageBreakPending))
-                    pageBreakPending = false
+                    inTextRun = false
+                    currentText = ""
                 }
-                inParagraph = false
-                inTextRun = false
-                currentText = ""
+                paragraphDepth = max(0, paragraphDepth - 1)
             default:
                 break
             }
         }
     }
 
-    static func parseDOCX(url: URL) throws -> LayoutDocument {
+    static func parseDOCX(
+        url: URL,
+        maxExtractedBytes: UInt64 = 64 * 1024 * 1024,
+        maxEntryCount: Int = 1_000
+    ) throws -> LayoutDocument {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("docx-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         do {
-            try ZipArchive.extract(from: url, to: tempDir)
+            try ZipArchive.extract(
+                from: url,
+                to: tempDir,
+                maxExtractedBytes: maxExtractedBytes,
+                maxEntryCount: maxEntryCount
+            )
         } catch {
             throw NoticeImportError.corruptDocument
         }

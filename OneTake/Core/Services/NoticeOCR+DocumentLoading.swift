@@ -77,15 +77,42 @@ extension NoticeOCR {
         }
     }
 
-    /// Extracts a multi-page `LayoutDocument` preserving normalized line geometry and page boundaries.
-    static func extractLayoutDocument(fromFileAt url: URL) async throws -> LayoutDocument {
+    /// Extracts a multi-page `LayoutDocument` and, for structured script formats (`.fdx`, `.fountain`),
+    /// preserves the directly parsed `[ScriptScene]` AST so callers avoid lossy flat-text re-parsing.
+    static func extractSidesDocument(
+        fromFileAt url: URL
+    ) async throws -> (layoutDocument: LayoutDocument, preParsedScenes: [ScriptScene]?) {
         switch url.pathExtension.lowercased() {
         case "pdf":
             let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
             guard let doc else { throw NoticeImportError.corruptDocument }
-            return try await extractPDFLayoutDocument(from: doc)
+            return (try await extractPDFLayoutDocument(from: doc), nil)
+        case "rtf", "fdx", "fountain", "docx":
+            return try extractNonPDFDocument(fromFileAt: url)
+        default:
+            let fileData = try? Data(contentsOf: url)
+            if let doc = PDFDocument(url: url) ?? fileData.flatMap({ PDFDocument(data: $0) }) {
+                return (try await extractPDFLayoutDocument(from: doc), nil)
+            }
+            if fileData?.starts(with: Data("%PDF-".utf8)) == true {
+                throw NoticeImportError.corruptDocument
+            }
+            return try extractNonPDFDocument(fromFileAt: url, preloadedData: fileData)
+        }
+    }
+
+    /// Extracts a multi-page `LayoutDocument` preserving normalized line geometry and page boundaries.
+    static func extractLayoutDocument(fromFileAt url: URL) async throws -> LayoutDocument {
+        try await extractSidesDocument(fromFileAt: url).layoutDocument
+    }
+
+    private static func extractNonPDFDocument(
+        fromFileAt url: URL,
+        preloadedData: Data? = nil
+    ) throws -> (layoutDocument: LayoutDocument, preParsedScenes: [ScriptScene]?) {
+        switch url.pathExtension.lowercased() {
         case "rtf":
-            guard let data = try? Data(contentsOf: url),
+            guard let data = preloadedData ?? (try? Data(contentsOf: url)),
                   let attributed = try? NSAttributedString(
                     data: data,
                     options: [.documentType: NSAttributedString.DocumentType.rtf],
@@ -95,39 +122,32 @@ extension NoticeOCR {
             }
             let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
             guard looksReadable(text) else { throw NoticeImportError.corruptDocument }
-            return syntheticLayoutDocument(from: text)
+            return (syntheticLayoutDocument(from: text), nil)
         case "fdx":
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data = preloadedData ?? (try? Data(contentsOf: url)) else {
                 throw NoticeImportError.corruptDocument
             }
-            let (_, layoutDoc) = try StructuredDocumentParsers.parseFDX(data: data)
+            let (scenes, layoutDoc) = try StructuredDocumentParsers.parseFDX(data: data)
             guard looksReadable(layoutDoc.fullText) else { throw NoticeImportError.corruptDocument }
-            return layoutDoc
+            return (layoutDoc, scenes.isEmpty ? nil : scenes)
         case "fountain":
-            guard let data = try? Data(contentsOf: url),
+            guard let data = preloadedData ?? (try? Data(contentsOf: url)),
                   let text = decodeReadablePlainText(from: data) else {
                 throw NoticeImportError.corruptDocument
             }
-            let (_, layoutDoc) = StructuredDocumentParsers.parseFountain(text: text)
+            let (scenes, layoutDoc) = StructuredDocumentParsers.parseFountain(text: text)
             guard looksReadable(layoutDoc.fullText) else { throw NoticeImportError.corruptDocument }
-            return layoutDoc
+            return (layoutDoc, scenes.isEmpty ? nil : scenes)
         case "docx":
             let layoutDoc = try StructuredDocumentParsers.parseDOCX(url: url)
             guard looksReadable(layoutDoc.fullText) else { throw NoticeImportError.corruptDocument }
-            return layoutDoc
+            return (layoutDoc, nil)
         default:
-            let fileData = try? Data(contentsOf: url)
-            if let doc = PDFDocument(url: url) ?? fileData.flatMap({ PDFDocument(data: $0) }) {
-                return try await extractPDFLayoutDocument(from: doc)
-            }
-            if fileData?.starts(with: Data("%PDF-".utf8)) == true {
-                throw NoticeImportError.corruptDocument
-            }
-            guard let fileData else {
+            guard let fileData = preloadedData ?? (try? Data(contentsOf: url)) else {
                 throw NoticeImportError.corruptDocument
             }
             if let text = decodeReadablePlainText(from: fileData) {
-                return syntheticLayoutDocument(from: text)
+                return (syntheticLayoutDocument(from: text), nil)
             }
             if !fileData.contains(0x00), String(data: fileData, encoding: .utf8) != nil {
                 throw NoticeImportError.corruptDocument
@@ -243,42 +263,8 @@ extension NoticeOCR {
     }
 
     private static func extractSynchronousText(fromFileAt url: URL) -> String? {
-        switch url.pathExtension.lowercased() {
-        case "pdf":
-            let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap { PDFDocument(data: $0) }
-            guard let doc, !(doc.isEncrypted && doc.isLocked) else { return nil }
-            var text = ""
-            for i in 0..<doc.pageCount {
-                if let pageStr = doc.page(at: i)?.string {
-                    text += pageStr + "\n"
-                }
-            }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return looksReadable(trimmed) ? trimmed : nil
-        case "rtf":
-            guard let data = try? Data(contentsOf: url),
-                  let attributed = try? NSAttributedString(
-                    data: data,
-                    options: [.documentType: NSAttributedString.DocumentType.rtf],
-                    documentAttributes: nil
-                  ) else { return nil }
-            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return looksReadable(text) ? text : nil
-        case "fdx":
-            guard let data = try? Data(contentsOf: url),
-                  let (_, layoutDoc) = try? StructuredDocumentParsers.parseFDX(data: data),
-                  looksReadable(layoutDoc.fullText) else { return nil }
-            return layoutDoc.fullText
-        case "fountain":
-            guard let data = try? Data(contentsOf: url),
-                  let text = decodeReadablePlainText(from: data) else { return nil }
-            let (_, layoutDoc) = StructuredDocumentParsers.parseFountain(text: text)
-            return looksReadable(layoutDoc.fullText) ? layoutDoc.fullText : nil
-        case "docx":
-            guard let layoutDoc = try? StructuredDocumentParsers.parseDOCX(url: url),
-                  looksReadable(layoutDoc.fullText) else { return nil }
-            return layoutDoc.fullText
-        default:
+        let ext = url.pathExtension.lowercased()
+        if ext == "pdf" || !["rtf", "fdx", "fountain", "docx"].contains(ext) {
             if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }),
                !(doc.isEncrypted && doc.isLocked),
                doc.pageCount > 0 {
@@ -289,11 +275,14 @@ extension NoticeOCR {
                     }
                 }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if looksReadable(trimmed) { return trimmed }
+                if looksReadable(trimmed) || ext == "pdf" {
+                    return looksReadable(trimmed) ? trimmed : nil
+                }
+            } else if ext == "pdf" {
+                return nil
             }
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            return decodeReadablePlainText(from: data)
         }
+        return (try? extractNonPDFDocument(fromFileAt: url).layoutDocument.fullText)
     }
 
     /// Renders a PDF page to a crisp 2048px UIImage upright for Apple Vision OCR.

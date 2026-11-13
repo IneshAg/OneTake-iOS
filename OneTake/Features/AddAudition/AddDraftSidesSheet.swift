@@ -13,6 +13,7 @@ struct AddDraftSidesSheet: View {
     @State private var reading = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sidesParseTask: Task<Void, Never>?
+    @State private var importedTextSnapshot: String?
     @State private var importError = false
     @State private var importErrorMessage: String?
     @State private var emptyClipboardAlert = false
@@ -132,6 +133,10 @@ struct AddDraftSidesSheet: View {
                         ScriptTextEditor(text: $text)
                             .frame(minHeight: 140, maxHeight: 220) // ot-lint:allow
                             .onChange(of: text) { _, newText in
+                                if let snapshot = importedTextSnapshot, newText == snapshot {
+                                    return
+                                }
+                                importedTextSnapshot = nil
                                 sidesParseTask?.cancel()
                                 let role = draft.role
                                 sidesParseTask = Task {
@@ -222,10 +227,15 @@ struct AddDraftSidesSheet: View {
                         reading = false
                     }
                     do {
-                        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
+                        let (doc, preParsedScenes) = try await NoticeOCR.extractSidesDocument(fromFileAt: resolved.url)
+                        let scenes = preParsedScenes ?? ScriptParser.parseScenes(from: doc.fullText, myRole: draft.role)
+                        let reclassified = (preParsedScenes != nil && !draft.role.isEmpty)
+                            ? ScriptParser.reclassify(scenes, myRole: draft.role)
+                            : scenes
                         await MainActor.run {
+                            importedTextSnapshot = preParsedScenes != nil ? doc.fullText : nil
                             text = doc.fullText
-                            editableScenes = ScriptParser.parseScenes(from: doc.fullText, myRole: draft.role)
+                            editableScenes = reclassified
                             Haptics.success()
                         }
                     } catch let error as NoticeImportError {

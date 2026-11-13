@@ -127,7 +127,12 @@ enum ZipArchive {
     /// Extracts store (`method == 0`) and deflate (`method == 8`) ZIP archives (including streaming
     /// entries whose sizes live in the central directory). Paths are validated before writing so an
     /// imported archive cannot escape its staging directory.
-    static func extract(from archiveURL: URL, to destination: URL) throws {
+    static func extract(
+        from archiveURL: URL,
+        to destination: URL,
+        maxExtractedBytes: UInt64 = 8 * 1024 * 1024 * 1024,
+        maxEntryCount: Int = 20_000
+    ) throws {
         let manager = FileManager.default
         try manager.createDirectory(at: destination, withIntermediateDirectories: true)
         let input = try FileHandle(forReadingFrom: archiveURL)
@@ -138,7 +143,7 @@ enum ZipArchive {
         }
 
         let archiveSize = UInt64((try archiveURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-        let entries = try readCentralDirectory(from: input, archiveSize: archiveSize)
+        let entries = try readCentralDirectory(from: input, archiveSize: archiveSize, maxEntryCount: maxEntryCount)
         guard !entries.isEmpty else { throw ArchiveError.invalid("archive is empty") }
 
         var extractedBytes: UInt64 = 0
@@ -177,10 +182,11 @@ enum ZipArchive {
                 throw ArchiveError.invalid("entry extends beyond the archive")
             }
 
-            extractedBytes += entry.uncompressedSize
-            guard extractedBytes <= 8 * 1024 * 1024 * 1024, entryCount < 20_000 else {
+            let (addedBytes, overflow) = extractedBytes.addingReportingOverflow(entry.uncompressedSize)
+            guard !overflow, addedBytes <= maxExtractedBytes, entryCount < maxEntryCount else {
                 throw ArchiveError.tooLarge(entry.name)
             }
+            extractedBytes = addedBytes
             entryCount += 1
 
             let outputURL = components.reduce(destination) { $0.appendingPathComponent($1) }
@@ -223,7 +229,11 @@ enum ZipArchive {
         succeeded = true
     }
 
-    private static func readCentralDirectory(from input: FileHandle, archiveSize: UInt64) throws -> [CentralDirectoryEntry] {
+    private static func readCentralDirectory(
+        from input: FileHandle,
+        archiveSize: UInt64,
+        maxEntryCount: Int
+    ) throws -> [CentralDirectoryEntry] {
         guard archiveSize >= 22 else {
             throw ArchiveError.invalid("archive too small")
         }
@@ -252,7 +262,7 @@ enum ZipArchive {
         guard centralOffset <= archiveSize, centralSize <= archiveSize - centralOffset else {
             throw ArchiveError.invalid("central directory extends beyond archive")
         }
-        guard totalEntries < 20_000 else {
+        guard totalEntries <= maxEntryCount else {
             throw ArchiveError.tooLarge("archive")
         }
 
