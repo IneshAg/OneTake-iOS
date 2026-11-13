@@ -219,7 +219,7 @@ struct AuditionsView: View {
     }
 
     private var header: some View {
-        VStack(spacing: OTSpace.xs) {
+        VStack(spacing: OTSpace.m) {
             HStack(alignment: .center, spacing: OTSpace.s) {
                 Text("Auditions")
                     .font(.otLargeTitle)
@@ -232,45 +232,17 @@ struct AuditionsView: View {
             }
 
             if !store.auditions.isEmpty {
-                HStack(spacing: OTSpace.xs) {
+                Picker("Filter auditions", selection: $selectedTab.animation(.easeInOut(duration: 0.2))) {
                     ForEach(FilterTab.allCases) { tab in
-                        filterTabButton(tab)
+                        Text(tab.rawValue).tag(tab)
                     }
                 }
-                .padding(OTSpace.xxs)
-                .background(OT.fillField, in: Capsule()) // ot-lint:allow
-                .frame(maxWidth: .infinity)
+                .pickerStyle(.segmented)
             }
         }
         .padding(.horizontal, OTSpace.gutter)
-        .padding(.bottom, 6) // ot-lint:allow
+        .padding(.bottom, OTSpace.s)
         .background(OT.bgCanvas)
-    }
-
-    @ViewBuilder
-    private func filterTabButton(_ tab: FilterTab) -> some View {
-        let isSelected = selectedTab == tab
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                selectedTab = tab
-            }
-        } label: {
-            if isSelected {
-                Text(tab.rawValue)
-                    .font(.otSubhead.weight(.semibold))
-                    .foregroundStyle(OT.labelPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, OTSpace.xs)
-                    .background(OT.surfaceCard, in: Capsule()) // ot-lint:allow
-            } else {
-                Text(tab.rawValue)
-                    .font(.otSubhead)
-                    .foregroundStyle(OT.labelSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, OTSpace.xs)
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 
