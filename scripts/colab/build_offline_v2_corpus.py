@@ -26,6 +26,7 @@ from pathlib import Path
 import random
 import re
 import struct
+import textwrap
 from typing import Any
 import zlib
 
@@ -577,12 +578,14 @@ def _draw_bitmap_text_rgb(
     text: str,
     color: tuple[int, int, int],
     scale: int = 2,
+    max_x: int | None = None,
 ) -> None:
     cursor_x = x
+    limit_x = (width - 16) if max_x is None else min(width, max_x)
     color_px = bytes(color) * scale
-    for ch in _ascii_safe(text).upper()[:48]:
+    for ch in _ascii_safe(text).upper():
         glyph = _GLYPHS_5X7.get(ch, _GLYPHS_5X7[" "])
-        if cursor_x + 5 * scale >= width - 16:
+        if cursor_x + 5 * scale > limit_x:
             break
         for gy, row_mask in enumerate(glyph):
             for sy in range(scale):
@@ -597,6 +600,71 @@ def _draw_bitmap_text_rgb(
                             pos = row_offset + px * 3
                             buf[pos : pos + 3 * scale] = color_px
         cursor_x += 6 * scale
+
+
+def _draw_wrapped_bitmap_text_rgb(
+    buf: bytearray,
+    stride: int,
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    text: str,
+    color: tuple[int, int, int],
+    scale: int = 2,
+    max_chars: int = 58,
+    max_x: int | None = None,
+    max_y: int | None = None,
+    line_gap: int = 5,
+) -> int:
+    """Wrap `text` across multiple lines using `textwrap.wrap` and return next Y."""
+    wrapped = textwrap.wrap(
+        text,
+        width=max_chars,
+        break_long_words=True,
+        break_on_hyphens=False,
+    ) or [""]
+    line_step = 7 * scale + line_gap
+    cursor_y = y
+    limit_x = (width - 16) if max_x is None else max_x
+    for line in wrapped:
+        if max_y is not None and cursor_y + 7 * scale > max_y:
+            break
+        _draw_bitmap_text_rgb(
+            buf,
+            stride,
+            width,
+            height,
+            x,
+            cursor_y,
+            line,
+            color,
+            scale=scale,
+            max_x=limit_x,
+        )
+        cursor_y += line_step
+    return cursor_y
+
+
+def _poster_field_groups(t: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Split canonical fields into primary breakdown lines and logistics/schedule lines."""
+    left_lines = [
+        f"ROLE: {t['role']} ({t['role_size']})",
+        f"ROLES: {' / '.join(t['candidate_roles'])}",
+        f"LOC: {t['location']}",
+        f"SPECS: {' / '.join(t['specs'])}",
+        f"NOTES: {t['casting_notes'] or 'None'}",
+    ]
+    right_lines = [
+        f"DUE: {t['due_date_text']}",
+        f"ORIENTATION: {t['orientation']}",
+        f"UNION: {t['union_status'] or 'N/A'}",
+        f"PAY: {t['pay_terms'] or 'TBD'}",
+        f"CALLBACKS: {t['callback_dates_text'] or 'TBD'}",
+        f"SHOOT: {t['shoot_dates_text'] or 'TBD'}",
+        f"FILE: {t['file_naming'] or 'Standard'}",
+    ]
+    return left_lines, right_lines
 
 
 def render_poster_png_fallback(
@@ -628,33 +696,134 @@ def render_poster_png_fallback(
 
     # Top header banner
     _fill_rect_rgb(buf, stride, width, height, 0, 0, width, 136, accent)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 32, 32, f"{t['project']} - {t['project_type']}", (255, 255, 255), scale=3)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 32, 86, f"CASTING: {t['casting_office']}", (230, 238, 250), scale=2)
+    _draw_wrapped_bitmap_text_rgb(
+        buf,
+        stride,
+        width,
+        height,
+        32,
+        24,
+        f"{t['project']} - {t['project_type']}",
+        (255, 255, 255),
+        scale=3,
+        max_chars=38,
+        max_x=width - 24,
+        max_y=84,
+        line_gap=4,
+    )
+    _draw_wrapped_bitmap_text_rgb(
+        buf,
+        stride,
+        width,
+        height,
+        32,
+        88,
+        f"CASTING: {t['casting_office']}",
+        (230, 238, 250),
+        scale=2,
+        max_chars=58,
+        max_x=width - 24,
+        max_y=130,
+    )
+
+    footer_top = height - 172
+    body_y = 160
+    left_lines, right_lines = _poster_field_groups(t)
 
     if layout == "two_column_grid":
-        _fill_rect_rgb(buf, stride, width, height, 32, 168, 368, 760, (255, 255, 255))
-        _fill_rect_rgb(buf, stride, width, height, 400, 168, width - 32, 760, (233, 238, 245))
-    elif layout == "watermark_clapperboard":
-        # Clapperboard diagonal stripes across middle watermark band
-        for band in range(8):
-            bx = 90 + band * 76
-            stripe_color = (210, 214, 222) if band % 2 == 0 else (228, 232, 238)
-            _fill_rect_rgb(buf, stride, width, height, bx, 300, bx + 54, 520, stripe_color)
-        _draw_bitmap_text_rgb(buf, stride, width, height, 150, 410, "CONFIDENTIAL CASTING", (185, 190, 200), scale=3)
-    elif layout == "agency_logo_decoy":
-        _fill_rect_rgb(buf, stride, width, height, width - 310, 152, width - 28, 250, (24, 34, 52))
-        _draw_bitmap_text_rgb(buf, stride, width, height, width - 294, 172, sample["agency_brand"], (255, 215, 110), scale=2)
-        _draw_bitmap_text_rgb(buf, stride, width, height, width - 294, 208, sample["decoy_email"], (210, 220, 235), scale=2)
+        _fill_rect_rgb(buf, stride, width, height, 32, 160, 372, footer_top - 16, (255, 255, 255))
+        _fill_rect_rgb(buf, stride, width, height, 396, 160, width - 32, footer_top - 16, (233, 238, 245))
+        ly = 178
+        for line in left_lines:
+            ly = _draw_wrapped_bitmap_text_rgb(
+                buf,
+                stride,
+                width,
+                height,
+                44,
+                ly,
+                line,
+                fg,
+                scale=2,
+                max_chars=26,
+                max_x=364,
+                max_y=footer_top - 24,
+                line_gap=4,
+            ) + 8
+        ry = 178
+        for line in right_lines:
+            ry = _draw_wrapped_bitmap_text_rgb(
+                buf,
+                stride,
+                width,
+                height,
+                408,
+                ry,
+                line,
+                fg,
+                scale=2,
+                max_chars=26,
+                max_x=width - 40,
+                max_y=footer_top - 24,
+                line_gap=4,
+            ) + 8
+    else:
+        if layout == "watermark_clapperboard":
+            # Clapperboard diagonal stripes across middle watermark band
+            for band in range(8):
+                bx = 90 + band * 76
+                stripe_color = (210, 214, 222) if band % 2 == 0 else (228, 232, 238)
+                _fill_rect_rgb(buf, stride, width, height, bx, 300, bx + 54, 520, stripe_color)
+            _draw_bitmap_text_rgb(buf, stride, width, height, 150, 410, "CONFIDENTIAL CASTING", (185, 190, 200), scale=3)
+        elif layout == "agency_logo_decoy":
+            _fill_rect_rgb(buf, stride, width, height, width - 340, 148, width - 24, 246, (24, 34, 52))
+            _draw_wrapped_bitmap_text_rgb(
+                buf,
+                stride,
+                width,
+                height,
+                width - 326,
+                162,
+                sample["agency_brand"],
+                (255, 215, 110),
+                scale=2,
+                max_chars=24,
+                max_x=width - 32,
+                max_y=204,
+            )
+            _draw_wrapped_bitmap_text_rgb(
+                buf,
+                stride,
+                width,
+                height,
+                width - 326,
+                202,
+                sample["decoy_email"],
+                (210, 220, 235),
+                scale=2,
+                max_chars=24,
+                max_x=width - 32,
+                max_y=242,
+            )
+            body_y = 262
 
-    # Body breakdown lines
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 276, f"ROLE: {t['role']} ({t['role_size']})", fg, scale=2)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 324, f"ROLES: {' / '.join(t['candidate_roles'][:3])}", fg, scale=2)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 376, f"LOC: {t['location']}", fg, scale=2)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 428, f"DUE: {t['due_date_text']}", fg, scale=2)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 480, f"SPECS: {' / '.join(t['specs'][:3])}", fg, scale=2)
-    _draw_bitmap_text_rgb(buf, stride, width, height, 42, 532, f"ORIENTATION: {t['orientation']}", fg, scale=2)
-    if t["file_naming"]:
-        _draw_bitmap_text_rgb(buf, stride, width, height, 42, 584, f"FILE: {t['file_naming']}", fg, scale=2)
+        cy = body_y
+        for line in left_lines + right_lines:
+            cy = _draw_wrapped_bitmap_text_rgb(
+                buf,
+                stride,
+                width,
+                height,
+                36,
+                cy,
+                line,
+                fg,
+                scale=2,
+                max_chars=58,
+                max_x=width - 28,
+                max_y=footer_top - 12,
+                line_gap=4,
+            ) + 6
 
     # Footer bar (white-on-tan low contrast for `low_contrast_footer`)
     if layout == "low_contrast_footer":
@@ -664,11 +833,40 @@ def render_poster_png_fallback(
         footer_bg = (42, 50, 66)
         footer_fg = (240, 244, 250)
 
-    _fill_rect_rgb(buf, stride, width, height, 0, height - 150, width, height, footer_bg)
+    _fill_rect_rgb(buf, stride, width, height, 0, footer_top, width, height, footer_bg)
+    fy = footer_top + 18
     if t["submission_email"]:
-        _draw_bitmap_text_rgb(buf, stride, width, height, 32, height - 118, f"SUBMIT: {t['submission_email']}", footer_fg, scale=2)
+        fy = _draw_wrapped_bitmap_text_rgb(
+            buf,
+            stride,
+            width,
+            height,
+            32,
+            fy,
+            f"SUBMIT: {t['submission_email']}",
+            footer_fg,
+            scale=2,
+            max_chars=58,
+            max_x=width - 24,
+            max_y=height - 12,
+            line_gap=4,
+        ) + 8
     if t["sides_link"]:
-        _draw_bitmap_text_rgb(buf, stride, width, height, 32, height - 68, f"SIDES: {t['sides_link']}", footer_fg, scale=2)
+        _draw_wrapped_bitmap_text_rgb(
+            buf,
+            stride,
+            width,
+            height,
+            32,
+            fy,
+            f"SIDES: {t['sides_link']}",
+            footer_fg,
+            scale=2,
+            max_chars=58,
+            max_x=width - 24,
+            max_y=height - 10,
+            line_gap=4,
+        )
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     idat = zlib.compress(bytes(buf), level=1)
@@ -682,6 +880,92 @@ def render_poster_png_fallback(
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(png_bytes)
+
+
+def _load_pil_font(size: int = 18, prefer_indic: bool = False) -> Any:  # pragma: no cover
+    """Locate a Unicode/Indic TTF font on Linux/Colab or macOS before falling back to Pillow default."""
+    indic_candidates = (
+        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansGurmukhi-Regular.ttf",
+        "/System/Library/Fonts/Kohinoor.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    )
+    general_candidates = (
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+    )
+    search_order = (indic_candidates + general_candidates) if prefer_indic else (general_candidates + indic_candidates)
+    for font_path in search_order:
+        if Path(font_path).exists():
+            try:
+                return ImageFont.truetype(font_path, size=size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _draw_pil_text(draw: Any, xy: tuple[int, int], text: str, fill: tuple[int, int, int], font: Any) -> None:  # pragma: no cover
+    """Render UTF-8 text directly when supported by the font, falling back per-character only if needed."""
+    try:
+        draw.text(xy, text, fill=fill, font=font)
+    except UnicodeEncodeError:
+        sanitized = "".join(ch if ord(ch) < 256 else "?" for ch in text)
+        draw.text(xy, sanitized, fill=fill, font=font)
+
+
+def _wrap_pil_lines(text: str, max_width_px: int, draw: Any, font: Any) -> list[str]:  # pragma: no cover
+    """Wrap text to fit within `max_width_px` using Pillow font metrics when available."""
+    words = text.split()
+    if not words:
+        return [""]
+    if not hasattr(draw, "textlength"):
+        approx_chars = max(16, max_width_px // 8)
+        return textwrap.wrap(text, width=approx_chars, break_long_words=True, break_on_hyphens=False)
+
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        try:
+            width_px = draw.textlength(candidate, font=font)
+        except UnicodeEncodeError:
+            width_px = len(candidate) * 8
+        if current and width_px > max_width_px:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _draw_pil_wrapped_block(
+    draw: Any,
+    x: int,
+    y: int,
+    lines: list[str],
+    fill: tuple[int, int, int],
+    font: Any,
+    max_width_px: int,
+    max_y: int,
+    line_step: int = 22,
+    paragraph_gap: int = 8,
+) -> int:  # pragma: no cover
+    cursor_y = y
+    for raw_line in lines:
+        for wrapped in _wrap_pil_lines(raw_line, max_width_px=max_width_px, draw=draw, font=font):
+            if cursor_y + line_step > max_y:
+                return cursor_y
+            _draw_pil_text(draw, (x, cursor_y), wrapped, fill=fill, font=font)
+            cursor_y += line_step
+        cursor_y += paragraph_gap
+    return cursor_y
 
 
 def render_poster_png_pil(
@@ -700,41 +984,64 @@ def render_poster_png_pil(
 
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
+    prefer_indic = layout == "regional_multilingual"
+    title_font = _load_pil_font(size=24, prefer_indic=prefer_indic)
+    body_font = _load_pil_font(size=16, prefer_indic=prefer_indic)
+    small_font = _load_pil_font(size=14, prefer_indic=prefer_indic)
 
     draw.rectangle([0, 0, width, 136], fill=accent)
-    draw.text((32, 32), _ascii_safe(f"{t['project']} ({t['project_type']})"), fill=(255, 255, 255), font=font)
-    draw.text((32, 76), _ascii_safe(f"Casting Office: {t['casting_office']}"), fill=(230, 238, 250), font=font)
+    _draw_pil_text(draw, (32, 26), f"{t['project']} ({t['project_type']})", fill=(255, 255, 255), font=title_font)
+    _draw_pil_text(draw, (32, 78), f"Casting Office: {t['casting_office']}", fill=(230, 238, 250), font=body_font)
+
+    footer_top = height - 172
+    left_lines, right_lines = _poster_field_groups(t)
 
     if layout == "two_column_grid":
-        draw.rectangle([28, 164, 372, 760], fill=(255, 255, 255), outline=(210, 214, 222))
-        draw.rectangle([396, 164, width - 28, 760], fill=(234, 239, 246), outline=(204, 212, 224))
-    elif layout == "watermark_clapperboard":
-        for band in range(8):
-            bx = 80 + band * 78
-            draw.polygon([(bx, 280), (bx + 44, 280), (bx + 90, 520), (bx + 46, 520)], fill=(220, 224, 232))
-        draw.text((190, 390), "CLAPPERBOARD WATERMARK // CASTING", fill=(165, 170, 180), font=font)
-    elif layout == "agency_logo_decoy":
-        draw.rectangle([width - 320, 152, width - 28, 248], fill=(24, 34, 52))
-        draw.text((width - 304, 170), _ascii_safe(sample["agency_brand"]), fill=(255, 215, 110), font=font)
-        draw.text((width - 304, 206), _ascii_safe(sample["decoy_email"]), fill=(210, 220, 235), font=font)
+        draw.rectangle([28, 164, 372, footer_top - 16], fill=(255, 255, 255), outline=(210, 214, 222))
+        draw.rectangle([396, 164, width - 28, footer_top - 16], fill=(234, 239, 246), outline=(204, 212, 224))
+        _draw_pil_wrapped_block(
+            draw,
+            x=40,
+            y=180,
+            lines=left_lines,
+            fill=fg,
+            font=body_font,
+            max_width_px=324,
+            max_y=footer_top - 24,
+        )
+        _draw_pil_wrapped_block(
+            draw,
+            x=408,
+            y=180,
+            lines=right_lines,
+            fill=fg,
+            font=body_font,
+            max_width_px=324,
+            max_y=footer_top - 24,
+        )
+    else:
+        body_y = 164
+        if layout == "watermark_clapperboard":
+            for band in range(8):
+                bx = 80 + band * 78
+                draw.polygon([(bx, 280), (bx + 44, 280), (bx + 90, 520), (bx + 46, 520)], fill=(220, 224, 232))
+            _draw_pil_text(draw, (170, 390), "CLAPPERBOARD WATERMARK // CASTING", fill=(165, 170, 180), font=body_font)
+        elif layout == "agency_logo_decoy":
+            draw.rectangle([width - 340, 148, width - 28, 244], fill=(24, 34, 52))
+            _draw_pil_text(draw, (width - 324, 164), sample["agency_brand"], fill=(255, 215, 110), font=body_font)
+            _draw_pil_text(draw, (width - 324, 200), sample["decoy_email"], fill=(210, 220, 235), font=small_font)
+            body_y = 262
 
-    lines = [
-        f"Role: {t['role']} ({t['role_size']})",
-        f"Candidate Roles: {', '.join(t['candidate_roles'])}",
-        f"Location: {t['location']}",
-        f"Due: {t['due_date_text']}",
-        f"Specs: {' | '.join(t['specs'])}",
-        f"Orientation: {t['orientation']}",
-        f"Union: {t['union_status'] or 'N/A'} | Pay: {t['pay_terms'] or 'TBD'}",
-        f"Callbacks: {t['callback_dates_text'] or 'TBD'} | Shoot: {t['shoot_dates_text'] or 'TBD'}",
-        f"File Naming: {t['file_naming'] or 'Standard'}",
-        f"Notes: {t['casting_notes'] or ''}",
-    ]
-    y = 268
-    for line in lines:
-        draw.text((40, y), _ascii_safe(line), fill=fg, font=font)
-        y += 42
+        _draw_pil_wrapped_block(
+            draw,
+            x=40,
+            y=body_y,
+            lines=left_lines + right_lines,
+            fill=fg,
+            font=body_font,
+            max_width_px=width - 80,
+            max_y=footer_top - 16,
+        )
 
     if layout == "low_contrast_footer":
         footer_bg = (212, 186, 150)
@@ -743,11 +1050,22 @@ def render_poster_png_pil(
         footer_bg = (42, 50, 66)
         footer_fg = (240, 244, 250)
 
-    draw.rectangle([0, height - 150, width, height], fill=footer_bg)
+    draw.rectangle([0, footer_top, width, height], fill=footer_bg)
+    footer_lines: list[str] = []
     if t["submission_email"]:
-        draw.text((32, height - 114), _ascii_safe(f"Submit Tapes: {t['submission_email']}"), fill=footer_fg, font=font)
+        footer_lines.append(f"Submit Tapes: {t['submission_email']}")
     if t["sides_link"]:
-        draw.text((32, height - 66), _ascii_safe(f"Sides Link: {t['sides_link']}"), fill=footer_fg, font=font)
+        footer_lines.append(f"Sides Link: {t['sides_link']}")
+    _draw_pil_wrapped_block(
+        draw,
+        x=32,
+        y=footer_top + 18,
+        lines=footer_lines,
+        fill=footer_fg,
+        font=body_font,
+        max_width_px=width - 64,
+        max_y=height - 12,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     img.save(output_path, format="PNG")

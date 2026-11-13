@@ -111,7 +111,15 @@ def score_record(gold: dict[str, Any], raw_prediction: Any) -> dict[str, Any]:
             "core_f1": 0.0,
         }
 
-    schema_valid = all(key in pred for key in CANONICAL_SCHEMA_KEYS)
+    canonical_key_set = set(CANONICAL_SCHEMA_KEYS)
+    schema_valid = (
+        set(pred.keys()) == canonical_key_set
+        and isinstance(pred.get("candidate_roles"), list)
+        and all(isinstance(item, str) for item in pred.get("candidate_roles", []))
+        and isinstance(pred.get("specs"), list)
+        and all(isinstance(item, str) for item in pred.get("specs", []))
+        and pred.get("orientation") in (None, "Landscape", "Portrait")
+    )
     email_exact = float(normalize_exact(gold.get("submission_email")) == normalize_exact(pred.get("submission_email")))
     sides_exact = float(normalize_exact(gold.get("sides_link")) == normalize_exact(pred.get("sides_link")))
 
@@ -170,17 +178,18 @@ def evaluate_offline(
     gold_rows: list[dict[str, Any]],
     prediction_rows: list[Any],
 ) -> dict[str, Any]:
-    """Evaluate predictions aligned by `id` (when available) or positional index."""
+    """Evaluate predictions aligned by `id` (when present) or positional index."""
     by_id: dict[str, Any] = {}
     for item in prediction_rows:
         if isinstance(item, dict) and "id" in item:
             by_id[str(item["id"])] = item.get("prediction", item)
 
+    has_id_mapping = bool(by_id)
     cases: list[dict[str, Any]] = []
     for idx, gold_row in enumerate(gold_rows):
         row_id = str(gold_row.get("id", idx))
-        if row_id in by_id:
-            raw_pred = by_id[row_id]
+        if has_id_mapping:
+            raw_pred = by_id.get(row_id)
         elif idx < len(prediction_rows):
             raw_pred = prediction_rows[idx]
         else:

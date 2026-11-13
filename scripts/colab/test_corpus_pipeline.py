@@ -21,6 +21,7 @@ from scripts.colab.build_offline_v2_corpus import (
     LAYOUT_VARIANTS,
     build_corpus,
     estimate_token_count,
+    render_poster_png_fallback,
 )
 from scripts.colab.eval_offline_v2 import (
     evaluate_offline,
@@ -249,6 +250,99 @@ class TestCorpusPipeline(unittest.TestCase):
         self.assertEqual(report["valid_json_rate"], 0.0)
         self.assertEqual(report["exact_match"]["submission_email"], 0.0)
         self.assertEqual(report["core_f1"], 0.0)
+
+        # Hardened schema_valid checks: reject extra keys, non-list specs/candidate_roles, or invalid orientation
+        extra_key_pred = dict(gold, unexpected_extra="x")
+        self.assertFalse(score_record(gold, extra_key_pred)["schema_valid"])
+        bad_orientation_pred = dict(gold, orientation="Square")
+        self.assertFalse(score_record(gold, bad_orientation_pred)["schema_valid"])
+        bad_roles_pred = dict(gold, candidate_roles="Detective Maya Lin")
+        self.assertFalse(score_record(gold, bad_roles_pred)["schema_valid"])
+
+    def test_partial_by_id_predictions_do_not_shift_alignment(self) -> None:
+        gold_a = {
+            "project": "Project Alpha",
+            "project_type": "Feature Film",
+            "role": "Maya",
+            "candidate_roles": ["Maya"],
+            "role_size": "Lead",
+            "casting_office": "Alpha Casting",
+            "due_date_text": "Nov 20, 2026",
+            "specs": ["Landscape"],
+            "sides_link": "https://sides.example.org/alpha",
+            "submission_email": "alpha@cast.example",
+            "location": "Mumbai",
+            "casting_notes": "Natural",
+            "union_status": "Non-Union",
+            "pay_terms": None,
+            "callback_dates_text": None,
+            "shoot_dates_text": None,
+            "orientation": "Landscape",
+            "file_naming": None,
+        }
+        gold_b = dict(
+            gold_a,
+            project="Project Beta",
+            role="Kabir",
+            candidate_roles=["Kabir"],
+            casting_office="Beta Casting",
+            sides_link="https://sides.example.org/beta",
+            submission_email="beta@cast.example",
+        )
+        gold_c = dict(
+            gold_a,
+            project="Project Gamma",
+            role="Simran",
+            candidate_roles=["Simran"],
+            casting_office="Gamma Casting",
+            sides_link="https://sides.example.org/gamma",
+            submission_email="gamma@cast.example",
+        )
+
+        # Omit id "2" completely; id "3" must still align with gold_c and id "2" must score 0.0
+        report = evaluate_offline(
+            [{"id": "1", "target": gold_a}, {"id": "2", "target": gold_b}, {"id": "3", "target": gold_c}],
+            [{"id": "1", "prediction": dict(gold_a)}, {"id": "3", "prediction": dict(gold_c)}],
+        )
+        by_case_id = {case["id"]: case for case in report["cases"]}
+        self.assertEqual(by_case_id["1"]["submission_email_exact"], 1.0)
+        self.assertEqual(by_case_id["1"]["core_f1"], 1.0)
+        self.assertFalse(by_case_id["2"]["valid_json"])
+        self.assertEqual(by_case_id["2"]["submission_email_exact"], 0.0)
+        self.assertEqual(by_case_id["2"]["core_f1"], 0.0)
+        self.assertEqual(by_case_id["3"]["submission_email_exact"], 1.0)
+        self.assertEqual(by_case_id["3"]["core_f1"], 1.0)
+
+    def test_fallback_png_renderer_wraps_long_fields_and_two_column_layout(self) -> None:
+        long_sample = {
+            "layout": "two_column_grid",
+            "agency_brand": "Long Agency Brand Name",
+            "decoy_email": "decoy@agency-brand.invalid",
+            "target": {
+                "project": "A Very Long Multi-Word Feature Film Title That Wraps Cleanly",
+                "project_type": "Feature Film",
+                "role": "Inspector Kavita Nair",
+                "candidate_roles": ["Inspector Kavita Nair", "Rohan Bedi", "Sub-Inspector Arjun"],
+                "role_size": "Lead",
+                "casting_office": "Katha Audition Studio & Regional Talent Collective",
+                "due_date_text": "Nov 28, 2026 6:00 PM IST",
+                "specs": ["Landscape", "Slate first", "Two takes", "Hindi and Punjabi bilingual"],
+                "sides_link": "https://scripts.auditionvault.example/files/very-long-feature-film-sides-packet-v2-final.pdf",
+                "submission_email": "cast-very-long-project-submissions-desk@katha-auditions.example",
+                "location": "Chandigarh / Mumbai",
+                "casting_notes": "Fluent Hindi & Punjabi speaker (Hinglish natural tone, अमृतसर / दिल्ली accent welcome).",
+                "union_status": "CINTAA / Non-Union",
+                "pay_terms": "INR 45,000 / shoot day",
+                "callback_dates_text": "Dec 03, 2026",
+                "shoot_dates_text": "Dec 12-18, 2026",
+                "orientation": "Landscape",
+                "file_naming": "inspector_kavita_nair_very_long_project_fullname.mp4",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            png_path = Path(tmp) / "wrapped_two_col.png"
+            render_poster_png_fallback(long_sample, png_path)
+            self.assertEqual(read_png_dimensions_and_validate(png_path), (768, 960))
 
     def test_evaluate_field_accuracy_forwards_offline_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
