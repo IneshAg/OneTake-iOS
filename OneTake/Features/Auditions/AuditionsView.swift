@@ -240,9 +240,7 @@ struct AuditionsView: View {
 
                 Spacer()
 
-                if !store.auditions.isEmpty {
-                    filterMenu
-                }
+                filterMenu
 
                 OTIconButton("plus", accessibilityLabel: "Add an audition") {
                     store.showAddAudition = true
@@ -272,22 +270,13 @@ struct AuditionsView: View {
                 }
             }
         } label: {
-            Image(systemName: selectedTab == .active ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-                .font(.otIcon(.l))
+            Image(systemName: selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                .font(.otIcon(.m, weight: .semibold))
                 .foregroundStyle(selectedTab == .active ? OT.labelPrimary : OT.accent)
                 .frame(width: 44, height: 44) // ot-lint:allow
-                .background(
-                    Circle()
-                        .fill(selectedTab == .active ? Color.white.opacity(0.12) : OT.accent.opacity(0.2)) // ot-lint:allow
-                        .background(.ultraThinMaterial, in: Circle())
-                )
-                .overlay(
-                    Circle()
-                        .stroke(selectedTab == .active ? Color.white.opacity(0.5) : OT.accent.opacity(0.6), lineWidth: 0.7) // ot-lint:allow
-                )
                 .contentShape(Circle())
         }
-        .buttonStyle(OTPressStyle(.icon))
+        .modifier(GlassButtonCompatibility(enabled: true))
         .accessibilityLabel("Filter auditions. Currently showing \(selectedTab.rawValue)")
     }
 

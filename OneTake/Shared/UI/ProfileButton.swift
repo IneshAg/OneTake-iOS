@@ -15,21 +15,18 @@ struct ProfileButton: View {
                         .scaledToFill()
                         .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.5)) // ot-lint:allow
                 } else {
-                    Circle()
-                        .fill(OT.accentSoft)
-                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
-                        .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
                     Image(systemName: "person.fill")
                         .font(.otIcon(.m, weight: .semibold))
-                        .foregroundStyle(OT.accent)
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
+                        .contentShape(Circle())
                 }
             }
             .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .modifier(GlassButtonCompatibility(enabled: true))
         .id(store.headshotVersion)
         .accessibilityLabel("Profile")
     }

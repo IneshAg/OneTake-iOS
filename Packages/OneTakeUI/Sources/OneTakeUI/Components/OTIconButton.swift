@@ -23,21 +23,12 @@ public struct OTIconButton: View {
             action()
         } label: {
             Image(systemName: systemName)
-                .font(.otIcon(.l))
+                .font(.otIcon(.m, weight: .semibold))
                 .foregroundStyle(otSurface == .camera ? OT.cameraLabel : OT.labelPrimary)
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(otSurface == .camera ? OT.cameraGlass : Color.white.opacity(0.12))
-                        .background(.ultraThinMaterial, in: Circle())
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(otSurface == .camera ? 0.18 : 0.5), lineWidth: 0.7)
-                )
+                .frame(width: 44, height: 44) // ot-lint:allow
                 .contentShape(Circle())
         }
-        .buttonStyle(OTPressStyle(.icon))
+        .modifier(GlassButtonCompatibility(enabled: true))
         .accessibilityLabel(accessibilityLabel)
     }
 }

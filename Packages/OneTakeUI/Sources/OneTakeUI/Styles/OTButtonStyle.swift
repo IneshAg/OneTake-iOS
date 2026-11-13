@@ -125,16 +125,29 @@ public typealias TrailingIconLabelStyle = OTTrailingIconLabelStyle
 
 public struct GlassButtonCompatibility: ViewModifier {
     public let enabled: Bool
-    public init(enabled: Bool) { self.enabled = enabled }
+    public init(enabled: Bool = true) { self.enabled = enabled }
     @ViewBuilder
     public func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if !enabled {
+            content.buttonStyle(.plain)
+        } else if #available(iOS 26.0, *) {
+            content
+                .buttonStyle(.glass) // ot-lint:allow
+                .buttonBorderShape(.circle)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Circle())
+                .buttonStyle(OTPressStyle(.nav))
+        }
+        #else
         if enabled {
             content
                 .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.7)) // ot-lint:allow
                 .buttonStyle(OTPressStyle(.nav))
         } else {
             content.buttonStyle(.plain)
         }
+        #endif
     }
 }
