@@ -9,6 +9,8 @@ enum PDFGeometryExtractor {
     private struct Fragment {
         let text: String
         let rect: CGRect
+        let hasLeadingWhitespace: Bool
+        let hasTrailingWhitespace: Bool
     }
 
     private static let maxWordMergeGap: CGFloat = 0.045
@@ -97,8 +99,12 @@ enum PDFGeometryExtractor {
         }
 
         // PDFKit's `selectionsByLine()` can merge left/right columns on the same baseline into one
-        // selection. Probe token bounds inside wide multi-word lines so column gutters stay split.
-        if normLineRect.width > 0.18 {
+        // selection. Probe token bounds only when there are multiple text ranges or wide multi-word
+        // lines that could span a column gutter, preserving whitespace-separated word boundaries.
+        let hasMultipleRanges = lineSelection.numberOfTextRanges(on: page) > 1
+        let hasInternalWhitespace = rawLineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .contains(where: \.isWhitespace)
+        if hasMultipleRanges || (normLineRect.width > 0.18 && hasInternalWhitespace) {
             let split = splitSelectionAtWideGaps(
                 lineSelection: lineSelection,
                 on: page,
@@ -111,7 +117,14 @@ enum PDFGeometryExtractor {
         }
 
         let trimmed = rawLineText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [Fragment(text: trimmed, rect: normLineRect)]
+        return [
+            Fragment(
+                text: trimmed,
+                rect: normLineRect,
+                hasLeadingWhitespace: rawLineText.first?.isWhitespace == true,
+                hasTrailingWhitespace: rawLineText.last?.isWhitespace == true
+            )
+        ]
     }
 
     private static func splitSelectionAtWideGaps(
@@ -123,7 +136,7 @@ enum PDFGeometryExtractor {
         let rangeCount = lineSelection.numberOfTextRanges(on: page)
         guard rangeCount > 0 else { return [] }
 
-        var tokenFragments: [Fragment] = []
+        var columnFragments: [Fragment] = []
         for idx in 0..<rangeCount {
             let range = lineSelection.range(at: idx, on: page)
             guard range.location != NSNotFound, range.length > 0,
@@ -133,12 +146,21 @@ enum PDFGeometryExtractor {
             let tokenRanges = nonWhitespaceTokenRanges(in: segment, baseOffset: range.location)
             guard !tokenRanges.isEmpty else { continue }
 
-            // Single-token segment: use the segment selection directly.
+            // Single-token segment: keep the full segment selection directly.
             if tokenRanges.count == 1, rangeCount == 1 {
                 return []
             }
 
-            for tokenRange in tokenRanges {
+            let segmentLeadingSpace = segment.first?.isWhitespace == true
+            let segmentTrailingSpace = segment.last?.isWhitespace == true
+
+            // Merge consecutive whitespace-separated tokens within the same column using " "
+            // so tightly tracked/italic prose never loses spaces via kerning thresholds.
+            var activeText: String?
+            var activeRect: CGRect?
+            var activeLeadingSpace = segmentLeadingSpace
+
+            for (tokenIndex, tokenRange) in tokenRanges.enumerated() {
                 let tokenText = nsText.substring(with: tokenRange)
                 guard !tokenText.isEmpty,
                       let sel = page.selection(for: tokenRange) else { continue }
@@ -147,11 +169,45 @@ enum PDFGeometryExtractor {
                       let normRect = normalizeToVision(tokenBounds, pageBounds: pageBounds, rotation: page.rotation) else {
                     continue
                 }
-                tokenFragments.append(Fragment(text: tokenText, rect: normRect))
+
+                if let currentText = activeText, let currentRect = activeRect {
+                    let gap = normRect.minX - currentRect.maxX
+                    if gap <= maxWordMergeGap {
+                        activeText = currentText + " " + tokenText
+                        activeRect = currentRect.union(normRect)
+                    } else {
+                        columnFragments.append(
+                            Fragment(
+                                text: currentText,
+                                rect: currentRect,
+                                hasLeadingWhitespace: activeLeadingSpace,
+                                hasTrailingWhitespace: true
+                            )
+                        )
+                        activeText = tokenText
+                        activeRect = normRect
+                        activeLeadingSpace = true
+                    }
+                } else {
+                    activeText = tokenText
+                    activeRect = normRect
+                    activeLeadingSpace = tokenIndex == 0 ? segmentLeadingSpace : true
+                }
+            }
+
+            if let finalText = activeText, let finalRect = activeRect {
+                columnFragments.append(
+                    Fragment(
+                        text: finalText,
+                        rect: finalRect,
+                        hasLeadingWhitespace: activeLeadingSpace,
+                        hasTrailingWhitespace: segmentTrailingSpace
+                    )
+                )
             }
         }
 
-        return tokenFragments
+        return columnFragments
     }
 
     private static func nonWhitespaceTokenRanges(in text: String, baseOffset: Int) -> [NSRange] {
@@ -205,17 +261,21 @@ enum PDFGeometryExtractor {
             let ordered = band.sorted { $0.rect.minX < $1.rect.minX }
             var currentText = ordered[0].text
             var currentRect = ordered[0].rect
+            var currentTrailingWhitespace = ordered[0].hasTrailingWhitespace
 
             for fragment in ordered.dropFirst() {
                 let gap = fragment.rect.minX - currentRect.maxX
                 if gap <= maxWordMergeGap {
-                    let separator = gap <= kerningJoinThreshold ? "" : " "
+                    let hasExplicitSpace = currentTrailingWhitespace || fragment.hasLeadingWhitespace
+                    let separator = (!hasExplicitSpace && gap <= kerningJoinThreshold) ? "" : " "
                     currentText += separator + fragment.text
                     currentRect = currentRect.union(fragment.rect)
+                    currentTrailingWhitespace = fragment.hasTrailingWhitespace
                 } else {
                     lines.append(LayoutLine(text: currentText, rect: currentRect, pageIndex: pageIndex))
                     currentText = fragment.text
                     currentRect = fragment.rect
+                    currentTrailingWhitespace = fragment.hasTrailingWhitespace
                 }
             }
             lines.append(LayoutLine(text: currentText, rect: currentRect, pageIndex: pageIndex))

@@ -581,24 +581,41 @@ enum NoticeOCR {
             guard looksReadable(text) else { throw NoticeImportError.corruptDocument }
             return syntheticLayoutDocument(from: text)
         default:
-            if let doc = PDFDocument(url: url) ?? (try? Data(contentsOf: url)).flatMap({ PDFDocument(data: $0) }) {
-                if doc.isEncrypted && doc.isLocked {
-                    throw NoticeImportError.encryptedPDF
-                }
-                if doc.pageCount > 0, let pdfLayout = try? await extractPDFLayoutDocument(from: doc) {
-                    return pdfLayout
-                }
+            let fileData = try? Data(contentsOf: url)
+            if let doc = PDFDocument(url: url) ?? fileData.flatMap({ PDFDocument(data: $0) }) {
+                return try await extractPDFLayoutDocument(from: doc)
             }
-            if let str = try? String(contentsOf: url, encoding: .utf8) {
-                let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard looksReadable(trimmed) else { throw NoticeImportError.corruptDocument }
-                return syntheticLayoutDocument(from: trimmed)
+            if fileData?.starts(with: Data("%PDF-".utf8)) == true {
+                throw NoticeImportError.corruptDocument
             }
-            if (try? Data(contentsOf: url)) != nil {
-                throw NoticeImportError.unsupportedFormat
+            guard let fileData else {
+                throw NoticeImportError.corruptDocument
             }
-            throw NoticeImportError.corruptDocument
+            if let text = decodeReadablePlainText(from: fileData) {
+                return syntheticLayoutDocument(from: text)
+            }
+            if !fileData.contains(0x00), String(data: fileData, encoding: .utf8) != nil {
+                throw NoticeImportError.corruptDocument
+            }
+            throw NoticeImportError.unsupportedFormat
         }
+    }
+
+    private static func decodeReadablePlainText(from data: Data) -> String? {
+        if !data.contains(0x00), let utf8 = String(data: data, encoding: .utf8) {
+            let trimmed = utf8.trimmingCharacters(in: .whitespacesAndNewlines)
+            if looksReadable(trimmed) { return trimmed }
+        }
+        if (data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF])),
+           let utf16 = String(data: data, encoding: .utf16) {
+            let trimmed = utf16.trimmingCharacters(in: .whitespacesAndNewlines)
+            if looksReadable(trimmed) { return trimmed }
+        }
+        if !data.contains(0x00), let latin1 = String(data: data, encoding: .isoLatin1) {
+            let trimmed = latin1.trimmingCharacters(in: .whitespacesAndNewlines)
+            if looksReadable(trimmed) { return trimmed }
+        }
+        return nil
     }
 
     private static func extractPDFLayoutDocument(from doc: PDFDocument) async throws -> LayoutDocument {

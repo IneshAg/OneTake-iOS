@@ -165,4 +165,88 @@ final class GeometryAndFormatParserTests: XCTestCase {
             XCTAssertEqual(error, .unsupportedFormat)
         }
     }
+
+    func testPDFGeometryExtractorPreservesSpacesInTightlyTrackedItalicProseAndWideLines() throws {
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageBounds)
+        let data = renderer.pdfData { ctx in
+            ctx.beginPage()
+            let tightItalicAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.italicSystemFont(ofSize: 6),
+                .kern: -0.4,
+                .foregroundColor: UIColor.black
+            ]
+            let longTightProse = "hello world from tightly tracked italic prose across the full page width"
+            (longTightProse as NSString).draw(
+                in: CGRect(x: 42, y: 80, width: 520, height: 14),
+                withAttributes: tightItalicAttrs
+            )
+
+            let colAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12),
+                .foregroundColor: UIColor.black
+            ]
+            ("VIDEO: Wide left" as NSString).draw(
+                in: CGRect(x: 42, y: 120, width: 200, height: 18),
+                withAttributes: colAttrs
+            )
+            ("AUDIO: Wide right" as NSString).draw(
+                in: CGRect(x: 340, y: 120, width: 220, height: 18),
+                withAttributes: colAttrs
+            )
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tight-italic-\(UUID().uuidString).pdf")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let page = try XCTUnwrap(PDFDocument(url: url)?.page(at: 0))
+        let lines = PDFGeometryExtractor.extractLines(from: page, pageIndex: 0)
+        let joined = lines.map(\.text).joined(separator: "\n")
+
+        XCTAssertTrue(
+            joined.contains("hello world from tightly tracked italic prose across the full page width"),
+            "Tightly tracked italic prose lost word spacing:\n\(joined)"
+        )
+        XCTAssertTrue(lines.contains { $0.text.contains("VIDEO: Wide left") && $0.rect.minX < 0.2 })
+        XCTAssertTrue(lines.contains { $0.text.contains("AUDIO: Wide right") && $0.rect.minX > 0.45 })
+    }
+
+    func testExtractLayoutDocumentHandlesLatin1UTF16AndCorruptExtensionlessPDF() async throws {
+        // 1. Extensionless ISO-Latin-1 text file
+        let latin1Text = "Café Audition Notice for Noël"
+        let latin1URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("latin1-notice-\(UUID().uuidString)")
+        let latin1Data = try XCTUnwrap(latin1Text.data(using: .isoLatin1))
+        try latin1Data.write(to: latin1URL)
+        defer { try? FileManager.default.removeItem(at: latin1URL) }
+
+        let latin1Doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: latin1URL)
+        XCTAssertTrue(latin1Doc.fullText.contains("Café Audition Notice for Noël"))
+
+        // 2. Extensionless UTF-16 text file (with BOM)
+        let utf16Text = "AUDITION NOTICE\nRole: Maya"
+        let utf16URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("utf16-notice-\(UUID().uuidString)")
+        let utf16Data = try XCTUnwrap(utf16Text.data(using: .utf16))
+        try utf16Data.write(to: utf16URL)
+        defer { try? FileManager.default.removeItem(at: utf16URL) }
+
+        let utf16Doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: utf16URL)
+        XCTAssertTrue(utf16Doc.fullText.contains("Role: Maya"))
+
+        // 3. Extensionless corrupt %PDF- file must throw .corruptDocument
+        let corruptExtensionlessPDF = FileManager.default.temporaryDirectory
+            .appendingPathComponent("corrupt-pdf-\(UUID().uuidString)")
+        try Data("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\ntruncated".utf8).write(to: corruptExtensionlessPDF)
+        defer { try? FileManager.default.removeItem(at: corruptExtensionlessPDF) }
+
+        do {
+            _ = try await NoticeOCR.extractLayoutDocument(fromFileAt: corruptExtensionlessPDF)
+            XCTFail("Expected NoticeImportError.corruptDocument for corrupt extensionless PDF")
+        } catch let error as NoticeImportError {
+            XCTAssertEqual(error, .corruptDocument)
+        }
+    }
 }
