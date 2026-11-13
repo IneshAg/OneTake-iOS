@@ -119,7 +119,11 @@ struct SearchView: View {
         }
         .scrollContentBackground(.hidden)
         .otCanvas()
-        .navigationTitle("Search")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            OTInlineRootTitle(title: "Search")
+        }
         .searchable(text: Bindable(store).searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search auditions, sides, practice...")
         .toolbar(isSearching ? .hidden : .visible, for: .tabBar) // ot-lint:allow
     }

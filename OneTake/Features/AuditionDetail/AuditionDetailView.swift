@@ -160,8 +160,11 @@ struct AuditionDetailView: View {
         .otCanvas()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button("Edit") { showEdit = true }
+            }
+            OTTrailingToolbarSpacer()
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                     Divider()

@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 // MARK: - Route table
 
@@ -84,6 +85,48 @@ extension View {
         }
         #else
         self
+        #endif
+    }
+}
+
+/// Renders a root tab title inline on the leading side of the navigation bar without an iOS 26 glass pill.
+struct OTInlineRootTitle: ToolbarContent {
+    let title: String
+
+    var body: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) {
+                titleLabel
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                titleLabel
+            }
+        }
+        #else
+        ToolbarItem(placement: .topBarLeading) {
+            titleLabel
+        }
+        #endif
+    }
+
+    private var titleLabel: some View {
+        Text(title)
+            .font(.otLargeTitle)
+            .foregroundStyle(OT.labelPrimary)
+            .fixedSize()
+    }
+}
+
+/// Inserts a fixed toolbar spacer on iOS 26+ so adjacent trailing toolbar buttons stay visually separate.
+struct OTTrailingToolbarSpacer: ToolbarContent {
+    var body: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        }
         #endif
     }
 }

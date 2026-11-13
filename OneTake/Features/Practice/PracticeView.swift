@@ -123,8 +123,10 @@ struct PracticeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .navigationTitle("Practice")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            OTInlineRootTitle(title: "Practice")
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     store.push(.practiceSetup)
@@ -132,6 +134,7 @@ struct PracticeView: View {
                     Label("Practice a new scene", systemImage: "plus")
                 }
             }
+            OTTrailingToolbarSpacer()
             ToolbarItem(placement: .topBarTrailing) {
                 ProfileButton { store.showProfile = true }
             }

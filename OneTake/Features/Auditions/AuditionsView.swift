@@ -67,8 +67,10 @@ struct AuditionsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .navigationTitle("Auditions")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            OTInlineRootTitle(title: "Auditions")
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     store.showAddAudition = true
@@ -76,6 +78,7 @@ struct AuditionsView: View {
                     Label("Add an audition", systemImage: "plus")
                 }
             }
+            OTTrailingToolbarSpacer()
             ToolbarItem(placement: .topBarTrailing) {
                 ProfileButton { store.showProfile = true }
             }
