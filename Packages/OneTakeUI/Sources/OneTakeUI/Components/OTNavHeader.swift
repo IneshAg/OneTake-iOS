@@ -69,8 +69,10 @@ public struct OTNavHeader<Trailing: View>: View {
                     .buttonStyle(.plain)
                 } else if isCloseStyle {
                     OTIconButton("xmark", accessibilityLabel: "Close", action: handleBack)
-                } else {
+                } else if !backLabel.isEmpty || onBack != nil {
                     OTIconButton("chevron.left", accessibilityLabel: backLabel.isEmpty ? "Back" : backLabel, action: handleBack)
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
                 }
 
                 Spacer()

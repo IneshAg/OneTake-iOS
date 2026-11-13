@@ -8,8 +8,7 @@ struct PackageFormatSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OTSheetHeader(title: "Delivery format", trailing: "Done", onTrailing: { dismiss() })
-                .padding(.horizontal, OTSpace.gutter)
+            OTSheetHeader(title: "Delivery format", leading: nil, trailing: "Done", onTrailing: { dismiss() })
                 .padding(.top, OTSpace.m)
 
             Text(required.map { "Casting requests \($0.rawValue)." } ?? "No file format was specified. Choose what you want to send.")

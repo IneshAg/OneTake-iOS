@@ -18,26 +18,30 @@ struct VideoTrimmer: View {
     @State private var isExporting = false
     @State private var exportError = false
     @State private var exportSession: AVAssetExportSession?
+    @State private var filmstrip: [UIImage] = []
 
     static func canTrim(_ url: URL) -> Bool { url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button(action: cancel) {
-                    Image(systemName: "xmark")
-                        .font(.otIcon(.m, weight: .semibold))
-                        .frame(width: 44, height: 44) // ot-lint:allow
-                        .background(OT.fillField, in: Circle()) // ot-lint:allow
+            ZStack {
+                Text("Edit video")
+                    .font(.otHeadline)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                HStack {
+                    Button(action: cancel) {
+                        Image(systemName: "xmark")
+                            .font(.otIcon(.m, weight: .semibold))
+                            .frame(width: 44, height: 44) // ot-lint:allow
+                            .background(OT.fillField, in: Circle()) // ot-lint:allow
+                    }
+                    .accessibilityLabel("Close video editor")
+                    Spacer()
                 }
-                .accessibilityLabel("Close video editor")
-                Spacer()
-                Text("Edit video").font(.otHeadline)
-                Spacer()
-                Color.clear.frame(width: 44, height: 44) // ot-lint:allow
             }
             .padding(.horizontal, OT.gutter)
-            .padding(.top, OTSpace.s)
+            .padding(.top, OTSpace.m)
+            .padding(.bottom, OTSpace.xs)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) { // ot-lint:allow
@@ -78,10 +82,7 @@ struct VideoTrimmer: View {
                         }
                         .tint(OT.accent)
 
-                        GeometryReader { geo in
-                            timelineScrubber(totalWidth: geo.size.width)
-                        }
-                        .frame(height: 108) // ot-lint:allow
+                        timelineCard
 
                         Text("Your original recording will remain available so you can restore it later.")
                             .font(.otFootnote).foregroundStyle(OT.labelSecondary)
@@ -117,6 +118,7 @@ struct VideoTrimmer: View {
                 duration = loadedDuration
                 trimEnd = loadedDuration
                 player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                filmstrip = await Self.generateFilmstrip(for: asset, duration: loadedDuration, count: 8)
             } catch {
                 exportError = true
             }
@@ -141,18 +143,12 @@ struct VideoTrimmer: View {
         dismiss()
     }
 
-    private func timelineScrubber(totalWidth: CGFloat) -> some View {
-        let width = max(120, totalWidth)
-        let safeDuration = max(0.1, duration)
-        let startX = max(0, min(width - 24, CGFloat(trimStart / safeDuration) * width))
-        let endX = max(startX + 24, min(width, CGFloat(trimEnd / safeDuration) * width))
-        let playheadX = max(0, min(width, CGFloat(playhead / safeDuration) * width))
-
-        return VStack(spacing: OTSpace.xs) {
+    private var timelineCard: some View {
+        VStack(spacing: OTSpace.s) {
             HStack {
-                HStack(spacing: 4) {
+                HStack(spacing: OTSpace.xs) {
                     Text("START")
-                        .font(.system(size: 10, weight: .bold)) // ot-lint:allow
+                        .font(.otCaption.weight(.bold))
                         .foregroundStyle(OT.labelTertiary)
                     Text(timeLabel(trimStart))
                         .font(.otFootnote.monospacedDigit().weight(.semibold))
@@ -161,7 +157,7 @@ struct VideoTrimmer: View {
 
                 Spacer()
 
-                HStack(spacing: 4) {
+                HStack(spacing: OTSpace.xs) {
                     Image(systemName: "scissors")
                         .font(.caption2)
                         .foregroundStyle(OT.accent)
@@ -172,9 +168,9 @@ struct VideoTrimmer: View {
 
                 Spacer()
 
-                HStack(spacing: 4) {
+                HStack(spacing: OTSpace.xs) {
                     Text("END")
-                        .font(.system(size: 10, weight: .bold)) // ot-lint:allow
+                        .font(.otCaption.weight(.bold))
                         .foregroundStyle(OT.labelTertiary)
                     Text(timeLabel(trimEnd))
                         .font(.otFootnote.monospacedDigit().weight(.semibold))
@@ -182,97 +178,141 @@ struct VideoTrimmer: View {
                 }
             }
 
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
-                    .fill(OT.fillField)
-                    .frame(height: 52) // ot-lint:allow
-                    .overlay(
-                        HStack(spacing: 8) { // ot-lint:allow
-                            ForEach(0..<16, id: \.self) { _ in
-                                Rectangle()
-                                    .fill(OT.labelTertiary.opacity(0.15))
-                                    .frame(width: 1, height: 24) // ot-lint:allow
-                                Spacer()
-                            }
+            GeometryReader { geo in
+                timelineTrack(totalWidth: geo.size.width)
+            }
+            .frame(height: 58) // ot-lint:allow
+        }
+        .otCard(.grouped)
+    }
+
+    private func timelineTrack(totalWidth: CGFloat) -> some View {
+        let width = max(120, totalWidth)
+        let handleWidth: CGFloat = 18
+        let trackHeight: CGFloat = 52
+        let safeDuration = max(0.1, duration)
+        let startX = max(0, min(width - handleWidth * 2, CGFloat(trimStart / safeDuration) * width))
+        let endX = max(startX + handleWidth * 2, min(width, CGFloat(trimEnd / safeDuration) * width))
+        let playheadX = max(0, min(width, CGFloat(playhead / safeDuration) * width))
+
+        return ZStack(alignment: .leading) {
+            // Filmstrip frames (or tick marks while frames generate)
+            ZStack {
+                if !filmstrip.isEmpty {
+                    HStack(spacing: 0) {
+                        ForEach(filmstrip.indices, id: \.self) { index in
+                            Image(uiImage: filmstrip[index])
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: width / CGFloat(filmstrip.count), height: trackHeight) // ot-lint:allow
+                                .clipped()
                         }
-                        .padding(.horizontal, 8) // ot-lint:allow
-                    )
-
-                if startX > 0 {
-                    RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
-                        .fill(Color.black.opacity(0.6)) // ot-lint:allow
-                        .frame(width: startX, height: 52) // ot-lint:allow
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        ForEach(0..<16, id: \.self) { _ in
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(OT.labelTertiary.opacity(0.25))
+                                .frame(width: 1, height: 24) // ot-lint:allow
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
+            }
+            .frame(width: width, height: trackHeight) // ot-lint:allow
+            .background(OT.fillField)
+            .clipShape(RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
 
-                if endX < width {
-                    RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
-                        .fill(Color.black.opacity(0.6)) // ot-lint:allow
-                        .frame(width: width - endX, height: 52) // ot-lint:allow
-                        .offset(x: endX)
-                }
+            // Dimmed excluded regions
+            if startX > 0 {
+                Rectangle()
+                    .fill(Color.black.opacity(0.58)) // ot-lint:allow
+                    .frame(width: startX, height: trackHeight) // ot-lint:allow
+            }
+            if endX < width {
+                Rectangle()
+                    .fill(Color.black.opacity(0.58)) // ot-lint:allow
+                    .frame(width: width - endX, height: trackHeight) // ot-lint:allow
+                    .offset(x: endX)
+            }
 
-                RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
-                    .stroke(OT.accent, lineWidth: 3) // ot-lint:allow
-                    .background(OT.accentSoft.opacity(0.35))
-                    .frame(width: max(24, endX - startX), height: 52) // ot-lint:allow
-                    .offset(x: startX)
+            // Active trim window border
+            RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                .stroke(OT.accent, lineWidth: 3) // ot-lint:allow
+                .frame(width: max(handleWidth * 2, endX - startX), height: trackHeight) // ot-lint:allow
+                .offset(x: startX)
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous) // ot-lint:allow
-                        .fill(OT.accent)
-                        .frame(width: 18, height: 52) // ot-lint:allow
-                    Image(systemName: "chevron.compact.left")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.black) // ot-lint:allow
-                }
+            // Playhead needle
+            Rectangle()
+                .fill(Color.white) // ot-lint:allow
+                .frame(width: 2.5, height: 58) // ot-lint:allow
+                .shadow(color: .black.opacity(0.6), radius: 2)
+                .offset(x: max(0, min(width - 2.5, playheadX - 1.25)))
+
+            // Left handle
+            trimHandle(icon: "chevron.compact.left", width: handleWidth, height: trackHeight)
                 .offset(x: startX)
                 .gesture(
-                    DragGesture(minimumDistance: 0)
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named("scrubberTrack"))
                         .onChanged { value in
-                            let rawX = startX + value.translation.width
-                            let newSec = Double(max(0, min(endX - 24, rawX)) / width) * duration
+                            let clampedX = max(0, min(endX - handleWidth * 2, value.location.x))
+                            let newSec = Double(clampedX / width) * duration
                             trimStart = max(0, min(trimEnd - 0.5, newSec))
                             playhead = trimStart
                             seek(to: trimStart)
                         }
                 )
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous) // ot-lint:allow
-                        .fill(OT.accent)
-                        .frame(width: 18, height: 52) // ot-lint:allow
-                    Image(systemName: "chevron.compact.right")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.black) // ot-lint:allow
-                }
-                .offset(x: max(0, endX - 18))
+            // Right handle
+            trimHandle(icon: "chevron.compact.right", width: handleWidth, height: trackHeight)
+                .offset(x: max(handleWidth, endX - handleWidth))
                 .gesture(
-                    DragGesture(minimumDistance: 0)
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named("scrubberTrack"))
                         .onChanged { value in
-                            let rawX = endX + value.translation.width
-                            let newSec = Double(max(startX + 24, min(width, rawX)) / width) * duration
+                            let clampedX = max(startX + handleWidth * 2, min(width, value.location.x))
+                            let newSec = Double(clampedX / width) * duration
                             trimEnd = min(duration, max(trimStart + 0.5, newSec))
                             playhead = trimEnd
                             seek(to: trimEnd)
                         }
                 )
+        }
+        .frame(width: width, height: 58, alignment: .leading) // ot-lint:allow
+        .coordinateSpace(name: "scrubberTrack")
+        .contentShape(Rectangle())
+        .onTapGesture { location in
+            let clampedX = max(0, min(width, location.x))
+            let tappedSec = Double(clampedX / width) * duration
+            playhead = min(duration, max(0, tappedSec))
+            seek(to: playhead)
+        }
+    }
 
-                Rectangle()
-                    .fill(Color.white) // ot-lint:allow
-                    .frame(width: 2, height: 56) // ot-lint:allow
-                    .shadow(color: .black.opacity(0.5), radius: 2)
-                    .offset(x: playheadX - 1)
-            }
-            .frame(height: 56) // ot-lint:allow
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                let tappedSec = Double(max(0, min(width, location.x)) / width) * duration
-                playhead = min(duration, max(0, tappedSec))
-                seek(to: playhead)
+    private func trimHandle(icon: String, width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: OTRadius.xs, style: .continuous)
+                .fill(OT.accent)
+                .frame(width: width, height: height) // ot-lint:allow
+            Image(systemName: icon)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(OT.labelOnAccent)
+        }
+    }
+
+    private static func generateFilmstrip(for asset: AVAsset, duration: Double, count: Int) async -> [UIImage] {
+        guard count > 0, duration > 0.1 else { return [] }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 160, height: 160)
+        var images: [UIImage] = []
+        for i in 0..<count {
+            let t = CMTime(seconds: duration * (Double(i) + 0.5) / Double(count), preferredTimescale: 600)
+            if let cg = try? await generator.image(at: t).image {
+                images.append(UIImage(cgImage: cg))
             }
         }
-        .padding(OTSpace.m)
-        .otCard(.grouped)
+        return images
     }
 
     private func exportTrim() {

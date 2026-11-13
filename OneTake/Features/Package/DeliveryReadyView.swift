@@ -52,7 +52,6 @@ struct DeliveryReadyView: View {
                         }
                     }
                 }
-                .padding(OTSpace.m)
                 .otCard(.grouped)
 
                 // Primary Action Button

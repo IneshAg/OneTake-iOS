@@ -52,7 +52,6 @@ struct SubmissionInstructionsCard: View {
                     .padding(.top, OTSpace.xxs)
                 }
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }

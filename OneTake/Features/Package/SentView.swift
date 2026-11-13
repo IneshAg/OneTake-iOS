@@ -30,7 +30,6 @@ struct SentView: View {
                         .font(.otCaption)
                         .foregroundStyle(OT.labelTertiary)
                 }
-                .padding(OTSpace.m)
                 .otCard(.grouped)
                 .rotationEffect(.degrees(1.5))
                 .padding(.top, OTSpace.l)

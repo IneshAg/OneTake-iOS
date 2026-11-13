@@ -25,6 +25,27 @@ struct AuditionsView: View {
         Group {
             if store.auditions.isEmpty {
                 EmptyAuditionsView { store.showAddAudition = true }
+            } else if items.isEmpty {
+                VStack(spacing: OTSpace.s) {
+                    Spacer()
+                    Image(systemName: selectedTab == .submitted ? "paperplane.circle" : "archivebox")
+                        .font(.otIcon(.xl))
+                        .foregroundStyle(OT.labelTertiary)
+                    Text("No \(selectedTab.rawValue.lowercased()) auditions")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                    Text(selectedTab == .submitted
+                         ? "Auditions you mark as submitted will appear here."
+                         : selectedTab == .archived
+                         ? "Swipe an audition in Active or Submitted to archive it."
+                         : "Tap + to add your next audition.")
+                        .font(.otCallout)
+                        .foregroundStyle(OT.labelSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, OTSpace.xl)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(items) { audition in
@@ -185,7 +206,6 @@ struct AuditionsView: View {
                 .buttonStyle(.ot(.secondary, size: .medium))
             }
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
         .overlay(
             RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous)
@@ -216,11 +236,10 @@ struct AuditionsView: View {
                     ForEach(FilterTab.allCases) { tab in
                         filterTabButton(tab)
                     }
-                    Spacer()
                 }
                 .padding(OTSpace.xxs)
                 .background(OT.fillField, in: Capsule()) // ot-lint:allow
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, OTSpace.gutter)
@@ -240,14 +259,14 @@ struct AuditionsView: View {
                 Text(tab.rawValue)
                     .font(.otSubhead.weight(.semibold))
                     .foregroundStyle(OT.labelPrimary)
-                    .padding(.horizontal, OTSpace.m)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, OTSpace.xs)
                     .background(OT.surfaceCard, in: Capsule()) // ot-lint:allow
             } else {
                 Text(tab.rawValue)
                     .font(.otSubhead)
                     .foregroundStyle(OT.labelSecondary)
-                    .padding(.horizontal, OTSpace.m)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, OTSpace.xs)
             }
         }

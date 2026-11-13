@@ -547,7 +547,6 @@ struct HeadshotReferenceGuideSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             OTSheetHeader(title: "Match Reference", leading: "Done", onLeading: { dismiss() })
-                .padding(.horizontal, OTSpace.gutter)
                 .padding(.top, OTSpace.m)
 
             ScrollView {

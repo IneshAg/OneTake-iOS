@@ -85,7 +85,7 @@ struct NoticeReviewView: View {
             onBack: { store.pop() }
         ) {
             VStack(alignment: .leading, spacing: OTSpace.l) {
-                let isNewManual = store.auditionDraft.project.isEmpty && store.auditionDraft.role.isEmpty
+                let isNewManual = store.auditionDraft.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.auditionDraft.asks.isEmpty
                 Text(isNewManual ? "New audition" : "Here's what they want").font(.otLargeTitle)
                 Text(isNewManual ? "Enter your project and role details below, then attach sides or choose an audition type." : (store.auditionDraft.asks.isEmpty
                      ? "No recording requirements were detected. Review the details, then save."

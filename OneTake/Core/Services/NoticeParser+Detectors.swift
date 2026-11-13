@@ -255,7 +255,7 @@ extension NoticeParser {
         // 7b. Tabular / Columnar demographic breakdowns (e.g. Casting Bay flyer style):
         // AGE \n 18 - 23 years \n AGE \n 45 - 55 years \n GENDER \n Female \n GENDER \n Male
         var detectedAges: [String] = []
-        if let ageRegex = try? NSRegularExpression(pattern: #"(?i)(?:^|\b|\n)(?:age|age\s*group)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)"#) {
+        if let ageRegex = try? NSRegularExpression(pattern: #"(?i)(?:^|\b|\n)(?:age|age\s*group)\s*[:\-]?\s*\(?\s*(\d{1,2}\s*(?:[-–]|to)\s*\d{1,2}(?:\s*(?:years|yrs|year old))?)\s*\)?"#) {
             let matches = ageRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
             for m in matches {
                 if let r = Range(m.range(at: 1), in: text) {
@@ -289,7 +289,7 @@ extension NoticeParser {
             "submissions", "actors", "actresses", "performers", "artists", "talent", "people",
             "individuals", "faces", "new faces", "all ethnicities", "any ethnicity", "upcoming project"
         ]
-        let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?)\b|\s*[,.;:\n])"#
+        let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?|based)\b|\s*[,.;:!\n])"#
         if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
             let cleaned = clean(v)
             let lower = cleaned.lowercased()
@@ -298,7 +298,7 @@ extension NoticeParser {
             let isDemographicOnly = lower.hasPrefix("age") || lower.contains("year old") || lower.contains("yrs old") || lower.range(of: #"^\d{1,2}\s*[-–]"#, options: .regularExpression) != nil
             if !cleaned.isEmpty && !isNonRole && !isDemographicOnly && !roles.contains(where: { $0.lowercased().contains(cleaned.lowercased()) }) {
                 var res = cleaned.capitalized
-                if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*(\d{1,2}\s*[-–to]\s*\d{1,2}(?:\s*(?:years|yrs))?)"#, in: text, options: .caseInsensitive) {
+                if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*\(?\s*(\d{1,2}\s*(?:[-–]|to)\s*\d{1,2}(?:\s*(?:years|yrs))?)\s*\)?"#, in: text, options: .caseInsensitive) {
                     let cleanedAge = clean(age)
                     if !res.contains(cleanedAge) { res += " (\(cleanedAge))" }
                 }

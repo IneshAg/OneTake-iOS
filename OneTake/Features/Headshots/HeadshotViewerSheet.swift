@@ -27,7 +27,6 @@ struct HeadshotViewerSheet: View {
                 leading: "Done",
                 onLeading: { dismiss() }
             )
-            .padding(.horizontal, OTSpace.gutter)
             .padding(.top, OTSpace.m)
             .padding(.bottom, OTSpace.xs)
             .background(Color.black) // ot-lint:allow

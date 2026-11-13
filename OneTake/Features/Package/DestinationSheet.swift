@@ -8,8 +8,7 @@ struct DestinationSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OTSheetHeader(title: "Where’s it going?", trailing: "Done", onTrailing: { dismiss() })
-                .padding(.horizontal, OTSpace.gutter)
+            OTSheetHeader(title: "Where’s it going?", leading: nil, trailing: "Done", onTrailing: { dismiss() })
                 .padding(.top, OTSpace.m)
 
             if let audition = store.binding(for: auditionID) {

@@ -17,6 +17,7 @@ struct ProfileView: View {
     var body: some View {
         OTScreen(
             title: "Profile",
+            backLabel: (store.showProfile && store.profilePath.isEmpty) ? "" : "Back",
             trailing: {
                 Button("Done") {
                     store.showProfile = false
@@ -136,7 +137,6 @@ struct ProfileView: View {
             .frame(minHeight: 44) // ot-lint:allow
             .accessibilityElement(children: .contain)
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 
@@ -163,7 +163,6 @@ struct ProfileView: View {
                 }
                 .frame(minHeight: 44) // ot-lint:allow
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }
@@ -177,7 +176,6 @@ struct ProfileView: View {
             }
             .tint(OT.accent)
             .frame(minHeight: 44) // ot-lint:allow
-            .padding(OTSpace.m)
             .otCard(.grouped)
             .onChange(of: showSampleScene) { _, enabled in
                 if !enabled { store.removeSampleData(); Haptics.tick() }
@@ -232,7 +230,6 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }
@@ -286,7 +283,6 @@ struct ProfileView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }
@@ -311,7 +307,6 @@ private struct HandsFreeGestureSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             OTSheetHeader(title: "Hands-free controls", leading: "Done", onLeading: { dismiss() })
-                .padding(.horizontal, OTSpace.gutter)
                 .padding(.top, OTSpace.m)
 
             Form {

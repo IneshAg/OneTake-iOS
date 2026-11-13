@@ -148,7 +148,6 @@ struct PackageView: View {
                     }
                 }
                 .tint(OT.accent)
-                .padding(OTSpace.m)
                 .otCard(.grouped)
 
                 // 4. Preview & Tape Check
@@ -163,8 +162,7 @@ struct PackageView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, OTSpace.m)
-                .otCard(.grouped)
+                .otCard(.grouped, padding: OTSpace.m)
             }
         }
         .otBottomBar {

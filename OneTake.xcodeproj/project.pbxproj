@@ -77,6 +77,7 @@
 		63C1D1A28A713F4272366F23 /* ImageFraming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F768EE4FB0C1F7DC721918 /* ImageFraming.swift */; };
 		644EF977785E212E20CD6BF7 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B00C1CC0D902062C97DE0A /* CameraController.swift */; };
 		68359BDE46BDF4FE17B9099C /* NoticeOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C54E6CD740BB288C0FE5F0 /* NoticeOCR.swift */; };
+		68410B47B93266304A45A879 /* ScriptParserStressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A086588D8B030E112535EE /* ScriptParserStressTests.swift */; };
 		68C89CFF3C327AF5500F433B /* AuditionResumePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 046A195600318F6CFADD7100 /* AuditionResumePicker.swift */; };
 		6C6928DF0BEDE3DC9D7AC850 /* DrillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9527DB27184268395D59414 /* DrillModels.swift */; };
 		6FF03F5EDF17FC3651DFB0C8 /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D84E01FBB8E70E40D159423 /* Persistence.swift */; };
@@ -244,7 +245,7 @@
 		12135370EA7626AAE1F89985 /* CoreMLParserRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreMLParserRunner.swift; sourceTree = "<group>"; };
 		13BFABB31BF2C237FD31888E /* TapeStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeStrip.swift; sourceTree = "<group>"; };
 		13E316830211E6F487E33D00 /* SceneAudioFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneAudioFlowView.swift; sourceTree = "<group>"; };
-		16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */ = {isa = PBXFileReference; path = "onetake-practice-illustration.svg"; sourceTree = "<group>"; };
+		16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-practice-illustration.svg"; sourceTree = "<group>"; };
 		1682A1C77933D57D71A13045 /* HeadshotPoseClassifier.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = HeadshotPoseClassifier.mlmodel; sourceTree = "<group>"; };
 		1F3C3E7FE6604DACFD7CB84C /* EditSlateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditSlateView.swift; sourceTree = "<group>"; };
 		1F8B7DE74999D1A51FACAC77 /* TapePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapePreviewView.swift; sourceTree = "<group>"; };
@@ -260,6 +261,7 @@
 		3285754951A4C509DDFABF0A /* SilentReactionCue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentReactionCue.swift; sourceTree = "<group>"; };
 		345483DF2D07C4F4A026610E /* ShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInbox.swift; sourceTree = "<group>"; };
 		349651436C82AD6C605D23DD /* OCRLayoutReconstructor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRLayoutReconstructor.swift; sourceTree = "<group>"; };
+		34A086588D8B030E112535EE /* ScriptParserStressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptParserStressTests.swift; sourceTree = "<group>"; };
 		34ADE5709E655C12F39B1734 /* ReaderLineRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderLineRecorder.swift; sourceTree = "<group>"; };
 		362CEE988894A0013A23BB66 /* TapeAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeAnalyzer.swift; sourceTree = "<group>"; };
 		376609F267CE6C4D17246645 /* LocalBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBackup.swift; sourceTree = "<group>"; };
@@ -287,7 +289,7 @@
 		53878A5700DD2BD2F1A0B5A7 /* AddDraftSidesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddDraftSidesSheet.swift; sourceTree = "<group>"; };
 		5441C66F856CEE4732591BFD /* SidesChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidesChip.swift; sourceTree = "<group>"; };
 		54EF3D86C5F7F4163C8558A9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
+		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
 		5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraAndImageTests.swift; sourceTree = "<group>"; };
 		5768AF65900CB4D97CF66EF0 /* AuditionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionsView.swift; sourceTree = "<group>"; };
 		58C2F61BFEFA8B1A3C261E1F /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
@@ -317,7 +319,7 @@
 		78560845B703490EEFDB1035 /* OneTakeShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OneTakeShare.entitlements; sourceTree = "<group>"; };
 		7C43ED1F2E5266132A07D29C /* TeleprompterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeleprompterView.swift; sourceTree = "<group>"; };
 		7D3245711D49BABB2BD45DD8 /* OnDeviceIntelligence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceIntelligence.swift; sourceTree = "<group>"; };
-		7D96F8B1EB5BD0936228A278 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7D96F8B1EB5BD0936228A278 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7EC247DBD4D21539DD28F28F /* AppStore+Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Navigation.swift"; sourceTree = "<group>"; };
 		82CE7508CCE609B0A14FF2A5 /* SilenceTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceTrimmer.swift; sourceTree = "<group>"; };
 		83CF423F93BFDC8B7C7D196B /* HeadshotsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadshotsView.swift; sourceTree = "<group>"; };
@@ -350,7 +352,7 @@
 		B4740C5DEA86D4CAF1403F16 /* HeadshotSlotTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadshotSlotTile.swift; sourceTree = "<group>"; };
 		B4D2FF9035789E3577CD9541 /* SpeechFollower.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechFollower.swift; sourceTree = "<group>"; };
 		B6E37A1AC5FB418D15339D73 /* AppStore+Headshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Headshots.swift"; sourceTree = "<group>"; };
-		B78AD2F25369510B879F81D3 /* OneTake.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OneTake.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B78AD2F25369510B879F81D3 /* OneTake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OneTake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B846849D64201B575CC65D3D /* RecordReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordReaderView.swift; sourceTree = "<group>"; };
 		B8C21BBF0769DFEAB07163CF /* DesignSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemTests.swift; sourceTree = "<group>"; };
 		BB65A03163FA02E2CF0E8221 /* DeliveryReadyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeliveryReadyView.swift; sourceTree = "<group>"; };
@@ -399,7 +401,7 @@
 		F0A0BFFE02780B2CB10D5E59 /* NoticeDestinationAndNotesCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeDestinationAndNotesCards.swift; sourceTree = "<group>"; };
 		F0B20E600CCBF666E2C6F656 /* MissingDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingDetailsView.swift; sourceTree = "<group>"; };
 		F0C8E74565195D0807BEA41A /* RoleBreakdownCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleBreakdownCard.swift; sourceTree = "<group>"; };
-		F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */ = {isa = PBXFileReference; path = "onetake-empty-auditions-illustration.svg"; sourceTree = "<group>"; };
+		F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-empty-auditions-illustration.svg"; sourceTree = "<group>"; };
 		F54488E2EF7744CB0CF44FBD /* EditAuditionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditAuditionSheet.swift; sourceTree = "<group>"; };
 		F6AEEE356E499E1769847F1A /* PracticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeView.swift; sourceTree = "<group>"; };
 		F6D7611002CD74670871C5F7 /* LineDrillView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDrillView.swift; sourceTree = "<group>"; };
@@ -799,6 +801,7 @@
 				3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */,
 				65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */,
 				C11F2FAC471D3202100FD5F6 /* PersistenceTests.swift */,
+				34A086588D8B030E112535EE /* ScriptParserStressTests.swift */,
 				5FCB73CA66CEE5334E343F45 /* ScriptParserTests.swift */,
 				5EDD268AAAE54F380B409C97 /* TapeCheckFilterTests.swift */,
 				89EE2F0ABA59B4A4249C9095 /* TapePreviewTests.swift */,
@@ -955,16 +958,13 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					3D60DAA81E45DD957826F5E0 = {
-						DevelopmentTeam = SCY3DW3F4W;
+						DevelopmentTeam = W93H964P88;
 					};
 					78836920AA34155C8F156F7D = {
-						DevelopmentTeam = SCY3DW3F4W;
-					};
-					AA4B1922FF6FBF079F163D9B = {
-						DevelopmentTeam = SCY3DW3F4W;
+						DevelopmentTeam = W93H964P88;
 					};
 					DC996624B7CF88D7A28C7F65 = {
-						DevelopmentTeam = SCY3DW3F4W;
+						DevelopmentTeam = W93H964P88;
 					};
 				};
 			};
@@ -1063,6 +1063,7 @@
 				AEA03AA9B6CBD5EC73F0B329 /* NoticeParserTests.swift in Sources */,
 				0285ECC3E606FA8F16064597 /* PackageAndSentTests.swift in Sources */,
 				233BB04071439B2528223DB3 /* PersistenceTests.swift in Sources */,
+				68410B47B93266304A45A879 /* ScriptParserStressTests.swift in Sources */,
 				277D028621EC5489DEC3C250 /* ScriptParserTests.swift in Sources */,
 				384203EFECEF78DCA2E834C2 /* TapeCheckFilterTests.swift in Sources */,
 				797192CA8514AB4FE57F6595 /* TapePreviewTests.swift in Sources */,
@@ -1293,7 +1294,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = SCY3DW3F4W;
+				DEVELOPMENT_TEAM = W93H964P88;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -1381,6 +1382,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = W93H964P88;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;
@@ -1441,7 +1443,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = SCY3DW3F4W;
+				DEVELOPMENT_TEAM = W93H964P88;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -1505,6 +1507,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OneTake/OneTake.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = W93H964P88;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_CLIENT_ID = YOUR_CLIENT_ID.apps.googleusercontent.com;

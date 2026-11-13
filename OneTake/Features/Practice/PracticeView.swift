@@ -47,7 +47,6 @@ struct PracticeView: View {
                                     .buttonStyle(.otSecondary)
                                 }
                             }
-                            .padding(OTSpace.m)
                             .otCard(.grouped)
                             .contextMenu {
                                 if piece.linesLearned >= piece.linesTotal && piece.linesTotal > 0 {
@@ -161,7 +160,6 @@ struct PracticeView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(OTSpace.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .otCard(.grouped)
     }

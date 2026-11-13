@@ -22,27 +22,31 @@ public struct OTSheetHeader: View {
     }
 
     public var body: some View {
-        HStack {
-            if let leading {
-                Button(leading, action: onLeading)
-                    .font(.body)
-                    .foregroundStyle(OT.accent)
-                    .frame(minHeight: OTControlSize.large.height)
-            }
-            Spacer()
+        ZStack {
             Text(title)
                 .font(.otHeadline)
                 .foregroundStyle(OT.labelPrimary)
-            Spacer()
-            if let trailing {
-                Button(trailing, action: onTrailing)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(OT.accent)
-                    .frame(minHeight: OTControlSize.large.height)
-            } else if leading != nil {
-                Color.clear.frame(width: 72, height: 1)
+                .lineLimit(1)
+                .padding(.horizontal, 76)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            HStack {
+                if let leading {
+                    Button(leading, action: onLeading)
+                        .font(.body)
+                        .foregroundStyle(OT.accent)
+                        .frame(minHeight: OTControlSize.large.height)
+                }
+                Spacer()
+                if let trailing {
+                    Button(trailing, action: onTrailing)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(OT.accent)
+                        .frame(minHeight: OTControlSize.large.height)
+                }
             }
         }
+        .frame(minHeight: OTControlSize.large.height)
         .padding(.horizontal, OTSpace.gutter)
     }
 }

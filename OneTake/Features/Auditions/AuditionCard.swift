@@ -44,7 +44,6 @@ struct AuditionCard: View {
                 }
             }
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 

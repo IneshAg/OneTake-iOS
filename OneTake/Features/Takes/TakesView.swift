@@ -244,19 +244,21 @@ struct TakeThumbnail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Group {
-                if let url = take.fileURL {
-                    VideoThumbnail(url: url)
-                } else {
-                    HeadshotImage()
+            Color.clear
+                .frame(width: 116, height: 72) // ot-lint:allow
+                .overlay {
+                    if let url = take.fileURL {
+                        VideoThumbnail(url: url)
+                    } else {
+                        HeadshotImage()
+                    }
                 }
-            }
-            .frame(width: 116, height: 72) // ot-lint:allow
-            .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
-                    .stroke(isSelected ? OT.accent : Color.clear, lineWidth: 2.5) // ot-lint:allow
-            )
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
+                        .stroke(isSelected ? OT.accent : Color.clear, lineWidth: 2.5) // ot-lint:allow
+                )
 
             HStack(spacing: 4) {
                 Text("Take \(take.number)")

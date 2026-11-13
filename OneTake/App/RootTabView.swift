@@ -63,6 +63,7 @@ struct RootTabView: View {
                 ProfileView()
                     .withRoutes()
             }
+            .environment(\.otInSheet, true)
             .presentationDragIndicator(.visible)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }

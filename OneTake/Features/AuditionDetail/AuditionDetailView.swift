@@ -168,7 +168,6 @@ struct AuditionDetailView: View {
                                 }
                                 .buttonStyle(.otCompact)
                             }
-                            .padding(OTSpace.m)
                             .otCard(.grouped)
                         }
                     }
@@ -215,7 +214,6 @@ struct AuditionDetailView: View {
                 }
                 Spacer()
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         } else {
             HStack(spacing: OTSpace.m) {
@@ -268,7 +266,6 @@ struct AuditionDetailView: View {
                     .foregroundStyle(OT.accent)
                 }
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }
@@ -318,7 +315,6 @@ struct AuditionDetailView: View {
                 }
                 .buttonStyle(.otCompact)
             }
-            .padding(OTSpace.m)
             .otCard(.grouped)
         }
     }
@@ -346,7 +342,6 @@ struct AuditionDetailView: View {
             }
             .buttonStyle(.otCompact)
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 }

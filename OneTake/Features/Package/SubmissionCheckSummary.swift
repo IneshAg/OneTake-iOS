@@ -28,7 +28,6 @@ struct SubmissionCheckSummaryCard: View {
                 action: onSelectDestination
             )
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 
@@ -132,7 +131,6 @@ struct DestinationCard: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 }
@@ -222,7 +220,6 @@ struct SubmissionSpecsCard: View {
                     .foregroundStyle(audition.slateVideoURL != nil ? OT.success : OT.labelSecondary)
             }
         }
-        .padding(OTSpace.m)
         .otCard(.grouped)
     }
 }

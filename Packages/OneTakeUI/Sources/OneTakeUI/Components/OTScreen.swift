@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct OTInSheetKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+public extension EnvironmentValues {
+    var otInSheet: Bool {
+        get { self[OTInSheetKey.self] }
+        set { self[OTInSheetKey.self] = newValue }
+    }
+}
+
 public struct OTScreen<Content: View, Trailing: View>: View {
     public let title: String
     public let backLabel: String
@@ -7,6 +18,7 @@ public struct OTScreen<Content: View, Trailing: View>: View {
     public let scrolls: Bool
     private let trailing: () -> Trailing
     private let content: () -> Content
+    @Environment(\.otInSheet) private var inSheet
 
     public init(
         title: String = "",
@@ -27,20 +39,20 @@ public struct OTScreen<Content: View, Trailing: View>: View {
     public var body: some View {
         VStack(spacing: 0) {
             OTNavHeader(title: title, backLabel: backLabel, onBack: onBack, trailing: trailing)
-                .padding(.horizontal, OTSpace.m)
-                .padding(.top, OTSpace.s)
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, inSheet ? OTSpace.l : OTSpace.s)
                 .padding(.bottom, OTSpace.s)
                 .background(OT.bgCanvas)
 
             if scrolls {
                 ScrollView {
                     content()
-                        .padding(.horizontal, OTSpace.m)
+                        .padding(.horizontal, OTSpace.gutter)
                         .padding(.bottom, OTSpace.xl)
                 }
             } else {
                 content()
-                    .padding(.horizontal, OTSpace.m)
+                    .padding(.horizontal, OTSpace.gutter)
                     .padding(.bottom, OTSpace.xl)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }

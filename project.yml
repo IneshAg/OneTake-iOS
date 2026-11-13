@@ -9,7 +9,7 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: "SCY3DW3F4W"
+    DEVELOPMENT_TEAM: "W93H964P88"
 packages:
   OneTakeUI:
     path: Packages/OneTakeUI
