@@ -70,10 +70,16 @@ struct RootTabView: View {
         .sheet(isPresented: $store.showAddAudition, onDismiss: {
             if let pending = store.pendingRouteAfterAdd {
                 store.pendingRouteAfterAdd = nil
-                store.push(pending)
+                if store.auditionsPath.last != pending {
+                    Task { @MainActor in
+                        store.push(pending)
+                    }
+                }
             } else if let id = store.continueAfterAdd {
                 store.continueAfterAdd = nil
-                store.continueAudition(id)
+                Task { @MainActor in
+                    store.continueAudition(id)
+                }
             }
         }) {
             AddAuditionFlow()

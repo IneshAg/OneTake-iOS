@@ -1490,18 +1490,20 @@ final class NoticeParserTests: XCTestCase {
         var draft = NoticeParser.Draft(project: "Severance", role: "Mark Scout", due: .now.addingTimeInterval(86400))
         draft.castingOffice = "Rachel Tenner"
 
-        // 1. Commit with reader plan: later -> navigates directly to .auditionDetail
+        // 1. Commit with reader plan: later -> navigates directly to .auditionDetail (Project Overview)
         store.commitAuditionDraft(draft, readerAudioPlan: .later)
         XCTAssertEqual(store.auditions.count, 1)
         XCTAssertEqual(store.auditions.first?.project, "Severance")
         XCTAssertEqual(store.auditions.first?.role, "Mark Scout")
+        let firstID = store.auditions.first!.id
+        XCTAssertEqual(store.auditionsPath, [.auditionDetail(firstID)], "Skipping reader audio for now must place Project Overview (.auditionDetail) on auditionsPath")
         if case .auditionDetail(let id) = store.pendingRouteAfterAdd {
-            XCTAssertEqual(id, store.auditions.first?.id)
+            XCTAssertEqual(id, firstID)
         } else {
             XCTFail("Expected pendingRouteAfterAdd to be .auditionDetail")
         }
 
-        // 2. Commit with reader lines and reader plan: recordNow -> navigates to .reader
+        // 2. Commit with reader lines and reader plan: recordNow -> navigates to .reader with .auditionDetail underneath
         let scriptWithReader = """
         MARK
         I don't know what's happening down there.
@@ -1515,12 +1517,18 @@ final class NoticeParserTests: XCTestCase {
 
         store.commitAuditionDraft(draftWithReader, readerAudioPlan: .recordNow)
         XCTAssertEqual(store.auditions.count, 2)
+        let secondID = store.auditions.first!.id
+        XCTAssertEqual(store.auditionsPath, [.auditionDetail(secondID), .reader(secondID, sceneIndex: 0)], "Recording reader audio must place .auditionDetail underneath .reader so popping/continuing lands on Project Overview")
         if case .reader(let id, let sceneIndex) = store.pendingRouteAfterAdd {
-            XCTAssertEqual(id, store.auditions.first?.id)
+            XCTAssertEqual(id, secondID)
             XCTAssertEqual(sceneIndex, 0)
         } else {
             XCTFail("Expected pendingRouteAfterAdd to be .reader for recordNow plan")
         }
+
+        // 3. Popping or continuing from ReaderView must leave Project Overview
+        store.pop()
+        XCTAssertEqual(store.auditionsPath, [.auditionDetail(secondID)], "Leaving or continuing from reader audio must land on Project Overview")
     }
 
     @MainActor

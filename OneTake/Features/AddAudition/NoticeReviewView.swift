@@ -665,8 +665,8 @@ struct NoticeReviewView: View {
         if readerAudioPlan == .recordNow,
            let a = store.audition(auditionID),
            let firstScene = a.scenes.indices.first(where: { !a.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-            // Push .reader onto the stack so tapping Back on "Who reads [role]" returns here!
-            store.push(.reader(auditionID, sceneIndex: firstScene))
+            // Place .auditionDetail underneath .reader so tapping Back or Continue goes to Project Overview!
+            store.auditionsPath = [.auditionDetail(auditionID), .reader(auditionID, sceneIndex: firstScene)]
         } else {
             store.auditionsPath = [.auditionDetail(auditionID)]
             store.continueAfterAdd = auditionID

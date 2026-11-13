@@ -6,8 +6,11 @@ import AVFoundation
 extension AppStore {
     func startAuditionDraft(_ draft: NoticeParser.Draft, directToReview: Bool = false) {
         auditionDraft = draft
+        let destination: Route = (directToReview || draft.missingRequiredDetails.isEmpty) ? .noticeReview : .missingDetails
+        tab = .auditions
+        auditionsPath = [destination]
+        pendingRouteAfterAdd = destination
         showAddAudition = false
-        pendingRouteAfterAdd = (directToReview || draft.missingRequiredDetails.isEmpty) ? .noticeReview : .missingDetails
     }
 
     /// Commits a confirmed draft directly into a persistent Audition, skipping redundant review screens
@@ -16,15 +19,17 @@ extension AppStore {
         let audition = draft.makeAudition()
         add(audition)
         auditionDraft = .blank
-        showAddAudition = false
         tab = .auditions
         if readerAudioPlan == .recordNow,
            let firstScene = audition.scenes.indices.first(where: { !audition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
             pendingRouteAfterAdd = .reader(audition.id, sceneIndex: firstScene)
+            auditionsPath = [.auditionDetail(audition.id), .reader(audition.id, sceneIndex: firstScene)]
         } else {
             pendingRouteAfterAdd = .auditionDetail(audition.id)
-            continueAfterAdd = audition.id
+            auditionsPath = [.auditionDetail(audition.id)]
         }
+        continueAfterAdd = nil
+        showAddAudition = false
     }
 
     // MARK: Lookup

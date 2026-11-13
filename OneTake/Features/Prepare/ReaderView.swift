@@ -56,7 +56,13 @@ struct ReaderView: View {
         // Reader recordings are files, so this observable counter makes the file status update
         // as soon as Record Reader saves a line.
         let readerTrackVersion = store.readerTrackVersion
-        OTScreen(title: "Who reads \(effectiveReaderName)?", backLabel: "Back", onBack: { store.pop() }, scrolls: false, insetContent: false) {
+        OTScreen(title: "Who reads \(effectiveReaderName)?", backLabel: "Back", onBack: {
+            if store.auditionsPath.count <= 1 {
+                store.auditionsPath = [.auditionDetail(auditionID)]
+            } else {
+                store.pop()
+            }
+        }, scrolls: false, insetContent: false) {
             List {
                 Section {
                     Text("Record \(effectiveReaderName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
@@ -251,6 +257,8 @@ struct ReaderView: View {
                     store.auditionsPath = [.auditionDetail(auditionID)]
                     store.continueAfterAdd = auditionID
                     store.auditionDraft = .blank
+                } else if store.auditionsPath.count <= 1 {
+                    store.auditionsPath = [.auditionDetail(auditionID)]
                 } else {
                     store.pop()
                 }
