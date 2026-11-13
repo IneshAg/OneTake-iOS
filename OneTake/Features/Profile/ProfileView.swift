@@ -26,7 +26,7 @@ struct ProfileView: View {
                 .foregroundStyle(OT.accent)
             }
         ) {
-            VStack(alignment: .leading, spacing: OTSpace.l) {
+            VStack(alignment: .leading, spacing: OTSpace.m) {
                 // Slate & Headshot Card
                 slateAndHeadshotCard
 
@@ -78,13 +78,13 @@ struct ProfileView: View {
     }
 
     private var slateAndHeadshotCard: some View {
-        VStack(alignment: .leading, spacing: OTSpace.m) {
+        VStack(alignment: .leading, spacing: 0) {
             Button { store.push(.editSlate) } label: {
                 HStack(spacing: OTSpace.m) {
                     HeadshotImage(realKey: "front", iconSize: 28).id(store.headshotVersion)
-                        .frame(width: 56, height: 56) // ot-lint:allow
+                        .frame(width: 52, height: 52) // ot-lint:allow
                         .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: OTSpace.xxs) {
                         Text(store.slate.name.isEmpty ? "Add your name" : store.slate.name)
                             .font(.otHeadline)
                             .foregroundStyle(OT.labelPrimary)
@@ -98,6 +98,7 @@ struct ProfileView: View {
                         .frame(width: 32, height: 32) // ot-lint:allow
                         .background(OT.accentSoft, in: Circle())
                 }
+                .padding(.vertical, OTSpace.s)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Edit slate")
@@ -131,13 +132,13 @@ struct ProfileView: View {
                         .font(.otCaption.weight(.semibold)).foregroundStyle(OT.accent)
                 } else {
                     Button("Add PDF") { showResumePicker = true }
-                        .buttonStyle(.ot(.secondary, size: .small))
+                        .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
                 }
             }
             .frame(minHeight: 44) // ot-lint:allow
             .accessibilityElement(children: .contain)
         }
-        .otCard(.grouped)
+        .profileSectionCard()
     }
 
     private var recordingSection: some View {
@@ -151,7 +152,7 @@ struct ProfileView: View {
                 .tint(OT.accent)
                 .frame(minHeight: 44) // ot-lint:allow
 
-                Divider().padding(.vertical, OTSpace.xxs)
+                Divider()
 
                 HStack {
                     Text("Reader volume").font(.otBody).foregroundStyle(OT.labelPrimary)
@@ -163,7 +164,7 @@ struct ProfileView: View {
                 }
                 .frame(minHeight: 44) // ot-lint:allow
             }
-            .otCard(.grouped)
+            .profileSectionCard()
         }
     }
 
@@ -176,7 +177,7 @@ struct ProfileView: View {
             }
             .tint(OT.accent)
             .frame(minHeight: 44) // ot-lint:allow
-            .otCard(.grouped)
+            .profileSectionCard()
             .onChange(of: showSampleScene) { _, enabled in
                 if !enabled { store.removeSampleData(); Haptics.tick() }
             }
@@ -201,7 +202,7 @@ struct ProfileView: View {
                 }
                 .frame(minHeight: 44) // ot-lint:allow
 
-                Divider().padding(.vertical, OTSpace.xxs)
+                Divider()
 
                 Button { showGestureSettings = true } label: {
                     HStack {
@@ -216,21 +217,21 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.plain)
 
-                Divider().padding(.vertical, OTSpace.xxs)
+                Divider()
 
                 Button { store.push(.notifications) } label: {
                     profileRow(symbol: "bell", title: "Notifications")
                 }
                 .buttonStyle(.plain)
 
-                Divider().padding(.vertical, OTSpace.xxs)
+                Divider()
 
                 Button { store.push(.privacy) } label: {
                     profileRow(symbol: "hand.raised", title: "Privacy & data")
                 }
                 .buttonStyle(.plain)
             }
-            .otCard(.grouped)
+            .profileSectionCard()
         }
     }
 
@@ -242,7 +243,7 @@ struct ProfileView: View {
                 if let account = store.account {
                     HStack {
                         Label {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: OTSpace.xxs) {
                                 Text(account.name ?? account.email ?? "Signed in")
                                     .font(.otBody.weight(.medium))
                                     .foregroundStyle(OT.labelPrimary)
@@ -255,7 +256,7 @@ struct ProfileView: View {
                     }
                     .frame(minHeight: 44) // ot-lint:allow
 
-                    Divider().padding(.vertical, OTSpace.xxs)
+                    Divider()
 
                     Button { store.signOut(); Haptics.tick() } label: {
                         HStack {
@@ -270,7 +271,7 @@ struct ProfileView: View {
                 } else {
                     Button { showSignIn = true } label: {
                         HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: OTSpace.xxs) {
                                 Label("Sign in", systemImage: "person.crop.circle.badge.plus")
                                     .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
                                 Text("Needed only to send an iCloud link.")
@@ -283,7 +284,7 @@ struct ProfileView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .otCard(.grouped)
+            .profileSectionCard()
         }
     }
 
@@ -323,10 +324,20 @@ private struct HandsFreeGestureSettingsView: View {
                     Text("Choose voice commands, gestures, or both. Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on; tap Record to finish a take.")
                 }
             }
-            .scrollContentBackground(.hidden)
+            .otCompactList()
         }
         .otCanvas()
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
+    }
+}
+
+private extension View {
+    /// Matches native iOS settings card proportion: standard side inset with snug vertical padding.
+    func profileSectionCard() -> some View {
+        self
+            .padding(.horizontal, OTSpace.cardInset)
+            .padding(.vertical, OTSpace.xs)
+            .otCard(.grouped, padding: nil)
     }
 }

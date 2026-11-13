@@ -42,7 +42,7 @@ struct PrivacyView: View {
     private func mb(_ bytes: Int64) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
 
     var body: some View {
-        OTScreen(title: "Privacy & data", onBack: { store.pop() }, scrolls: false) {
+        OTScreen(title: "Privacy & data", onBack: { store.pop() }, scrolls: false, insetContent: false) {
             List {
                 overviewSection
                 transferSection

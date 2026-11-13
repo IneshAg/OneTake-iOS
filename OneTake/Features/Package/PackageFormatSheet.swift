@@ -17,7 +17,7 @@ struct PackageFormatSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, OTSpace.gutter)
                 .padding(.top, OTSpace.s)
-                .padding(.bottom, OTSpace.xs)
+                .padding(.bottom, OTSpace.xxs)
 
             if let binding = store.binding(for: auditionID) {
                 List {
@@ -63,7 +63,7 @@ struct PackageFormatSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .scrollContentBackground(.hidden)
+                .otCompactList()
             }
         }
         .otCanvas()

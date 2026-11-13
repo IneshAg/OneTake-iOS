@@ -223,7 +223,7 @@ struct CallbackSheet: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
+            .otCompactList()
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow

@@ -16,6 +16,7 @@ public struct OTScreen<Content: View, Trailing: View>: View {
     public let backLabel: String
     public let onBack: (() -> Void)?
     public let scrolls: Bool
+    public let insetContent: Bool
     private let trailing: () -> Trailing
     private let content: () -> Content
     @Environment(\.otInSheet) private var inSheet
@@ -25,6 +26,7 @@ public struct OTScreen<Content: View, Trailing: View>: View {
         backLabel: String = "Back",
         onBack: (() -> Void)? = nil,
         scrolls: Bool = true,
+        insetContent: Bool = true,
         @ViewBuilder trailing: @escaping () -> Trailing,
         @ViewBuilder content: @escaping () -> Content
     ) {
@@ -32,6 +34,7 @@ public struct OTScreen<Content: View, Trailing: View>: View {
         self.backLabel = backLabel
         self.onBack = onBack
         self.scrolls = scrolls
+        self.insetContent = insetContent
         self.trailing = trailing
         self.content = content
     }
@@ -47,13 +50,17 @@ public struct OTScreen<Content: View, Trailing: View>: View {
             if scrolls {
                 ScrollView {
                     content()
-                        .padding(.horizontal, OTSpace.gutter)
+                        .padding(.horizontal, insetContent ? OTSpace.gutter : 0)
                         .padding(.bottom, OTSpace.xl)
                 }
-            } else {
+            } else if insetContent {
                 content()
                     .padding(.horizontal, OTSpace.gutter)
                     .padding(.bottom, OTSpace.xl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                content()
+                    .otCompactList()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
@@ -70,14 +77,25 @@ public struct OTScreen<Content: View, Trailing: View>: View {
     }
 }
 
+public extension View {
+    /// Gives inset-grouped Form/List containers compact section spacing and tight top margin beneath custom headers.
+    func otCompactList() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .contentMargins(.top, OTSpace.xs, for: .scrollContent)
+            .listSectionSpacing(.compact)
+    }
+}
+
 public extension OTScreen where Trailing == EmptyView {
     init(
         title: String = "",
         backLabel: String = "Back",
         onBack: (() -> Void)? = nil,
         scrolls: Bool = true,
+        insetContent: Bool = true,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(title: title, backLabel: backLabel, onBack: onBack, scrolls: scrolls, trailing: { EmptyView() }, content: content)
+        self.init(title: title, backLabel: backLabel, onBack: onBack, scrolls: scrolls, insetContent: insetContent, trailing: { EmptyView() }, content: content)
     }
 }

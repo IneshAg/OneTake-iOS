@@ -120,6 +120,7 @@ struct PracticeSetupView: View {
                     }
                 }
             }
+            .otCompactList()
         }
         .otCanvas()
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow

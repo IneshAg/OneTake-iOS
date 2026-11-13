@@ -514,7 +514,7 @@ struct EditAuditionSheet: View {
                         Text("Private rehearsal notes, intentions, and character choices. Kept handy while preparing.")
                     }
                 }
-                .scrollContentBackground(.hidden)
+                .otCompactList()
             }
         }
         .otCanvas()

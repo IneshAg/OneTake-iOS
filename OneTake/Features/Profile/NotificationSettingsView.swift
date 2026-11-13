@@ -14,7 +14,7 @@ struct NotificationSettingsView: View {
     @State private var testScheduled = false
 
     var body: some View {
-        OTScreen(title: "Notifications", onBack: { store.pop() }, scrolls: false) {
+        OTScreen(title: "Notifications", onBack: { store.pop() }, scrolls: false, insetContent: false) {
             Form {
                 if authStatus == .denied {
                     Section {

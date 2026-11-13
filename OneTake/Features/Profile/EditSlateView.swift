@@ -18,6 +18,7 @@ struct EditSlateView: View {
             title: "Edit slate",
             onBack: { store.pop() },
             scrolls: false,
+            insetContent: false,
             trailing: {
                 Button("Save") {
                     focusedField = nil

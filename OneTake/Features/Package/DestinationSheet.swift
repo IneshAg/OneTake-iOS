@@ -75,7 +75,7 @@ struct DestinationSheet: View {
                         }
                     }
                 }
-                .scrollContentBackground(.hidden)
+                .otCompactList()
             }
         }
         .otCanvas()
