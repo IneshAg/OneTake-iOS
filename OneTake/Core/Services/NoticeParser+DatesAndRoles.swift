@@ -23,11 +23,21 @@ extension NoticeParser {
             return AuditionSource(name: "\(parent?.name ?? "Imported document") · page \(index + 1)", kind: kind, url: parent?.url, pageNumber: index + 1, pageCount: 1, parentSourceID: parent?.id)
         }
 
+        // Notice details (pay terms, union status, production info, synopsis, dates) must ONLY be
+        // extracted from casting notice pages, NEVER from script dialogue or sides pages.
+        let noticePages = sourcePages.enumerated().compactMap { index, page -> String? in
+            if index < draft.noticeSources.count && draft.noticeSources[index].kind == .scriptSides {
+                return nil
+            }
+            return page
+        }
+        let noticeText = noticePages.isEmpty ? (sourcePages.first ?? text) : noticePages.joined(separator: "\n\n")
+
         let synopsis = firstMatch(
             #"(?is)(?:about\s+the\s+project|project\s+synopsis|synopsis)(?:\s*:\s*|\s+)(.+?)(?=\n\s*(?:character\s+breakdowns?|note\s+on\s+casting|production\s+schedule|production\s+information|audition\s+dates|audition\s+requirements|submission|casting\s+team)\b|\z)"#,
-            in: text
+            in: noticeText
         ).map { clean($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let lines = noticeText.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let payLine = lines.first { line in
             let lower = line.lowercased()
             if lower.contains("pay attention") || lower.contains("pay me back") || lower.contains("pay you back") || lower.contains("pay them back") {
@@ -41,18 +51,18 @@ extension NoticeParser {
         let existingDetails = draft.projectDetails
         draft.projectDetails = AuditionProjectDetails(
             synopsis: (synopsis?.isEmpty == false ? synopsis : nil) ?? existingDetails?.synopsis,
-            productionCompany: labeled(["production company", "produced by"], in: text) ?? existingDetails?.productionCompany,
-            producer: labeled(["producer"], in: text) ?? existingDetails?.producer,
-            director: labeled(["director"], in: text) ?? existingDetails?.director,
+            productionCompany: labeled(["production company", "produced by"], in: noticeText) ?? existingDetails?.productionCompany,
+            producer: labeled(["producer"], in: noticeText) ?? existingDetails?.producer,
+            director: labeled(["director"], in: noticeText) ?? existingDetails?.director,
             payTerms: payLine ?? existingDetails?.payTerms,
             unionStatus: unionLine ?? existingDetails?.unionStatus,
             ndaNotes: ndaLine ?? existingDetails?.ndaNotes,
-            castingArea: detectLocation(in: text) ?? existingDetails?.castingArea,
-            productionLocation: labeled(["production location", "filming location", "location"], in: text) ?? existingDetails?.productionLocation,
+            castingArea: detectLocation(in: noticeText) ?? existingDetails?.castingArea,
+            productionLocation: labeled(["production location", "filming location", "location"], in: noticeText) ?? existingDetails?.productionLocation,
             travelNotes: travelLine ?? existingDetails?.travelNotes
         )
 
-        var extractedDates = extractImportantDates(in: draft.sourceText, pages: sourcePages, sources: draft.noticeSources)
+        var extractedDates = extractImportantDates(in: noticeText, pages: sourcePages, sources: draft.noticeSources)
         for date in draft.importantDates {
             if !extractedDates.contains(where: { $0.kind == date.kind }) {
                 extractedDates.append(date)
