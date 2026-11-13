@@ -577,6 +577,28 @@ extension NoticeParser {
             }
         }
 
+        // 4. Structured notice "REQUIREMENT:" block when no per-character line matched
+        if headerLine == nil && directorNote == nil && NoticeParser.isNoticeOnly(text) {
+            var reqLines: [String] = []
+            if let reqBlock = firstMatch(#"(?is)\brequirements?\s*[:\-]?\s*\n(.+?)(?=\n\s*(?:kindly\s+send|send\s+in|what\s+to\s+submit|submission|how\s+to\s+apply|note:|deadline)\b|\z)"#, in: text) {
+                for rawLine in reqBlock.components(separatedBy: .newlines) {
+                    let trimmed = rawLine.trimmingCharacters(in: CharacterSet(charactersIn: "•*- \t\r"))
+                    guard !trimmed.isEmpty, !trimmed.contains("@"),
+                          trimmed.range(of: #"(?i)^(?:mc\s|studio|commercials|mukesh\s+chh)"#, options: .regularExpression) == nil else { continue }
+                    reqLines.append(trimmed)
+                }
+            }
+            if let basedIn = firstMatch(#"(?i)\bbased\s+in\s+([A-Za-z]{2,24})\b"#, in: text) {
+                let loc = "Based in \(basedIn.capitalized)"
+                if !reqLines.contains(where: { $0.localizedCaseInsensitiveContains(basedIn) }) {
+                    reqLines.append(loc)
+                }
+            }
+            if !reqLines.isEmpty {
+                return reqLines.joined(separator: " · ")
+            }
+        }
+
         var parts: [String] = []
         if let h = headerLine, !h.isEmpty { parts.append(h) }
         if let note = directorNote, !note.isEmpty { parts.append(note) }

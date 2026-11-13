@@ -77,7 +77,10 @@ struct OCRLayoutReconstructor {
             if let lastRow = rows.last, let rep = lastRow.first {
                 let yOverlap = min(rep.rect.maxY, box.rect.maxY) - max(rep.rect.minY, box.rect.minY)
                 let minH = min(rep.rect.height, box.rect.height)
-                if yOverlap > minH * 0.45 {
+                let maxH = max(rep.rect.height, box.rect.height)
+                let horizontalGap = max(0, max(box.rect.minX - rep.rect.maxX, rep.rect.minX - box.rect.maxX))
+                let isDisparateBanner = maxH > minH * 1.8 && horizontalGap > 0.06
+                if yOverlap > minH * 0.45 && !isDisparateBanner {
                     rows[rows.count - 1].append(box)
                     continue
                 }
@@ -110,11 +113,16 @@ struct OCRLayoutReconstructor {
             previousRowHeight = rowHeight
 
             if sortedRow.count == 2 {
-                let leftText = sortedRow[0].text.trimmingCharacters(in: .whitespaces)
-                let rightText = sortedRow[1].text.trimmingCharacters(in: .whitespaces)
+                let leftBox = sortedRow[0]
+                let rightBox = sortedRow[1]
+                let leftText = leftBox.text.trimmingCharacters(in: .whitespaces)
+                let rightText = rightBox.text.trimmingCharacters(in: .whitespaces)
                 let cleanKey = leftText.trimmingCharacters(in: CharacterSet(charactersIn: ":.- ")).lowercased()
+                let horizontalGap = rightBox.rect.minX - leftBox.rect.maxX
+                let isLargeHeadline = leftBox.rect.height > 0.055 && !leftText.hasSuffix(":")
 
-                if tableLabelKeys.contains(cleanKey) || cleanKey.hasPrefix("role") || cleanKey.hasPrefix("due") {
+                if !isLargeHeadline && horizontalGap < 0.38 &&
+                    (tableLabelKeys.contains(cleanKey) || cleanKey.hasPrefix("role") || cleanKey.hasPrefix("due")) {
                     let sep = leftText.hasSuffix(":") ? " " : ": "
                     reconstructedLines.append("\(leftText)\(sep)\(rightText)")
                     continue
@@ -136,6 +144,10 @@ struct OCRLayoutReconstructor {
     private static func centeredCueIndent(for box: TextBoundingBox) -> Int {
         let text = box.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (2..<28).contains(text.count),
+              !text.contains(":"),
+              !text.contains("•"),
+              !text.hasPrefix("-"),
+              !text.hasPrefix("*"),
               text.rangeOfCharacter(from: .lowercaseLetters) == nil,
               text.rangeOfCharacter(from: .letters) != nil,
               text.rangeOfCharacter(from: .decimalDigits) == nil,

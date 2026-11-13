@@ -4,16 +4,24 @@ import UIKit
 
 final class ScriptParserStressTests: XCTestCase {
 
-    /// Verifies end-to-end OCR and parser pipeline on the user's actual uploaded flyer image (test.png).
+    /// Verifies end-to-end OCR and parser pipeline on the user's actual uploaded flyer image (flyer_test.jpg / test.png).
     func testActualUploadedFlyerImageOCRAndParserStress() async throws {
-        // Resolve path to test.png located in the project root
-        let rootURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // OneTakeTests
-            .deletingLastPathComponent() // Project root
-        let imageURL = rootURL.appendingPathComponent("test.png")
+        // Resolve path from test bundle first (required on physical iOS device), fallback to project root
+        let bundle = Bundle(for: ScriptParserStressTests.self)
+        let bundleURL = bundle.url(forResource: "flyer_test", withExtension: "jpg")
+        let fallbackURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("test.png")
 
-        guard FileManager.default.fileExists(atPath: imageURL.path) else {
-            throw XCTSkip("test.png not found at \(imageURL.path)")
+        let imageURL: URL
+        if let bundleURL, FileManager.default.fileExists(atPath: bundleURL.path) {
+            imageURL = bundleURL
+        } else if FileManager.default.fileExists(atPath: fallbackURL.path) {
+            imageURL = fallbackURL
+        } else {
+            XCTFail("flyer_test.jpg not found in bundle or at \(fallbackURL.path)")
+            return
         }
 
         guard let image = UIImage(contentsOfFile: imageURL.path) else {
@@ -23,12 +31,12 @@ final class ScriptParserStressTests: XCTestCase {
 
         // 1. Run through production OCR pipeline
         let pages = await NoticeOCR.recognizePages(in: [image])
-        XCTAssertFalse(pages.isEmpty, "OCR must extract text from test.png")
+        XCTAssertFalse(pages.isEmpty, "OCR must extract text from flyer image")
         let ocrText = pages.joined(separator: "\n")
 
-        print("--- EXTRACTED OCR TEXT FROM test.png ---")
+        print("--- EXTRACTED OCR TEXT FROM flyer_test.jpg ---")
         print(ocrText)
-        print("----------------------------------------")
+        print("---------------------------------------------")
 
         // 2. Verify NoticeOCR readable check passes
         XCTAssertTrue(NoticeOCR.looksReadable(ocrText), "OCR text must pass readability checks")
@@ -48,9 +56,37 @@ final class ScriptParserStressTests: XCTestCase {
         XCTAssertFalse(characters.contains("TURBAN"), "TURBAN must not be extracted as a character")
         XCTAssertFalse(characters.contains("CONTACT"), "CONTACT must not be extracted as a character")
 
-        // 6. Verify deterministic notice parser extracts key fields cleanly
-        let draft = NoticeParser.parse(ocrText, pages: pages)
-        XCTAssertFalse(draft.candidateRoles.isEmpty, "Should identify candidate roles from casting call")
+        // 6. Run full async pipeline (mirrors production AddAuditionFlow) and print every field
+        let draft = await NoticeParser.parseAsync(ocrText, pages: pages)
+        print("--- PARSED DRAFT FIELDS ---")
+        print("project: '\(draft.project)'")
+        print("projectType: '\(draft.projectType)'")
+        print("role: '\(draft.role)'")
+        print("candidateRoles: \(draft.candidateRoles)")
+        print("castingOffice: '\(draft.castingOffice)'")
+        print("asks: \(draft.asks)")
+        print("destination: \(draft.destination.rawValue) | detail: '\(draft.destinationDetail ?? "nil")' | detected: \(draft.destinationWasDetected)")
+        print("includeSlate: \(draft.includeSlate) | includeHeadshots: \(draft.includeHeadshots)")
+        print("castingNotes: '\(draft.castingNotes ?? "nil")'")
+        print("location: '\(draft.projectDetails?.productionLocation ?? "nil")' | castingArea: '\(draft.projectDetails?.castingArea ?? "nil")'")
+        print("missingRequiredDetails: \(draft.missingRequiredDetails)")
+        print("---------------------------")
+
+        XCTAssertEqual(draft.candidateRoles.count, 1, "Single requirement flyer must consolidate into 1 candidate role, got: \(draft.candidateRoles)")
+        XCTAssertEqual(draft.role, "Sikh Male Actor (30-55 years)")
+        XCTAssertEqual(draft.castingOffice, "Mukesh Chhabra Casting Company (MCCC)")
+        XCTAssertEqual(draft.destination, .email)
+        XCTAssertEqual(draft.destinationDetail, "ojas@mccc.in")
+        XCTAssertTrue(draft.destinationWasDetected)
+        XCTAssertTrue(draft.asks.contains("Intro video"))
+        XCTAssertTrue(draft.asks.contains("Headshots"))
+        XCTAssertTrue(draft.asks.contains("Contact number"))
+        XCTAssertTrue(draft.asks.contains("Location: Bhopal"))
+        XCTAssertTrue(draft.includeSlate)
+        XCTAssertTrue(draft.includeHeadshots)
+        XCTAssertEqual(draft.projectDetails?.castingArea, "Bhopal")
+        XCTAssertFalse((draft.castingNotes ?? "").isEmpty, "Requirement bullets should populate castingNotes")
+        XCTAssertTrue(draft.missingRequiredDetails.isEmpty, "Flyer should not trigger missingRequiredDetails: \(draft.missingRequiredDetails)")
     }
 
     /// Stress tests the Core ML script element classifier and parser against a 25-page script (1,500+ lines).

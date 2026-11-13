@@ -13,7 +13,8 @@ extension NoticeParser {
             "what to submit", "submission requirements", "audition requirements", "requirements", "role details", "character details",
             "how to use these sides", "casting sides", "audition sides", "dialogue sides", "sides",
             "female identifying", "male identifying", "for female identifying", "for male identifying", "for any gender", "any gender",
-            "your choice", "character of your choice", "the character of your choice", "a character of your choice"
+            "your choice", "character of your choice", "the character of your choice", "a character of your choice",
+            "requirement", "send in", "kindly send in your"
         ]
 
         func addRole(_ r: String) {
@@ -87,7 +88,8 @@ extension NoticeParser {
                 "audition sides", "for female identifying", "for male identifying", "for any gender",
                 "setting", "settings", "director note", "note", "slate", "instructions",
                 "stage reading event", "reading event", "event", "dates", "date", "shoot dates", "shoot date",
-                "production dates", "rehearsal dates", "submission specs", "specs", "location", "deadline"
+                "production dates", "rehearsal dates", "submission specs", "specs", "location", "deadline",
+                "requirement", "requirements", "kindly send in your"
             ]
             for m in matches {
                 if let range = Range(m.range(at: 1), in: text) {
@@ -274,10 +276,13 @@ extension NoticeParser {
                 }
             }
         }
+        var demographicGenericRoles: [String] = []
         if !detectedAges.isEmpty && !detectedGenders.isEmpty {
             let count = min(detectedAges.count, detectedGenders.count)
             for i in 0..<count {
-                let rTitle = "\(detectedGenders[i]) (\(detectedAges[i]))"
+                let normalizedAge = detectedAges[i].replacingOccurrences(of: #"(?i)\bYEARS\b"#, with: "years", options: .regularExpression)
+                let rTitle = "\(detectedGenders[i]) (\(normalizedAge))"
+                demographicGenericRoles.append(rTitle)
                 addRole(rTitle)
             }
         }
@@ -291,15 +296,35 @@ extension NoticeParser {
         ]
         let seekLead = #"\b(?:looking\s+for|seeking|cast(?:ing)?\s+for|in\s+search\s+of)\s+(?:a\s+|an\s+)?([A-Za-z0-9\s\-/]{2,30}?)(?=\s+(?:for|in|as|who|aged?|based)\b|\s*[,.;:!\n])"#
         if let v = firstMatch(seekLead, in: text, options: .caseInsensitive) {
-            let cleaned = clean(v)
+            var cleaned = clean(v)
+            // Normalize plural trailer ("Sikh Actors" -> "Sikh Actor")
+            if cleaned.lowercased().hasSuffix(" actors") {
+                cleaned = String(cleaned.dropLast(1))
+            } else if cleaned.lowercased().hasSuffix(" actresses") {
+                cleaned = String(cleaned.dropLast(2))
+            }
             let lower = cleaned.lowercased()
             let firstWord = lower.components(separatedBy: .whitespaces).first ?? ""
             let isNonRole = nonRoleWords.contains(lower) || nonRoleWords.contains(firstWord)
             let isDemographicOnly = lower.hasPrefix("age") || lower.contains("year old") || lower.contains("yrs old") || lower.range(of: #"^\d{1,2}\s*[-–]"#, options: .regularExpression) != nil
             if !cleaned.isEmpty && !isNonRole && !isDemographicOnly && !roles.contains(where: { $0.lowercased().contains(cleaned.lowercased()) }) {
                 var res = cleaned.capitalized
+                // Merge single-role demographic block (e.g. "Gender: Male", "Age: 30-55 years") into
+                // the specific role descriptor rather than keeping duplicate candidate roles.
+                if demographicGenericRoles.count == 1, detectedGenders.count == 1 {
+                    let g = detectedGenders[0]
+                    if !res.lowercased().contains(g.lowercased()) {
+                        if res.lowercased().hasSuffix(" actor") || res.lowercased().hasSuffix(" actress") {
+                            let prefix = res.components(separatedBy: .whitespaces).dropLast().joined(separator: " ")
+                            if !prefix.isEmpty { res = "\(prefix) \(g) Actor" }
+                        } else {
+                            res += " \(g)"
+                        }
+                    }
+                    roles.removeAll { demographicGenericRoles.contains($0) }
+                }
                 if let age = firstMatch(#"(?:age(?:\s+group)?|aged?)\s*[:\-]?\s*\(?\s*(\d{1,2}\s*(?:[-–]|to)\s*\d{1,2}(?:\s*(?:years|yrs))?)\s*\)?"#, in: text, options: .caseInsensitive) {
-                    let cleanedAge = clean(age)
+                    let cleanedAge = clean(age).replacingOccurrences(of: #"(?i)\bYEARS\b"#, with: "years", options: .regularExpression)
                     if !res.contains(cleanedAge) { res += " (\(cleanedAge))" }
                 }
                 addRole(res)
@@ -327,7 +352,13 @@ extension NoticeParser {
         if let v = labeled(["location", "city", "venue", "place", "based in", "shoot location"], in: text) {
             return clean(v).capitalized
         }
-        for city in ["Bengaluru", "Bangalore", "Mumbai", "Delhi", "New Delhi", "Hyderabad", "Chennai", "Kolkata", "Pune", "Goa", "Jaipur", "Kochi", "New York", "Los Angeles", "London", "Toronto", "Vancouver"] {
+        if let inlineBased = firstMatch(#"(?i)\bbased\s+in\s+([A-Za-z]{2,24})(?=\s+(?:for|on|with|and|to|from)\b|\s*[,.\n!])"#, in: text) {
+            let candidate = clean(inlineBased)
+            if !candidate.isEmpty, candidate.lowercased() != "mumbai" || text.localizedCaseInsensitiveContains("based in mumbai") {
+                return candidate.capitalized
+            }
+        }
+        for city in ["Bengaluru", "Bangalore", "Mumbai", "Delhi", "New Delhi", "Bhopal", "Chandigarh", "Indore", "Lucknow", "Ahmedabad", "Surat", "Hyderabad", "Chennai", "Kolkata", "Pune", "Goa", "Jaipur", "Kochi", "New York", "Los Angeles", "London", "Toronto", "Vancouver"] {
             let pattern = #"(?i)\b(?:location|in|at)\s*[:\-]?\s*"# + city + #"\b"#
             if firstMatch(pattern, in: text) != nil {
                 return city
@@ -511,7 +542,7 @@ extension NoticeParser {
 
     static func detectCastingOffice(in text: String) -> String? {
         let genericCastingWords: Set<String> = [
-            "casting", "casting call", "casting notice", "urgent casting", "open casting", "open call",
+            "casting", "casting call", "casting notice", "casting sides", "audition sides", "urgent casting", "open casting", "open call",
             "commercial casting", "theatrical casting", "film casting", "feature film casting", "series casting",
             "tv casting", "television casting", "child casting", "voice casting", "worldwide casting", "online casting",
             "self-tape casting", "sides casting", "audition casting", "actors casting", "acting", "audition",
@@ -519,11 +550,11 @@ extension NoticeParser {
             "mumbai casting", "delhi casting", "london casting", "nyc casting", "la casting", "los angeles casting",
             "history casting", "now casting", "casting now",
             // Section-header phrases that contain "casting" but are not company names:
-            "note on casting", "a note on casting", "casting note", "note casting"
+            "note on casting", "a note on casting", "casting note", "casting notes", "note casting"
         ]
 
         // Acronym or compound casting companies like Mukesh Chhabra Casting Company (MCCC)
-        if firstMatch(#"(?i)\b(Mukesh\s+Chhabra\s+Casting\s+Company(?:\s*\(MCCC\))?|MCCC)\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:Mukesh\s+Chh[a-z]*(?:\s+Casting(?:\s+Comp[a-z]*)?)?|MCCC)\b|@mccc\.in\b"#, in: text) != nil {
             return "Mukesh Chhabra Casting Company (MCCC)"
         }
 
@@ -540,13 +571,13 @@ extension NoticeParser {
         if let v = firstMatch(#"(?im)^[\s>*•\-]*Casting[ \t]+([A-Z][A-Za-z0-9\-]+)(?:'|\b)"#, in: text) {
             let full = "Casting \(clean(v))"
             let lower = full.lowercased().replacingOccurrences(of: "\n", with: " ")
-            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("mumbai") {
+            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("sides") && !lower.contains("mumbai") && !lower.contains("comi") && lower != "casting comp" {
                 return full.capitalized
             }
         }
         if let v = firstMatch(#"\b(Casting[ \t]+[A-Z][A-Za-z0-9\-]+)\b"#, in: text) {
             let lower = v.lowercased().replacingOccurrences(of: "\n", with: " ")
-            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("sides") && !lower.contains("mumbai") {
+            if !genericCastingWords.contains(lower) && !lower.contains("call") && !lower.contains("notice") && !lower.contains("director") && !lower.contains("sides") && !lower.contains("mumbai") && !lower.contains("comi") && lower != "casting comp" {
                 return clean(v).capitalized
             }
         }
@@ -605,9 +636,9 @@ extension NoticeParser {
         return Int(v)
     }
 
-    /// "under 3 minutes", "no more than 2 min", "max 5 minutes".
+    /// "under 3 minutes", "no more than 2 min", "max 5 minutes", "Maximum total video: 2 minutes".
     static func detectLengthLimit(in text: String) -> Int? {
-        let pattern = #"(?:under|less than|no more than|max(?:imum)?(?: of)?|up to|within)\s+(\d{1,2})\s*(?:min|minute)"#
+        let pattern = #"(?:under|less than|no more than|max(?:imum)?(?:\s+(?:total\s+)?(?:video|clip|tape|length|time|duration))?\s*[:\-]?|up to|within)\s*(?:of\s+)?(\d{1,2})\s*(?:min|minute)"#
         guard let v = firstMatch(pattern, in: text, options: .caseInsensitive) else { return nil }
         return Int(v)
     }

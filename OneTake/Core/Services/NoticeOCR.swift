@@ -87,30 +87,65 @@ enum NoticeOCR {
                 return ""
             }
             // Pass 1: Try normalized CGImage directly (preserves fine glyphs, periods, email syntax)
-            var bestResult = performVisionOCR(on: cgImage)
+            let primaryBoxes = performVisionOCRBoxes(on: cgImage)
+            var mergedBoxes = primaryBoxes
+            var bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
 
-            // Pass 2: Adaptive image pre-processing (grayscale, contrast stretch, sharpen)
-            if isWeakOCR(bestResult), let processedImage = enhancedCGImage(cgImage) {
-                let processedResult = performVisionOCR(on: processedImage)
-                if isBetterOCRResult(processedResult, than: bestResult) {
-                    bestResult = processedResult
+            // Upscale once when the source photo is modest resolution (<1400px, e.g. screenshots or compressed flyers)
+            // so secondary passes can read fine white text like submission emails in poster corners.
+            let longest = max(cgImage.width, cgImage.height)
+            let secondarySource: CGImage = {
+                if longest < 1400 {
+                    let scale = min(2.0, 2048.0 / CGFloat(max(longest, 1)))
+                    return scaledCGImage(cgImage, scale: scale) ?? cgImage
+                }
+                return cgImage
+            }()
+
+            // Posters often combine dark headlines with white-on-colored emails/body text.
+            // When OCR looks weak OR no email/link was found yet, probe contrast-stretched and
+            // inverted passes and merge ONLY non-overlapping missing boxes so clean dark text stays intact.
+            let missingContactInfo = !bestResult.contains("@") && !bestResult.lowercased().contains("http")
+            if isWeakOCR(bestResult) || missingContactInfo {
+                if let processedImage = enhancedCGImage(secondarySource) {
+                    let processedBoxes = performVisionOCRBoxes(on: processedImage)
+                    let processedText = OCRLayoutReconstructor.reconstruct(boxes: processedBoxes)
+                    if isWeakOCR(bestResult), isBetterOCRResult(processedText, than: bestResult) {
+                        mergedBoxes = processedBoxes
+                        bestResult = processedText
+                    } else if !processedBoxes.isEmpty {
+                        mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: processedBoxes)
+                        bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                    }
                 }
             }
 
-            // Pass 3: Inverted luminance pass if text is still weak (for light text on dark backgrounds)
-            if isWeakOCR(bestResult), let invertedImage = enhancedCGImage(cgImage, forceInvert: true) {
-                let invertedResult = performVisionOCR(on: invertedImage)
-                if isBetterOCRResult(invertedResult, than: bestResult) {
-                    bestResult = invertedResult
+            if isWeakOCR(bestResult) || !bestResult.contains("@") {
+                if let invertedImage = enhancedCGImage(secondarySource, forceInvert: true) {
+                    let invertedBoxes = performVisionOCRBoxes(on: invertedImage)
+                    let invertedText = OCRLayoutReconstructor.reconstruct(boxes: invertedBoxes)
+                    if isWeakOCR(bestResult), isBetterOCRResult(invertedText, than: bestResult) {
+                        mergedBoxes = invertedBoxes
+                        bestResult = invertedText
+                    } else if !invertedBoxes.isEmpty {
+                        mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: invertedBoxes)
+                        bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                    }
                 }
             }
 
-            // Pass 4: Bounded enlargement retry for small-print flyers
-            // When fine text drops below Vision's character detector threshold,
-            // upscale up to 2.0x (bounded to maxDimension 4096) to bring glyphs into readable range.
-            // Uses cgImage directly since it is already normalized upright via normalizedCGImage.
+            // If still missing an email/URL, probe the bottom footer strip with local contrast enhancement
+            // so small white or low-contrast corner emails aren't drowned out by headline contrast.
+            if !bestResult.contains("@") && !bestResult.lowercased().contains("http") {
+                let footerBoxes = recoverFooterContactBoxes(from: cgImage)
+                if !footerBoxes.isEmpty {
+                    mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: footerBoxes)
+                    bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                }
+            }
+
+            // Pass 4: Bounded enlargement retry for very small-print flyers if still weak
             if isWeakOCR(bestResult) {
-                let longest = max(cgImage.width, cgImage.height)
                 let maxBound: CGFloat = 4096
                 let candidateCG: CGImage?
                 if longest < 2500 {
@@ -121,7 +156,6 @@ enum NoticeOCR {
                 }
 
                 if let candidateCG {
-                    // Try clean high-res CoreGraphics scaled image first!
                     let cleanEnlargedResult = performVisionOCR(on: candidateCG)
                     if isBetterOCRResult(cleanEnlargedResult, than: bestResult) {
                         bestResult = cleanEnlargedResult
@@ -143,6 +177,76 @@ enum NoticeOCR {
 
             return bestResult
         }
+    }
+
+    /// Crops the bottom contact band and runs locally-stretched normal and inverted OCR at enlarged scale
+    /// so small low-contrast submission emails in poster footers are recovered reliably.
+    private static func recoverFooterContactBoxes(from cgImage: CGImage) -> [OCRLayoutReconstructor.TextBoundingBox] {
+        let stripFraction: CGFloat = 0.28
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let cropRect = CGRect(
+            x: 0,
+            y: height * (1 - stripFraction),
+            width: width,
+            height: height * stripFraction
+        ).integral
+        guard cropRect.width > 20, cropRect.height > 20,
+              let cropped = cgImage.cropping(to: cropRect) else { return [] }
+
+        let targetSource = scaledCGImage(cropped, scale: 2.5) ?? cropped
+        var recovered: [OCRLayoutReconstructor.TextBoundingBox] = []
+        let variants: [CGImage] = [
+            targetSource,
+            enhancedCGImage(targetSource),
+            enhancedCGImage(targetSource, forceInvert: true)
+        ].compactMap { $0 }
+
+        for variant in variants {
+            let boxes = performVisionOCRBoxes(on: variant)
+            for box in boxes where box.text.contains("@") || box.text.lowercased().contains("http") || box.text.lowercased().contains(".in") || box.text.lowercased().contains(".com") {
+                let mappedRect = CGRect(
+                    x: box.rect.minX,
+                    y: box.rect.minY * stripFraction,
+                    width: box.rect.width,
+                    height: box.rect.height * stripFraction
+                )
+                recovered.append(OCRLayoutReconstructor.TextBoundingBox(
+                    text: box.text,
+                    rect: mappedRect,
+                    confidence: box.confidence
+                ))
+            }
+            if recovered.contains(where: { $0.text.contains("@") }) {
+                break
+            }
+        }
+        return recovered
+    }
+
+    /// Merges text boxes discovered by secondary passes (e.g. inverted luminance for white text on posters)
+    /// only where primary passes detected nothing, preventing duplicate overlapping lines.
+    private static func mergeNonOverlappingBoxes(
+        base: [OCRLayoutReconstructor.TextBoundingBox],
+        additions: [OCRLayoutReconstructor.TextBoundingBox]
+    ) -> [OCRLayoutReconstructor.TextBoundingBox] {
+        var result = base
+        for candidate in additions {
+            let trimmed = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let overlapsExisting = result.contains { existing in
+                let intersection = existing.rect.intersection(candidate.rect)
+                guard !intersection.isNull, !intersection.isEmpty else { return false }
+                let interArea = intersection.width * intersection.height
+                let minArea = max(min(existing.rect.width * existing.rect.height, candidate.rect.width * candidate.rect.height), 1e-6)
+                let verticalAlign = abs(existing.rect.midY - candidate.rect.midY) < max(existing.rect.height, candidate.rect.height) * 0.6
+                return (interArea / minArea) > 0.28 || (verticalAlign && intersection.width > min(existing.rect.width, candidate.rect.width) * 0.35)
+            }
+            if !overlapsExisting {
+                result.append(candidate)
+            }
+        }
+        return result
     }
 
     /// Evaluates whether OCR output is weak (empty, unreadable, or very few recognized words/lines).
@@ -192,8 +296,14 @@ enum NoticeOCR {
         return context.makeImage()
     }
 
-    /// Performs Vision OCR across accurate and fast recognition levels.
+    /// Performs Vision OCR across accurate and fast recognition levels, returning reconstructed text.
     private static func performVisionOCR(on cgImage: CGImage) -> String {
+        let boxes = performVisionOCRBoxes(on: cgImage)
+        return OCRLayoutReconstructor.reconstruct(boxes: boxes)
+    }
+
+    /// Performs Vision OCR and returns raw 2D bounding boxes before layout reconstruction.
+    private static func performVisionOCRBoxes(on cgImage: CGImage) -> [OCRLayoutReconstructor.TextBoundingBox] {
         // .accurate first; if it errors (it does on some Simulators: "Could not create inference
         // context") or finds nothing, retry with .fast so one failing path doesn't mean no text.
         for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
@@ -215,9 +325,9 @@ enum NoticeOCR {
             let boxes: [OCRLayoutReconstructor.TextBoundingBox] = (request.results ?? []).compactMap { observation in
                 let candidates = observation.topCandidates(3)
                 guard let best = candidates.first else { return nil }
-                let chosen = (best.confidence >= minimumLineConfidence)
+                let chosen = (best.confidence >= minimumLineConfidence || (best.string.contains("@") && best.confidence >= 0.15))
                     ? best
-                    : candidates.first(where: { $0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2 })
+                    : candidates.first(where: { ($0.confidence >= minimumLineConfidence && $0.string.filter(\.isLetter).count >= 2) || ($0.string.contains("@") && $0.confidence >= 0.15) })
                 guard let candidate = chosen else { return nil }
                 return OCRLayoutReconstructor.TextBoundingBox(
                     text: candidate.string,
@@ -226,10 +336,9 @@ enum NoticeOCR {
                 )
             }
 
-            let reconstructed = OCRLayoutReconstructor.reconstruct(boxes: boxes)
-            if !reconstructed.isEmpty { return reconstructed }
+            if !boxes.isEmpty { return boxes }
         }
-        return ""
+        return []
     }
 
     // MARK: - Image pre-processing (Core Image)

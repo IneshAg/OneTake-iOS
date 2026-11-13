@@ -144,7 +144,7 @@ enum ScriptParser {
             }
 
             // Watermarks, timestamps, and page numbering
-            if isWatermarkOrHeader(trimmed) {
+            if isWatermarkOrHeader(trimmed) || isLineOrPageNumber(trimmed) {
                 continue
             }
 
@@ -179,7 +179,7 @@ enum ScriptParser {
                 || isLikelyIndentedCue(trimmed, raw: raw)
             )
 
-            let isMLHeading = !isCue && mlClass == .sceneHeading && !trimmed.hasSuffix(".") && !trimmed.hasSuffix("!") && !trimmed.hasSuffix("?")
+            let isMLHeading = !isCue && mlClass == .sceneHeading && trimmed.contains(where: \.isLetter) && !trimmed.hasSuffix(".") && !trimmed.hasSuffix("!") && !trimmed.hasSuffix("?")
 
             if isSceneHeading(trimmed) || isMLHeading {
                 flush()

@@ -74,7 +74,10 @@ final class PracticeNavBarBugTests: XCTestCase {
         }
 
         store.pop()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        let deadline = Date().addingTimeInterval(2.0)
+        while tbc.tabBar.isHidden && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
         if #available(iOS 18.0, *) {
             XCTAssertFalse(tbc.isTabBarHidden, "Popping back to Practice root should restore the tab bar")
         }

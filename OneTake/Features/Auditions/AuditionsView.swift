@@ -22,30 +22,12 @@ struct AuditionsView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            header
+
             if store.auditions.isEmpty {
                 EmptyAuditionsView()
-            } else if items.isEmpty {
-                VStack(spacing: OTSpace.s) {
-                    Spacer()
-                    Image(systemName: selectedTab == .submitted ? "paperplane.circle" : "archivebox")
-                        .font(.otIcon(.xl))
-                        .foregroundStyle(OT.labelTertiary)
-                    Text("No \(selectedTab.rawValue.lowercased()) auditions")
-                        .font(.otHeadline)
-                        .foregroundStyle(OT.labelPrimary)
-                    Text(selectedTab == .submitted
-                         ? "Auditions you mark as submitted will appear here."
-                         : selectedTab == .archived
-                         ? "Swipe an audition in Active or Submitted to archive it."
-                         : "Tap + to add your next audition.")
-                        .font(.otCallout)
-                        .foregroundStyle(OT.labelSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, OTSpace.xl)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(items) { audition in
@@ -54,11 +36,32 @@ struct AuditionsView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .overlay {
+                    if items.isEmpty {
+                        VStack(spacing: OTSpace.s) {
+                            Image(systemName: selectedTab == .active ? "tray" : (selectedTab == .submitted ? "paperplane.circle" : "archivebox"))
+                                .font(.otIcon(.xl))
+                                .foregroundStyle(OT.labelTertiary)
+                            Text("No \(selectedTab.rawValue.lowercased()) auditions")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text(selectedTab == .submitted
+                                 ? "Auditions you mark as submitted will appear here."
+                                 : selectedTab == .archived
+                                 ? "Swipe an audition in Active or Submitted to archive it."
+                                 : "Tap + to add your next audition.")
+                                .font(.otCallout)
+                                .foregroundStyle(OT.labelSecondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, OTSpace.xl)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .safeAreaInset(edge: .top) { header }
         .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
         .navigationBarBackButtonHidden(true)
     }
@@ -232,7 +235,7 @@ struct AuditionsView: View {
             }
 
             if !store.auditions.isEmpty {
-                Picker("Filter auditions", selection: $selectedTab.animation(.easeInOut(duration: 0.2))) {
+                Picker("Filter auditions", selection: $selectedTab) {
                     ForEach(FilterTab.allCases) { tab in
                         Text(tab.rawValue).tag(tab)
                     }

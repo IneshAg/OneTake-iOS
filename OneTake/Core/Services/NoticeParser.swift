@@ -295,7 +295,7 @@ enum NoticeParser {
             ask(includesSlate ? "Full-body shot with slate" : "Full-body shot")
             d.isFullBodyShotOptional = context.range(of: #"\b(?:optional|if available|not required)\b"#, options: .regularExpression) != nil
         }
-        if firstMatch(#"(?i)\b(?:intro|introduction)\s+video\b|\bintroductory\s+video\b|\bintro\s+clip\b"#, in: text) != nil {
+        if firstMatch(#"(?i)\b(?:intro|introduction)\s+video\b|\bintroductory\s+video\b|\bintro\s+clip\b|\b(?:detailed|self[-\s]?|brief|short)\s+introduction\b"#, in: text) != nil {
             ask("Intro video")
         }
         if firstMatch(#"(?i)\bvideo\b[\s\S]{0,80}\b(?:self[\s-]?tape|introduction|intro)\b|\b(?:self[\s-]?tape|introduction|intro)\b[\s\S]{0,80}\bvideo\b"#, in: text) != nil {
@@ -303,6 +303,9 @@ enum NoticeParser {
         }
         if firstMatch(#"(?i)\b(?:headshots?|recent\s+photos?|recent\s+photographs?)\b|(?is)\b(?:send|attach|include|submit|mail|with|along\s+with)\b[\s\S]{0,60}?\b(?:pictures?|photos?)\b"#, in: text) != nil {
             ask("Headshots")
+        }
+        if firstMatch(#"(?i)(?:send(?:\s+in)?|include|attach|with|share|submit|your)[\s\S]{0,80}?\b(?:contact\s+(?:no\.?|number)|phone\s+number|mobile\s+(?:no\.?|number))\b|(?m)^\s*[•\-\*]\s*(?:contact\s+(?:no\.?|number)|phone\s+number|mobile\s+(?:no\.?|number))\b"#, in: text) != nil {
+            ask("Contact number")
         }
         if firstMatch(#"(?i)\b(?:resume|résumé)\b[\s\S]{0,50}\b(?:optional|not\s+required|if\s+available)\b|\b(?:optional|not\s+required|if\s+available)\b[\s\S]{0,50}\b(?:resume|résumé)\b"#, in: text) != nil {
             ask("Resume (optional)")

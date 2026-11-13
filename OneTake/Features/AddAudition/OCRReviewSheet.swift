@@ -471,27 +471,28 @@ struct OCRReviewSheet: View {
                         }
                     }()
 
-                    KeyboardAutofillBar(
-                        suggestions: suggestions,
-                        onSelect: { selected in
-                            switch focusedField {
-                            case .project:
-                                projectText = selected
-                            case .role:
-                                roleText = selected
-                                if let auto = NoticeParser.extractCharacterDescription(for: selected, in: draft.sourceText) {
-                                    castingNotesText = auto
+                    if !suggestions.isEmpty {
+                        KeyboardAutofillBar(
+                            suggestions: suggestions,
+                            onSelect: { selected in
+                                switch focusedField {
+                                case .project:
+                                    projectText = selected
+                                case .role:
+                                    roleText = selected
+                                    if let auto = NoticeParser.extractCharacterDescription(for: selected, in: draft.sourceText) {
+                                        castingNotesText = auto
+                                    }
+                                case .castingOffice:
+                                    castingOfficeText = selected
+                                case nil:
+                                    break
                                 }
-                            case .castingOffice:
-                                castingOfficeText = selected
-                            case nil:
-                                break
                             }
-                        },
-                        onDismiss: {
-                            focusedField = nil
-                        }
-                    )
+                        )
+                    }
+                    Spacer()
+                    Button("Done") { focusedField = nil }
                 }
             }
         }
