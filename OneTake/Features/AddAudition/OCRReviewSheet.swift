@@ -3,7 +3,8 @@ import OneTakeUI
 
 /// Shown after every scan, photo import, file import, and share-sheet import so the actor
 /// can verify what OneTake read before it is committed to an audition draft.
-/// The actor can correct individual fields inline; tapping "Use this" proceeds.
+/// Divided into focused steps (Project & Role, Scenes & Pages, Specs & Notes) to keep
+/// each screen digestible and intuitive.
 struct OCRReviewSheet: View {
     @Environment(AppStore.self) private var store
     /// The draft that the parser produced — presented as editable fields.
@@ -11,6 +12,45 @@ struct OCRReviewSheet: View {
     let sourcePreview: UIImage?
     let onConfirm: (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void
     let onDiscard: () -> Void
+
+    enum ReviewStep: Int, CaseIterable, Identifiable {
+        case project = 0, scenes = 1, requirements = 2
+        var id: Int { rawValue }
+
+        var title: String {
+            switch self {
+            case .project: return "Project & Role"
+            case .scenes: return "Scenes & Pages"
+            case .requirements: return "Specs & Notes"
+            }
+        }
+
+        var shortTitle: String {
+            switch self {
+            case .project: return "Project"
+            case .scenes: return "Scenes"
+            case .requirements: return "Specs"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .project: return "person.text.rectangle"
+            case .scenes: return "doc.text"
+            case .requirements: return "list.bullet.clipboard"
+            }
+        }
+    }
+
+    private var availableSteps: [ReviewStep] {
+        draft.availablePortions.count > 1 ? [.project, .scenes, .requirements] : [.project, .requirements]
+    }
+
+    @State private var currentStepIndex: Int = 0
+
+    private var currentStep: ReviewStep {
+        availableSteps[min(currentStepIndex, availableSteps.count - 1)]
+    }
 
     private enum FocusField: Hashable {
         case project, role, castingOffice
@@ -62,9 +102,16 @@ struct OCRReviewSheet: View {
         !draft.availablePortions.isEmpty && draft.availablePortions.allSatisfy { $0.pageNumber != nil }
     }
 
-    init(draft: NoticeParser.Draft, sourcePreview: UIImage? = nil, onConfirm: @escaping (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void, onDiscard: @escaping () -> Void) {
+    init(
+        draft: NoticeParser.Draft,
+        sourcePreview: UIImage? = nil,
+        initialStep: ReviewStep = .project,
+        onConfirm: @escaping (NoticeParser.Draft, AddAuditionFlow.ReaderAudioPlan) -> Void,
+        onDiscard: @escaping () -> Void
+    ) {
         self.draft = draft
         self.sourcePreview = sourcePreview
+        self._currentStepIndex = State(initialValue: initialStep.rawValue)
         self.onConfirm = onConfirm
         self.onDiscard = onDiscard
 
@@ -88,362 +135,58 @@ struct OCRReviewSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: OTSpace.l) {
-                    // Header
-                    VStack(alignment: .leading, spacing: OTSpace.xs) {
-                        Label("Review what we read", systemImage: "doc.text.magnifyingglass")
-                            .font(.otTitle)
-                        Text("Check each field — fix anything that looks wrong before continuing.")
-                            .font(.otFootnote)
-                            .foregroundStyle(OT.labelSecondary)
-                    }
+            VStack(spacing: 0) {
+                // Top step progress pills
+                stepIndicator
+                    .padding(.vertical, OTSpace.s)
+                    .background(OT.surfaceRaised)
 
-                    VStack(alignment: .leading, spacing: OTSpace.s) {
-                        Label("Audition Type", systemImage: "theatermasks")
-                            .font(.otCaption.weight(.medium))
-                            .foregroundStyle(OT.labelSecondary)
-                        AuditionMaterialKindPicker(selected: $draft.materialKind)
-                    }
-
-                    if !draft.importantDates.isEmpty {
-                        MilestoneDatesListCard(dates: draft.importantDates)
-                    }
-
-                    if let details = draft.projectDetails, details.hasReviewableContent {
-                        ProjectDetailsCard(details: details)
-                    }
-
-                    reviewField(
-                        icon: "film",
-                        label: "Audition name",
-                        placeholder: "A name to recognize this audition",
-                        text: $projectText,
-                        isRequired: false,
-                        field: .project
-                    )
-
-                    reviewField(
-                        icon: "person",
-                        label: "Character you’re auditioning for",
-                        placeholder: "e.g. Alice",
-                        text: $roleText,
-                        isRequired: true,
-                        field: .role
-                    )
-
-                    // Candidate roles chip picker
-                    if !draft.candidateRoles.isEmpty {
-                        VStack(alignment: .leading, spacing: OTSpace.xs) {
-                            Text("Detected roles in notice:")
-                                .font(.otCaption)
-                                .foregroundStyle(OT.labelSecondary)
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: OTSpace.s) {
-                                    ForEach(draft.candidateRoles, id: \.self) { roleOption in
-                                        Button {
-                                            roleText = roleOption
-                                            if let auto = NoticeParser.extractCharacterDescription(for: roleOption, in: draft.sourceText) {
-                                                castingNotesText = auto
-                                            }
-                                            Haptics.tick()
-                                        } label: {
-                                            HStack(spacing: OTSpace.xs) {
-                                                if roleText == roleOption {
-                                                    Image(systemName: "checkmark")
-                                                        .font(.otIcon(.xs))
-                                                }
-                                                Text(roleOption)
-                                                    .font(.otCaption.weight(.semibold))
-                                            }
-                                            .padding(.horizontal, OTSpace.s)
-                                            .padding(.vertical, OTSpace.xs)
-                                            .background(roleText == roleOption ? OT.accent : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
-                                            .foregroundStyle(roleText == roleOption ? Color.white : OT.labelPrimary) // ot-lint:allow
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    reviewField(
-                        icon: "building.2",
-                        label: "Casting office (optional)",
-                        placeholder: "e.g. Anti-Casting, Telsey + Co",
-                        text: $castingOfficeText,
-                        isRequired: false,
-                        field: .castingOffice
-                    )
-
-                    if draft.hasSides && draft.availablePortions.count > 1 {
-                        VStack(alignment: .leading, spacing: OTSpace.s) {
-                            HStack {
-                                Label("Scenes & Pages to prepare", systemImage: "doc.text")
-                                    .font(.otCaption.weight(.bold))
-                                    .foregroundStyle(OT.labelPrimary)
-                                Spacer()
-                                Button(selectedPortionIDs.count == draft.availablePortions.count ? "Deselect All" : "Select All") {
-                                    if selectedPortionIDs.count == draft.availablePortions.count {
-                                        selectedPortionIDs.removeAll()
-                                    } else {
-                                        selectedPortionIDs = Set(draft.availablePortions.map(\.id))
-                                    }
-                                    Haptics.tick()
-                                }
-                                .font(.otCaption.weight(.medium))
-                                .foregroundStyle(OT.accent)
-                            }
-
-                            Text("Choose the relevant \(portionsArePages ? "pages" : "scenes") for \(roleText.isEmpty ? "your role" : roleText).")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
-
-                            VStack(spacing: OTSpace.s) {
-                                ForEach(draft.availablePortions) { portion in
-                                    let isSelected = selectedPortionIDs.contains(portion.id)
-                                    let isForMyRole = portion.characters.contains { $0.caseInsensitiveCompare(roleText) == .orderedSame }
-                                    Button {
-                                        if isSelected {
-                                            selectedPortionIDs.remove(portion.id)
-                                        } else {
-                                            selectedPortionIDs.insert(portion.id)
-                                        }
-                                        Haptics.tick()
-                                    } label: {
-                                        HStack(alignment: .top, spacing: OTSpace.s) {
-                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                                .font(.otIcon(.m))
-                                                .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
-                                                .padding(.top, OTSpace.xxs)
-
-                                            VStack(alignment: .leading, spacing: OTSpace.xs) {
-                                                HStack {
-                                                    Text(portion.displayTitle)
-                                                        .font(.otSubhead.weight(.semibold))
-                                                        .foregroundStyle(OT.labelPrimary)
-                                                    Spacer()
-                                                    if isForMyRole {
-                                                        Text("Matches role")
-                                                            .font(.otCaption.weight(.bold))
-                                                            .padding(.horizontal, OTSpace.xs)
-                                                            .padding(.vertical, OTSpace.xxs)
-                                                            .background(OT.accentSoft, in: Capsule())
-                                                            .foregroundStyle(OT.accent)
-                                                    }
-                                                }
-
-                                                if !portion.characters.isEmpty {
-                                                    ScrollView(.horizontal, showsIndicators: false) {
-                                                        HStack(spacing: OTSpace.xs) {
-                                                            ForEach(portion.characters.prefix(4), id: \.self) { c in
-                                                                Text(c)
-                                                                    .font(.otCaption.weight(.medium))
-                                                                    .padding(.horizontal, OTSpace.xs)
-                                                                    .padding(.vertical, OTSpace.xxs)
-                                                                    .background(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accentSoft : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.xs))
-                                                                    .foregroundStyle(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accent : OT.labelSecondary)
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        .padding(OTSpace.m)
-                                        .background(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
-                                                .stroke(isSelected ? OT.accent.opacity(0.5) : Color.clear, lineWidth: 1)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                        .otCard(.grouped)
-                    }
-
-                    // Due date
-                    VStack(alignment: .leading, spacing: OTSpace.xs) {
-                        Label("Due date", systemImage: "calendar")
-                            .font(.otCaption.weight(.medium))
-                            .foregroundStyle(OT.labelSecondary)
-
-                        Toggle("Tape deadline found", isOn: $hasDueDate)
-                            .font(.otFootnote)
-                            .tint(OT.accent)
-
-                        if hasDueDate {
-                            DatePicker("", selection: $dueDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                        } else {
-                            Text("No deadline found — you can set one later.")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
-                        }
-                    }
-                    .otCard(.grouped)
-
-                    // Notes from casting
-                    VStack(alignment: .leading, spacing: OTSpace.xs) {
-                        Label("Character details from the notice", systemImage: "person.text.rectangle")
-                            .font(.otCaption.weight(.medium))
-                            .foregroundStyle(OT.labelSecondary)
-                        Text("What casting says about the character. You can edit this.")
-                            .font(.otCaption)
-                            .foregroundStyle(OT.labelTertiary)
-                        TextField("Character description", text: $castingNotesText, axis: .vertical)
-                            .lineLimit(4...10)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(OTSpace.m)
-                            .background(OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
-                    }
-
-                    // My notes & understanding
-                    reviewField(
-                        icon: "sparkles",
-                        label: "My notes & understanding",
-                        placeholder: "My choices, subtext, questions",
-                        text: $actorNotesText,
-                        isRequired: false
-                    )
-
-                    // Deliverables in flow (Slate & Headshots)
-                    VStack(alignment: .leading, spacing: OTSpace.s) {
-                        Label("What to prepare", systemImage: "list.bullet.rectangle")
-                            .font(.otCaption.weight(.medium))
-                            .foregroundStyle(OT.labelSecondary)
-                        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: OTSpace.s) {
-                            deliverableToggle(title: "Slate / intro", icon: "person.text.rectangle", isOptional: $isSlateOptional)
-                            if draft.asks.contains("Full-body shot") {
-                                deliverableToggle(title: "Full-body shot", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
-                            } else if draft.asks.contains("Full-body shot with slate") {
-                                deliverableToggle(title: "Full-body view in slate", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
-                            }
-                            deliverableToggle(title: "Headshots", icon: "person.crop.rectangle", isOptional: $isHeadshotOptional)
-                        }
-                    }
-                    .otCard(.grouped)
-
-                    // Reader audio option if lines for reader are present
-                    if hasReaderLines {
-                        VStack(alignment: .leading, spacing: OTSpace.s) {
-                            HStack {
-                                Label("Practice cue audio", systemImage: "waveform")
-                                    .font(.otHeadline)
-                                    .foregroundStyle(OT.labelPrimary)
-                                Spacer()
-                                HStack(spacing: OTSpace.xs) {
-                                    Text("Other character").font(.otCaption.weight(.bold)).foregroundStyle(OT.reader)
-                                    Text(detectedReaderName).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.reader)
-                                }
-                            }
-                            Text("Record the other character’s lines in your voice. They’ll play back as cues while you perform.")
-                                .font(.otFootnote).foregroundStyle(OT.labelSecondary)
-
-                            Picker("Reader audio", selection: $readerAudioPlan) {
-                                Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
-                                Text("Later").tag(AddAuditionFlow.ReaderAudioPlan.later)
-                            }
-                            .pickerStyle(.segmented)
-                        }
-                        .otCard(.grouped)
-                    }
-
-                    // Clear, wrapped requirement list. These are statements from the notice,
-                    // not compact tags that truncate email addresses or long instructions.
-                    if !draft.asks.isEmpty {
-                        VStack(alignment: .leading, spacing: OTSpace.s) {
-                            Label("Requested by casting", systemImage: "checkmark.circle")
-                                .font(.otCaption.weight(.medium))
-                                .foregroundStyle(OT.labelSecondary)
-                            VStack(alignment: .leading, spacing: OTSpace.s) {
-                                ForEach(Array(draft.asks.enumerated()), id: \.offset) { _, ask in
-                                    HStack(alignment: .top, spacing: OTSpace.s) {
-                                        Image(systemName: symbol(for: ask))
-                                            .font(.otIcon(.s))
-                                            .foregroundStyle(OT.accent)
-                                            .frame(width: 20) // ot-lint:allow
-                                        Text(ask)
-                                            .font(.otFootnote.weight(.medium))
-                                            .foregroundStyle(OT.labelPrimary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                        }
-                        .otCard(.elevated)
-                    }
-
-                    if draft.asks.contains(where: { $0.localizedCaseInsensitiveContains("resume") || $0.localizedCaseInsensitiveContains("résumé") }) {
-                        AuditionResumePicker(
-                            isIncluded: $draft.includeResume,
-                            selectedURL: $draft.resumeURL
-                        )
-                    }
-
-                    if let sourcePreview {
-                        DisclosureGroup {
-                            Image(uiImage: sourcePreview)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
-                                .accessibilityLabel("Full original casting notice image")
-                        } label: {
-                            Label("View full notice image", systemImage: "photo")
-                                .font(.otSubhead.weight(.semibold))
-                                .foregroundStyle(OT.labelPrimary)
-                        }
-                        .tint(OT.accent)
-                        .otCard(.elevated)
+                // Current step content
+                Group {
+                    switch currentStep {
+                    case .project:
+                        step1ProjectAndRoleView
+                    case .scenes:
+                        step2ScenesAndPagesView
+                    case .requirements:
+                        step3SpecsAndNotesView
                     }
                 }
-                .padding(OT.gutter)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .trailing)),
+                    removal: .opacity.combined(with: .move(edge: .leading))
+                ))
             }
             .otCanvas()
+            .otBottomBar {
+                bottomBar
+            }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Discard") { onDiscard() }
+                    if currentStepIndex == 0 {
+                        Button("Discard") { onDiscard() }
+                            .foregroundStyle(OT.labelSecondary)
+                    } else {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { currentStepIndex = max(0, currentStepIndex - 1) }
+                            Haptics.tick()
+                        } label: {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .foregroundStyle(OT.accent)
+                    }
+                }
+
+                ToolbarItem(placement: .principal) {
+                    Text("Step \(currentStepIndex + 1) of \(availableSteps.count)")
+                        .font(.otFootnote.weight(.semibold))
                         .foregroundStyle(OT.labelSecondary)
                 }
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Use this") {
-                        Haptics.success()
-                        var confirmed = draft
-                        confirmed.project = projectText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.role = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.castingOffice = castingOfficeText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.sidesLink = sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : sidesLinkText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.destinationDetail = destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : destinationDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.due = hasDueDate ? dueDate : nil
-                        let trimmedCastingNotes = castingNotesText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.castingNotes = trimmedCastingNotes.isEmpty ? nil : trimmedCastingNotes
-                        let trimmedActorNotes = actorNotesText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        confirmed.actorNotes = trimmedActorNotes.isEmpty ? nil : trimmedActorNotes
-                        confirmed.isSlateOptional = isSlateOptional
-                        confirmed.isFullBodyShotOptional = isFullBodyShotOptional
-                        confirmed.isHeadshotOptional = isHeadshotOptional
-                        confirmed.includeSlate = includeSlate
-                        confirmed.includeHeadshots = includeHeadshots
-
-                        // Pass 2: Targeted Scene Chunker
-                        if !draft.availablePortions.isEmpty {
-                            let chosen = draft.availablePortions.filter { selectedPortionIDs.contains($0.id) }
-                            if !chosen.isEmpty {
-                                let selectedText = chosen.map(\.rawText).joined(separator: "\n\n")
-                                let parsedScenes = portionsArePages
-                                    ? ScriptParser.parseScenes(from: selectedText, myRole: confirmed.role)
-                                    : ScriptParser.parseSelectedPortions(chosen, myRole: confirmed.role)
-                                confirmed.customScenes = parsedScenes
-                                confirmed.scenes = parsedScenes.count
-                                confirmed.sourceText = selectedText
-                            }
-                        }
-                        onConfirm(confirmed, readerAudioPlan)
+                        commitConfirmedDraft()
                     }
                     .font(.otHeadline)
                     .foregroundStyle(canUseThis ? OT.accent : OT.labelTertiary)
@@ -496,6 +239,481 @@ struct OCRReviewSheet: View {
                 }
             }
         }
+    }
+
+    // MARK: - Step Indicator
+
+    private var stepIndicator: some View {
+        HStack(spacing: OTSpace.xs) {
+            ForEach(Array(availableSteps.enumerated()), id: \.offset) { index, step in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentStepIndex = index
+                    }
+                    Haptics.tick()
+                } label: {
+                    HStack(spacing: OTSpace.xxs) {
+                        Image(systemName: index < currentStepIndex ? "checkmark.circle.fill" : step.icon)
+                            .font(.otIcon(.xs, weight: .bold))
+                        Text(step.shortTitle)
+                            .font(.otCaption.weight(.semibold))
+                    }
+                    .padding(.horizontal, OTSpace.s)
+                    .padding(.vertical, OTSpace.xs)
+                    .background(
+                        index == currentStepIndex
+                            ? OT.accent
+                            : (index < currentStepIndex ? OT.accentSoft : OT.fillField),
+                        in: Capsule()
+                    )
+                    .foregroundStyle(
+                        index == currentStepIndex
+                            ? Color.white
+                            : (index < currentStepIndex ? OT.accent : OT.labelSecondary)
+                    ) // ot-lint:allow
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Bottom Navigation Bar
+
+    @ViewBuilder
+    private var bottomBar: some View {
+        let isLastStep = currentStepIndex >= availableSteps.count - 1
+        if isLastStep {
+            Button("Use this & Create Audition") {
+                commitConfirmedDraft()
+            }
+            .buttonStyle(.otPrimary)
+            .disabled(!canUseThis)
+        } else {
+            HStack(spacing: OTSpace.s) {
+                if currentStepIndex > 0 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            currentStepIndex -= 1
+                        }
+                        Haptics.tick()
+                    } label: {
+                        Label("Back", systemImage: "arrow.left")
+                    }
+                    .buttonStyle(.ot(.secondary, size: .large, fullWidth: false))
+                }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentStepIndex = min(currentStepIndex + 1, availableSteps.count - 1)
+                    }
+                    Haptics.tick()
+                } label: {
+                    HStack {
+                        Text(nextButtonTitle)
+                        Image(systemName: "arrow.right")
+                    }
+                }
+                .buttonStyle(.otPrimary)
+            }
+        }
+    }
+
+    private var nextButtonTitle: String {
+        let nextIndex = currentStepIndex + 1
+        guard nextIndex < availableSteps.count else { return "Next" }
+        return "Continue to \(availableSteps[nextIndex].shortTitle)"
+    }
+
+    // MARK: - Step 1: Project & Role
+
+    private var step1ProjectAndRoleView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: OTSpace.l) {
+                // Header
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Label("Review what we read", systemImage: "doc.text.magnifyingglass")
+                        .font(.otTitle)
+                    Text("Check project and character details before continuing.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+
+                VStack(alignment: .leading, spacing: OTSpace.s) {
+                    Label("Audition Type", systemImage: "theatermasks")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+                    AuditionMaterialKindPicker(selected: $draft.materialKind)
+                }
+
+                if !draft.importantDates.isEmpty {
+                    MilestoneDatesListCard(dates: draft.importantDates)
+                }
+
+                if let details = draft.projectDetails, details.hasReviewableContent {
+                    ProjectDetailsCard(details: details)
+                }
+
+                reviewField(
+                    icon: "film",
+                    label: "Audition name",
+                    placeholder: "A name to recognize this audition",
+                    text: $projectText,
+                    isRequired: false,
+                    field: .project
+                )
+
+                reviewField(
+                    icon: "person",
+                    label: "Character you’re auditioning for",
+                    placeholder: "e.g. Alice",
+                    text: $roleText,
+                    isRequired: true,
+                    field: .role
+                )
+
+                // Candidate roles chip picker
+                if !draft.candidateRoles.isEmpty {
+                    VStack(alignment: .leading, spacing: OTSpace.xs) {
+                        Text("Detected roles in notice:")
+                            .font(.otCaption)
+                            .foregroundStyle(OT.labelSecondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: OTSpace.s) {
+                                ForEach(draft.candidateRoles, id: \.self) { roleOption in
+                                    Button {
+                                        roleText = roleOption
+                                        if let auto = NoticeParser.extractCharacterDescription(for: roleOption, in: draft.sourceText) {
+                                            castingNotesText = auto
+                                        }
+                                        Haptics.tick()
+                                    } label: {
+                                        HStack(spacing: OTSpace.xs) {
+                                            if roleText == roleOption {
+                                                Image(systemName: "checkmark")
+                                                    .font(.otIcon(.xs))
+                                            }
+                                            Text(roleOption)
+                                                .font(.otCaption.weight(.semibold))
+                                        }
+                                        .padding(.horizontal, OTSpace.s)
+                                        .padding(.vertical, OTSpace.xs)
+                                        .background(roleText == roleOption ? OT.accent : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                                        .foregroundStyle(roleText == roleOption ? Color.white : OT.labelPrimary) // ot-lint:allow
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                reviewField(
+                    icon: "building.2",
+                    label: "Casting office (optional)",
+                    placeholder: "e.g. Anti-Casting, Telsey + Co",
+                    text: $castingOfficeText,
+                    isRequired: false,
+                    field: .castingOffice
+                )
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.m)
+            .padding(.bottom, OTSpace.xl)
+        }
+    }
+
+    // MARK: - Step 2: Scenes & Pages
+
+    private var step2ScenesAndPagesView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: OTSpace.l) {
+                // Header
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Label("Scenes & Pages to prepare", systemImage: "doc.text")
+                        .font(.otTitle)
+                    Text("Choose the relevant \(portionsArePages ? "pages" : "scenes") for \(roleText.isEmpty ? "your role" : roleText).")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+
+                HStack {
+                    Text("\(selectedPortionIDs.count) of \(draft.availablePortions.count) selected")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+                    Spacer()
+                    Button(selectedPortionIDs.count == draft.availablePortions.count ? "Deselect All" : "Select All") {
+                        if selectedPortionIDs.count == draft.availablePortions.count {
+                            selectedPortionIDs.removeAll()
+                        } else {
+                            selectedPortionIDs = Set(draft.availablePortions.map(\.id))
+                        }
+                        Haptics.tick()
+                    }
+                    .font(.otCaption.weight(.semibold))
+                    .foregroundStyle(OT.accent)
+                }
+
+                VStack(spacing: OTSpace.s) {
+                    ForEach(draft.availablePortions) { portion in
+                        let isSelected = selectedPortionIDs.contains(portion.id)
+                        let isForMyRole = portion.characters.contains { $0.caseInsensitiveCompare(roleText) == .orderedSame }
+                        Button {
+                            if isSelected {
+                                selectedPortionIDs.remove(portion.id)
+                            } else {
+                                selectedPortionIDs.insert(portion.id)
+                            }
+                            Haptics.tick()
+                        } label: {
+                            HStack(alignment: .top, spacing: OTSpace.s) {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.otIcon(.m))
+                                    .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
+                                    .padding(.top, OTSpace.xxs)
+
+                                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                                    HStack {
+                                        Text(portion.displayTitle)
+                                            .font(.otSubhead.weight(.semibold))
+                                            .foregroundStyle(OT.labelPrimary)
+                                        Spacer()
+                                        if isForMyRole {
+                                            Text("Matches role")
+                                                .font(.otCaption.weight(.bold))
+                                                .padding(.horizontal, OTSpace.xs)
+                                                .padding(.vertical, OTSpace.xxs)
+                                                .background(OT.accentSoft, in: Capsule())
+                                                .foregroundStyle(OT.accent)
+                                        }
+                                    }
+
+                                    if !portion.characters.isEmpty {
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: OTSpace.xs) {
+                                                ForEach(portion.characters.prefix(4), id: \.self) { c in
+                                                    Text(c)
+                                                        .font(.otCaption.weight(.medium))
+                                                        .padding(.horizontal, OTSpace.xs)
+                                                        .padding(.vertical, OTSpace.xxs)
+                                                        .background(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accentSoft : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.xs))
+                                                        .foregroundStyle(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accent : OT.labelSecondary)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(OTSpace.m)
+                            .background(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
+                            .overlay(
+                                RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
+                                    .stroke(isSelected ? OT.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .otCard(.grouped)
+
+                // Reader audio option if lines for reader are present
+                if hasReaderLines {
+                    VStack(alignment: .leading, spacing: OTSpace.s) {
+                        HStack {
+                            Label("Practice cue audio", systemImage: "waveform")
+                                .font(.otHeadline)
+                                .foregroundStyle(OT.labelPrimary)
+                            Spacer()
+                            HStack(spacing: OTSpace.xs) {
+                                Text("Other character").font(.otCaption.weight(.bold)).foregroundStyle(OT.reader)
+                                Text(detectedReaderName).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.reader)
+                            }
+                        }
+                        Text("Record the other character’s lines in your voice. They’ll play back as cues while you perform.")
+                            .font(.otFootnote).foregroundStyle(OT.labelSecondary)
+
+                        Picker("Reader audio", selection: $readerAudioPlan) {
+                            Text("Record now").tag(AddAuditionFlow.ReaderAudioPlan.recordNow)
+                            Text("Later").tag(AddAuditionFlow.ReaderAudioPlan.later)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .otCard(.grouped)
+                }
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.m)
+            .padding(.bottom, OTSpace.xl)
+        }
+    }
+
+    // MARK: - Step 3: Specs & Notes
+
+    private var step3SpecsAndNotesView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: OTSpace.l) {
+                // Header
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Label("Specs & Requirements", systemImage: "list.bullet.clipboard")
+                        .font(.otTitle)
+                    Text("Deadlines, required shots, and character instructions.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+
+                // Due date
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Label("Due date", systemImage: "calendar")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+
+                    Toggle("Tape deadline found", isOn: $hasDueDate)
+                        .font(.otFootnote)
+                        .tint(OT.accent)
+
+                    if hasDueDate {
+                        DatePicker("", selection: $dueDate, displayedComponents: .date)
+                            .labelsHidden()
+                            .datePickerStyle(.compact)
+                    } else {
+                        Text("No deadline found — you can set one later.")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelSecondary)
+                    }
+                }
+                .otCard(.grouped)
+
+                // Deliverables in flow (Slate & Headshots)
+                VStack(alignment: .leading, spacing: OTSpace.s) {
+                    Label("What to prepare", systemImage: "list.bullet.rectangle")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+                    LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: OTSpace.s) {
+                        deliverableToggle(title: "Slate / intro", icon: "person.text.rectangle", isOptional: $isSlateOptional)
+                        if draft.asks.contains("Full-body shot") {
+                            deliverableToggle(title: "Full-body shot", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                        } else if draft.asks.contains("Full-body shot with slate") {
+                            deliverableToggle(title: "Full-body view in slate", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                        }
+                        deliverableToggle(title: "Headshots", icon: "person.crop.rectangle", isOptional: $isHeadshotOptional)
+                    }
+                }
+                .otCard(.grouped)
+
+                // Requested by casting
+                if !draft.asks.isEmpty {
+                    VStack(alignment: .leading, spacing: OTSpace.s) {
+                        Label("Requested by casting", systemImage: "checkmark.circle")
+                            .font(.otCaption.weight(.medium))
+                            .foregroundStyle(OT.labelSecondary)
+                        VStack(alignment: .leading, spacing: OTSpace.s) {
+                            ForEach(Array(draft.asks.enumerated()), id: \.offset) { _, ask in
+                                HStack(alignment: .top, spacing: OTSpace.s) {
+                                    Image(systemName: symbol(for: ask))
+                                        .font(.otIcon(.s))
+                                        .foregroundStyle(OT.accent)
+                                        .frame(width: 20) // ot-lint:allow
+                                    Text(ask)
+                                        .font(.otFootnote.weight(.medium))
+                                        .foregroundStyle(OT.labelPrimary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                    }
+                    .otCard(.elevated)
+                }
+
+                // Notes from casting
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    Label("Character details from the notice", systemImage: "person.text.rectangle")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+                    Text("What casting says about the character. You can edit this.")
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelTertiary)
+                    TextField("Character description", text: $castingNotesText, axis: .vertical)
+                        .lineLimit(4...10)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(OTSpace.m)
+                        .background(OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
+                }
+
+                // My notes & understanding
+                reviewField(
+                    icon: "sparkles",
+                    label: "My notes & understanding",
+                    placeholder: "My choices, subtext, questions",
+                    text: $actorNotesText,
+                    isRequired: false
+                )
+
+                if draft.asks.contains(where: { $0.localizedCaseInsensitiveContains("resume") || $0.localizedCaseInsensitiveContains("résumé") }) {
+                    AuditionResumePicker(
+                        isIncluded: $draft.includeResume,
+                        selectedURL: $draft.resumeURL
+                    )
+                }
+
+                if let sourcePreview {
+                    DisclosureGroup {
+                        Image(uiImage: sourcePreview)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                            .accessibilityLabel("Full original casting notice image")
+                    } label: {
+                        Label("View full notice image", systemImage: "photo")
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(OT.labelPrimary)
+                    }
+                    .tint(OT.accent)
+                    .otCard(.elevated)
+                }
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.m)
+            .padding(.bottom, OTSpace.xl)
+        }
+    }
+
+    // MARK: - Commit & Helpers
+
+    private func commitConfirmedDraft() {
+        Haptics.success()
+        var confirmed = draft
+        let clean: (String) -> String? = { s in
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        confirmed.project = clean(projectText) ?? ""
+        confirmed.role = clean(roleText) ?? ""
+        confirmed.castingOffice = clean(castingOfficeText) ?? ""
+        confirmed.sidesLink = clean(sidesLinkText)
+        confirmed.destinationDetail = clean(destinationDetailText)
+        confirmed.due = hasDueDate ? dueDate : nil
+        confirmed.castingNotes = clean(castingNotesText)
+        confirmed.actorNotes = clean(actorNotesText)
+        confirmed.isSlateOptional = isSlateOptional
+        confirmed.isFullBodyShotOptional = isFullBodyShotOptional
+        confirmed.isHeadshotOptional = isHeadshotOptional
+        confirmed.includeSlate = includeSlate
+        confirmed.includeHeadshots = includeHeadshots
+
+        if !draft.availablePortions.isEmpty {
+            let chosen = draft.availablePortions.filter { selectedPortionIDs.contains($0.id) }
+            if !chosen.isEmpty {
+                let selectedText = chosen.map(\.rawText).joined(separator: "\n\n")
+                let parsedScenes = portionsArePages
+                    ? ScriptParser.parseScenes(from: selectedText, myRole: confirmed.role)
+                    : ScriptParser.parseSelectedPortions(chosen, myRole: confirmed.role)
+                confirmed.customScenes = parsedScenes
+                confirmed.scenes = parsedScenes.count
+                confirmed.sourceText = selectedText
+            }
+        }
+        onConfirm(confirmed, readerAudioPlan)
     }
 
     private func reviewField(

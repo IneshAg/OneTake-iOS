@@ -133,19 +133,25 @@ extension NoticeParser {
 
         // 2c. "Character Breakdowns" section: standalone role name lines followed by demographics on the next line
         //     e.g. "Character Breakdowns\nMaggie\nF, 40s. ..."
-        let breakdownSectionPattern = #"(?is)(?:character\s+breakdowns?|breakdowns?|characters?)\s*\n(.*?)(?=\n\s*(?:note|production|audition|submission|when|how|deadline|\z))"#
+        let breakdownSectionPattern = #"(?is)(?:character\s+)?(?:breakdowns?|[a-z0-9]{0,3}reak[a-z0-9]{2,7}s?|characters?)\s*\n(.*?)(?=\n\s*(?:note|production|audition|subm|suru|when|how|deadline|tapes\s+due|spec)|\z)"#
         if let r = try? NSRegularExpression(pattern: breakdownSectionPattern),
            let m = r.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
            let range = Range(m.range(at: 1), in: text) {
             let block = String(text[range])
-            // Within the section pick lines that look like character names (Title Case, 2-20 chars)
+            // Within the section pick lines that look like character names (Title Case, 2-25 chars)
             for line in block.components(separatedBy: .newlines) {
-                let candidate = clean(line)
+                var candidate = clean(line)
+                // Strip leading OCR bullets/glyphs like "a ", "E ", "• ", "@ ", "6 ", "\" "
+                if let bulletRange = candidate.range(of: #"^[\s"“'@*•·▪▫#\-\d\(\)a-zA-Z]{1,3}\s+"#, options: .regularExpression) {
+                    let stripped = String(candidate[bulletRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if stripped.range(of: #"^[A-Z][A-Za-z]{1,20}(?:\s+[A-Za-z]{1,20}){0,2}$"#, options: .regularExpression) != nil {
+                        candidate = stripped
+                    }
+                }
                 guard candidate.count >= 2, candidate.count <= 25 else { continue }
-                // Must be a simple Title Case word or two words
-                if candidate.range(of: #"^[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?$"#, options: .regularExpression) != nil {
+                if candidate.range(of: #"^[A-Z][A-Za-z]{1,20}(?:\s+[A-Za-z]{1,20}){0,2}$"#, options: .regularExpression) != nil {
                     if !invalidRoleNames.contains(candidate.lowercased()) {
-                        addRole(candidate)
+                        addRole(candidate.capitalized)
                     }
                 }
             }
@@ -495,8 +501,18 @@ extension NoticeParser {
 
         for i in 0..<min(lines.count - 1, 8) {
             let line = lines[i]
-            let nextLine = lines[i + 1].uppercased()
-            if sideKeywords.contains(where: { nextLine == $0 || nextLine.hasPrefix($0 + " ") || nextLine.hasPrefix($0 + "-") }) {
+            let upper = line.uppercased()
+            let nextLine = lines[i + 1]
+            // If current line is a casting call header (e.g. "OFFICIAL CASTING CALL") and the next line is the project title
+            if upper.contains("CASTING CALL") || upper.contains("CASTING NOTICE") || upper.contains("AUDITION NOTICE") {
+                if !nextLine.lowercased().hasPrefix("role:") && !nextLine.lowercased().hasPrefix("character:") && !nextLine.lowercased().hasPrefix("format") {
+                    if let valid = cleanTitle(nextLine) {
+                        return valid
+                    }
+                }
+            }
+            let nextUpper = nextLine.uppercased()
+            if sideKeywords.contains(where: { nextUpper == $0 || nextUpper.hasPrefix($0 + " ") || nextUpper.hasPrefix($0 + "-") }) {
                 if !line.lowercased().hasPrefix("role:") && !line.lowercased().hasPrefix("character:") {
                     if let valid = cleanTitle(line) {
                         return valid

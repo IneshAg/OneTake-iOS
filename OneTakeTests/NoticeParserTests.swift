@@ -2263,6 +2263,47 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertTrue(review.isUseThisEnabled, "Use this should be enabled when a single role is known")
     }
 
+    @MainActor
+    func testRenderOCRReviewSheetMultiStepsSnapshot() {
+        var draft = NoticeParser.Draft.blank
+        draft.project = "Pilgrimage"
+        draft.materialKind = .sides
+        draft.role = "Noor"
+        draft.candidateRoles = ["Noor", "Maryam", "Nadia", "Sosan", "Fatima"]
+        draft.castingOffice = "Anti-Casting, Telsey + Co"
+        draft.due = Date().addingTimeInterval(86400 * 3)
+        draft.asks = ["Slate first", "Landscape", "Under 2 min"]
+        draft.availablePortions = [
+            ScriptParser.ScenePortion(id: "portion_noor", number: 1, heading: "NOOR · She/her · Early 60s", characters: ["Noor"], rawText: "NOOR: The secret I carried.", lineCount: 1, pageNumber: 2),
+            ScriptParser.ScenePortion(id: "portion_maryam", number: 2, heading: "MARYAM · She/her · Mid-30s", characters: ["Maryam"], rawText: "MARYAM: You don't know.", lineCount: 1, pageNumber: 3),
+            ScriptParser.ScenePortion(id: "portion_nadia", number: 3, heading: "NADIA · She/her · Mid-30s", characters: ["Nadia"], rawText: "NADIA: Hello.\nREADER: Hi.", lineCount: 2, pageNumber: 4)
+        ]
+        draft.selectedPortionIDs = ["portion_noor"]
+        let store = AppStore()
+
+        let steps: [(OCRReviewSheet.ReviewStep, String)] = [
+            (.project, "/Users/user1/.gemini/antigravity/brain/d790eb58-5771-48bc-93de-9d618f769bd8/sim_review_step1.png"),
+            (.scenes, "/Users/user1/.gemini/antigravity/brain/d790eb58-5771-48bc-93de-9d618f769bd8/sim_review_step2.png"),
+            (.requirements, "/Users/user1/.gemini/antigravity/brain/d790eb58-5771-48bc-93de-9d618f769bd8/sim_review_step3.png")
+        ]
+
+        for (step, path) in steps {
+            let view = OCRReviewSheet(draft: draft, initialStep: step, onConfirm: { _, _ in }, onDiscard: {})
+                .environment(store)
+            let host = UIHostingController(rootView: view)
+            host.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+            host.view.backgroundColor = .black
+            host.view.layoutIfNeeded()
+            let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
+            let img = renderer.image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            if let data = img.pngData() {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        }
+    }
+
     func testSilentReactionCueIsNotBypassedWhenVoiceFollowingActive() {
         let questionCue = ScriptLine(character: "Reader", text: "?", isMine: false)
         XCTAssertTrue(questionCue.isSilentReactionCue)
