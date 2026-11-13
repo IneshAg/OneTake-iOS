@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Turns real screenplay-formatted text (from a scan, a PDF, or a pasted email) into `ScriptLine`s —
 /// powered by on-device Core ML element classification (`ScriptElementClassifier`) with a deterministic
@@ -67,9 +68,17 @@ enum ScriptParser {
         return order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
     }
 
-    /// Parses scenes from screenplay or sides text using Core ML element classification with deterministic guardrails.
+    /// Parses scenes from screenplay or sides text by wrapping lines into synthetic `LayoutLine`s
+    /// and delegating to the contextual geometry-aware parser.
     static func parseScenes(from text: String, myRole: String) -> [ScriptScene] {
-        let rawLines = text.components(separatedBy: .newlines)
+        let layoutLines = syntheticLayoutLines(from: text)
+        return parseScenes(from: layoutLines, myRole: myRole)
+    }
+
+    /// Parses scenes from geometry-preserving `LayoutLine`s using contextual Core ML classification
+    /// (`CoreMLScriptParserRunner.classifyContextual`) alongside deterministic script guardrails.
+    static func parseScenes(from layoutLines: [LayoutLine], myRole: String) -> [ScriptScene] {
+        guard !layoutLines.isEmpty else { return [] }
         let roleName = normalizedName(myRole)
 
         let characterHeaderRegex = try? NSRegularExpression(pattern: #"^([A-Z]{2,20})\s*[·•|\-—]\s*(?:(?:He|She|They)/|[0-9]{1,2}s?\b|Early|Mid|Late)"#)
@@ -80,23 +89,29 @@ enum ScriptParser {
         var inSettingOrNoteBlock = false
         var hasExplicitHeading = false
         var hadBlankLine = true
+        var previousContentLine: LayoutLine?
 
         let runner = CoreMLScriptParserRunner.shared
-        let mlAvailable = runner.isAvailable
+        let contextualClasses: [ScriptElementClass?] = runner.isAvailable
+            ? runner.classifyContextual(lines: layoutLines)
+            : Array(repeating: nil, count: layoutLines.count)
 
         // Index speaker cues across the document to assist narration action filtering
         var speakerCounts: [String: Int] = [:]
-        for raw in rawLines {
-            let tr = raw.trimmingCharacters(in: .whitespaces)
-            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
+        for (index, layoutLine) in layoutLines.enumerated() {
+            let tr = layoutLine.text.trimmingCharacters(in: .whitespaces)
+            guard !tr.isEmpty else { continue }
+            let smallIndent = smallIndentHint(for: layoutLine.estimatedIndent)
             if let colon = tr.firstIndex(of: ":"), let key = speakerKey(String(tr[..<colon])) {
                 speakerCounts[key, default: 0] += 1
             } else if isPlausibleCueName(tr),
-                      let mlClass = mlAvailable ? (runner.classifySync(line: raw) ?? runner.classifySync(line: tr)) : nil,
-                      mlClass == .characterCue, !isTransition(tr), !isBlacklistedNoticeWord(tr) {
+                      contextualClasses[index] == .characterCue,
+                      !isTransition(tr),
+                      !isBlacklistedNoticeWord(tr) {
                 let key = cueName(tr).uppercased()
                 speakerCounts[key, default: 0] += 1
-            } else if isLikelyCue(tr, indentation: indentation) || isLikelyIndentedCue(tr, raw: raw) {
+            } else if isLikelyCue(tr, indentation: smallIndent)
+                        || isLikelyIndentedCue(tr, estimatedIndent: layoutLine.estimatedIndent) {
                 let key = cueName(tr).uppercased()
                 speakerCounts[key, default: 0] += 1
             }
@@ -125,9 +140,8 @@ enum ScriptParser {
             currentText = ""
         }
 
-        for raw in rawLines {
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            let indentation = raw.prefix(while: { $0 == " " || $0 == "\t" }).count
+        for (index, layoutLine) in layoutLines.enumerated() {
+            let trimmed = layoutLine.text.trimmingCharacters(in: .whitespaces)
             let upper = trimmed.uppercased()
             if trimmed.isEmpty {
                 inSettingOrNoteBlock = false
@@ -136,15 +150,24 @@ enum ScriptParser {
                 continue
             }
 
+            // Watermarks, timestamps, and page numbering must not disrupt vertical neighbor context.
+            if isWatermarkOrHeader(trimmed) || isLineOrPageNumber(trimmed) {
+                continue
+            }
+
+            if let prev = previousContentLine {
+                if prev.pageIndex != layoutLine.pageIndex || hasVerticalGap(between: prev, and: layoutLine) {
+                    inSettingOrNoteBlock = false
+                    inParenthetical = false
+                    hadBlankLine = true
+                }
+            }
+            previousContentLine = layoutLine
+
             if inParenthetical {
                 if trimmed.contains(")") || trimmed.contains("]") {
                     inParenthetical = false
                 }
-                continue
-            }
-
-            // Watermarks, timestamps, and page numbering
-            if isWatermarkOrHeader(trimmed) || isLineOrPageNumber(trimmed) {
                 continue
             }
 
@@ -170,13 +193,14 @@ enum ScriptParser {
                 activeCharacter = String(trimmed[r]).capitalized
             }
 
-            // Core ML Semantic Line Evaluation
-            let mlClass = mlAvailable ? (runner.classifySync(line: raw) ?? runner.classifySync(line: trimmed)) : nil
+            // Contextual Core ML Line Evaluation
+            let mlClass = contextualClasses[index]
+            let smallIndent = smallIndentHint(for: layoutLine.estimatedIndent)
 
             let isCue = isPlausibleCueName(trimmed) && (
-                isLikelyCue(trimmed, indentation: indentation)
+                isLikelyCue(trimmed, indentation: smallIndent)
                 || (mlClass == .characterCue)
-                || isLikelyIndentedCue(trimmed, raw: raw)
+                || isLikelyIndentedCue(trimmed, estimatedIndent: layoutLine.estimatedIndent)
             )
 
             let isMLHeading = !isCue && mlClass == .sceneHeading && trimmed.contains(where: \.isLetter) && !trimmed.hasSuffix(".") && !trimmed.hasSuffix("!") && !trimmed.hasSuffix("?")
@@ -205,8 +229,6 @@ enum ScriptParser {
                 flush()
                 currentCharacter = nil
                 hadBlankLine = false
-            } else if isLineOrPageNumber(trimmed) {
-                continue
             } else if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
                 let inner = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
                 if isLikelyCue(inner) || (isPlausibleCueName(inner) && mlClass == .characterCue) {
@@ -314,6 +336,56 @@ enum ScriptParser {
         }
 
         return finalScenes
+    }
+
+    private static func syntheticLayoutLines(from text: String) -> [LayoutLine] {
+        let rawLines = text.components(separatedBy: .newlines)
+        guard !rawLines.isEmpty else { return [] }
+
+        let step: CGFloat = 0.015
+        let lineHeight: CGFloat = 0.010
+        var result: [LayoutLine] = []
+        result.reserveCapacity(rawLines.count)
+
+        for (slotIndex, rawLine) in rawLines.enumerated() {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            let hasTab = rawLine.contains("\t")
+            let leadingWhitespace = rawLine.prefix(while: { $0 == " " || $0 == "\t" })
+            let indentColumns = leadingWhitespace.reduce(0) { $0 + ($1 == "\t" ? 8 : 1) }
+
+            let estimatedIndent: CGFloat
+            if indentColumns == 0 {
+                estimatedIndent = 0.08
+            } else if !hasTab && indentColumns < 4 {
+                estimatedIndent = 0.12
+            } else {
+                estimatedIndent = min(0.55, 0.30 + CGFloat(indentColumns) * 0.015)
+            }
+
+            let y = 0.94 - CGFloat(slotIndex) * step
+            let width = max(0.15, 0.92 - estimatedIndent)
+            result.append(
+                LayoutLine(
+                    text: trimmed,
+                    rect: CGRect(x: estimatedIndent, y: y, width: width, height: lineHeight),
+                    pageIndex: 0,
+                    estimatedIndent: estimatedIndent
+                )
+            )
+        }
+        return result
+    }
+
+    private static func hasVerticalGap(between first: LayoutLine, and second: LayoutLine) -> Bool {
+        let avgHeight = max(0.004, (first.rect.height + second.rect.height) * 0.5)
+        let gap = max(first.rect.minY - second.rect.maxY, second.rect.minY - first.rect.maxY)
+        return gap > avgHeight * 1.15
+    }
+
+    private static func smallIndentHint(for estimatedIndent: CGFloat) -> Int? {
+        (estimatedIndent > 0.09 && estimatedIndent < 0.30) ? 4 : nil
     }
 
     private static let sceneHeaderRegex: NSRegularExpression? = {
@@ -577,6 +649,16 @@ enum ScriptParser {
     static func isLikelyIndentedCue(_ trimmed: String, raw: String) -> Bool {
         let hasIndent = raw.hasPrefix(" ") || raw.hasPrefix("\t")
         guard hasIndent else { return false }
+        return isLikelyIndentedCueBody(trimmed)
+    }
+
+    /// Indented cues using normalized geometric `estimatedIndent` (screenplay cue column >= 0.30).
+    static func isLikelyIndentedCue(_ trimmed: String, estimatedIndent: CGFloat) -> Bool {
+        guard estimatedIndent >= 0.30 else { return false }
+        return isLikelyIndentedCueBody(trimmed)
+    }
+
+    private static func isLikelyIndentedCueBody(_ trimmed: String) -> Bool {
         guard trimmed.count >= 2, trimmed.count <= 25 else { return false }
         guard !trimmed.hasSuffix("."), !trimmed.hasSuffix("!"), !trimmed.hasSuffix("?"), !trimmed.hasSuffix(",") else { return false }
         guard !isTransition(trimmed), !isBlacklistedNoticeWord(trimmed), !isActHeading(trimmed), !isSceneHeading(trimmed) else { return false }
