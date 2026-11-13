@@ -24,7 +24,7 @@ struct AuditionsView: View {
     var body: some View {
         Group {
             if store.auditions.isEmpty {
-                EmptyAuditionsView { store.showAddAudition = true }
+                EmptyAuditionsView()
             } else if items.isEmpty {
                 VStack(spacing: OTSpace.s) {
                     Spacer()
@@ -277,14 +277,11 @@ struct AuditionsView: View {
 // MARK: - 5a Empty
 
 struct EmptyAuditionsView: View {
-    var onAdd: () -> Void
-
     var body: some View {
         OTEmptyState(
             illustration: Image("onetake-empty-auditions-illustration"),
             title: "No auditions yet",
-            message: "Add your sides or casting notice to start preparing.",
-            action: ("Add audition", onAdd)
+            message: "Add your sides or casting notice to start preparing."
         )
     }
 }
