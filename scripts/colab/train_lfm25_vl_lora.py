@@ -615,12 +615,6 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(result, indent=2))
     return 0
 
-    if args.config_out:
-        args.config_out.parent.mkdir(parents=True, exist_ok=True)
-        args.config_out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(result, indent=2))
-    return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
