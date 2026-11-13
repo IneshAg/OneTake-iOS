@@ -153,7 +153,12 @@ struct TapeCheckView: View {
             }
         }
         .sheet(item: $finding) { f in
-            FindingSheet(finding: f, onDismiss: { finding = nil }, onRetake: retakeAction(for: f))
+            FindingSheet(
+                finding: f,
+                onDismiss: { finding = nil },
+                retakeTitle: retakeButtonTitle(for: f),
+                onRetake: retakeAction(for: f)
+            )
         }
     }
 
@@ -168,12 +173,29 @@ struct TapeCheckView: View {
         }
     }
 
+    private func retakeButtonTitle(for finding: TapeFinding) -> String {
+        if finding.clipURL == nil {
+            if finding.title == "There's no slate yet" { return "Record a slate" }
+            if finding.title == "They asked for a full-body shot" { return "Record full-body shot" }
+        }
+        return "Record another take"
+    }
+
     private func retakeFlow(for finding: TapeFinding) -> CameraFlow? {
-        guard let url = finding.clipURL, let audition = store.audition(auditionID) else { return nil }
-        if url == audition.slateVideoURL { return .shoot(auditionID, start: .slate) }
-        if url == audition.fullLengthVideoURL { return .shoot(auditionID, start: .fullLength) }
-        if let take = store.takes.first(where: { $0.fileURL == url }), let scene = take.sceneIndex {
-            return .shoot(auditionID, scene: scene)
+        guard let audition = store.audition(auditionID) else { return nil }
+        if let url = finding.clipURL {
+            if url == audition.slateVideoURL { return .shoot(auditionID, start: .slate) }
+            if url == audition.fullLengthVideoURL { return .shoot(auditionID, start: .fullLength) }
+            if let take = store.takes.first(where: { $0.fileURL == url }), let scene = take.sceneIndex {
+                return .shoot(auditionID, scene: scene)
+            }
+            return nil
+        }
+        if finding.title == "There's no slate yet" {
+            return .shoot(auditionID, start: .slate)
+        }
+        if finding.title == "They asked for a full-body shot" {
+            return .shoot(auditionID, start: .fullLength)
         }
         return nil
     }
@@ -339,6 +361,7 @@ struct TapeCheckView: View {
 private struct FindingSheet: View {
     let finding: TapeFinding
     var onDismiss: () -> Void
+    var retakeTitle: String = "Record another take"
     var onRetake: (() -> Void)? = nil
     @State private var player: AVPlayer?
 
@@ -354,29 +377,43 @@ private struct FindingSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: OTRadius.card, style: .continuous))
             }
             Text(finding.advice).font(.otCallout).foregroundStyle(OT.labelSecondary)
-            HStack {
-                if let seconds = finding.seconds, seconds >= 1.0, player != nil {
-                    Button("Watch \(Int(seconds) / 60):\(String(format: "%02d", Int(seconds) % 60))") {
-                        play(from: seconds)
+            if finding.clipURL != nil {
+                HStack {
+                    if let seconds = finding.seconds, seconds >= 1.0, player != nil {
+                        Button("Watch \(Int(seconds) / 60):\(String(format: "%02d", Int(seconds) % 60))") {
+                            play(from: seconds)
+                        }
+                        .buttonStyle(.otSecondary)
+                    } else if player != nil {
+                        Button("Watch take") {
+                            play(from: 0)
+                        }
+                        .buttonStyle(.otSecondary)
                     }
-                    .buttonStyle(.otSecondary)
-                } else if player != nil {
-                    Button("Watch take") {
-                        play(from: 0)
-                    }
-                    .buttonStyle(.otSecondary)
+                    Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
                 }
-                Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
-            }
-            if let onRetake {
-                Text("Recording again saves a new take. Your current send take stays selected until you choose another.")
-                    .font(.otFootnote)
-                    .foregroundStyle(OT.labelTertiary)
-                Button("Record another take", action: onRetake).buttonStyle(.otPrimary)
+                if let onRetake {
+                    Text("Recording again saves a new take. Your current send take stays selected until you choose another.")
+                        .font(.otFootnote)
+                        .foregroundStyle(OT.labelTertiary)
+                    Button(retakeTitle, action: onRetake).buttonStyle(.otPrimary)
+                }
+            } else {
+                VStack(spacing: OTSpace.s) {
+                    if let onRetake {
+                        Button(retakeTitle, action: onRetake).buttonStyle(.otPrimary)
+                    }
+                    Button("I meant it", action: onDismiss).buttonStyle(.otSecondary)
+                }
+                .padding(.top, OTSpace.xs)
             }
         }
-        .padding(OTSpace.gutter)
-        .presentationDetents([.medium, .large])
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, OTSpace.gutter)
+        .padding(.top, OTSpace.xl)
+        .padding(.bottom, OTSpace.gutter)
+        .presentationDetents(finding.clipURL == nil ? [.fraction(onRetake != nil ? 0.36 : 0.28), .medium] : [.medium, .large])
+        .presentationDragIndicator(.visible)
         .onAppear {
             guard let url = finding.clipURL else { return }
             let player = AVPlayer(url: url)
