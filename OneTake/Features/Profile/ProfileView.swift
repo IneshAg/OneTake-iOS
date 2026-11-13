@@ -251,7 +251,7 @@ struct ProfileView: View {
                                     .font(.otFootnote)
                                     .foregroundStyle(OT.labelTertiary)
                             }
-                        } icon: { Image(systemName: "person.crop.circle.fill").foregroundStyle(OT.accent) }
+                        } icon: { Image(systemName: "person").foregroundStyle(OT.accent) }
                         Spacer()
                     }
                     .frame(minHeight: 44) // ot-lint:allow
