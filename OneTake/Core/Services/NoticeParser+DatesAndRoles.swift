@@ -28,7 +28,13 @@ extension NoticeParser {
             in: text
         ).map { clean($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let payLine = lines.first { $0.range(of: #"(?i)\b(?:pay|paid|stipend|salary|rate|compensation|honorarium|per\s+diem)\b"#, options: .regularExpression) != nil }
+        let payLine = lines.first { line in
+            let lower = line.lowercased()
+            if lower.contains("pay attention") || lower.contains("pay me back") || lower.contains("pay you back") || lower.contains("pay them back") {
+                return false
+            }
+            return line.range(of: #"(?i)\b(?:paid|stipend|salary|rate of pay|day rate|hourly rate|compensation|honorarium|per\s+diem|deferred\s+pay|union\s+scale|scale\s+rate|unpaid)\b|(?i)\bpay\s*[:\-]\s*|\bpay\s+is\s+|\bpay\s+rate\b"#, options: .regularExpression) != nil
+        }
         let unionLine = lines.first { $0.range(of: #"(?i)\b(?:SAG[- ]?AFTRA|AEA|Equity|non[- ]union|nonunion|union contract|no union contract)\b"#, options: .regularExpression) != nil }
         let ndaLine = lines.first { $0.range(of: #"(?i)\bNDA\b|non[- ]disclosure agreement"#, options: .regularExpression) != nil }
         let travelLine = lines.first { $0.range(of: #"(?i)\b(?:travel|travel expenses|accommodation|lodging|per diem|relocation)\b"#, options: .regularExpression) != nil }
