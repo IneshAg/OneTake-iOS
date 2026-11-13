@@ -28,12 +28,14 @@ public struct OTMenuButton<Content: View>: View {
         Menu {
             content()
         } label: {
-            HStack(spacing: OTSpace.s) {
+            HStack(spacing: OTSpace.xs) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.otIcon(.m))
+                        .font(.otIcon(.s, weight: .semibold))
                 }
                 Text(title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
         }
         .buttonStyle(OTButtonStyle(variant, size: size, fullWidth: fullWidth))

@@ -79,6 +79,8 @@ public struct OTButtonStyle: ButtonStyle {
         configuration.label
             .font(size.font)
             .foregroundStyle(fg)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .padding(.horizontal, size.horizontalPadding)
             .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: size.height)
             .background(backgroundView(surface: otSurface))

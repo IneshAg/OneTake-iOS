@@ -29,7 +29,7 @@ struct PhotoSourceMenu: View {
 
     var body: some View {
         OTMenuButton(
-            "Pick from Photos",
+            "Photos",
             systemImage: "photo.on.rectangle",
             size: size
         ) {
