@@ -94,29 +94,34 @@ struct EditAuditionSheet: View {
                             Text("Choose a character detected in the sides, or enter a different role below.")
                                 .font(.otCaption).foregroundStyle(OT.labelTertiary)
 
-                            HStack(spacing: OTSpace.s) {
-                                ForEach(chars, id: \.self) { char in
-                                    let isCurrent = char.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame
-                                    Button {
-                                        audition.wrappedValue.role = char
-                                        Haptics.tick()
-                                    } label: {
-                                        HStack(spacing: 4) { // ot-lint:allow
-                                            if isCurrent {
-                                                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) // ot-lint:allow
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: OTSpace.s) {
+                                    ForEach(chars, id: \.self) { char in
+                                        let isCurrent = char.caseInsensitiveCompare(audition.wrappedValue.role) == .orderedSame
+                                        Button {
+                                            audition.wrappedValue.role = char
+                                            Haptics.tick()
+                                        } label: {
+                                            HStack(spacing: OTSpace.xs) {
+                                                if isCurrent {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.otCaption.weight(.bold))
+                                                }
+                                                Text(char)
+                                                    .lineLimit(1)
                                             }
-                                            Text(char)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .font(.otCaption.weight(isCurrent ? .bold : .medium))
+                                            .foregroundStyle(isCurrent ? OT.bgCanvas : OT.accent)
+                                            .padding(.horizontal, OTSpace.m)
+                                            .padding(.vertical, OTSpace.xs)
+                                            .background(isCurrent ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.accentSoft), in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
                                         }
-                                        .font(.otCaption.weight(isCurrent ? .bold : .medium))
-                                        .foregroundStyle(isCurrent ? OT.bgCanvas : OT.accent)
-                                        .padding(.horizontal, OTSpace.s)
-                                        .padding(.vertical, 5) // ot-lint:allow
-                                        .background(isCurrent ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.accentSoft), in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
                                 }
+                                .padding(.vertical, OTSpace.xxs)
                             }
-                            .padding(.vertical, OTSpace.xxs)
 
                             let otherChars = chars.filter { $0.caseInsensitiveCompare(audition.wrappedValue.role) != .orderedSame }
                             if let reader = otherChars.first {
