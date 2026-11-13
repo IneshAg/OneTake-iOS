@@ -128,8 +128,8 @@ struct HeadshotAdjustSheet: View {
                             .font(.otIcon(.xs, weight: .semibold))
                             .foregroundStyle(OT.labelTertiary)
                     }
-                } primaryAction: {
-                    autoFrame(preset: selectedPreset, animated: true)
+                    .frame(maxWidth: .infinity, minHeight: OTControlSize.medium.height)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.ot(.secondary, size: .medium))
                 .padding(.horizontal, OTSpace.gutter)

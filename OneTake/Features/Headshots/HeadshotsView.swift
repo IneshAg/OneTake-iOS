@@ -232,8 +232,8 @@ struct HeadshotsView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                     }
-                } primaryAction: {
-                    autoFrameAllHeadshots(preset: framingPreset)
+                    .frame(maxWidth: .infinity, minHeight: OTControlSize.medium.height)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.ot(.secondary, size: .medium))
                 .disabled(isFraming)
