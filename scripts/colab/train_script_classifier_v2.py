@@ -25,7 +25,7 @@ Usage:
   python3 scripts/colab/train_script_classifier_v2.py --dry-run
 
   # Full Colab training & Core ML export:
-  python3 scripts/colab/train_script_classifier_v2.py --output OneTake/Core/Models/ScriptElementClassifierV2.mlmodel
+  python3 scripts/colab/train_script_classifier_v2.py --output OneTake/Core/Models/ScriptElementClassifierV2.mlpackage
 """
 
 from __future__ import annotations
@@ -483,6 +483,12 @@ def validate_dataset(samples: Sequence[ContextualScriptSample]) -> dict:
     }
 
 
+def _path_size_bytes(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+
+
 def train_and_export(samples: Sequence[ContextualScriptSample], output_path: Path, epochs: int, batch_size: int, seed: int) -> None:
     try:
         import numpy as np
@@ -579,7 +585,7 @@ def train_and_export(samples: Sequence[ContextualScriptSample], output_path: Pat
 
     mlmodel = ct.convert(
         traced,
-        convert_to="neuralnetwork",
+        convert_to="mlprogram",
         inputs=[
             ct.TensorType(name="text_tokens", shape=(1, MAX_TOKENS), dtype=np.int32),
             ct.TensorType(name="layout_features", shape=(1, NUM_LAYOUT_FEATURES), dtype=np.float32),
@@ -594,8 +600,8 @@ def train_and_export(samples: Sequence[ContextualScriptSample], output_path: Pat
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mlmodel.save(str(output_path))
-    size_bytes = output_path.stat().st_size
-    print(f"Saved Core ML model to {output_path} ({size_bytes / 1024.0:.1f} KB)")
+    size_bytes = _path_size_bytes(output_path)
+    print(f"Saved Core ML package to {output_path} ({size_bytes / 1024.0:.1f} KB)")
     if size_bytes >= MAX_MODEL_BYTES:
         raise RuntimeError(f"Exported model exceeds 5 MB budget: {size_bytes} bytes")
 
@@ -608,8 +614,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=20261113, help="Deterministic RNG seed.")
     parser.add_argument("--epochs", type=int, default=12, help="Training epochs for PyTorch model.")
     parser.add_argument("--batch-size", type=int, default=128, help="Mini-batch size.")
-    parser.add_argument("--output", type=Path, default=Path("OneTake/Core/Models/ScriptElementClassifierV2.mlmodel"),
-                        help="Output .mlmodel path.")
+    parser.add_argument("--output", type=Path, default=Path("OneTake/Core/Models/ScriptElementClassifierV2.mlpackage"),
+                        help="Output .mlpackage directory path.")
     parser.add_argument("--save-dataset", type=Path, default=None,
                         help="Optional JSONL path to write generated samples.")
     args = parser.parse_args(argv)

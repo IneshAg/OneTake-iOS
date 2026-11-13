@@ -335,6 +335,14 @@ enum HeadshotStore {
         clearCache()
     }
 
+    /// Removes a specific angle photo and its original backup.
+    static func remove(key: String, auditionID: UUID? = nil) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: url(for: key, auditionID: auditionID))
+        try? fm.removeItem(at: originalURL(for: key, auditionID: auditionID))
+        cache.removeObject(forKey: cacheKey(key: key, auditionID: auditionID))
+    }
+
     /// Removes all headshots attached to a specific audition.
     static func removeAuditionHeadshots(for auditionID: UUID) {
         let auditionDir = directory(for: auditionID)

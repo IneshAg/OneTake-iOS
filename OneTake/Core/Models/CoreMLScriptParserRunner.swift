@@ -118,9 +118,21 @@ public actor CoreMLScriptParserRunner {
         let v2Model = storage.v2Model()
         let v1Model = storage.v1Model()
 
+        let reusableTokenArray: MLMultiArray?
+        let reusableLayoutArray: MLMultiArray?
+        if v2Model != nil {
+            reusableTokenArray = try? MLMultiArray(shape: [1, NSNumber(value: Self.v2MaxTokens)], dataType: .int32)
+            reusableLayoutArray = try? MLMultiArray(shape: [1, NSNumber(value: Self.v2LayoutFeatureCount)], dataType: .float32)
+        } else {
+            reusableTokenArray = nil
+            reusableLayoutArray = nil
+        }
+
         var results: [ScriptElementClass?] = []
         results.reserveCapacity(lines.count)
         var prevClass: ScriptElementClass?
+        var prevContentLine: LayoutLine?
+        var prevTrimmed = ""
 
         for index in lines.indices {
             let line = lines[index]
@@ -132,14 +144,19 @@ public actor CoreMLScriptParserRunner {
 
             let leftX = min(max(Double(line.estimatedIndent), 0.0), 1.0)
             let widthRatio = min(max(Double(line.rect.width), 0.0), 1.0)
-            let blankBefore = hasBlankGapBefore(index: index, in: lines)
+            let isPageBreak = prevContentLine.map { $0.pageIndex != line.pageIndex } ?? false
+            let blankBefore = hasBlankGapBefore(index: index, in: lines, prevClass: prevClass)
             let blankAfter = hasBlankGapAfter(index: index, in: lines)
             let uppercaseRatio = Self.computeUppercaseRatio(trimmed)
 
             let predicted: ScriptElementClass?
             if let v2Model,
+               let tokenArray = reusableTokenArray,
+               let layoutArray = reusableLayoutArray,
                let v2Class = predictWithV2(
                    model: v2Model,
+                   tokenArray: tokenArray,
+                   layoutArray: layoutArray,
                    text: trimmed,
                    leftX: leftX,
                    widthRatio: widthRatio,
@@ -152,12 +169,15 @@ public actor CoreMLScriptParserRunner {
                 predicted = v2Class
             } else {
                 let baseClass = v1Model?.predictedLabel(for: trimmed).flatMap(ScriptElementClass.init(rawValue:))
+                let prevEndedSentence = Self.endsWithSentenceTerminal(prevTrimmed)
                 predicted = resolveContextualFallback(
                     trimmed: trimmed,
                     leftX: leftX,
                     widthRatio: widthRatio,
                     blankBefore: blankBefore,
                     blankAfter: blankAfter,
+                    isPageBreak: isPageBreak,
+                    prevEndedSentence: prevEndedSentence,
                     uppercaseRatio: uppercaseRatio,
                     lineLength: trimmed.count,
                     baseClass: baseClass,
@@ -168,6 +188,8 @@ public actor CoreMLScriptParserRunner {
             results.append(predicted)
             if let predicted, !(predicted == .metadata && Self.isPageMetadataLine(trimmed)) {
                 prevClass = predicted
+                prevContentLine = line
+                prevTrimmed = trimmed
             }
         }
 
@@ -178,6 +200,8 @@ public actor CoreMLScriptParserRunner {
 
     private nonisolated func predictWithV2(
         model: MLModel,
+        tokenArray: MLMultiArray,
+        layoutArray: MLMultiArray,
         text: String,
         leftX: Double,
         widthRatio: Double,
@@ -187,10 +211,6 @@ public actor CoreMLScriptParserRunner {
         lineLength: Int,
         prevClass: ScriptElementClass?
     ) -> ScriptElementClass? {
-        guard let tokenArray = try? MLMultiArray(shape: [1, NSNumber(value: Self.v2MaxTokens)], dataType: .int32),
-              let layoutArray = try? MLMultiArray(shape: [1, NSNumber(value: Self.v2LayoutFeatureCount)], dataType: .float32) else {
-            return nil
-        }
 
         let tokenIDs = Self.tokenizeForV2(text)
         let tokenPtr = tokenArray.dataPointer.assumingMemoryBound(to: Int32.self)
@@ -310,6 +330,8 @@ public actor CoreMLScriptParserRunner {
         widthRatio: Double,
         blankBefore: Bool,
         blankAfter: Bool,
+        isPageBreak: Bool,
+        prevEndedSentence: Bool,
         uppercaseRatio: Double,
         lineLength: Int,
         baseClass: ScriptElementClass?,
@@ -345,15 +367,16 @@ public actor CoreMLScriptParserRunner {
             return .characterCue
         }
 
-        // Left-aligned geometric action disambiguation (e.g. "MAYA picks up the phone." at x=0.15)
+        // Left-aligned geometric action disambiguation (e.g. "ELENA picks up the phone." at x=0.15)
+        let pageBreakStartsAction = isPageBreak && prevEndedSentence && (baseClass == .action || ScriptParser.isActionOrDescription(trimmed))
         if leftX < 0.22, widthRatio < 0.80, !plausibleCue {
             if (trimmed.hasSuffix(".") || trimmed.hasSuffix("!"))
-                && (prevClass == nil || prevClass == .sceneHeading || prevClass == .action || prevClass == .metadata || (prevClass == .dialogue && blankBefore)) {
+                && (prevClass == nil || prevClass == .sceneHeading || prevClass == .action || prevClass == .metadata || (prevClass == .dialogue && (blankBefore || pageBreakStartsAction))) {
                 return .action
             }
             if uppercaseRatio < 0.60,
                !trimmed.hasSuffix("?"),
-               (prevClass == .sceneHeading || prevClass == .action || (prevClass == .dialogue && blankBefore)) {
+               (prevClass == .sceneHeading || prevClass == .action || (prevClass == .dialogue && (blankBefore || pageBreakStartsAction))) {
                 return .action
             }
         }
@@ -364,9 +387,12 @@ public actor CoreMLScriptParserRunner {
 
         if prevClass == .dialogue,
            !blankBefore,
-           !plausibleCue,
-           (leftX >= 0.18 || widthRatio >= 0.80 || baseClass == .dialogue) {
-            return .dialogue
+           !plausibleCue {
+            let continuesAcrossPage = isPageBreak && (!prevEndedSentence || trimmed.first?.isLowercase == true || baseClass == .dialogue || leftX >= 0.22)
+            let continuesSamePage = !isPageBreak && (leftX >= 0.18 || widthRatio >= 0.80 || baseClass == .dialogue || !prevEndedSentence || trimmed.first?.isLowercase == true)
+            if continuesAcrossPage || continuesSamePage {
+                return .dialogue
+            }
         }
 
         if baseClass == .sceneHeading {
@@ -399,7 +425,7 @@ public actor CoreMLScriptParserRunner {
         return baseClass ?? ((prevClass == .characterCue || prevClass == .parenthetical) ? .dialogue : .action)
     }
 
-    private nonisolated func hasBlankGapBefore(index: Int, in lines: [LayoutLine]) -> Bool {
+    private nonisolated func hasBlankGapBefore(index: Int, in lines: [LayoutLine], prevClass: ScriptElementClass?) -> Bool {
         var cursor = index - 1
         while cursor >= 0 {
             let candidate = lines[cursor].text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -409,6 +435,10 @@ public actor CoreMLScriptParserRunner {
             if Self.isPageMetadataLine(candidate) {
                 cursor -= 1
                 continue
+            }
+            if lines[cursor].pageIndex != lines[index].pageIndex {
+                // Crossing a page break only starts a blank separation when not continuing dialogue.
+                return prevClass != .dialogue
             }
             return Self.verticalGapIndicatesBlank(between: lines[cursor], and: lines[index])
         }
@@ -426,19 +456,27 @@ public actor CoreMLScriptParserRunner {
                 cursor += 1
                 continue
             }
+            if lines[index].pageIndex != lines[cursor].pageIndex {
+                return true
+            }
             return Self.verticalGapIndicatesBlank(between: lines[index], and: lines[cursor])
         }
         return true
     }
 
-    private static func verticalGapIndicatesBlank(between first: LayoutLine, and second: LayoutLine) -> Bool {
-        guard first.pageIndex == second.pageIndex else { return true }
+    static func verticalGapIndicatesBlank(between first: LayoutLine, and second: LayoutLine) -> Bool {
+        guard first.pageIndex == second.pageIndex else { return false }
         let avgHeight = max(0.004, Double(first.rect.height + second.rect.height) * 0.5)
         let gap = max(
             Double(first.rect.minY - second.rect.maxY),
             Double(second.rect.minY - first.rect.maxY)
         )
         return gap > avgHeight * 1.15
+    }
+
+    private static func endsWithSentenceTerminal(_ trimmed: String) -> Bool {
+        guard let last = trimmed.last else { return true }
+        return ".!?…\"'".contains(last)
     }
 
     private static func computeUppercaseRatio(_ text: String) -> Double {
@@ -454,17 +492,27 @@ public actor CoreMLScriptParserRunner {
         return Double(upperLetters) / Double(totalLetters)
     }
 
+    private static let pageNumberRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^(?:PAGE|P\.|PG\.)\s*\d+(?:\s+OF\s+\d+)?$"#, options: [.caseInsensitive])
+    }()
+
     private static func isPageMetadataLine(_ trimmed: String) -> Bool {
+        if ScriptParser.isLineOrPageNumber(trimmed) {
+            return true
+        }
         let upper = trimmed.uppercased()
         if upper == "CONFIDENTIAL" || upper == "DO NOT DISTRIBUTE" || upper == "AUDITION SIDES ONLY"
             || upper == "FINAL SHOOTING DRAFT" || upper == "REVISED SHOOTING DRAFT" {
             return true
         }
-        if upper.hasPrefix("PROPERTY OF ") || upper.hasPrefix("PAGE ") || upper.hasPrefix("PG. ") || upper.hasPrefix("P. ") {
+        if upper.hasPrefix("PROPERTY OF ") {
             return true
         }
-        let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "#.-–— "))
-        return !stripped.isEmpty && stripped.allSatisfy(\.isNumber)
+        if let pageNumberRegex,
+           pageNumberRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        return false
     }
 
     // MARK: - Model Loading
@@ -500,13 +548,18 @@ public actor CoreMLScriptParserRunner {
         }
 
         for bundle in Bundle.allBundles + Bundle.allFrameworks {
-            if let url = bundle.url(forResource: modelName, withExtension: "mlmodel"),
-               let compiled = try? MLModel.compileModel(at: url) {
-                return compiled
+            for ext in ["mlpackage", "mlmodel"] {
+                if let url = bundle.url(forResource: modelName, withExtension: ext),
+                   let compiled = try? MLModel.compileModel(at: url) {
+                    return compiled
+                }
             }
         }
 
         let candidatePaths = [
+            "OneTake/Core/Models/\(modelName).mlpackage",
+            "../OneTake/Core/Models/\(modelName).mlpackage",
+            "../../OneTake/Core/Models/\(modelName).mlpackage",
             "OneTake/Core/Models/\(modelName).mlmodel",
             "../OneTake/Core/Models/\(modelName).mlmodel",
             "../../OneTake/Core/Models/\(modelName).mlmodel"

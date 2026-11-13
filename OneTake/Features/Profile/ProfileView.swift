@@ -13,6 +13,7 @@ struct ProfileView: View {
     @AppStorage("slateAtStart") private var slateAtStart = true
     @AppStorage("readerVolume") private var readerVolume = "Quieter"
     @AppStorage("practice.showSample") private var showSampleScene = true
+    @AppStorage(AppStore.demoEnabledKey) private var demoModeEnabled = false
 
     var body: some View {
         ScrollView {
@@ -23,8 +24,8 @@ struct ProfileView: View {
                 // Recording Section
                 recordingSection
 
-                // Practice Section
-                practiceSection
+                // Demo & Testing Section
+                demoSection
 
                 // More Section
                 moreSection
@@ -168,19 +169,93 @@ struct ProfileView: View {
         }
     }
 
-    private var practiceSection: some View {
+    private var demoSection: some View {
         VStack(alignment: .leading, spacing: OTSpace.xs) {
-            OTSectionLabel("Practice")
+            OTSectionLabel("Demo & Testing")
 
-            Toggle(isOn: $showSampleScene) {
-                Text("Show sample scene").font(.otBody).foregroundStyle(OT.labelPrimary)
+            VStack(spacing: 0) {
+                Toggle(isOn: $demoModeEnabled) {
+                    VStack(alignment: .leading, spacing: OTSpace.xxs) {
+                        Text("Demo mode").font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
+                        Text("Sample auditions, playable takes, reader cues & practice drills")
+                            .font(.otFootnote)
+                            .foregroundStyle(OT.labelTertiary)
+                    }
+                }
+                .tint(OT.accent)
+                .padding(.vertical, OTSpace.xxs)
+                .frame(minHeight: 44) // ot-lint:allow
+                .onChange(of: demoModeEnabled) { _, enabled in
+                    if enabled {
+                        store.enableDemoMode()
+                        Haptics.success()
+                    } else {
+                        store.disableDemoMode()
+                        Haptics.tick()
+                    }
+                }
+
+                if demoModeEnabled {
+                    Divider()
+
+                    HStack(spacing: OTSpace.xs) {
+                        if store.isPreparingDemoMedia {
+                            ProgressView()
+                            Text("Preparing playable demo clips…")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.accent)
+                            Text("\(store.demoAuditionCount) auditions · \(store.demoTakeCount) takes · \(store.demoPracticeCount) practice scenes")
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, OTSpace.xs)
+
+                    Divider()
+
+                    Button { store.openDemoReadyAudition(); Haptics.tick() } label: {
+                        profileRow(symbol: "play.rectangle", title: "Open ready tape (Midnight Dispatch)")
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+
+                    Button { store.launchDemoNoticeReview(); Haptics.tick() } label: {
+                        profileRow(symbol: "doc.text.magnifyingglass", title: "Test Notice Review flow")
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+
+                    Button { store.resetDemoData(); Haptics.success() } label: {
+                        HStack {
+                            Label("Reset demo data", systemImage: "arrow.counterclockwise")
+                                .font(.otBody).foregroundStyle(OT.accent)
+                            Spacer()
+                        }
+                        .frame(minHeight: 44) // ot-lint:allow
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Divider()
+
+                Toggle(isOn: $showSampleScene) {
+                    Text("Show sample scene when empty")
+                        .font(.otBody).foregroundStyle(OT.labelPrimary)
+                }
+                .tint(OT.accent)
+                .frame(minHeight: 44) // ot-lint:allow
+                .onChange(of: showSampleScene) { _, enabled in
+                    if !enabled { store.removeSampleData(); Haptics.tick() }
+                }
             }
-            .tint(OT.accent)
-            .frame(minHeight: 44) // ot-lint:allow
             .profileSectionCard()
-            .onChange(of: showSampleScene) { _, enabled in
-                if !enabled { store.removeSampleData(); Haptics.tick() }
-            }
         }
     }
 
@@ -272,7 +347,7 @@ struct ProfileView: View {
                     Button { showSignIn = true } label: {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                                Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                                Label("Sign in", systemImage: "person.badge.plus")
                                     .font(.otBody.weight(.medium)).foregroundStyle(OT.labelPrimary)
                                 Text("Needed only to send an iCloud link.")
                                     .font(.otFootnote).foregroundStyle(OT.labelTertiary)
