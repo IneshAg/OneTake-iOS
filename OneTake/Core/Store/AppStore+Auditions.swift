@@ -109,7 +109,7 @@ extension AppStore {
                     }
                 }
             }
-            if auditions[i].status != .sent {
+            if auditions[i].status != .sent && !(auditions[i].status == .exported && auditions[i].exportedFileURL != nil) {
                 auditions[i].status = auditions[i].isPackageReady ? .ready : .due
             }
         }

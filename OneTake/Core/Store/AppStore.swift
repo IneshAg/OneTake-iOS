@@ -177,6 +177,10 @@ final class AppStore {
     // Send state
     var sendProgress: Double = 0
 
+    // Demo mode state
+    var isPreparingDemoMedia = false
+    @ObservationIgnored var demoMediaTask: Task<Void, Never>?
+
     // MARK: Persistence
 
     private var saveTask: Task<Void, Never>?
@@ -383,6 +387,13 @@ final class AppStore {
         }
         isLoading = false
         syncPieces()
+        if ProcessInfo.processInfo.arguments.contains("-demoMode") {
+            enableDemoMode()
+        } else if isDemoModeEnabled {
+            Task { @MainActor [weak self] in
+                await self?.ensureDemoMediaIfNeeded()
+            }
+        }
         if removedLegacyDemoData || reorderedLegacyPieces { persist() }
     }
 
