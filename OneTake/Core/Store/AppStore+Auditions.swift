@@ -398,6 +398,21 @@ extension AppStore {
         markSent(id)
     }
 
+    func unmarkSent(_ id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].sentDate = nil
+        if auditions[i].exportedFileURL != nil {
+            auditions[i].status = .exported
+        } else {
+            auditions[i].status = auditions[i].isPackageReady ? .ready : .due
+        }
+        syncPieces()
+    }
+
+    func unmarkSubmitted(_ id: Audition.ID) {
+        unmarkSent(id)
+    }
+
     /// Circles `take` and un-circles every other take in the *same* audition+scene — scoped, so
     /// circling a take in one audition no longer silently un-circles another audition's send pick.
     func circleOnly(_ take: Take) {

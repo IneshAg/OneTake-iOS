@@ -150,7 +150,15 @@ struct AuditionDetailView: View {
                     } label: {
                         Label("Mark as Submitted", systemImage: "paperplane.fill")
                     }
-                    .buttonStyle(.ot(.primary, size: .large))
+                    .buttonStyle(.ot(.primary, size: .large, shape: .capsule))
+                } else if a.status == .sent {
+                    Button {
+                        store.unmarkSent(a.id)
+                        Haptics.tick()
+                    } label: {
+                        Label("Undo Submission", systemImage: "arrow.uturn.backward.circle")
+                    }
+                    .buttonStyle(.ot(.secondary, size: .medium, shape: .capsule))
                 }
             }
             .padding(.horizontal, OTSpace.gutter)
@@ -166,6 +174,14 @@ struct AuditionDetailView: View {
             OTTrailingToolbarSpacer()
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    if a.status == .sent {
+                        Button {
+                            store.unmarkSent(a.id)
+                            Haptics.tick()
+                        } label: {
+                            Label("Undo submission", systemImage: "arrow.uturn.backward.circle")
+                        }
+                    }
                     Button { showCallback = true } label: { Label("Start a callback", systemImage: "arrow.uturn.right") }
                     Divider()
                     Button(role: .destructive) { showDelete = true } label: { Label("Delete audition", systemImage: "trash") }
@@ -240,7 +256,7 @@ struct AuditionDetailView: View {
                     Button(a.sidesLink != nil ? "Import" : "Add sides") {
                         showSides = true
                     }
-                    .buttonStyle(.ot(.secondary, size: .small))
+                    .buttonStyle(.ot(.secondary, size: .small, fullWidth: false, shape: .capsule))
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         OTSectionLabel(a.resolvedMaterialKind == .monologue ? "Monologue" : "Sides")

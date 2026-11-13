@@ -8,10 +8,17 @@ public enum OTButtonVariant: String, CaseIterable, Sendable {
     case glass
 }
 
+public enum OTButtonShape: Sendable, Hashable {
+    case squircle
+    case capsule
+    case rounded(CGFloat? = nil)
+}
+
 public struct OTButtonStyle: ButtonStyle {
     public let variant: OTButtonVariant
     public let size: OTControlSize
     public let fullWidth: Bool
+    public let shape: OTButtonShape
 
     @Environment(\.isEnabled) private var isEnabled: Bool
     @Environment(\.otSurface) private var otSurface: OTSurface
@@ -19,11 +26,13 @@ public struct OTButtonStyle: ButtonStyle {
     public init(
         _ variant: OTButtonVariant,
         size: OTControlSize = .large,
-        fullWidth: Bool = true
+        fullWidth: Bool = true,
+        shape: OTButtonShape = .squircle
     ) {
         self.variant = variant
         self.size = size
         self.fullWidth = fullWidth
+        self.shape = shape
     }
 
     public static func foreground(for variant: OTButtonVariant, surface: OTSurface) -> Color {
@@ -41,57 +50,144 @@ public struct OTButtonStyle: ButtonStyle {
         }
     }
 
-    private var radius: CGFloat {
-        size == .small ? OTRadius.m : OTRadius.control
+    private var cornerRadius: CGFloat {
+        switch shape {
+        case .squircle:
+            return size == .small ? OTRadius.m : OTRadius.control
+        case .capsule:
+            return size.height / 2
+        case .rounded(let r):
+            return r ?? (size == .small ? OTRadius.s : OTRadius.m)
+        }
     }
 
     @ViewBuilder
     private func backgroundView(surface: OTSurface) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        switch variant {
-        case .primary:
-            shape.fill(isEnabled ? OT.accent : OT.accent.opacity(0.35))
-        case .secondary:
-            if surface == .camera {
-                shape.fill(OT.cameraGlass)
-            } else {
-                shape.fill(OT.fillField)
+        switch shape {
+        case .capsule:
+            let bgShape = Capsule()
+            switch variant {
+            case .primary:
+                bgShape.fill(isEnabled ? OT.accent : OT.accent.opacity(0.35))
+            case .secondary:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(OT.fillField)
+                }
+            case .tertiary:
+                Color.clear
+            case .destructive:
+                bgShape.fill(OT.danger.opacity(0.12))
+            case .glass:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(.ultraThinMaterial)
+                        .overlay(bgShape.stroke(Color.white.opacity(0.5), lineWidth: 0.7))
+                        .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+                }
             }
-        case .tertiary:
-            Color.clear
-        case .destructive:
-            shape.fill(OT.danger.opacity(0.12))
-        case .glass:
-            if surface == .camera {
-                shape.fill(OT.cameraGlass)
-            } else {
-                shape.fill(.ultraThinMaterial)
-                    .overlay(shape.stroke(Color.white.opacity(0.5), lineWidth: 0.7))
-                    .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+        case .squircle:
+            let bgShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            switch variant {
+            case .primary:
+                bgShape.fill(isEnabled ? OT.accent : OT.accent.opacity(0.35))
+            case .secondary:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(OT.fillField)
+                }
+            case .tertiary:
+                Color.clear
+            case .destructive:
+                bgShape.fill(OT.danger.opacity(0.12))
+            case .glass:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(.ultraThinMaterial)
+                        .overlay(bgShape.stroke(Color.white.opacity(0.5), lineWidth: 0.7))
+                        .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+                }
+            }
+        case .rounded:
+            let bgShape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
+            switch variant {
+            case .primary:
+                bgShape.fill(isEnabled ? OT.accent : OT.accent.opacity(0.35))
+            case .secondary:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(OT.fillField)
+                }
+            case .tertiary:
+                Color.clear
+            case .destructive:
+                bgShape.fill(OT.danger.opacity(0.12))
+            case .glass:
+                if surface == .camera {
+                    bgShape.fill(OT.cameraGlass)
+                } else {
+                    bgShape.fill(.ultraThinMaterial)
+                        .overlay(bgShape.stroke(Color.white.opacity(0.5), lineWidth: 0.7))
+                        .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+                }
             }
         }
     }
 
     public func makeBody(configuration: Configuration) -> some View {
         let fg = Self.foreground(for: variant, surface: otSurface)
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
-        configuration.label
-            .font(size.font)
-            .foregroundStyle(fg)
-            .padding(.horizontal, size.horizontalPadding)
-            .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: size.height)
-            .background(backgroundView(surface: otSurface))
-            .contentShape(shape)
-            .frame(minHeight: size.hitHeight)
-            .opacity(configuration.isPressed ? 0.75 : (isEnabled ? 1.0 : 0.45))
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+        Group {
+            switch shape {
+            case .capsule:
+                configuration.label
+                    .font(size.font)
+                    .foregroundStyle(fg)
+                    .padding(.horizontal, size.horizontalPadding)
+                    .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: size.height)
+                    .background(backgroundView(surface: otSurface))
+                    .contentShape(Capsule())
+                    .frame(minHeight: size.hitHeight)
+            case .squircle:
+                let rShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                configuration.label
+                    .font(size.font)
+                    .foregroundStyle(fg)
+                    .padding(.horizontal, size.horizontalPadding)
+                    .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: size.height)
+                    .background(backgroundView(surface: otSurface))
+                    .contentShape(rShape)
+                    .frame(minHeight: size.hitHeight)
+            case .rounded:
+                let rShape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
+                configuration.label
+                    .font(size.font)
+                    .foregroundStyle(fg)
+                    .padding(.horizontal, size.horizontalPadding)
+                    .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: size.height)
+                    .background(backgroundView(surface: otSurface))
+                    .contentShape(rShape)
+                    .frame(minHeight: size.hitHeight)
+            }
+        }
+        .opacity(configuration.isPressed ? 0.75 : (isEnabled ? 1.0 : 0.45))
+        .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 public extension ButtonStyle where Self == OTButtonStyle {
-    static func ot(_ variant: OTButtonVariant, size: OTControlSize = .large, fullWidth: Bool = true) -> OTButtonStyle {
-        OTButtonStyle(variant, size: size, fullWidth: fullWidth)
+    static func ot(
+        _ variant: OTButtonVariant,
+        size: OTControlSize = .large,
+        fullWidth: Bool = true,
+        shape: OTButtonShape = .squircle
+    ) -> OTButtonStyle {
+        OTButtonStyle(variant, size: size, fullWidth: fullWidth, shape: shape)
     }
 
     static var otPrimary: OTButtonStyle {
@@ -103,7 +199,11 @@ public extension ButtonStyle where Self == OTButtonStyle {
     }
 
     static var otCompact: OTButtonStyle {
-        .ot(.secondary, size: .small, fullWidth: false)
+        .ot(.secondary, size: .small, fullWidth: false, shape: .capsule)
+    }
+
+    static var otCompactPrimary: OTButtonStyle {
+        .ot(.primary, size: .small, fullWidth: false, shape: .capsule)
     }
 
     static var otGlass: OTButtonStyle {

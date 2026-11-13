@@ -142,6 +142,14 @@ struct AuditionsView: View {
                 Label("Mark sent", systemImage: "paperplane.fill")
             }
             .tint(OT.success)
+        } else if audition.status == .sent && !audition.archived {
+            Button {
+                store.unmarkSent(audition.id)
+                Haptics.tick()
+            } label: {
+                Label("Mark not submitted", systemImage: "arrow.uturn.backward")
+            }
+            .tint(OT.reader)
         }
     }
 
@@ -168,6 +176,13 @@ struct AuditionsView: View {
                 Haptics.success()
             } label: {
                 Label("Mark sent", systemImage: "paperplane.fill")
+            }
+        } else if audition.status == .sent && !audition.archived {
+            Button {
+                store.unmarkSent(audition.id)
+                Haptics.tick()
+            } label: {
+                Label("Mark as not submitted", systemImage: "arrow.uturn.backward.circle")
             }
         }
         Button(role: .destructive) {

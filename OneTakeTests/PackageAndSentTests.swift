@@ -315,5 +315,20 @@ final class PackageAndSentTests: XCTestCase {
         // Overdue by 10 hours -> "Right on time."
         XCTAssertEqual(computeEarlyText(due: baseDate.addingTimeInterval(-36000), sent: baseDate), "Right on time.")
     }
+
+    @MainActor
+    func testMarkSentAndUnmarkSentRestoresAuditionStatusAndClearsSentDate() {
+        let store = AppStore()
+        let audition = makeAudition(sentDate: nil)
+        store.auditions = [audition]
+
+        store.markSent(audition.id)
+        XCTAssertEqual(store.audition(audition.id)?.status, .sent)
+        XCTAssertNotNil(store.audition(audition.id)?.sentDate)
+
+        store.unmarkSent(audition.id)
+        XCTAssertNotEqual(store.audition(audition.id)?.status, .sent)
+        XCTAssertNil(store.audition(audition.id)?.sentDate)
+    }
 }
 
