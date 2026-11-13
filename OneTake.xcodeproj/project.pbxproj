@@ -53,7 +53,6 @@
 		3BF9C3F2BE84546F4D868058 /* CoreMLParserRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12135370EA7626AAE1F89985 /* CoreMLParserRunner.swift */; };
 		3C3D8AC02811EA5AD994E384 /* OneTakeShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 93A5A19622FF45437DBEEB31 /* OneTakeShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3C8A390D063F75B2693785BE /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F68A42EEEB97AEB53D0BCE5 /* ShareSheet.swift */; };
-		41CE0655397DAD990145718F /* SwipeBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D52A21790727C6FB2FA8353 /* SwipeBack.swift */; };
 		41CF9D946944EA21A45823F8 /* TapePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8B7DE74999D1A51FACAC77 /* TapePreviewView.swift */; };
 		4209973B37B52A53F1FD2AD7 /* NoticeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768FCB922EE724E289503AED /* NoticeParser.swift */; };
 		457C06E245F7F7ECC2F93408 /* VoicePracticeReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E866457125717F491B8505F7 /* VoicePracticeReview.swift */; };
@@ -280,7 +279,6 @@
 		3AAE801E067E75B586B84E10 /* AudioWalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWalkView.swift; sourceTree = "<group>"; };
 		3B63CC1AF6213D0B721D3D8A /* OneTakeUIExports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneTakeUIExports.swift; sourceTree = "<group>"; };
 		3C8C2A74AB0472CBE8C58150 /* ScriptTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptTextEditor.swift; sourceTree = "<group>"; };
-		3D52A21790727C6FB2FA8353 /* SwipeBack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeBack.swift; sourceTree = "<group>"; };
 		3ED21D6768B1EB2E9C3E958F /* NoticeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoticeParserTests.swift; sourceTree = "<group>"; };
 		3F18102B007D3ED5412F7B1E /* AuditionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionDetailView.swift; sourceTree = "<group>"; };
 		421506E5D25D69A219EAD138 /* PackageStepsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageStepsBar.swift; sourceTree = "<group>"; };
@@ -566,7 +564,6 @@
 				3C8C2A74AB0472CBE8C58150 /* ScriptTextEditor.swift */,
 				0F68A42EEEB97AEB53D0BCE5 /* ShareSheet.swift */,
 				B4D2FF9035789E3577CD9541 /* SpeechFollower.swift */,
-				3D52A21790727C6FB2FA8353 /* SwipeBack.swift */,
 				E8F93C4304EAC4F812D89450 /* VideoTrimmer.swift */,
 			);
 			path = Bridges;
@@ -1258,7 +1255,6 @@
 				E6003447977A075ECA070249 /* StructuredDocumentParsers.swift in Sources */,
 				2D2F07F59468A23CE4085186 /* SubmissionCheckSummary.swift in Sources */,
 				AD904B94C5A09A4C8715C41D /* SubmissionInstructionsCard.swift in Sources */,
-				41CE0655397DAD990145718F /* SwipeBack.swift in Sources */,
 				AF491548A8571F0B38F3EAE0 /* TakeModels.swift in Sources */,
 				248F8871CF3CD0CDED7D0D04 /* TakesView.swift in Sources */,
 				B1B8376B9F0B468147770E84 /* TapeAnalyzer.swift in Sources */,

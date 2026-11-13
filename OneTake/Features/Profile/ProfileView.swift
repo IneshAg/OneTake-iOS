@@ -15,17 +15,7 @@ struct ProfileView: View {
     @AppStorage("practice.showSample") private var showSampleScene = true
 
     var body: some View {
-        OTScreen(
-            title: "Profile",
-            backLabel: (store.showProfile && store.profilePath.isEmpty) ? "" : "Back",
-            trailing: {
-                Button("Done") {
-                    store.showProfile = false
-                }
-                .font(.otHeadline)
-                .foregroundStyle(OT.accent)
-            }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 // Slate & Headshot Card
                 slateAndHeadshotCard
@@ -41,6 +31,19 @@ struct ProfileView: View {
 
                 // Account Section
                 accountSection
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if store.showProfile {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { store.showProfile = false }
+                }
             }
         }
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
@@ -93,10 +96,7 @@ struct ProfileView: View {
                             .foregroundStyle(OT.labelTertiary)
                     }
                     Spacer()
-                    Image(systemName: "pencil")
-                        .foregroundStyle(OT.accent)
-                        .frame(width: 32, height: 32) // ot-lint:allow
-                        .background(OT.accentSoft, in: Circle())
+                    Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                 }
                 .padding(.vertical, OTSpace.s)
             }
@@ -306,10 +306,7 @@ private struct HandsFreeGestureSettingsView: View {
     @AppStorage("camera.gestureHoldDuration") private var holdDuration = 1.2
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(title: "Hands-free controls", leading: "Done", onLeading: { dismiss() })
-                .padding(.top, OTSpace.m)
-
+        NavigationStack {
             Form {
                 Section {
                     Toggle("Voice commands (Action / Cut)", isOn: $voiceCommandsEnabled)
@@ -324,9 +321,16 @@ private struct HandsFreeGestureSettingsView: View {
                     Text("Choose voice commands, gestures, or both. Hold an open palm toward the camera to start, pause, or resume. Starting uses the camera countdown when it’s on; tap Record to finish a take.")
                 }
             }
-            .otCompactList()
+            .scrollContentBackground(.hidden)
+            .otCanvas()
+            .navigationTitle("Hands-free controls")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
-        .otCanvas()
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }

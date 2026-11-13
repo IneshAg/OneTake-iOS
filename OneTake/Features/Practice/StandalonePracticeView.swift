@@ -21,13 +21,10 @@ struct StandalonePracticeView: View {
     private var scene: ScriptScene? { piece?.scene }
 
     var body: some View {
-        OTScreen(
-            title: isSample ? "Sample scene" : "Practice",
-            backLabel: "Back",
-            onBack: { store.pop() }
-        ) {
-            if let piece, let scene {
-                VStack(alignment: .leading, spacing: OTSpace.m) {
+        ScrollView {
+            Group {
+                if let piece, let scene {
+                    VStack(alignment: .leading, spacing: OTSpace.m) {
                     Text(piece.title).font(.otTitle).foregroundStyle(OT.labelPrimary)
                     Text("Your role: \(piece.character)").font(.otFootnote).foregroundStyle(OT.labelTertiary)
 
@@ -171,11 +168,18 @@ struct StandalonePracticeView: View {
                             .buttonStyle(.otCompact)
                         }
                     }
+                    }
+                } else {
+                    ContentUnavailableView("Scene unavailable", systemImage: "theatermasks")
                 }
-            } else {
-                ContentUnavailableView("Scene unavailable", systemImage: "theatermasks")
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle(isSample ? "Sample scene" : "Practice")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             HStack(spacing: OTSpace.m) {
                 Button {

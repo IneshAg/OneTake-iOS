@@ -4,6 +4,7 @@ import OneTakeUI
 
 struct AddDraftSidesSheet: View {
     @Binding var draft: NoticeParser.Draft
+    var isSheet: Bool = true
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var editableScenes: [ScriptScene] = []
@@ -23,19 +24,17 @@ struct AddDraftSidesSheet: View {
     }
 
     var body: some View {
-        OTScreen(
-            title: draft.hasSides ? "Replace sides" : "Add sides",
-            backLabel: "Cancel",
-            onBack: { dismiss() },
-            trailing: {
-                Button(draft.hasSides ? "Replace" : "Add") {
-                    commitSides()
-                }
-                .font(.otHeadline)
-                .foregroundStyle(OT.accent)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if isSheet {
+            NavigationStack {
+                screenContent
             }
-        ) {
+        } else {
+            screenContent
+        }
+    }
+
+    private var screenContent: some View {
+        ScrollView {
             VStack(spacing: OTSpace.l) {
                 if let sidesLink = draft.sidesLink, !sidesLink.isEmpty {
                     sidesLinkCard(sidesLink)
@@ -192,6 +191,25 @@ struct AddDraftSidesSheet: View {
                         }
                     }
                 }
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationTitle(draft.hasSides ? "Replace sides" : "Add sides")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(draft.hasSides ? "Replace" : "Add") {
+                    commitSides()
+                }
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .otBottomBar {

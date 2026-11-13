@@ -26,35 +26,7 @@ struct CallbackSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: "Start a callback",
-                leading: "Cancel",
-                trailing: "Create",
-                onLeading: { dismiss() },
-                onTrailing: {
-                    if let id = store.startCallback(
-                        from: audition.id,
-                        due: due,
-                        notes: castingNotes,
-                        actorNotes: actorNotes,
-                        scenes: callbackScenes,
-                        extraScriptText: extraScriptText.isEmpty ? nil : extraScriptText,
-                        bringReader: bringReader
-                    ) {
-                        dismiss()
-                        if recordCallbackReaderNow,
-                           let cbAudition = store.audition(id),
-                           let firstScene = cbAudition.scenes.indices.first(where: { !cbAudition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-                            store.push(.reader(id, sceneIndex: firstScene))
-                        } else {
-                            store.push(.auditionDetail(id))
-                        }
-                    }
-                }
-            )
-            .padding(.top, OTSpace.m)
-
+        NavigationStack {
             Form {
                 Section { LabeledContent(audition.project, value: "Round \((audition.round ?? 1) + 1)") }
 
@@ -223,11 +195,38 @@ struct CallbackSheet: View {
                     }
                 }
             }
-            .otCompactList()
+            .scrollContentBackground(.hidden)
+            .otCanvas()
+            .navigationTitle("Start a callback")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        if let id = store.startCallback(
+                            from: audition.id,
+                            due: due,
+                            notes: castingNotes,
+                            actorNotes: actorNotes,
+                            scenes: callbackScenes,
+                            extraScriptText: extraScriptText.isEmpty ? nil : extraScriptText,
+                            bringReader: bringReader
+                        ) {
+                            dismiss()
+                            if recordCallbackReaderNow,
+                               let cbAudition = store.audition(id),
+                               let firstScene = cbAudition.scenes.indices.first(where: { !cbAudition.scenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
+                                store.push(.reader(id, sceneIndex: firstScene))
+                            } else {
+                                store.push(.auditionDetail(id))
+                            }
+                        }
+                    }
+                }
+            }
         }
-        .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
         .onAppear {
             setupInitialState()
         }
@@ -395,19 +394,7 @@ struct CallbackExtraSidesSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: "Add extra sides",
-                leading: "Cancel",
-                trailing: "Add sides",
-                onLeading: { dismiss() },
-                onTrailing: {
-                    onAdd(text)
-                    dismiss()
-                }
-            )
-            .padding(.top, OTSpace.m)
-
+        NavigationStack {
             ScrollView {
                 VStack(spacing: OTSpace.m) {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: OTSpace.m), GridItem(.flexible(), spacing: OTSpace.m)], spacing: OTSpace.m) {
@@ -537,19 +524,30 @@ struct CallbackExtraSidesSheet: View {
                 .padding(.top, OTSpace.s)
                 .padding(.bottom, 90) // ot-lint:allow
             }
-        }
-        .otBottomBar {
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button("Add sides to callback") {
-                    onAdd(text)
-                    dismiss()
+            .otBottomBar {
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Add sides to callback") {
+                        onAdd(text)
+                        dismiss()
+                    }
+                    .buttonStyle(.otPrimary)
                 }
-                .buttonStyle(.otPrimary)
+            }
+            .otCanvas()
+            .navigationTitle("Add extra sides")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add sides") {
+                        onAdd(text)
+                        dismiss()
+                    }
+                }
             }
         }
-        .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
         .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
             Button("OK", role: .cancel) {}
         } message: {

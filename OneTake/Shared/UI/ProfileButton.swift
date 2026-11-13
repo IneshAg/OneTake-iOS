@@ -13,23 +13,22 @@ struct ProfileButton: View {
                     Image(uiImage: front)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
+                        .frame(width: 30, height: 30) // ot-lint:allow nav-bar avatar size
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.5)) // ot-lint:allow
+                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)) // ot-lint:allow
                 } else {
                     Circle()
                         .fill(OT.accentSoft)
-                        .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
+                        .frame(width: 30, height: 30) // ot-lint:allow nav-bar avatar size
                         .overlay(Circle().stroke(OT.accent.opacity(0.25), lineWidth: 1))
                     Image(systemName: "person.fill")
-                        .font(.otIcon(.m, weight: .semibold))
+                        .font(.otIcon(.s, weight: .semibold))
                         .foregroundStyle(OT.accent)
                 }
             }
-            .frame(width: 44, height: 44) // ot-lint:allow 44pt touch target
+            .frame(width: 30, height: 30) // ot-lint:allow nav-bar avatar size
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
         .id(store.headshotVersion)
         .accessibilityLabel("Profile")
     }

@@ -94,7 +94,7 @@ struct ShootSetupView: View {
             $0.scenes.indices.contains(shootScene) ? $0.scenes[shootScene].title : nil
         } ?? "Scene \(shootScene + 1)"
 
-        OTScreen(title: "Scene setup", backLabel: "Back", onBack: { store.pop() }) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 Text(sceneTitle).font(.otLargeTitle)
                 Text("Check your reader and microphone before recording this scene.")
@@ -151,7 +151,13 @@ struct ShootSetupView: View {
                     }
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle("Scene setup")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             Button {
                 store.camera = .shoot(auditionID, scene: shootScene)

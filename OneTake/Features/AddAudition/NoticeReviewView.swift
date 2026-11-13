@@ -79,11 +79,7 @@ struct NoticeReviewView: View {
 
     var body: some View {
         @Bindable var store = store
-        OTScreen(
-            title: "",
-            backLabel: store.auditionsPath.contains(.missingDetails) ? "Back" : "Auditions",
-            onBack: { store.pop() }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 let isNewManual = store.auditionDraft.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.auditionDraft.asks.isEmpty
                 Text(isNewManual ? "New audition" : "Here's what they want").font(.otLargeTitle)
@@ -499,7 +495,12 @@ struct NoticeReviewView: View {
                     .otCard(.grouped)
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             VStack(spacing: OTSpace.s) {
                 if showValidationErrors && !canSave {

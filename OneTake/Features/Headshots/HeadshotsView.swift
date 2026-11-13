@@ -23,10 +23,7 @@ struct HeadshotsView: View {
     }
 
     var body: some View {
-        OTScreen(
-            title: auditionID != nil ? "Audition Headshots" : "Default Headshots",
-            onBack: { store.pop() }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 topCalloutCard
 
@@ -34,7 +31,13 @@ struct HeadshotsView: View {
 
                 photoActionsBar
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle(auditionID != nil ? "Audition Headshots" : "Default Headshots")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             bottomBarContent
         }

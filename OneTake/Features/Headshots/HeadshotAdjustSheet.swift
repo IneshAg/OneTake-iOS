@@ -41,21 +41,10 @@ struct HeadshotAdjustSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: "Adjust \(item.title)",
-                leading: "Cancel",
-                trailing: "Save",
-                onLeading: { dismiss() },
-                onTrailing: { saveCrop() }
-            )
-            .padding(.horizontal, OTSpace.gutter)
-            .padding(.top, OTSpace.m)
-            .padding(.bottom, OTSpace.xs)
-            .background(Color.black) // ot-lint:allow
-
-            // Viewport area
-            ZStack {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Viewport area
+                ZStack {
                 Color.black.ignoresSafeArea() // ot-lint:allow
 
                 if let img = originalImage {
@@ -184,9 +173,19 @@ struct HeadshotAdjustSheet: View {
             }
             .padding(.top, OTSpace.m)
             .background(OT.surfaceRaised)
+            }
+            .navigationTitle("Adjust \(item.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { saveCrop() }
+                }
+            }
         }
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
         .onAppear { loadPhoto() }
         .onChange(of: photoItem) { _, newItem in
             guard let newItem else { return }

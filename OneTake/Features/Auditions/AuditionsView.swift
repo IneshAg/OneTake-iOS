@@ -23,7 +23,17 @@ struct AuditionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if !store.auditions.isEmpty {
+                Picker("Filter auditions", selection: $selectedTab) {
+                    ForEach(FilterTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.m)
+                .padding(.bottom, OTSpace.s)
+            }
 
             if store.auditions.isEmpty {
                 EmptyAuditionsView()
@@ -36,34 +46,40 @@ struct AuditionsView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .contentMargins(.top, OTSpace.s, for: .scrollContent)
                 .overlay {
                     if items.isEmpty {
-                        VStack(spacing: OTSpace.s) {
-                            Image(systemName: selectedTab == .active ? "tray" : (selectedTab == .submitted ? "paperplane.circle" : "archivebox"))
-                                .font(.otIcon(.xl))
-                                .foregroundStyle(OT.labelTertiary)
-                            Text("No \(selectedTab.rawValue.lowercased()) auditions")
-                                .font(.otHeadline)
-                                .foregroundStyle(OT.labelPrimary)
+                        ContentUnavailableView {
+                            Label(
+                                "No \(selectedTab.rawValue.lowercased()) auditions",
+                                systemImage: selectedTab == .active ? "tray" : (selectedTab == .submitted ? "paperplane.circle" : "archivebox")
+                            )
+                        } description: {
                             Text(selectedTab == .submitted
                                  ? "Auditions you mark as submitted will appear here."
                                  : selectedTab == .archived
                                  ? "Swipe an audition in Active or Submitted to archive it."
                                  : "Tap + to add your next audition.")
-                                .font(.otCallout)
-                                .foregroundStyle(OT.labelSecondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, OTSpace.xl)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
+        .navigationTitle("Auditions")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    store.showAddAudition = true
+                } label: {
+                    Label("Add an audition", systemImage: "plus")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                ProfileButton { store.showProfile = true }
+            }
+        }
     }
 
     @ViewBuilder
@@ -221,32 +237,7 @@ struct AuditionsView: View {
         ))
     }
 
-    private var header: some View {
-        VStack(spacing: OTSpace.m) {
-            HStack(alignment: .center, spacing: OTSpace.s) {
-                Text("Auditions")
-                    .font(.otLargeTitle)
-                    .foregroundStyle(OT.labelPrimary)
-                Spacer()
-                OTIconButton("plus", accessibilityLabel: "Add an audition") {
-                    store.showAddAudition = true
-                }
-                ProfileButton { store.showProfile = true }
-            }
 
-            if !store.auditions.isEmpty {
-                Picker("Filter auditions", selection: $selectedTab) {
-                    ForEach(FilterTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-        }
-        .padding(.horizontal, OTSpace.gutter)
-        .padding(.bottom, OTSpace.s)
-        .background(OT.bgCanvas)
-    }
 }
 
 // MARK: - 5a Empty

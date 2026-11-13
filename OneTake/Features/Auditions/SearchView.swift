@@ -15,7 +15,6 @@ struct SearchView: View {
     }
 
     @State private var scope: SearchScope = .all
-    @State private var hasSetInitialScope = false
 
     struct LineHit: Identifiable {
         let id: UUID
@@ -123,16 +122,5 @@ struct SearchView: View {
         .navigationTitle("Search")
         .searchable(text: Bindable(store).searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search auditions, sides, practice...")
         .toolbar(isSearching ? .hidden : .visible, for: .tabBar) // ot-lint:allow
-        .onAppear {
-            if !hasSetInitialScope {
-                hasSetInitialScope = true
-                switch store.lastActiveTab {
-                case .practice:  scope = .practice
-                case .profile:   scope = .all
-                case .auditions: scope = .auditions
-                case .search:    scope = .all
-                }
-            }
-        }
     }
 }

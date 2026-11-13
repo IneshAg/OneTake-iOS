@@ -19,12 +19,7 @@ struct PracticeSetupView: View {
     @State private var scannerUnavailable = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTNavHeader(title: "Practice a scene", backLabel: "Back", onBack: { store.pop() })
-                .padding(.horizontal, OTSpace.gutter)
-                .padding(.top, OTSpace.xs)
-
-            Form {
+        Form {
                 Section("Practice your own scene") {
                     HStack {
                         Text("Paste sides from clipboard")
@@ -127,11 +122,10 @@ struct PracticeSetupView: View {
                     }
                 }
             }
-            .otCompactList()
-        }
+            .scrollContentBackground(.hidden)
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
+        .navigationTitle("Practice a scene")
+        .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showScanner) {
             DocumentScannerView { pages in
                 showScanner = false

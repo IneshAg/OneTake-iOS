@@ -56,42 +56,39 @@ struct ReaderView: View {
         // Reader recordings are files, so this observable counter makes the file status update
         // as soon as Record Reader saves a line.
         let readerTrackVersion = store.readerTrackVersion
-        OTScreen(title: "Who reads \(effectiveReaderName)?", backLabel: "Back", onBack: { store.pop() }, scrolls: false, insetContent: false) {
-            List {
+        List {
+            Section {
+                Text("Record \(effectiveReaderName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
+                    .font(.otCallout)
+                    .foregroundStyle(OT.labelSecondary)
+            }
+            .listRowBackground(Color.clear)
+
+            if availableReaders.count > 1 {
                 Section {
-                    Text("Record \(effectiveReaderName)’s lines in your own voice. We leave the pauses for yours, and it plays under your takes.")
-                        .font(.otCallout)
-                        .foregroundStyle(OT.labelSecondary)
+                    let readerSelection = Binding(
+                        get: { effectiveReaderName },
+                        set: { char in
+                            selectedReader = char
+                            player.stop()
+                            playingLine = nil
+                            Haptics.tick()
+                        }
+                    )
+                    if availableReaders.count <= 3 {
+                        Picker("Reader", selection: readerSelection) {
+                            ForEach(availableReaders, id: \.self) { Text($0).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                    } else {
+                        Picker("Reader", selection: readerSelection) {
+                            ForEach(availableReaders, id: \.self) { Text($0).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                    }
                 }
                 .listRowBackground(Color.clear)
-
-                if availableReaders.count > 1 {
-                    Section {
-                        HStack(spacing: OTSpace.s) {
-                            Text("Reader:")
-                                .font(.otCaption)
-                                .foregroundStyle(OT.labelTertiary)
-                            ForEach(availableReaders, id: \.self) { char in
-                                let isCurrent = char.caseInsensitiveCompare(effectiveReaderName) == .orderedSame
-                                Button {
-                                    selectedReader = char
-                                    player.stop()
-                                    playingLine = nil
-                                    Haptics.tick()
-                                } label: {
-                                    Text(char)
-                                        .font(.otCaption.weight(isCurrent ? .bold : .medium))
-                                        .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
-                                        .padding(.horizontal, OTSpace.s)
-                                        .padding(.vertical, OTSpace.xxs)
-                                        .background(isCurrent ? AnyShapeStyle(OT.reader) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .listRowBackground(Color.clear)
-                }
+            }
 
                 // Scene Audio Flow Shortcut
                 Section {
@@ -244,8 +241,10 @@ struct ReaderView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-        }
-        .otBottomBar {
+            .otCanvas()
+            .navigationTitle("Who reads \(effectiveReaderName)?")
+            .navigationBarTitleDisplayMode(.inline)
+            .otBottomBar {
             Button("Continue") {
                 if store.auditionsPath.contains(.noticeReview) {
                     store.auditionsPath = [.auditionDetail(auditionID)]

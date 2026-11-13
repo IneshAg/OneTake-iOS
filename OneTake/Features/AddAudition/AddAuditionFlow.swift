@@ -227,17 +227,10 @@ struct AddAuditionFlow: View {
     }
 
     private var capture: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: OTSpace.m) {
-                HStack {
-                    Text("Add an audition").font(.otTitle)
-                    Spacer()
-                    OTIconButton("xmark", accessibilityLabel: "Close") {
-                        dismiss()
-                    }
-                }
-
-                Button {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: OTSpace.m) {
+                    Button {
                     handlePasteNotice()
                 } label: {
                     HStack(spacing: OTSpace.m) {
@@ -284,15 +277,23 @@ struct AddAuditionFlow: View {
                 }
                 .buttonStyle(.plain)
 
-                Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
-                    .font(.otFootnote).foregroundStyle(OT.accent)
+                    Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
+                        .font(.otFootnote).foregroundStyle(OT.accent)
+                }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.xs)
+                .padding(.bottom, OTSpace.m)
             }
-            .padding(.horizontal, OTSpace.gutter)
-            .padding(.top, OTSpace.m)
-            .padding(.bottom, OTSpace.l)
+            .scrollBounceBehavior(.basedOnSize)
+            .otCanvas()
+            .navigationTitle("Add an audition")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .otCanvas()
     }
 
     private func way(_ symbol: String, _ title: String) -> some View {

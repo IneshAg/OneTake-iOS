@@ -38,7 +38,7 @@ struct RouteDestinations: ViewModifier {
         case .audioWalk(let id, let scene):      AudioWalkView(auditionID: id, sceneIndex: scene)
         case .missingDetails:                    MissingDetailsView()
         case .noticeReview:                      NoticeReviewView()
-        case .testSides:                         AddDraftSidesSheet(draft: .constant(NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))))
+        case .testSides:                         AddDraftSidesSheet(draft: .constant(NoticeParser.Draft(project: "Hamlet", role: "Ophelia", due: .now.addingTimeInterval(86400))), isSheet: false)
         }
     }
 }
@@ -50,10 +50,7 @@ extension View {
     func hideSystemBars() -> some View {
         self
             .toolbarVisibility(.hidden, for: .tabBar)
-            .toolbarVisibility(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
-            .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-            .navigationBarBackButtonHidden(true)
             .background(TabBarHider())
     }
 

@@ -545,10 +545,7 @@ struct HeadshotReferenceGuideSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(title: "Match Reference", leading: "Done", onLeading: { dismiss() })
-                .padding(.top, OTSpace.m)
-
+        NavigationStack {
             ScrollView {
                 VStack(spacing: OTSpace.l) {
                     VStack(spacing: OTSpace.s) {
@@ -630,8 +627,16 @@ struct HeadshotReferenceGuideSheet: View {
                 }
                 .padding(OTSpace.gutter)
             }
+            .background(Color(white: 0.08).ignoresSafeArea()) // ot-lint:allow
+            .navigationTitle("Match Reference")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
-        .background(Color(white: 0.08).ignoresSafeArea()) // ot-lint:allow
         .preferredColorScheme(.dark)
     }
 

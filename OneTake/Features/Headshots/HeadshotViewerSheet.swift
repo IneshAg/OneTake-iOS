@@ -21,17 +21,9 @@ struct HeadshotViewerSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(
-                title: item.title,
-                leading: "Done",
-                onLeading: { dismiss() }
-            )
-            .padding(.top, OTSpace.m)
-            .padding(.bottom, OTSpace.xs)
-            .background(Color.black) // ot-lint:allow
-
-            ZStack {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ZStack {
                 Color.black.ignoresSafeArea() // ot-lint:allow
 
                 if let img = image {
@@ -92,6 +84,15 @@ struct HeadshotViewerSheet: View {
             .padding(.horizontal, OTSpace.gutter)
             .padding(.vertical, OTSpace.m)
             .background(OT.surfaceRaised)
+            }
+            .navigationTitle(item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .onChange(of: replacePickerItem) { _, newItem in

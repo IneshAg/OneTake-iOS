@@ -25,7 +25,7 @@ struct RunLinesView: View {
     var body: some View {
         if let a = store.audition(auditionID), a.scenes.indices.contains(sceneIndex), !a.scenes[sceneIndex].lines.isEmpty {
             let lines = a.scenes[sceneIndex].lines
-            OTScreen(title: "Practice", backLabel: "Back", onBack: { store.pop() }, scrolls: false) {
+            VStack(alignment: .leading, spacing: OTSpace.l) {
                 // progress
                 HStack(spacing: OTSpace.xxs) {
                     ForEach(lines.indices, id: \.self) { i in
@@ -124,6 +124,13 @@ struct RunLinesView: View {
                     .foregroundStyle(OT.labelPrimary)
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .otCanvas()
+            .navigationTitle("Practice")
+            .navigationBarTitleDisplayMode(.inline)
             .onAppear { speakIfReader(lines) }
             .onChange(of: follower.transcript) { _, transcript in
                 guard !finished, lines[index].isMine,

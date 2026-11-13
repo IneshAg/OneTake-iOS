@@ -57,16 +57,7 @@ struct MissingDetailsView: View {
 
     var body: some View {
         @Bindable var store = store
-        OTScreen(
-            title: "",
-            backLabel: "Back",
-            onBack: {
-                store.popToRoot()
-                store.pendingRouteAfterAdd = nil
-                store.continueAfterAdd = nil
-                store.showAddAudition = true
-            }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 Text(missing.isEmpty ? "All set" : missing.count == 1 ? "One thing missing" : "A few details missing")
                     .font(.otLargeTitle)
@@ -348,7 +339,12 @@ struct MissingDetailsView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, OTSpace.s)
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             VStack(spacing: OTSpace.s) {
                 if showValidationErrors && !canContinue {

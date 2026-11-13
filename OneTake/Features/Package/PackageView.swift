@@ -88,11 +88,7 @@ struct PackageView: View {
         let deliverable = a.packageDeliverable
         let requiredFormat = PackageFormatHelper.requiredDeliverable(for: a)
 
-        return OTScreen(
-            title: "",
-            backLabel: "Back",
-            onBack: { store.pop() }
-        ) {
+        return ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 Text("Ready to send.").font(.otLargeTitle)
                 Text("Due \(a.due.otDue) · \(a.readyCount) of \(a.totalCount) ready")
@@ -164,7 +160,13 @@ struct PackageView: View {
                 }
                 .otCard(.grouped, padding: OTSpace.m)
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle("Package")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             bottomSendBar(a, deliverable: deliverable)
         }

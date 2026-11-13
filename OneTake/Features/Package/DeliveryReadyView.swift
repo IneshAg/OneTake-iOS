@@ -11,7 +11,7 @@ struct DeliveryReadyView: View {
     @State private var copiedNoticeToast: Bool = false
 
     var body: some View {
-        OTScreen(title: "", scrolls: true) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 VStack(alignment: .leading, spacing: OTSpace.s) {
                     Image(systemName: "checkmark.circle.fill")
@@ -97,7 +97,12 @@ struct DeliveryReadyView: View {
                 Button("Back to package", action: onBack)
                     .buttonStyle(.otSecondary)
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationBarBackButtonHidden(true)
     }
 
     private var readySubtitle: String {

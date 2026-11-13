@@ -13,9 +13,7 @@ struct PracticeView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-
+        Group {
             if displayedPractice.isEmpty {
                 EmptyPracticeView(showSample: showSample) {
                     store.push(.practiceSample)
@@ -118,33 +116,29 @@ struct PracticeView: View {
                         }
                     }
                     .padding(.horizontal, OTSpace.gutter)
+                    .padding(.top, OTSpace.l)
                     .padding(.bottom, 120) // ot-lint:allow
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
+        .navigationTitle("Practice")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    store.push(.practiceSetup)
+                } label: {
+                    Label("Practice a new scene", systemImage: "plus")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                ProfileButton { store.showProfile = true }
+            }
+        }
         .sheet(isPresented: Binding(get: { sidesAuditionID != nil }, set: { if !$0 { sidesAuditionID = nil } })) {
             if let id = sidesAuditionID { RevisedSidesSheet(auditionID: id) }
         }
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: OTSpace.s) {
-            Text("Practice")
-                .font(.otLargeTitle)
-                .foregroundStyle(OT.labelPrimary)
-            Spacer()
-            OTIconButton("plus", accessibilityLabel: "Practice a new scene") {
-                store.push(.practiceSetup)
-            }
-            ProfileButton { store.showProfile = true }
-        }
-        .padding(.horizontal, OTSpace.gutter)
-        .padding(.bottom, 6) // ot-lint:allow
-        .background(OT.bgCanvas)
     }
 
     private var noScenesCard: some View {

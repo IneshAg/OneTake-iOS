@@ -10,10 +10,7 @@ struct PracticeOptionsView: View {
            audition.scenes.indices.contains(sceneIndex) {
             let scene = audition.scenes[sceneIndex]
 
-            OTScreen(
-                title: "Practice",
-                onBack: { store.pop() }
-            ) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: OTSpace.l) {
                     VStack(alignment: .leading, spacing: OTSpace.xxs) {
                         Text(scene.title).font(.otLargeTitle)
@@ -78,7 +75,13 @@ struct PracticeOptionsView: View {
                         }
                     }
                 }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.xl)
             }
+            .otCanvas()
+            .navigationTitle("Practice")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 

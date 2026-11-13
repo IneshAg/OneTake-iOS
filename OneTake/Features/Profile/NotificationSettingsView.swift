@@ -14,8 +14,7 @@ struct NotificationSettingsView: View {
     @State private var testScheduled = false
 
     var body: some View {
-        OTScreen(title: "Notifications", onBack: { store.pop() }, scrolls: false, insetContent: false) {
-            Form {
+        Form {
                 if authStatus == .denied {
                     Section {
                         VStack(alignment: .leading, spacing: OTSpace.s) {
@@ -97,9 +96,11 @@ struct NotificationSettingsView: View {
             .onChange(of: morning) { checkAndReschedule() }
             .onChange(of: twoHours) { checkAndReschedule() }
             .onChange(of: practice) { checkAndReschedule() }
-            .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
-            .scrollContentBackground(.hidden)
-        }
+        .onChange(of: liveActivity) { LiveActivitySync.update(store.auditions) }
+        .scrollContentBackground(.hidden)
+        .otCanvas()
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func refreshStatus() async {

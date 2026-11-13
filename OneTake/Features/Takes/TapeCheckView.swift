@@ -31,7 +31,7 @@ struct AuditionElementReviewView: View {
     }
 
     var body: some View {
-        OTScreen(title: "Review \(displayTitle)", backLabel: "Back", onBack: { store.pop() }) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 if let player {
                     VideoPlayer(player: player)
@@ -71,7 +71,13 @@ struct AuditionElementReviewView: View {
                     .font(.otFootnote)
                     .foregroundStyle(OT.labelTertiary)
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle("Review \(displayTitle)")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             Button(actionTitle, action: editThisElement)
                 .buttonStyle(.otPrimary)
@@ -117,7 +123,7 @@ struct TapeCheckView: View {
     @State private var passedOpen = false
 
     var body: some View {
-        OTScreen(title: "Tape check", backLabel: "Back", onBack: { store.pop() }) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 if let report {
                     results(report)
@@ -131,7 +137,13 @@ struct TapeCheckView: View {
                     .padding(.top, OTSpace.l)
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
         }
+        .otCanvas()
+        .navigationTitle("Tape check")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             Button("Preview the full tape") {
                 store.push(.preview(auditionID))

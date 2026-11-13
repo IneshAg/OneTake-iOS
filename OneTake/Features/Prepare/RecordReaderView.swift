@@ -55,57 +55,11 @@ struct RecordReaderView: View {
             let readerLines = allUnowned.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
             let readerTrackVersion = store.readerTrackVersion
 
-            OTScreen(
-                title: "Record \(readerName)",
-                backLabel: "Back",
-                onBack: {
-                    player.stop()
-                    recorder.cancel()
-                    store.pop()
-                },
-                trailing: {
-                    Button {
-                        player.stop()
-                        recorder.cancel()
-                        store.push(.sceneAudioFlow(auditionID, sceneIndex: sceneIndex))
-                    } label: {
-                        Image(systemName: "waveform.badge.magnifyingglass")
-                            .font(.system(size: 16, weight: .semibold)) // ot-lint:allow
-                            .foregroundStyle(OT.labelPrimary)
-                            .frame(width: 44, height: 44) // ot-lint:allow
-                            .contentShape(Rectangle())
+            ScrollView {
+                VStack(alignment: .leading, spacing: OTSpace.l) {
+                    if availableReaders.count > 1 {
+                        readerPicker(availableReaders: availableReaders, readerName: readerName)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Scene audio flow")
-                }
-            ) {
-                if availableReaders.count > 1 {
-                    HStack(spacing: OTSpace.s) {
-                        Text("Reader:")
-                            .font(.otCaption)
-                            .foregroundStyle(OT.labelTertiary)
-                        ForEach(availableReaders, id: \.self) { char in
-                            let isCurrent = char.caseInsensitiveCompare(readerName) == .orderedSame
-                            Button {
-                                guard !recording && !isProcessing else { return }
-                                player.stop()
-                                isPreviewPlaying = false
-                                selectedReader = char
-                                lineIndex = 0
-                                recordingError = nil
-                                Haptics.tick()
-                            } label: {
-                                Text(char)
-                                    .font(.otCaption.weight(isCurrent ? .bold : .medium))
-                                    .foregroundStyle(isCurrent ? OT.bgCanvas : OT.reader)
-                                    .padding(.horizontal, OTSpace.s)
-                                    .padding(.vertical, OTSpace.xxs)
-                                    .background(isCurrent ? AnyShapeStyle(OT.reader) : AnyShapeStyle(OT.fillField), in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
 
                 // Interactive Progress & Line Selector
                 HStack(spacing: OTSpace.xxs) {
@@ -570,6 +524,24 @@ struct RecordReaderView: View {
                     }
                 }
             }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+            }
+            .otCanvas()
+            .navigationTitle("Record \(readerName)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        player.stop()
+                        recorder.cancel()
+                        store.push(.sceneAudioFlow(auditionID, sceneIndex: sceneIndex))
+                    } label: {
+                        Label("Scene audio flow", systemImage: "waveform.badge.magnifyingglass")
+                    }
+                }
+            }
             .sheet(isPresented: $showAudioTrimmer) {
                 if let trimTargetLineIndex {
                     let sourceURL = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: trimTargetLineIndex)
@@ -632,6 +604,36 @@ struct RecordReaderView: View {
                 recorder.cancel()
             }
         }
+    }
+
+    @ViewBuilder
+    private func readerPicker(availableReaders: [String], readerName: String) -> some View {
+        let selection = Binding(
+            get: { readerName },
+            set: { char in
+                guard !recording && !isProcessing else { return }
+                player.stop()
+                isPreviewPlaying = false
+                selectedReader = char
+                lineIndex = 0
+                recordingError = nil
+                Haptics.tick()
+            }
+        )
+        Group {
+            if availableReaders.count <= 3 {
+                Picker("Reader", selection: selection) {
+                    ForEach(availableReaders, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            } else {
+                Picker("Reader", selection: selection) {
+                    ForEach(availableReaders, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+            }
+        }
+        .disabled(recording || isProcessing)
     }
 
     private func beginAudioTrim(_ line: Int) {

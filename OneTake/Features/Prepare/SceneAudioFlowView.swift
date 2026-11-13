@@ -38,18 +38,9 @@ struct SceneAudioFlowView: View {
 
     var body: some View {
         let readerTrackVersion = store.readerTrackVersion
-        OTScreen(
-            title: "Scene Audio Flow",
-            backLabel: "Back",
-            onBack: {
-                stopAll()
-                store.pop()
-            },
-            scrolls: false
-        ) {
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: OTSpace.m) {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: OTSpace.m) {
                         // Overview Card
                         VStack(alignment: .leading, spacing: OTSpace.s) {
                             HStack {
@@ -214,6 +205,7 @@ struct SceneAudioFlowView: View {
                         }
                     }
                     .padding(.horizontal, OTSpace.gutter)
+                    .padding(.top, OTSpace.s)
                     .padding(.bottom, OTSpace.xxl)
                 }
                 .onChange(of: activeLineIndex) { _, newIndex in
@@ -224,7 +216,9 @@ struct SceneAudioFlowView: View {
                     }
                 }
             }
-        }
+        .otCanvas()
+        .navigationTitle("Scene Audio Flow")
+        .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             bottomDeck
         }

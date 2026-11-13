@@ -12,13 +12,9 @@ struct OnboardingFlow: View {
         NavigationStack(path: $path) {
             WelcomeView { path.append(.slate) }
                 .navigationDestination(for: Step.self) { step in
-                    Group {
-                        switch step {
-                        case .slate: SlateDetailsView(onBack: { path = [] }, onContinue: { finish() })
-                        }
+                    switch step {
+                    case .slate: SlateDetailsView(onBack: { path = [] }, onContinue: { finish() })
                     }
-                    .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-                    .navigationBarBackButtonHidden(true)
                 }
         }
     }
@@ -129,16 +125,9 @@ struct SignInView: View {
     @State private var working = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Button("Cancel") { dismiss() }
-                    .font(.otSubhead.weight(.semibold))
-                    .foregroundStyle(OT.accent)
-                Spacer()
-            }
-            .padding(.bottom, OTSpace.m)
-
-            VStack(alignment: .leading, spacing: OTSpace.xxs) {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: OTSpace.xxs) {
                 Text("Sign in or create an account")
                     .font(.system(size: 40, weight: .bold)) // ot-lint:allow
                     .tracking(-0.8)
@@ -215,11 +204,18 @@ struct SignInView: View {
                 .foregroundStyle(OT.labelTertiary)
                 .padding(.top, OTSpace.l)
                 .padding(.horizontal, OTSpace.xs)
-            Spacer()
+                Spacer()
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .otCanvas()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
-        .padding(.horizontal, OTSpace.gutter)
-        .padding(.top, OTSpace.l)
-        .otCanvas()
     }
 
     private func unavailableProviderRow(symbol: String, title: String) -> some View {
@@ -290,16 +286,7 @@ struct SlateDetailsView: View {
 
     var body: some View {
         @Bindable var store = store
-        OTScreen(
-            title: "",
-            backLabel: "Back",
-            onBack: onBack,
-            trailing: {
-                Button("Skip", action: onContinue)
-                    .font(.otHeadline)
-                    .foregroundStyle(OT.accent)
-            }
-        ) {
+        ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.m) {
                 Text("How casting meets you")
                     .font(.otLargeTitle)
@@ -330,6 +317,16 @@ struct SlateDetailsView: View {
                 }
                 .padding(OTSpace.l)
                 .otCard(.grouped)
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.s)
+            .padding(.bottom, OTSpace.xl)
+        }
+        .otCanvas()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Skip", action: onContinue)
             }
         }
         .otBottomBar {

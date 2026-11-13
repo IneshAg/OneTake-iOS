@@ -14,22 +14,7 @@ struct EditSlateView: View {
     private enum HeightUnit: String, Hashable { case feetInches = "ft / in", centimetres = "cm" }
 
     var body: some View {
-        OTScreen(
-            title: "Edit slate",
-            onBack: { store.pop() },
-            scrolls: false,
-            insetContent: false,
-            trailing: {
-                Button("Save") {
-                    focusedField = nil
-                    store.slate = draft
-                    store.pop()
-                }
-                .font(.otHeadline)
-                .foregroundStyle(OT.accent)
-            }
-        ) {
-            Form {
+        Form {
                 Section("Your slate") {
                     slateField("Name", placeholder: "e.g. Maya Sharma", text: $draft.name, field: .name,
                                contentType: .name, capitalization: .words, next: .height)
@@ -94,8 +79,17 @@ struct EditSlateView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-        }
+        .otCanvas()
+        .navigationTitle("Edit slate")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    focusedField = nil
+                    store.slate = draft
+                    store.pop()
+                }
+            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { focusedField = nil }

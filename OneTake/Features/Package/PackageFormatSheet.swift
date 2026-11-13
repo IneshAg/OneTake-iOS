@@ -7,20 +7,18 @@ struct PackageFormatSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            OTSheetHeader(title: "Delivery format", leading: nil, trailing: "Done", onTrailing: { dismiss() })
-                .padding(.top, OTSpace.m)
+        NavigationStack {
+            VStack(spacing: 0) {
+                Text(required.map { "Casting requests \($0.rawValue)." } ?? "No file format was specified. Choose what you want to send.")
+                    .font(.otFootnote)
+                    .foregroundStyle(OT.labelSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, OTSpace.gutter)
+                    .padding(.top, OTSpace.s)
+                    .padding(.bottom, OTSpace.xxs)
 
-            Text(required.map { "Casting requests \($0.rawValue)." } ?? "No file format was specified. Choose what you want to send.")
-                .font(.otFootnote)
-                .foregroundStyle(OT.labelSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, OTSpace.gutter)
-                .padding(.top, OTSpace.s)
-                .padding(.bottom, OTSpace.xxs)
-
-            if let binding = store.binding(for: auditionID) {
-                List {
+                if let binding = store.binding(for: auditionID) {
+                    List {
                     ForEach(PackageDeliverable.allCases) { option in
                         let selected = binding.wrappedValue.packageDeliverable == option
                         Button {
@@ -62,10 +60,18 @@ struct PackageFormatSheet: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    }
+                    .scrollContentBackground(.hidden)
                 }
-                .otCompactList()
+            }
+            .otCanvas()
+            .navigationTitle("Delivery format")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
-        .otCanvas()
     }
 }
