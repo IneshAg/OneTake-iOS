@@ -18,7 +18,7 @@ struct PracticeSetupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OTNavHeader(title: "Practise a scene", backLabel: "Back", onBack: { store.pop() })
+            OTNavHeader(title: "Practice a scene", backLabel: "Back", onBack: { store.pop() })
                 .padding(.horizontal, OTSpace.gutter)
                 .padding(.top, OTSpace.xs)
 

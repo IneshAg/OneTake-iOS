@@ -36,7 +36,7 @@ struct PracticeView: View {
                                     Button {
                                         open(piece)
                                     } label: {
-                                        Label("Practise", systemImage: "play.fill")
+                                        Label("Practice", systemImage: "play.fill")
                                     }
                                     .buttonStyle(.otPrimary)
 
@@ -137,7 +137,7 @@ struct PracticeView: View {
                 .font(.otLargeTitle)
                 .foregroundStyle(OT.labelPrimary)
             Spacer()
-            OTIconButton("plus", accessibilityLabel: "Practise a new scene") {
+            OTIconButton("plus", accessibilityLabel: "Practice a new scene") {
                 store.push(.practiceSetup)
             }
             ProfileButton { store.showProfile = true }

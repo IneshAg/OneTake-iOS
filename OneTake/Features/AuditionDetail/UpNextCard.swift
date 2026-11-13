@@ -64,7 +64,7 @@ struct UpNextCard: View {
                 HStack(spacing: OTSpace.s) {
                     Button("Prepare scene \(scene.number)") { store.push(.prepare(audition.id, sceneIndex: sceneIndex)) }
                         .buttonStyle(.otPrimary)
-                    Button("Practise") {
+                    Button("Practice") {
                         store.practicePiece(for: audition.id, sceneIndex: sceneIndex)
                         store.push(.runLines(audition.id, sceneIndex: sceneIndex))
                     }
