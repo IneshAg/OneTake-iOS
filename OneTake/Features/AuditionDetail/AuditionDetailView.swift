@@ -161,7 +161,11 @@ struct AuditionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Edit") { showEdit = true }
+                Button {
+                    showEdit = true
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
             }
             OTTrailingToolbarSpacer()
             ToolbarItem(placement: .topBarTrailing) {

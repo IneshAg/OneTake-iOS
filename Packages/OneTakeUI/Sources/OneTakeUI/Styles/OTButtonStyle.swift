@@ -47,7 +47,7 @@ public struct OTButtonStyle: ButtonStyle {
 
     @ViewBuilder
     private func backgroundView(surface: OTSurface) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let shape = Capsule(style: .continuous)
         switch variant {
         case .primary:
             shape.fill(isEnabled ? OT.accent : OT.accent.opacity(0.35))
@@ -74,7 +74,7 @@ public struct OTButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         let fg = Self.foreground(for: variant, surface: otSurface)
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let shape = Capsule(style: .continuous)
 
         configuration.label
             .font(size.font)
