@@ -18,6 +18,7 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 
@@ -29,9 +30,10 @@ try:
         add_shared_training_args,
         build_cactus_convert_command,
         build_eval_command,
+        finalize_held_out_eval,
         inspect_jsonl_dataset,
+        load_jsonl_rows,
         run_cactus_convert,
-        run_held_out_eval,
         serialize_config,
         validate_common_lora_hparams,
     )
@@ -44,9 +46,10 @@ except ImportError:  # pragma: no cover - direct script invocation
         add_shared_training_args,
         build_cactus_convert_command,
         build_eval_command,
+        finalize_held_out_eval,
         inspect_jsonl_dataset,
+        load_jsonl_rows,
         run_cactus_convert,
-        run_held_out_eval,
         serialize_config,
         validate_common_lora_hparams,
     )
@@ -57,6 +60,98 @@ DEFAULT_VLM_FALLBACK_MODEL_ID = "LiquidAI/LFM2-VL-450M"
 DEFAULT_VLM_OUTPUT_NAME = "lfm2.5-vl-450m-onetake-cq4"
 DEFAULT_MAX_IMAGE_EDGE = 768
 MAX_VLM_SEQ_LEN = 2048
+
+
+def normalize_vlm_messages(
+    messages: list[dict[str, Any]],
+    *,
+    has_image: bool = True,
+) -> list[dict[str, Any]]:
+    """Normalize user messages into multimodal blocks [{"type": "image"}, {"type": "text", "text": ...}]
+    when an image is present, matching HuggingFace AutoProcessor expectations.
+    """
+    normalized: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role != "user":
+            normalized.append(dict(msg))
+            continue
+
+        if not has_image:
+            if isinstance(content, list):
+                filtered = [
+                    item
+                    for item in content
+                    if not (isinstance(item, dict) and item.get("type") == "image")
+                ]
+                normalized.append({**msg, "content": filtered})
+            else:
+                normalized.append(dict(msg))
+            continue
+
+        # has_image is True
+        if isinstance(content, str):
+            normalized.append(
+                {
+                    **msg,
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": content},
+                    ],
+                }
+            )
+        elif isinstance(content, list):
+            items = list(content)
+            has_img_block = any(
+                isinstance(item, dict) and item.get("type") == "image" for item in items
+            )
+            if not has_img_block:
+                items.insert(0, {"type": "image"})
+            normalized.append({**msg, "content": items})
+        else:
+            normalized.append(
+                {
+                    **msg,
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": str(content)},
+                    ],
+                }
+            )
+    return normalized
+
+
+def compute_vlm_labels(
+    input_ids: Any,
+    prompt_lengths: list[int],
+    *,
+    pad_token_id: int | None = None,
+) -> Any:
+    """Mask prompt + image tokens and padding with -100 so loss is computed solely on assistant responses.
+
+    Works with both PyTorch tensors and plain Python nested lists.
+    """
+    if hasattr(input_ids, "clone"):
+        labels = input_ids.clone()
+        for idx, prompt_len in enumerate(prompt_lengths):
+            limit = min(prompt_len, labels.shape[-1])
+            labels[idx, :limit] = -100
+        if pad_token_id is not None:
+            labels[labels == pad_token_id] = -100
+        return labels
+
+    labels_list: list[list[int]] = [list(seq) for seq in input_ids]
+    for idx, prompt_len in enumerate(prompt_lengths):
+        seq = labels_list[idx]
+        limit = min(prompt_len, len(seq))
+        for j in range(limit):
+            seq[j] = -100
+        if pad_token_id is not None:
+            for j in range(len(seq)):
+                if seq[j] == pad_token_id:
+                    seq[j] = -100
+    return labels_list
 
 
 @dataclass
@@ -82,6 +177,7 @@ class LFM25VLTrainConfig:
     predictions_file: Path | None = None
     eval_output: Path | None = None
     skip_eval: bool = False
+    require_quantized_eval: bool = False
 
     @property
     def lora_dir(self) -> Path:
@@ -126,6 +222,8 @@ def validate_vlm_config(cfg: LFM25VLTrainConfig) -> None:
         quant_bits=cfg.quant_bits,
         max_allowed_seq_len=MAX_VLM_SEQ_LEN,
         allowed_bits=(4, 8),
+        skip_eval=cfg.skip_eval,
+        require_quantized_eval=cfg.require_quantized_eval,
     )
 
 
@@ -155,9 +253,19 @@ def build_vlm_plan(
         predictions_file=cfg.resolved_predictions_file,
         output_file=cfg.resolved_eval_output,
     )
+    eval_mode = (
+        "skipped"
+        if cfg.skip_eval
+        else (
+            "quantized_required"
+            if cfg.require_quantized_eval
+            else "quantized_preferred_with_peft_fallback"
+        )
+    )
     return {
         "trainer": "lfm25_vl_lora",
         "config": serialize_config(cfg),
+        "eval_mode": eval_mode,
         "output_paths": {
             "lora_dir": str(cfg.lora_dir),
             "export_dir": str(cfg.export_dir),
@@ -253,7 +361,11 @@ def _generate_vlm_predictions(
                 if image_path and image_path.exists()
                 else None
             )
-            prompt_messages = row["messages"][:2]
+            raw_prompt_messages = [m for m in row["messages"] if m.get("role") != "assistant"]
+            prompt_messages = normalize_vlm_messages(
+                raw_prompt_messages,
+                has_image=image is not None,
+            )
             prompt_text = processor.apply_chat_template(
                 prompt_messages,
                 tokenize=False,
@@ -327,24 +439,45 @@ def run_vlm_training(cfg: LFM25VLTrainConfig) -> dict[str, Any]:
             return {"messages": row["messages"], "image": image}
 
     def collate_vlm_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
-        texts = [
-            processor.apply_chat_template(item["messages"], tokenize=False, add_generation_prompt=False)
-            for item in batch
-        ]
-        images = [item["image"] for item in batch]
+        prompt_lengths: list[int] = []
+        normalized_full_texts: list[str] = []
+        images: list[Any] = []
+
+        for item in batch:
+            img = item.get("image")
+            has_img = img is not None
+            norm_msgs = normalize_vlm_messages(item["messages"], has_image=has_img)
+            prompt_msgs = [m for m in norm_msgs if m.get("role") != "assistant"]
+            prompt_text = processor.apply_chat_template(
+                prompt_msgs, tokenize=False, add_generation_prompt=True
+            )
+            full_text = processor.apply_chat_template(
+                norm_msgs, tokenize=False, add_generation_prompt=False
+            )
+            normalized_full_texts.append(full_text)
+            images.append(img)
+
+            prompt_inputs = processor(
+                text=[prompt_text],
+                images=[img] if has_img else None,
+                return_tensors="pt",
+            )
+            prompt_lengths.append(int(prompt_inputs["input_ids"].shape[-1]))
+
+        has_any_images = any(img is not None for img in images)
         encoded = processor(
-            text=texts,
-            images=images,
+            text=normalized_full_texts,
+            images=images if has_any_images else None,
             return_tensors="pt",
             padding=True,
-            truncation=True,
-            max_length=cfg.max_seq_len,
+            truncation=False,
         )
-        labels = encoded["input_ids"].clone()
-        pad_id = getattr(processor.tokenizer, "pad_token_id", None)
-        if pad_id is not None:
-            labels[labels == pad_id] = -100
-        encoded["labels"] = labels
+        pad_id = getattr(getattr(processor, "tokenizer", processor), "pad_token_id", None)
+        encoded["labels"] = compute_vlm_labels(
+            encoded["input_ids"],
+            prompt_lengths,
+            pad_token_id=pad_id,
+        )
         return encoded
 
     training_args = TrainingArguments(
@@ -383,17 +516,24 @@ def run_vlm_training(cfg: LFM25VLTrainConfig) -> dict[str, Any]:
     )
     run_cactus_convert(convert_cmd)
 
-    eval_report = None
-    if not cfg.skip_eval:
-        preds_path = _generate_vlm_predictions(
+    eval_report = finalize_held_out_eval(
+        eval_file=cfg.eval_file,
+        eval_rows=eval_rows,
+        export_dir=cfg.export_dir,
+        predictions_file=cfg.resolved_predictions_file,
+        eval_output=cfg.resolved_eval_output,
+        skip_eval=cfg.skip_eval,
+        require_quantized_eval=cfg.require_quantized_eval,
+        dataset_root=eval_root,
+        peft_fallback_fn=lambda: _generate_vlm_predictions(
             model=model,
             processor=processor,
             eval_rows=eval_rows,
             dataset_root=eval_root,
             output_path=cfg.resolved_predictions_file,
             max_image_edge=cfg.max_image_edge,
-        )
-        eval_report = run_held_out_eval(cfg.eval_file, preds_path, cfg.resolved_eval_output)
+        ),
+    )
 
     plan["resolved_model_id"] = resolved_model_id
     plan["cactus_convert_command"] = convert_cmd
@@ -449,6 +589,7 @@ def config_from_args(args: argparse.Namespace) -> LFM25VLTrainConfig:
         predictions_file=args.predictions_file,
         eval_output=args.eval_output,
         skip_eval=args.skip_eval,
+        require_quantized_eval=args.require_quantized_eval,
     )
 
 
@@ -464,9 +605,15 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(plan, indent=2))
             return 0
         result = run_vlm_training(cfg)
-    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+    if args.config_out:
+        args.config_out.parent.mkdir(parents=True, exist_ok=True)
+        args.config_out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=2))
+    return 0
 
     if args.config_out:
         args.config_out.parent.mkdir(parents=True, exist_ok=True)

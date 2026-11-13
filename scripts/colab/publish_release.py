@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -98,16 +99,31 @@ def check_accuracy_gate(
 
     if metrics["samples"] is not None and metrics["samples"] <= 0:
         failures.append(f"samples={metrics['samples']} (must be > 0)")
-    if metrics["submission_email"] < min_email:
+
+    email_val = metrics["submission_email"]
+    if not math.isfinite(email_val) or email_val < min_email:
         failures.append(
-            f"submission_email={metrics['submission_email']:.4f} < {min_email:.4f}"
+            f"submission_email={email_val:.4f} < {min_email:.4f}"
+            if math.isfinite(email_val)
+            else f"submission_email={email_val} (non-finite)"
         )
-    if metrics["core_f1"] < min_core_f1:
-        failures.append(f"core_f1={metrics['core_f1']:.4f} < {min_core_f1:.4f}")
+
+    f1_val = metrics["core_f1"]
+    if not math.isfinite(f1_val) or f1_val < min_core_f1:
+        failures.append(
+            f"core_f1={f1_val:.4f} < {min_core_f1:.4f}"
+            if math.isfinite(f1_val)
+            else f"core_f1={f1_val} (non-finite)"
+        )
+
     if min_sides_link is not None:
         sides = metrics["sides_link"]
-        if sides is None or sides < min_sides_link:
-            failures.append(f"sides_link={sides} < {min_sides_link:.4f}")
+        if sides is None or not math.isfinite(sides) or sides < min_sides_link:
+            failures.append(
+                f"sides_link={sides:.4f} < {min_sides_link:.4f}"
+                if sides is not None and math.isfinite(sides)
+                else f"sides_link={sides} < {min_sides_link:.4f}"
+            )
 
     if failures:
         raise ValueError("Accuracy gate failed: " + "; ".join(failures))
@@ -136,18 +152,42 @@ def compute_sha256(file_path: Path) -> str:
 
 
 def package_release_artifact(weights_path: Path, output_archive: Path) -> Path:
-    """Package a weights directory into a deterministic `.zip` or copy an existing file."""
+    """Package a weights directory or single file into a deterministic `.zip` or copy an existing `.zip`."""
     if not weights_path.exists():
         raise FileNotFoundError(f"Weights path not found: {weights_path}")
 
     output_archive.parent.mkdir(parents=True, exist_ok=True)
+    resolved_output = output_archive.resolve()
+
     if weights_path.is_file():
-        if weights_path.resolve() != output_archive.resolve():
-            shutil.copy2(weights_path, output_archive)
+        if weights_path.suffix.lower() == ".zip":
+            if weights_path.resolve() != resolved_output:
+                shutil.copy2(weights_path, output_archive)
+            return output_archive
+
+        # Single non-.zip file (e.g. weights.bin) packaged into a deterministic .zip
+        with zipfile.ZipFile(
+            output_archive,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=6,
+        ) as zf:
+            zinfo = zipfile.ZipInfo(
+                filename=weights_path.name,
+                date_time=DETERMINISTIC_ZIP_TIMESTAMP,
+            )
+            zinfo.compress_type = zipfile.ZIP_DEFLATED
+            zinfo.external_attr = 0o644 << 16
+            zf.writestr(zinfo, weights_path.read_bytes())
         return output_archive
 
+    # Exclude output_archive if output_dir is inside weights_path to avoid self-nesting
     files = sorted(
-        (path for path in weights_path.rglob("*") if path.is_file()),
+        (
+            path
+            for path in weights_path.rglob("*")
+            if path.is_file() and path.resolve() != resolved_output
+        ),
         key=lambda p: p.relative_to(weights_path).as_posix(),
     )
     if not files:
