@@ -144,13 +144,6 @@ struct HeadshotAdjustSheet: View {
 
                 HStack(spacing: OTSpace.s) {
                     Button {
-                        autoFrame(preset: selectedPreset, animated: true)
-                    } label: {
-                        Label("Re-frame", systemImage: "sparkles")
-                    }
-                    .buttonStyle(.ot(.secondary, size: .medium))
-
-                    Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                             zoom = 1.0
                             offset = .zero

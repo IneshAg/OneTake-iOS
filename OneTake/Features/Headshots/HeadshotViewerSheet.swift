@@ -53,7 +53,7 @@ struct HeadshotViewerSheet: View {
                     dismiss()
                     onAdjust()
                 } label: {
-                    Label("Adjust & Frame", systemImage: "crop")
+                    Label("Adjust", systemImage: "crop")
                 }
                 .buttonStyle(.ot(.secondary, size: .medium))
 
