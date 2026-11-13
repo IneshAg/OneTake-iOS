@@ -313,7 +313,8 @@ struct AuditionDetailView: View {
         let hasHeadshots = HeadshotStore.exists(key: "front", auditionID: a.id)
         let count = HeadshotStore.taken(auditionID: a.id).count
         let headshotPiece = a.pieces.first { $0.kind == .headshot }
-        let isOpt = headshotPiece?.isOptional ?? false
+        let isIncluded = headshotPiece != nil
+        let isOpt = headshotPiece?.isOptional ?? true
         HStack(spacing: OTSpace.m) {
             Image(systemName: hasHeadshots ? "photo.fill" : "photo.badge.plus")
                 .font(.otIcon(.s, weight: .semibold))
@@ -321,8 +322,12 @@ struct AuditionDetailView: View {
                 .frame(width: 34, height: 34) // ot-lint:allow
                 .background(OT.accentSoft, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
-                OTSectionLabel(isOpt ? "Headshots (Optional)" : "Headshots")
-                Text(hasHeadshots ? "\(count) photo\(count == 1 ? "" : "s") attached" : (isOpt ? "No photos attached" : "Required in flow · tap Add"))
+                OTSectionLabel(!isIncluded || isOpt ? "Headshots (Optional)" : "Headshots")
+                Text(hasHeadshots
+                     ? "\(count) photo\(count == 1 ? "" : "s") attached"
+                     : (!isIncluded
+                        ? "Optional · tap Add to attach"
+                        : (isOpt ? "No photos attached" : "Step in flow · or tap Add now")))
                     .font(.otHeadline)
                     .foregroundStyle(OT.labelPrimary)
             }
