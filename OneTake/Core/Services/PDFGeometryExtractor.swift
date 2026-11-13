@@ -60,22 +60,34 @@ enum PDFGeometryExtractor {
     }
 
     /// Creates top-to-bottom synthetic `LayoutLine`s for non-geometric text sources or empty selections.
-    static func syntheticLines(from text: String, pageIndex: Int) -> [LayoutLine] {
+    static func syntheticLines(
+        from text: String,
+        pageIndex: Int,
+        preserveIndentation: Bool = false
+    ) -> [LayoutLine] {
         let rawLines = text
             .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !rawLines.isEmpty else { return [] }
 
         let usableHeight: CGFloat = 0.88
         let lineStep = usableHeight / CGFloat(rawLines.count)
         let lineHeight = min(0.025, lineStep * 0.85)
 
-        return rawLines.enumerated().map { idx, lineText in
+        return rawLines.enumerated().map { idx, rawLine in
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             let maxY = 0.94 - CGFloat(idx) * lineStep
             let minY = max(0.02, maxY - lineHeight)
-            let rect = CGRect(x: 0.08, y: minY, width: 0.84, height: lineHeight)
-            return LayoutLine(text: lineText, rect: rect, pageIndex: pageIndex)
+            if preserveIndentation {
+                let leadingSpaces = rawLine.prefix(while: { $0 == " " || $0 == "\t" }).count
+                let indent = min(0.55, max(0.08, CGFloat(leadingSpaces) / 40.0))
+                let width = max(0.15, 0.92 - indent)
+                let rect = CGRect(x: indent, y: minY, width: width, height: lineHeight)
+                return LayoutLine(text: trimmed, rect: rect, pageIndex: pageIndex, estimatedIndent: indent)
+            } else {
+                let rect = CGRect(x: 0.08, y: minY, width: 0.84, height: lineHeight)
+                return LayoutLine(text: trimmed, rect: rect, pageIndex: pageIndex)
+            }
         }
     }
 

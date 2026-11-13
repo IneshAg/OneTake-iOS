@@ -257,4 +257,34 @@ final class RealPDFParserTests: XCTestCase {
         XCTAssertTrue(draft.asks.contains("Slate first"))
         XCTAssertTrue(draft.asks.contains("Landscape"))
     }
+
+    func testDocumentPageRouterClassifiesCenteredMixedCaseGeometricCueAsSides() {
+        let noticePage = [
+            LayoutLine(text: "CASTING NOTICE: HARBOR LIGHTS", rect: CGRect(x: 0.1, y: 0.9, width: 0.7, height: 0.03), pageIndex: 0),
+            LayoutLine(text: "Director: Ava Chen | Callback Date: December 4, 2026", rect: CGRect(x: 0.1, y: 0.84, width: 0.7, height: 0.02), pageIndex: 0),
+            LayoutLine(text: "Submit tapes to casting@harborpictures.com", rect: CGRect(x: 0.1, y: 0.78, width: 0.7, height: 0.02), pageIndex: 0)
+        ]
+        // Mixed-case cues centered at rect.minX = 0.42 (OCRLayoutReconstructor emits 0 leading spaces for mixed-case).
+        let mixedCaseSidesPage = [
+            LayoutLine(text: "Elena", rect: CGRect(x: 0.42, y: 0.88, width: 0.12, height: 0.02), pageIndex: 1),
+            LayoutLine(text: "You knew the manifest was altered before the ship docked.", rect: CGRect(x: 0.25, y: 0.83, width: 0.55, height: 0.02), pageIndex: 1),
+            LayoutLine(text: "Marcus", rect: CGRect(x: 0.42, y: 0.76, width: 0.14, height: 0.02), pageIndex: 1),
+            LayoutLine(text: "Keep your voice down. Half the crew is still inside.", rect: CGRect(x: 0.25, y: 0.71, width: 0.55, height: 0.02), pageIndex: 1),
+            LayoutLine(text: "Elena", rect: CGRect(x: 0.42, y: 0.64, width: 0.12, height: 0.02), pageIndex: 1),
+            LayoutLine(text: "Then walk me out to the gate and tell me who paid you.", rect: CGRect(x: 0.25, y: 0.59, width: 0.55, height: 0.02), pageIndex: 1)
+        ]
+
+        let doc = LayoutDocument(pages: [noticePage, mixedCaseSidesPage])
+        let routed = DocumentPageRouter.route(doc, tokenBudget: 900)
+
+        XCTAssertEqual(routed.noticePages, [0])
+        XCTAssertEqual(routed.sidesPages, [1])
+        XCTAssertEqual(routed.sidesLayoutLines, mixedCaseSidesPage)
+
+        // Also verify NoticeParser.parse derives effectivePages when only layoutDocument is supplied.
+        let draft = NoticeParser.parse(doc.fullText, layoutDocument: doc)
+        XCTAssertEqual(draft.project, "Harbor Lights")
+        XCTAssertEqual(draft.destinationDetail, "casting@harborpictures.com")
+        XCTAssertFalse(draft.noticeSources.isEmpty)
+    }
 }

@@ -197,7 +197,8 @@ enum NoticeParser {
     ) async -> Draft {
         let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments, layoutDocument: layoutDocument)
         var refined = await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
-        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: pages)
+        let effectivePages = pages.isEmpty ? (layoutDocument?.reconstructedPages ?? []) : pages
+        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: effectivePages)
         return refined
     }
 
@@ -211,18 +212,19 @@ enum NoticeParser {
         let cleaned = ScriptParser.cleanPastedText(rawText)
         d.sourceText = cleaned
         d.sourceDocuments = sourceDocuments
+        let effectivePages = pages.isEmpty ? (layoutDocument?.reconstructedPages ?? []) : pages
 
         // Pass 1 (Notice Extractor): Route multi-page packets through `DocumentPageRouter` so
         // cover notices, breakdown tables, and tail submission pages feed notice extraction within budget.
         let routed: RoutedDocument?
         if let layoutDocument {
             routed = DocumentPageRouter.route(layoutDocument, tokenBudget: 900)
-        } else if !pages.isEmpty {
-            let layoutPages = pages.enumerated().map { idx, pageText in
-                syntheticLayoutLinesPreservingIndent(from: pageText, pageIndex: idx)
+        } else if !effectivePages.isEmpty {
+            let layoutPages = effectivePages.enumerated().map { idx, pageText in
+                PDFGeometryExtractor.syntheticLines(from: pageText, pageIndex: idx, preserveIndentation: true)
             }
             routed = DocumentPageRouter.route(
-                LayoutDocument(pages: layoutPages, reconstructedPages: pages),
+                LayoutDocument(pages: layoutPages, reconstructedPages: effectivePages),
                 tokenBudget: 900
             )
         } else {
@@ -232,10 +234,10 @@ enum NoticeParser {
         let noticeSource: String
         if let routed, !routed.noticePages.isEmpty {
             noticeSource = routed.noticeTextSlice
-        } else if !pages.isEmpty {
-            let isLongPacket = pages.count >= 2 || rawText.count > 3500
+        } else if !effectivePages.isEmpty {
+            let isLongPacket = effectivePages.count >= 2 || rawText.count > 3500
             noticeSource = isLongPacket
-                ? pages.prefix(2).joined(separator: "\n\n")
+                ? effectivePages.prefix(2).joined(separator: "\n\n")
                 : cleaned
         } else {
             noticeSource = rawText.count > 3500 ? String(rawText.prefix(2500)) : cleaned
@@ -282,7 +284,7 @@ enum NoticeParser {
             d.castingOffice = office
         }
         // Hierarchical Scene Portions (Pass 2 identification)
-        let portions = noticeOnly ? [] : ScriptParser.identifyScenePortions(from: cleaned, pages: pages)
+        let portions = noticeOnly ? [] : ScriptParser.identifyScenePortions(from: cleaned, pages: effectivePages)
         d.availablePortions = portions
 
         let targetRole = d.role.isEmpty ? (d.candidateRoles.first ?? "") : d.role
@@ -481,31 +483,7 @@ enum NoticeParser {
                 }
             }
         }
-        populateStructuredNoticeData(&d, text: cleaned, pages: pages)
+        populateStructuredNoticeData(&d, text: cleaned, pages: effectivePages)
         return d
-    }
-
-    private static func syntheticLayoutLinesPreservingIndent(from pageText: String, pageIndex: Int) -> [LayoutLine] {
-        let nonEmpty = pageText.components(separatedBy: .newlines).filter {
-            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        guard !nonEmpty.isEmpty else { return [] }
-        let usableHeight: CGFloat = 0.88
-        let lineStep = usableHeight / CGFloat(nonEmpty.count)
-        let lineHeight = min(0.025, lineStep * 0.85)
-        return nonEmpty.enumerated().map { idx, rawLine in
-            let leadingSpaces = rawLine.prefix(while: { $0 == " " || $0 == "\t" }).count
-            let indent = min(0.55, max(0.08, CGFloat(leadingSpaces) / 40.0))
-            let maxY = 0.94 - CGFloat(idx) * lineStep
-            let minY = max(0.02, maxY - lineHeight)
-            let width = max(0.15, 0.92 - indent)
-            let rect = CGRect(x: indent, y: minY, width: width, height: lineHeight)
-            return LayoutLine(
-                text: rawLine.trimmingCharacters(in: .whitespacesAndNewlines),
-                rect: rect,
-                pageIndex: pageIndex,
-                estimatedIndent: indent
-            )
-        }
     }
 }

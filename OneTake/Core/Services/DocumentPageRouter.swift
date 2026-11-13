@@ -45,7 +45,8 @@ enum DocumentPageRouter {
         }
 
         let clampedBudget = min(max(tokenBudget, 1), maxNeedleTokenBudget)
-        let maxWords = max(1, Int(floor(Double(clampedBudget) / 1.2)))
+        let tokensPerWord = clampedBudget > 900 ? 1.3 : 1.2
+        let maxWords = max(1, Int(floor(Double(clampedBudget) / tokensPerWord)))
 
         var pageTexts: [String] = []
         pageTexts.reserveCapacity(pageCount)
@@ -112,11 +113,13 @@ enum DocumentPageRouter {
         pageIndex: Int,
         previousKind: PageKind?
     ) -> PageScore {
-        let rawLines = text.components(separatedBy: .newlines)
-        let lines = rawLines
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else {
+        let linePairs: [(raw: String, trimmed: String)] = text
+            .components(separatedBy: .newlines)
+            .compactMap { raw in
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                return trimmed.isEmpty ? nil : (raw, trimmed)
+            }
+        guard !linePairs.isEmpty else {
             return PageScore(kind: .notice, sidesScore: 0, noticeScore: 0)
         }
 
@@ -148,11 +151,10 @@ enum DocumentPageRouter {
         var breakdownLineHits = 0
         var metadataLabelHits = 0
 
-        for idx in lines.indices {
-            let trimmed = lines[idx]
-            let rawLine = rawLines.first { $0.trimmingCharacters(in: .whitespaces) == trimmed } ?? trimmed
+        for idx in linePairs.indices {
+            let (rawLine, trimmed) = linePairs[idx]
             let leadingSpaces = rawLine.prefix(while: { $0 == " " || $0 == "\t" }).count
-            let nextLine = idx + 1 < lines.count ? lines[idx + 1] : ""
+            let nextLine = idx + 1 < linePairs.count ? linePairs[idx + 1].trimmed : ""
 
             if isPageFurniture(trimmed) { continue }
             contentLineCount += 1
@@ -175,7 +177,12 @@ enum DocumentPageRouter {
                 parentheticalCount += 1
             }
 
-            if isDialogueCueLine(trimmed, leadingSpaces: leadingSpaces, nextLine: nextLine) {
+            if isDialogueCueLine(
+                trimmed,
+                leadingSpaces: leadingSpaces,
+                nextLine: nextLine,
+                geometricCueTexts: geometricCueTexts
+            ) {
                 dialogueCueCount += 1
                 if leadingSpaces >= 10 || geometricCueTexts.contains(upper) {
                     centeredCueCount += 1
@@ -285,7 +292,12 @@ enum DocumentPageRouter {
         ScriptParser.isLikelyIndentedCue(line, raw: "                " + line)
     }
 
-    private static func isDialogueCueLine(_ line: String, leadingSpaces: Int, nextLine: String) -> Bool {
+    private static func isDialogueCueLine(
+        _ line: String,
+        leadingSpaces: Int,
+        nextLine: String,
+        geometricCueTexts: Set<String>
+    ) -> Bool {
         if let colonIndex = line.firstIndex(of: ":") {
             let prefix = String(line[..<colonIndex]).trimmingCharacters(in: .whitespaces)
             let suffix = String(line[line.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
@@ -302,7 +314,14 @@ enum DocumentPageRouter {
             return allStartUpper && prefix.rangeOfCharacter(from: .decimalDigits) == nil
         }
 
-        if ScriptParser.isLikelyCue(line) || (leadingSpaces >= 12 && isIndentedMixedCaseCue(line)) {
+        let upper = line.uppercased()
+        let lower = line.lowercased()
+        let isGeometricCue = geometricCueTexts.contains(upper)
+            && !isNoticeLabelPrefix(lower)
+            && !ScriptParser.isBlacklistedNoticeWord(line)
+        if ScriptParser.isLikelyCue(line)
+            || (leadingSpaces >= 12 && isIndentedMixedCaseCue(line))
+            || isGeometricCue {
             if looksLikeCharacterBioText(nextLine) { return false }
             return true
         }
@@ -318,8 +337,10 @@ enum DocumentPageRouter {
             "due", "deadline", "submission deadline", "self-tape due", "self tape due", "tape due",
             "submit", "submit via", "submission", "submissions", "submission route", "deliver to",
             "slate", "slate instruction", "slate instructions", "video format", "format", "orientation",
-            "callback", "callbacks", "callback dates", "shoot", "shoot dates", "filming dates", "dates", "date", "time",
+            "callback", "callbacks", "callback date", "callback dates", "shoot", "shoot date", "shoot dates",
+            "filming date", "filming dates", "dates", "date", "time",
             "location", "production location", "filming location", "venue", "rate", "pay", "compensation", "union",
+            "usage", "wardrobe", "special skills", "conflicts", "parking", "logline", "overview",
             "note", "notes", "requirement", "requirements", "what to submit", "instructions",
             "setting", "settings", "synopsis", "storyline", "email", "phone", "contact", "whatsapp",
             "client", "product", "agency", "campaign", "dialogue sides"
