@@ -181,7 +181,7 @@ struct AuditionsView: View {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(OT.danger)
-                Text("Delete \"\(audition.displayTitle)\"?")
+                Text("Delete \"\(audition.project)\"?")
                     .font(.otSubhead.weight(.semibold))
                     .foregroundStyle(OT.labelPrimary)
                 Spacer()
