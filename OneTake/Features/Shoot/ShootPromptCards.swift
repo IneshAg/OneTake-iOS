@@ -10,7 +10,7 @@ extension ShootFlow {
             .foregroundStyle(Color.white) // ot-lint:allow
             .padding(.horizontal, OTSpace.m)
             .frame(height: 36) // ot-lint:allow
-            .background(OT.cameraGlass, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+            .background(OT.cameraGlass, in: Capsule())
     }
 
     func chip(_ symbol: String?, _ text: String) -> some View {

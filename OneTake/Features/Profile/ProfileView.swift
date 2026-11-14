@@ -130,10 +130,10 @@ struct ProfileView: View {
                         .font(.otCaption).foregroundStyle(OT.labelSecondary)
                         .lineLimit(1).truncationMode(.middle)
                     Button("Replace") { showResumePicker = true }
-                        .font(.otCaption.weight(.semibold)).foregroundStyle(OT.accent)
+                        .buttonStyle(.otCompact)
                 } else {
                     Button("Add PDF") { showResumePicker = true }
-                        .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                        .buttonStyle(.otCompact)
                 }
             }
             .frame(minHeight: 44) // ot-lint:allow
