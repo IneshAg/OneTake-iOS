@@ -26,10 +26,27 @@ struct EditAuditionSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            List(Category.allCases, id: \.self) { category in
-                NavigationLink(category.rawValue, value: category)
+            VStack(spacing: 0) {
+                if isProcessingPDF {
+                    HStack(spacing: OTSpace.m) {
+                        ProgressView()
+                        Text("Reading and parsing document…")
+                            .font(.otSubhead)
+                            .foregroundStyle(OT.labelSecondary)
+                    }
+                    .padding(.horizontal, OTSpace.gutter)
+                    .padding(.vertical, OTSpace.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .otCard(.grouped)
+                    .padding(.horizontal, OTSpace.gutter)
+                    .padding(.top, OTSpace.s)
+                }
+
+                List(Category.allCases, id: \.self) { category in
+                    NavigationLink(category.rawValue, value: category)
+                }
+                .scrollContentBackground(.hidden)
             }
-            .scrollContentBackground(.hidden)
             .navigationDestination(for: Category.self) { category in
                 if let audition = store.binding(for: auditionID) {
                     categoryForm(category, audition: audition)

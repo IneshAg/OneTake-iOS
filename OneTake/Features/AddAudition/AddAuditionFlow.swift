@@ -22,35 +22,15 @@ struct AddAuditionFlow: View {
     @State private var emptyClipboardAlert = false
     /// Parsed draft pending the actor's review — shown in OCRReviewSheet before being committed.
     @State private var pendingReviewDraft: NoticeParser.Draft? = nil
+    @State private var isProcessing = false
+    @State private var processingTitle = "Processing notice & sides…"
+    @State private var processingStatus = "Reading pages and extracting roles…"
+    @State private var detents: Set<PresentationDetent> = [.height(315)]
+    @State private var selectedDetent: PresentationDetent = .height(315)
 
     var body: some View {
-        capture
-            .presentationDetents([.height(315)]) // ot-lint:allow
-            .presentationDragIndicator(.visible)
-            .fullScreenCover(isPresented: $showScanner) {
-                DocumentScannerView { pages in
-                    showScanner = false
-                    guard !pages.isEmpty else { return }
-                    Task {
-                        let pageTexts = await NoticeOCR.recognizePages(in: pages)
-                        let text = pageTexts.joined(separator: "\n\n")
-                        if !NoticeOCR.looksReadable(text) {
-                            await MainActor.run { unreadableNoticeError = true }
-                        } else {
-                            let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: [AuditionSource(name: "Scanned notice", kind: .castingNotice, pageCount: pageTexts.count)])
-                            try? await Task.sleep(nanoseconds: 300_000_000)
-                            await MainActor.run {
-                                pendingReviewImage = pages.first
-                                pendingReviewDraft = draft
-                            }
-                        }
-                    }
-                }
-                .ignoresSafeArea()
-            }
-            // OCR Review sheet — shown after every scan/photo/file import so the actor can
-            // verify parsed fields before they are committed to the audition draft.
-            .sheet(item: $pendingReviewDraft) { draft in
+        Group {
+            if let draft = pendingReviewDraft {
                 OCRReviewSheet(draft: draft, sourcePreview: pendingReviewImage) { confirmedDraft, readerPlan in
                     pendingReviewDraft = nil
                     pendingReviewImage = nil
@@ -60,94 +40,175 @@ struct AddAuditionFlow: View {
                         store.startAuditionDraft(confirmedDraft)
                     }
                 } onDiscard: {
-                    pendingReviewDraft = nil
-                    pendingReviewImage = nil
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        pendingReviewDraft = nil
+                        pendingReviewImage = nil
+                        detents = [.height(315)]
+                        selectedDetent = .height(315)
+                    }
                 }
+            } else if isProcessing {
+                processingView
+            } else {
+                capture
             }
-            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
-                switch result {
-                case .success(let url):
-                    pendingReviewImage = nil
-                    let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
-                    let pdfPreview = resolved.url.pathExtension.lowercased() == "pdf"
-                        ? PDFDocument(url: resolved.url)?.page(at: 0)?.thumbnail(of: CGSize(width: 1200, height: 1600), for: .mediaBox) // ot-lint:allow
-                        : nil
-                    Task {
-                        defer { resolved.cleanup() }
-                        do {
-                            let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
-                            let draft = await NoticeParser.parseAsync(
-                                doc.fullText,
-                                pages: doc.reconstructedPages,
-                                sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)]
-                            )
-                            await MainActor.run {
-                                pendingReviewImage = pdfPreview
+        }
+        .presentationDetents(detents, selection: $selectedDetent)
+        .presentationDragIndicator(pendingReviewDraft != nil ? .visible : .hidden)
+        .fullScreenCover(isPresented: $showScanner) {
+            DocumentScannerView { pages in
+                showScanner = false
+                guard !pages.isEmpty else { return }
+                isProcessing = true
+                processingTitle = "Scanning \(pages.count) \(pages.count == 1 ? "page" : "pages")…"
+                processingStatus = "Recognizing text and analyzing layout…"
+                Task {
+                    let pageTexts = await NoticeOCR.recognizePages(in: pages)
+                    let text = pageTexts.joined(separator: "\n\n")
+                    if !NoticeOCR.looksReadable(text) {
+                        await MainActor.run {
+                            isProcessing = false
+                            unreadableNoticeError = true
+                        }
+                    } else {
+                        await MainActor.run {
+                            processingStatus = "Parsing project, roles, and sides…"
+                        }
+                        let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: [AuditionSource(name: "Scanned notice", kind: .castingNotice, pageCount: pageTexts.count)])
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        await MainActor.run {
+                            isProcessing = false
+                            pendingReviewImage = pages.first
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                detents = [.large]
+                                selectedDetent = .large
                                 pendingReviewDraft = draft
                             }
-                        } catch let error as NoticeImportError {
-                            await MainActor.run { importError = error }
-                        } catch {
-                            await MainActor.run { unreadableNoticeError = true }
                         }
                     }
-                case .failure:
-                    unreadableNoticeError = true
                 }
             }
-            .alert(
-                importErrorTitle,
-                isPresented: Binding(
-                    get: { importError != nil },
-                    set: { if !$0 { importError = nil } }
-                )
-            ) {
-                Button("Type details") {
-                    importError = nil
-                    store.startAuditionDraft(NoticeParser.Draft.blank)
-                }
-                Button("Cancel", role: .cancel) { importError = nil }
-            } message: {
-                Text(importError?.localizedDescription ?? "This file couldn't be imported.")
-            }
-            .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
-            }
-            .alert("We couldn't read this notice", isPresented: $unreadableNoticeError) {
-                Button("Type details") { store.startAuditionDraft(NoticeParser.Draft.blank) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("No readable text was found — it may be blurry or very small print. You can type the details instead.")
-            }
-            .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
-                Button("Type details manually") { store.startAuditionDraft(NoticeParser.Draft.blank) }
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("No text was found on your clipboard. Copy text from your email, message, or sides first, then tap Paste.")
-            }
-            .task { await readSharedNotice() }
-            .onChange(of: photoItem) { _, item in
-                guard let item else { return }
+            .ignoresSafeArea()
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: NoticeOCR.supportedImportContentTypes) { result in
+            switch result {
+            case .success(let url):
+                isProcessing = true
+                processingTitle = "Reading \(url.lastPathComponent)…"
+                processingStatus = "Extracting text and analyzing page layout…"
                 pendingReviewImage = nil
+                let resolved = NoticeOCR.resolveSecurityScopedFile(at: url)
+                let pdfPreview = resolved.url.pathExtension.lowercased() == "pdf"
+                    ? PDFDocument(url: resolved.url)?.page(at: 0)?.thumbnail(of: CGSize(width: 1200, height: 1600), for: .mediaBox) // ot-lint:allow
+                    : nil
                 Task {
-                    guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
-                        await MainActor.run { unreadableNoticeError = true }
-                        return
-                    }
-                    let text = await NoticeOCR.recognizeText(in: [image])
-                    if !NoticeOCR.looksReadable(text) {
-                        await MainActor.run { unreadableNoticeError = true }
-                    } else {
-                        let draft = await NoticeParser.parseAsync(text, pages: [text])
+                    defer { resolved.cleanup() }
+                    do {
+                        let doc = try await NoticeOCR.extractLayoutDocument(fromFileAt: resolved.url)
                         await MainActor.run {
-                            pendingReviewImage = image
+                            processingStatus = "Parsing project, roles, and sides…"
+                        }
+                        let draft = await NoticeParser.parseAsync(
+                            doc.fullText,
+                            pages: doc.reconstructedPages,
+                            sourceDocuments: [AuditionSource(name: resolved.url.lastPathComponent, kind: .castingNotice, url: resolved.url, pageCount: doc.pageCount)]
+                        )
+                        await MainActor.run {
+                            isProcessing = false
+                            pendingReviewImage = pdfPreview
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                detents = [.large]
+                                selectedDetent = .large
+                                pendingReviewDraft = draft
+                            }
+                        }
+                    } catch let error as NoticeImportError {
+                        await MainActor.run {
+                            isProcessing = false
+                            importError = error
+                        }
+                    } catch {
+                        await MainActor.run {
+                            isProcessing = false
+                            unreadableNoticeError = true
+                        }
+                    }
+                }
+            case .failure:
+                isProcessing = false
+                unreadableNoticeError = true
+            }
+        }
+        .alert(
+            importErrorTitle,
+            isPresented: Binding(
+                get: { importError != nil },
+                set: { if !$0 { importError = nil } }
+            )
+        ) {
+            Button("Type details") {
+                importError = nil
+                store.startAuditionDraft(NoticeParser.Draft.blank)
+            }
+            Button("Cancel", role: .cancel) { importError = nil }
+        } message: {
+            Text(importError?.localizedDescription ?? "This file couldn't be imported.")
+        }
+        .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Document scanning needs the iPhone camera. Use Photo or File instead.")
+        }
+        .alert("We couldn't read this notice", isPresented: $unreadableNoticeError) {
+            Button("Type details") { store.startAuditionDraft(NoticeParser.Draft.blank) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("No readable text was found — it may be blurry or very small print. You can type the details instead.")
+        }
+        .alert("Clipboard is empty", isPresented: $emptyClipboardAlert) {
+            Button("Type details manually") { store.startAuditionDraft(NoticeParser.Draft.blank) }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No text was found on your clipboard. Copy text from your email, message, or sides first, then tap Paste.")
+        }
+        .task { await readSharedNotice() }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            isProcessing = true
+            processingTitle = "Scanning photo…"
+            processingStatus = "Recognizing text and casting notice details…"
+            pendingReviewImage = nil
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                    await MainActor.run {
+                        isProcessing = false
+                        unreadableNoticeError = true
+                    }
+                    return
+                }
+                let text = await NoticeOCR.recognizeText(in: [image])
+                if !NoticeOCR.looksReadable(text) {
+                    await MainActor.run {
+                        isProcessing = false
+                        unreadableNoticeError = true
+                    }
+                } else {
+                    await MainActor.run {
+                        processingStatus = "Extracting casting details and sides…"
+                    }
+                    let draft = await NoticeParser.parseAsync(text, pages: [text])
+                    await MainActor.run {
+                        isProcessing = false
+                        pendingReviewImage = image
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            detents = [.large]
+                            selectedDetent = .large
                             pendingReviewDraft = draft
                         }
                     }
                 }
             }
+        }
     }
 
     private var importErrorTitle: String {
@@ -164,6 +225,11 @@ struct AddAuditionFlow: View {
 
     private func readSharedNotice() async {
         guard let item = store.incomingShare else { return }
+        await MainActor.run {
+            isProcessing = true
+            processingTitle = "Importing shared notice…"
+            processingStatus = "Extracting document contents…"
+        }
         store.incomingShare = nil
         var parts: [String] = []
         var pageTexts: [String] = []
@@ -196,14 +262,23 @@ struct AddAuditionFlow: View {
         ShareInbox.remove(item)
         let text = parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         if !NoticeOCR.looksReadable(text) {
-            await MainActor.run { unreadableNoticeError = true }
+            await MainActor.run {
+                isProcessing = false
+                unreadableNoticeError = true
+            }
         } else {
-            // Route through OCR Review sheet so the actor can verify what was read
-            // from the shared notice before it is committed to the audition draft.
+            await MainActor.run {
+                processingStatus = "Parsing project, roles, and sides…"
+            }
             let draft = await NoticeParser.parseAsync(text, pages: pageTexts, sourceDocuments: sourceDocuments)
             await MainActor.run {
+                isProcessing = false
                 pendingReviewImage = images.first
-                pendingReviewDraft = draft
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    detents = [.large]
+                    selectedDetent = .large
+                    pendingReviewDraft = draft
+                }
             }
         }
     }
@@ -216,11 +291,60 @@ struct AddAuditionFlow: View {
             Haptics.tick()
         } else {
             Haptics.success()
+            isProcessing = true
+            processingTitle = "Processing pasted text…"
+            processingStatus = "Parsing project, roles, and sides…"
             let cleaned = ScriptParser.cleanPastedText(trimmed)
             Task {
                 let draft = await NoticeParser.parseAsync(cleaned)
                 await MainActor.run {
-                    pendingReviewDraft = draft
+                    isProcessing = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        detents = [.large]
+                        selectedDetent = .large
+                        pendingReviewDraft = draft
+                    }
+                }
+            }
+        }
+    }
+
+    private var processingView: some View {
+        NavigationStack {
+            VStack(spacing: OTSpace.l) {
+                Spacer()
+
+                VStack(spacing: OTSpace.m) {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(OT.accent)
+
+                    VStack(spacing: OTSpace.xs) {
+                        Text(processingTitle)
+                            .font(.otHeadline)
+                            .foregroundStyle(OT.labelPrimary)
+                            .multilineTextAlignment(.center)
+
+                        Text(processingStatus)
+                            .font(.otSubhead)
+                            .foregroundStyle(OT.labelSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(.horizontal, OTSpace.gutter)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .otCanvas()
+            .navigationTitle("Reading audition")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isProcessing = false
+                        dismiss()
+                    }
                 }
             }
         }
@@ -231,51 +355,51 @@ struct AddAuditionFlow: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: OTSpace.m) {
                     Button {
-                    handlePasteNotice()
-                } label: {
-                    HStack(spacing: OTSpace.m) {
-                        Image(systemName: "doc.on.clipboard.fill")
-                            .font(.otIcon(.m))
-                            .foregroundStyle(OT.accent)
-                            .frame(width: 40, height: 40) // ot-lint:allow
-                            .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                        handlePasteNotice()
+                    } label: {
+                        HStack(spacing: OTSpace.m) {
+                            Image(systemName: "doc.on.clipboard.fill")
+                                .font(.otIcon(.m))
+                                .foregroundStyle(OT.accent)
+                                .frame(width: 40, height: 40) // ot-lint:allow
+                                .background(OT.accentSoft, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
 
-                        VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                            Text("Copied notice or sides?")
-                                .font(.otHeadline)
-                                .foregroundStyle(OT.labelPrimary)
-                            Text("Tap to paste breakdown, email, or sides")
-                                .font(.otFootnote)
-                                .foregroundStyle(OT.labelSecondary)
+                            VStack(alignment: .leading, spacing: OTSpace.xxs) {
+                                Text("Copied notice or sides?")
+                                    .font(.otHeadline)
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text("Tap to paste breakdown, email, or sides")
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                            }
+
+                            Spacer()
+
+                            HStack(spacing: OTSpace.xs) {
+                                Image(systemName: "arrow.right.doc.on.clipboard")
+                                    .font(.otCaption.weight(.bold))
+                                Text("Paste")
+                                    .font(.otCaption.weight(.bold))
+                            }
+                            .padding(.horizontal, OTSpace.m)
+                            .padding(.vertical, OTSpace.xs)
+                            .background(OT.accent, in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
+                            .foregroundStyle(OT.labelOnAccent)
                         }
-
-                        Spacer()
-
-                        HStack(spacing: OTSpace.xs) {
-                            Image(systemName: "arrow.right.doc.on.clipboard")
-                                .font(.otCaption.weight(.bold))
-                            Text("Paste")
-                                .font(.otCaption.weight(.bold))
-                        }
-                        .padding(.horizontal, OTSpace.m)
-                        .padding(.vertical, OTSpace.xs)
-                        .background(OT.accent, in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous))
-                        .foregroundStyle(OT.labelOnAccent)
+                        .padding(OTSpace.m)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous))
                     }
-                    .padding(OTSpace.m)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(OT.accentSoft.opacity(0.6), in: RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                OTSectionLabel("Or bring in notice or sides")
-                HStack {
-                    PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
-                    Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
-                    Button { showFileImporter = true } label: { way("folder", "File") }
-                    Button { store.startAuditionDraft(NoticeParser.Draft.blank, directToReview: true) } label: { way("keyboard", "Type it") }
-                }
-                .buttonStyle(.plain)
+                    OTSectionLabel("Or bring in notice or sides")
+                    HStack {
+                        PhotosPicker(selection: $photoItem, matching: .images) { way("photo", "Photo") }
+                        Button { openScanner() } label: { way("doc.viewfinder", "Scan") }
+                        Button { showFileImporter = true } label: { way("folder", "File") }
+                        Button { store.startAuditionDraft(NoticeParser.Draft.blank, directToReview: true) } label: { way("keyboard", "Type it") }
+                    }
+                    .buttonStyle(.plain)
 
                     Label("Faster: in Mail or WhatsApp, Share → OneTake", systemImage: "square.and.arrow.up")
                         .font(.otFootnote).foregroundStyle(OT.accent)

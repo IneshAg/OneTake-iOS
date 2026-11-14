@@ -83,8 +83,6 @@ struct RootTabView: View {
             }
         }) {
             AddAuditionFlow()
-                .presentationDetents([.height(315)])
-                .presentationDragIndicator(.visible)
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         }
         .fullScreenCover(item: $store.camera) { flow in
