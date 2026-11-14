@@ -31,6 +31,8 @@ DEFAULT_NEEDLE_BASE_MODEL = "cactus/needle-3"
 DEFAULT_NEEDLE_OUTPUT_NAME = "needle3-onetake-cq2"
 MAX_NEEDLE_SEQ_LEN = 1024
 ALLOWED_QUANT_BITS: tuple[int, ...] = (2, 4, 8)
+EVAL_SOURCE_CACTUS_QUANTIZED = "cactus_quantized"
+EVAL_SOURCE_PEFT_PRE_QUANT = "peft_merged_pre_quant"
 
 
 def build_cactus_convert_command(
@@ -83,6 +85,8 @@ def validate_common_lora_hparams(
     quant_bits: int,
     max_allowed_seq_len: int = MAX_NEEDLE_SEQ_LEN,
     allowed_bits: tuple[int, ...] = ALLOWED_QUANT_BITS,
+    skip_eval: bool = False,
+    require_quantized_eval: bool = False,
 ) -> None:
     """Validate LoRA and quantization hyperparameters before training or dry-run."""
     if lora_r <= 0:
@@ -105,6 +109,8 @@ def validate_common_lora_hparams(
         )
     if quant_bits not in allowed_bits:
         raise ValueError(f"quant_bits must be one of {allowed_bits}, got {quant_bits}")
+    if require_quantized_eval and skip_eval:
+        raise ValueError("Cannot combine --require-quantized-eval with --skip-eval")
 
 
 def inspect_jsonl_dataset(
@@ -172,6 +178,11 @@ def add_shared_training_args(
     parser.add_argument("--eval-output", type=Path, default=None)
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument(
+        "--require-quantized-eval",
+        action="store_true",
+        help="Fail unless held-out evaluation runs against the quantized Cactus bundle.",
+    )
+    parser.add_argument(
         "--require-data",
         action="store_true",
         help="Fail even during --dry-run if train/eval JSONL files are missing.",
@@ -198,6 +209,22 @@ def run_cactus_convert(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
+def load_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    """Load all non-empty JSON objects from a JSONL file."""
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                rows.append(json.loads(line))
+    return rows
+
+
+def unlink_if_exists(path: Path) -> None:
+    """Remove a stale artifact file if present before regenerating."""
+    if path.exists():
+        path.unlink()
+
+
 def run_held_out_eval(
     eval_file: Path,
     predictions_file: Path,
@@ -208,6 +235,190 @@ def run_held_out_eval(
     cmd = build_eval_command(eval_file, predictions_file, output_file)
     subprocess.run(cmd, check=True)
     return json.loads(output_file.read_text(encoding="utf-8"))
+
+
+def try_generate_cactus_predictions(
+    *,
+    export_dir: Path,
+    eval_rows: list[dict[str, Any]],
+    output_path: Path,
+    dataset_root: Path | None = None,
+) -> bool:
+    """Attempt quantized bundle inference via Cactus Python bindings when available.
+
+    Returns True only when valid predictions were generated for every eval row.
+    """
+    try:
+        import cactus  # type: ignore
+    except ImportError:
+        return False
+
+    has_c_api = all(
+        hasattr(cactus, attr) for attr in ("cactus_init", "cactus_complete", "cactus_destroy")
+    )
+    model_cls = getattr(cactus, "CactusModel", None) or getattr(cactus, "Model", None)
+    if not has_c_api and model_cls is None:
+        return False
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    handle_obj = None
+    model_obj = None
+    try:
+        if has_c_api:
+            handle_obj = cactus.cactus_init(str(export_dir), 1024)
+        else:
+            model_obj = model_cls(str(export_dir))
+
+        with output_path.open("w", encoding="utf-8") as out_f:
+            for idx, row in enumerate(eval_rows):
+                row_id = str(row.get("id", idx))
+                prompt_messages = row["messages"][:2]
+                image_rel = row.get("image")
+                image_path = str((dataset_root or Path(".")) / image_rel) if image_rel else None
+
+                if has_c_api:
+                    kwargs: dict[str, Any] = {"max_tokens": 384, "temperature": 0.0}
+                    if image_path:
+                        kwargs["images"] = [image_path]
+                    raw_out = cactus.cactus_complete(
+                        handle_obj,
+                        json.dumps(prompt_messages),
+                        **kwargs,
+                    )
+                    if isinstance(raw_out, dict):
+                        text = str(raw_out.get("response", raw_out.get("text", "")))
+                    else:
+                        text = str(raw_out)
+                else:
+                    if hasattr(model_obj, "complete"):
+                        text = str(
+                            model_obj.complete(
+                                prompt_messages,
+                                images=[image_path] if image_path else None,
+                            )
+                        )
+                    else:
+                        return False
+                out_f.write(
+                    json.dumps({"id": row_id, "prediction": text.strip()}, ensure_ascii=False)
+                    + "\n"
+                )
+        return output_path.exists() and output_path.stat().st_size > 0
+    except Exception:
+        unlink_if_exists(output_path)
+        return False
+    finally:
+        if handle_obj is not None and hasattr(cactus, "cactus_destroy"):
+            cactus.cactus_destroy(handle_obj)
+
+
+def try_generate_cactus_cli_predictions(
+    *,
+    export_dir: Path,
+    eval_file: Path,
+    output_path: Path,
+) -> bool:
+    """Attempt quantized bundle inference via Cactus CLI when available on PATH."""
+    cactus_bin = shutil.which("cactus")
+    if not cactus_bin:
+        return False
+    for subcommand in ("predict", "eval", "complete"):
+        try:
+            probe = subprocess.run(
+                [cactus_bin, subcommand, "--help"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if probe.returncode == 0:
+                cmd = [
+                    cactus_bin,
+                    subcommand,
+                    str(export_dir),
+                    "--eval-file",
+                    str(eval_file),
+                    "--output",
+                    str(output_path),
+                ]
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if (
+                    proc.returncode == 0
+                    and output_path.exists()
+                    and output_path.stat().st_size > 0
+                ):
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def finalize_held_out_eval(
+    *,
+    eval_file: Path,
+    eval_rows: list[dict[str, Any]],
+    export_dir: Path,
+    predictions_file: Path,
+    eval_output: Path,
+    skip_eval: bool,
+    require_quantized_eval: bool,
+    dataset_root: Path | None = None,
+    custom_quantized_predict_fn: Any | None = None,
+    peft_fallback_fn: Any | None = None,
+) -> dict[str, Any] | None:
+    """Generate predictions (preferring quantized Cactus bundle), score, and record `eval_source`."""
+    if skip_eval:
+        return None
+
+    # Never read stale predictions or eval reports from a previous run.
+    unlink_if_exists(predictions_file)
+    unlink_if_exists(eval_output)
+
+    quantized_ok = False
+    if custom_quantized_predict_fn is not None:
+        try:
+            quantized_ok = bool(custom_quantized_predict_fn())
+        except Exception:
+            quantized_ok = False
+    if not quantized_ok:
+        quantized_ok = try_generate_cactus_predictions(
+            export_dir=export_dir,
+            eval_rows=eval_rows,
+            output_path=predictions_file,
+            dataset_root=dataset_root,
+        )
+    if not quantized_ok:
+        quantized_ok = try_generate_cactus_cli_predictions(
+            export_dir=export_dir,
+            eval_file=eval_file,
+            output_path=predictions_file,
+        )
+
+    if quantized_ok and predictions_file.exists() and predictions_file.stat().st_size > 0:
+        eval_source = EVAL_SOURCE_CACTUS_QUANTIZED
+    else:
+        unlink_if_exists(predictions_file)
+        if require_quantized_eval:
+            raise RuntimeError(
+                "--require-quantized-eval is set, but Cactus quantized inference is unavailable "
+                f"or failed to produce predictions for {export_dir}."
+            )
+        if peft_fallback_fn is None:
+            raise RuntimeError(
+                "Quantized Cactus inference failed to produce held-out predictions and no "
+                "PEFT fallback generator is available. Pass --skip-eval to skip evaluation."
+            )
+        print(
+            "Warning: Cactus quantized runtime inference unavailable; evaluating pre-quantization "
+            "PEFT weights (`eval_source='peft_merged_pre_quant'`).",
+            file=sys.stderr,
+        )
+        peft_fallback_fn()
+        eval_source = EVAL_SOURCE_PEFT_PRE_QUANT
+
+    report = run_held_out_eval(eval_file, predictions_file, eval_output)
+    report["eval_source"] = eval_source
+    eval_output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return report
 
 
 def serialize_config(cfg: Any) -> dict[str, Any]:
@@ -240,6 +451,7 @@ class Needle3TrainConfig:
     predictions_file: Path | None = None
     eval_output: Path | None = None
     skip_eval: bool = False
+    require_quantized_eval: bool = False
 
     @property
     def lora_dir(self) -> Path:
@@ -278,6 +490,8 @@ def validate_needle_config(cfg: Needle3TrainConfig) -> None:
         quant_bits=cfg.quant_bits,
         max_allowed_seq_len=MAX_NEEDLE_SEQ_LEN,
         allowed_bits=ALLOWED_QUANT_BITS,
+        skip_eval=cfg.skip_eval,
+        require_quantized_eval=cfg.require_quantized_eval,
     )
 
 
@@ -301,9 +515,15 @@ def build_needle_plan(
         predictions_file=cfg.resolved_predictions_file,
         output_file=cfg.resolved_eval_output,
     )
+    eval_mode = (
+        "skipped"
+        if cfg.skip_eval
+        else ("quantized_required" if cfg.require_quantized_eval else "quantized_preferred_with_peft_fallback")
+    )
     return {
         "trainer": "needle3_lora",
         "config": serialize_config(cfg),
+        "eval_mode": eval_mode,
         "output_paths": {
             "lora_dir": str(cfg.lora_dir),
             "export_dir": str(cfg.export_dir),
@@ -321,15 +541,6 @@ def build_needle_plan(
         "cactus_convert_command": convert_cmd,
         "eval_command": eval_cmd,
     }
-
-
-def _load_jsonl_messages(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                rows.append(json.loads(line))
-    return rows
 
 
 def _generate_needle_predictions(
@@ -383,6 +594,7 @@ def run_needle_training(cfg: Needle3TrainConfig) -> dict[str, Any]:
     plan = build_needle_plan(cfg, require_data=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cfg.lora_dir.mkdir(parents=True, exist_ok=True)
+    eval_rows = load_jsonl_rows(cfg.eval_file)
 
     # Lazy imports so local macOS `--dry-run` works with zero third-party packages.
     try:
@@ -407,13 +619,39 @@ def run_needle_training(cfg: Needle3TrainConfig) -> dict[str, Any]:
             seed=cfg.seed,
         )
         run_cactus_convert(plan["cactus_convert_command"])
-        eval_report = None
-        if not cfg.skip_eval and cfg.resolved_predictions_file.exists():
-            eval_report = run_held_out_eval(
-                cfg.eval_file,
-                cfg.resolved_predictions_file,
-                cfg.resolved_eval_output,
+
+        def _needle_pkg_predict() -> bool:
+            predict_fn = (
+                getattr(cactus_needle_train, "generate_predictions", None)
+                or getattr(cactus_needle_train, "predict", None)
+                or getattr(cactus_needle_train, "run_eval", None)
             )
+            if predict_fn is None:
+                return False
+            try:
+                predict_fn(
+                    model_dir=str(cfg.export_dir),
+                    eval_file=str(cfg.eval_file),
+                    output_file=str(cfg.resolved_predictions_file),
+                )
+            except Exception:
+                return False
+            return (
+                cfg.resolved_predictions_file.exists()
+                and cfg.resolved_predictions_file.stat().st_size > 0
+            )
+
+        eval_report = finalize_held_out_eval(
+            eval_file=cfg.eval_file,
+            eval_rows=eval_rows,
+            export_dir=cfg.export_dir,
+            predictions_file=cfg.resolved_predictions_file,
+            eval_output=cfg.resolved_eval_output,
+            skip_eval=cfg.skip_eval,
+            require_quantized_eval=cfg.require_quantized_eval,
+            custom_quantized_predict_fn=_needle_pkg_predict,
+            peft_fallback_fn=None,
+        )
         return {"plan": plan, "eval_report": eval_report}
 
     import torch  # type: ignore
@@ -450,8 +688,7 @@ def run_needle_training(cfg: Needle3TrainConfig) -> dict[str, Any]:
     )
     model = get_peft_model(model, lora_config)
 
-    train_rows = _load_jsonl_messages(cfg.train_file)
-    eval_rows = _load_jsonl_messages(cfg.eval_file)
+    train_rows = load_jsonl_rows(cfg.train_file)
 
     def format_example(row: dict[str, Any]) -> dict[str, Any]:
         messages = row["messages"]
@@ -500,16 +737,22 @@ def run_needle_training(cfg: Needle3TrainConfig) -> dict[str, Any]:
 
     run_cactus_convert(plan["cactus_convert_command"])
 
-    eval_report = None
-    if not cfg.skip_eval:
-        preds_path = _generate_needle_predictions(
+    eval_report = finalize_held_out_eval(
+        eval_file=cfg.eval_file,
+        eval_rows=eval_rows,
+        export_dir=cfg.export_dir,
+        predictions_file=cfg.resolved_predictions_file,
+        eval_output=cfg.resolved_eval_output,
+        skip_eval=cfg.skip_eval,
+        require_quantized_eval=cfg.require_quantized_eval,
+        peft_fallback_fn=lambda: _generate_needle_predictions(
             model=model,
             tokenizer=tokenizer,
             eval_rows=eval_rows,
             output_path=cfg.resolved_predictions_file,
             max_seq_len=cfg.max_seq_len,
-        )
-        eval_report = run_held_out_eval(cfg.eval_file, preds_path, cfg.resolved_eval_output)
+        ),
+    )
 
     return {"plan": plan, "eval_report": eval_report}
 
@@ -559,6 +802,7 @@ def config_from_args(args: argparse.Namespace) -> Needle3TrainConfig:
         predictions_file=args.predictions_file,
         eval_output=args.eval_output,
         skip_eval=args.skip_eval,
+        require_quantized_eval=args.require_quantized_eval,
     )
 
 
@@ -574,7 +818,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(plan, indent=2))
             return 0
         result = run_needle_training(cfg)
-    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 

@@ -17,7 +17,7 @@ struct UpNextCard: View {
                     Button(photoCount == 0 ? "Add headshots" : "Manage headshots") {
                         store.push(.headshots(for: audition.id))
                     }
-                    .buttonStyle(.otPrimary)
+                    .buttonStyle(.ot(.primary, size: .medium, shape: .capsule))
 
                     if isOpt {
                         Button("Skip for now") {
@@ -26,7 +26,7 @@ struct UpNextCard: View {
                                 Haptics.tick()
                             }
                         }
-                        .buttonStyle(.otSecondary)
+                        .buttonStyle(.ot(.secondary, size: .medium, shape: .capsule))
                     }
                 }
             } else if next?.kind == .slate || next?.kind == .fullLength {
@@ -43,7 +43,7 @@ struct UpNextCard: View {
                 }
                 HStack(spacing: OTSpace.s) {
                     Button("Set up the camera") { store.push(.shootSetup(audition.id)) }
-                        .buttonStyle(.otPrimary)
+                        .buttonStyle(.ot(.primary, size: .medium, shape: .capsule))
                     if isOpt {
                         Button(next?.kind == .slate ? "Skip slate" : "Skip full-body shot") {
                             if let pieceID = next?.id {
@@ -51,7 +51,7 @@ struct UpNextCard: View {
                                 Haptics.tick()
                             }
                         }
-                        .buttonStyle(.otSecondary)
+                        .buttonStyle(.ot(.secondary, size: .medium, shape: .capsule))
                     }
                 }
             } else if let next, next.kind == .scene, let sceneIndex = audition.scenes.firstIndex(where: { $0.title == next.title }) {
@@ -63,18 +63,18 @@ struct UpNextCard: View {
                 if let first = scene.lines.first(where: \.isMine) { quoteLine(first.text) }
                 HStack(spacing: OTSpace.s) {
                     Button("Prepare scene \(scene.number)") { store.push(.prepare(audition.id, sceneIndex: sceneIndex)) }
-                        .buttonStyle(.otPrimary)
+                        .buttonStyle(.ot(.primary, size: .medium, shape: .capsule))
                     Button("Practice") {
                         store.practicePiece(for: audition.id, sceneIndex: sceneIndex)
                         store.push(.runLines(audition.id, sceneIndex: sceneIndex))
                     }
-                    .buttonStyle(.otSecondary)
+                    .buttonStyle(.ot(.secondary, size: .medium, shape: .capsule))
                     if isOpt {
                         Button("Skip for now") {
                             store.markPieceDone(audition.id, pieceID: next.id)
                             Haptics.tick()
                         }
-                        .buttonStyle(.otSecondary)
+                        .buttonStyle(.ot(.secondary, size: .medium, shape: .capsule))
                     }
                 }
             } else if next?.kind == .scene {
@@ -85,7 +85,7 @@ struct UpNextCard: View {
                 OTSectionLabel("Everything's in")
                 Text("Watch it once, then send").font(.otTitle)
                 Button("Review the package") { store.push(.package(audition.id)) }
-                    .buttonStyle(.otPrimary)
+                    .buttonStyle(.ot(.primary, size: .large, shape: .capsule))
             }
         }
         .padding(OTSpace.l)

@@ -707,6 +707,80 @@ class TestColabTrainingAndRelease(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertFalse((out_dir / "manifest.json").exists())
 
+    def test_publish_release_packages_single_bin_file_as_valid_zip(self) -> None:
+        from scripts.colab.publish_release import package_release_artifact
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            single_file = tmp_dir / "needle3-onetake-cq2.bin"
+            single_file.write_bytes(b"NEEDLE3_RAW_BYTES_SAMPLE_9999")
+            out_zip = tmp_dir / "needle3-onetake-cq2.zip"
+
+            packaged = package_release_artifact(single_file, out_zip)
+            self.assertEqual(packaged, out_zip)
+            self.assertTrue(out_zip.exists())
+            self.assertTrue(zipfile.is_zipfile(out_zip))
+
+            with zipfile.ZipFile(out_zip, "r") as zf:
+                self.assertEqual(zf.namelist(), ["needle3-onetake-cq2.bin"])
+                self.assertEqual(zf.read("needle3-onetake-cq2.bin"), b"NEEDLE3_RAW_BYTES_SAMPLE_9999")
+
+    def test_publish_release_accuracy_gate_rejects_nan(self) -> None:
+        from scripts.colab.publish_release import check_accuracy_gate
+
+        with self.assertRaises(ValueError):
+            check_accuracy_gate(
+                {
+                    "samples": 100,
+                    "exact_match": {"submission_email": float("nan"), "sides_link": 0.99},
+                    "core_f1": 0.95,
+                }
+            )
+
+        with self.assertRaises(ValueError):
+            check_accuracy_gate(
+                {
+                    "samples": 100,
+                    "exact_match": {"submission_email": 0.99, "sides_link": 0.99},
+                    "core_f1": float("nan"),
+                }
+            )
+
+    def test_vlm_multimodal_message_normalization_and_label_masking(self) -> None:
+        from scripts.colab.train_lfm25_vl_lora import compute_vlm_labels, normalize_vlm_messages
+
+        # Plain string user message with image present -> converted to multimodal blocks
+        msgs = [
+            {"role": "user", "content": "Extract notice JSON."},
+            {"role": "assistant", "content": '{"project": "Test"}'},
+        ]
+        norm = normalize_vlm_messages(msgs, has_image=True)
+        self.assertEqual(norm[0]["role"], "user")
+        self.assertEqual(
+            norm[0]["content"],
+            [
+                {"type": "image"},
+                {"type": "text", "text": "Extract notice JSON."},
+            ],
+        )
+        self.assertEqual(norm[1]["content"], '{"project": "Test"}')
+
+        # User message without image -> preserves plain string
+        norm_no_img = normalize_vlm_messages(msgs, has_image=False)
+        self.assertEqual(norm_no_img[0]["content"], "Extract notice JSON.")
+
+        # compute_vlm_labels masks prompt length with -100
+        # Suppose input_ids has 10 tokens: prompt is first 4 tokens, assistant is next 6 tokens
+        fake_ids = [[101, 102, 103, 104, 201, 202, 203, 204, 205, 0]]
+        prompt_lens = [4]
+        labels = compute_vlm_labels(fake_ids, prompt_lens, pad_token_id=0)
+        # First 4 tokens should be -100
+        self.assertEqual(labels[0][:4], [-100, -100, -100, -100])
+        # Next 5 tokens should be preserved
+        self.assertEqual(labels[0][4:9], [201, 202, 203, 204, 205])
+        # Last token (pad) should be -100
+        self.assertEqual(labels[0][9], -100)
+
 
 if __name__ == "__main__":
     unittest.main()

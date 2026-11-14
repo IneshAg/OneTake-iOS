@@ -140,7 +140,25 @@ struct AuditionsView: View {
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }
-            .tint(OT.warning)
+            .tint(OT.reader)
+        }
+
+        if audition.status != .sent && !audition.archived {
+            Button {
+                store.markSent(audition.id)
+                Haptics.success()
+            } label: {
+                Label("Mark sent", systemImage: "paperplane.fill")
+            }
+            .tint(OT.success)
+        } else if audition.status == .sent && !audition.archived {
+            Button {
+                store.unmarkSent(audition.id)
+                Haptics.tick()
+            } label: {
+                Label("Mark not submitted", systemImage: "arrow.uturn.backward")
+            }
+            .tint(OT.reader)
         }
     }
 
@@ -165,6 +183,24 @@ struct AuditionsView: View {
                 store.archiveAudition(audition.id)
             } label: {
                 Label("Archive", systemImage: "archivebox")
+            }
+        }
+
+        if !audition.archived {
+            Button {
+                if audition.status == .sent {
+                    store.unmarkSent(audition.id)
+                    Haptics.tick()
+                } else {
+                    store.markSent(audition.id)
+                    Haptics.success()
+                }
+            } label: {
+                if audition.status == .sent {
+                    Label("Mark as not submitted", systemImage: "arrow.uturn.backward.circle")
+                } else {
+                    Label("Mark sent", systemImage: "paperplane.fill")
+                }
             }
         }
 
