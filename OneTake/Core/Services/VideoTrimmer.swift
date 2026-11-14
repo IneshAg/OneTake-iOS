@@ -316,14 +316,13 @@ struct VideoTrimmer: View {
         let outputType: AVFileType = session.supportedFileTypes.contains(.mov) ? .mov : .mp4
         let output = FileManager.default.temporaryDirectory
             .appendingPathComponent("onetake-edit-\(UUID().uuidString).\(outputType == .mov ? "mov" : "mp4")")
-        session.outputURL = output
-        session.outputFileType = outputType
         session.timeRange = CMTimeRange(
             start: CMTime(seconds: trimStart, preferredTimescale: 600),
             duration: CMTime(seconds: trimEnd - trimStart, preferredTimescale: 600)
         )
         Task {
             do {
+                try? FileManager.default.removeItem(at: output)
                 try await session.export(to: output, as: outputType)
                 isExporting = false
                 onFinish(output)

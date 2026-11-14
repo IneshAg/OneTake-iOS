@@ -351,6 +351,30 @@ struct EditAuditionSheet: View {
                             .pickerStyle(.segmented)
                         }
 
+                        // Résumé
+                        HStack {
+                            Label("Résumé", systemImage: "doc.text")
+                                .font(.otSubhead.weight(.medium))
+                            Spacer()
+                            Toggle("Include résumé", isOn: Binding(
+                                get: { audition.wrappedValue.resumeURL != nil || audition.wrappedValue.asks.contains { $0.localizedCaseInsensitiveContains("resume") || $0.localizedCaseInsensitiveContains("résumé") } },
+                                set: { included in
+                                    if included {
+                                        if audition.wrappedValue.resumeURL == nil {
+                                            audition.wrappedValue.resumeURL = store.slate.resumeURL
+                                        }
+                                        if !audition.wrappedValue.asks.contains(where: { $0.localizedCaseInsensitiveContains("resume") || $0.localizedCaseInsensitiveContains("résumé") }) {
+                                            audition.wrappedValue.asks.append("Resume")
+                                        }
+                                    } else {
+                                        audition.wrappedValue.resumeURL = nil
+                                        audition.wrappedValue.asks.removeAll { $0.localizedCaseInsensitiveContains("resume") || $0.localizedCaseInsensitiveContains("résumé") }
+                                    }
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+
                         // Scenes requirement
                         let sceneIndices = audition.wrappedValue.pieces.indices.filter { audition.wrappedValue.pieces[$0].kind == .scene }
                         if !sceneIndices.isEmpty {

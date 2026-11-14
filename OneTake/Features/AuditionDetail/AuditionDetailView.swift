@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 07 Audition detail
 struct AuditionDetailView: View {
@@ -9,6 +10,8 @@ struct AuditionDetailView: View {
     @State private var showCallback = false
     @State private var showEdit = false
     @State private var showSides = false
+    @State private var showResumePicker = false
+    @State private var resumeImportError: String?
 
     var body: some View {
         if let audition = store.audition(auditionID) {
@@ -103,6 +106,8 @@ struct AuditionDetailView: View {
                     headshotsCard(a)
                 }
 
+                resumeCard(a)
+
                 let previousTakes = store.takes.filter { $0.auditionID == a.id && $0.previousSides }
                 if !previousTakes.isEmpty {
                     VStack(alignment: .leading, spacing: OTSpace.s) {
@@ -189,6 +194,98 @@ struct AuditionDetailView: View {
         .confirmationDialog("Delete “\(a.project)”?", isPresented: $showDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { store.deleteAudition(a.id); store.popToRoot() }
         } message: { Text("Its slate, reader track and any takes are removed from this iPhone. Your headshots stay in Profile.") }
+        .fileImporter(isPresented: $showResumePicker, allowedContentTypes: [
+            .pdf, .rtf, .plainText,
+            UTType(filenameExtension: "doc") ?? .data,
+            UTType(filenameExtension: "docx") ?? .data
+        ]) { result in
+            switch result {
+            case .success(let url):
+                do {
+                    let saved = try ResumeStore.importFile(from: url)
+                    store.setResumeURL(saved, for: a.id)
+                    Haptics.success()
+                } catch {
+                    resumeImportError = error.localizedDescription
+                }
+            case .failure(let error):
+                resumeImportError = error.localizedDescription
+            }
+        }
+        .alert("Couldn't add résumé", isPresented: Binding(
+            get: { resumeImportError != nil },
+            set: { if !$0 { resumeImportError = nil } }
+        )) {
+            Button("OK", role: .cancel) { resumeImportError = nil }
+        } message: {
+            Text(resumeImportError ?? "Try choosing a résumé file again.")
+        }
+    }
+
+    @ViewBuilder private func resumeCard(_ a: Audition) -> some View {
+        let isAttached = a.resumeURL != nil
+        let effectiveURL = a.resumeURL ?? store.slate.resumeURL
+
+        HStack(spacing: OTSpace.m) {
+            Image(systemName: isAttached ? "doc.text.fill" : "doc.text")
+                .font(.otIcon(.s, weight: .semibold))
+                .foregroundStyle(OT.accent)
+                .frame(width: 34, height: 34) // ot-lint:allow
+                .background(OT.accentSoft, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                OTSectionLabel(isAttached ? "Résumé Attached" : "Résumé (Optional)")
+                if let url = a.resumeURL {
+                    Text(url.lastPathComponent)
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else if let profileURL = store.slate.resumeURL {
+                    Text("Profile: \(profileURL.lastPathComponent)")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text("No résumé attached")
+                        .font(.otHeadline)
+                        .foregroundStyle(OT.labelSecondary)
+                }
+            }
+            Spacer()
+            Menu {
+                if let url = effectiveURL {
+                    ShareLink(item: url) {
+                        Label("Share / View file", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button {
+                    showResumePicker = true
+                } label: {
+                    Label(isAttached ? "Replace with file" : "Upload file (PDF, Word)", systemImage: "doc.badge.plus")
+                }
+                if store.slate.resumeURL != nil && a.resumeURL != store.slate.resumeURL {
+                    Button {
+                        store.setResumeURL(store.slate.resumeURL, for: a.id)
+                        Haptics.success()
+                    } label: {
+                        Label("Use profile résumé", systemImage: "person.text.rectangle")
+                    }
+                }
+                if isAttached {
+                    Button(role: .destructive) {
+                        store.setResumeURL(nil, for: a.id)
+                        Haptics.tick()
+                    } label: {
+                        Label("Remove from audition", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Text(isAttached ? "Manage" : "Add")
+            }
+            .buttonStyle(.otCompact)
+        }
+        .otCard(.grouped)
     }
 
     @ViewBuilder private func sidesCard(_ a: Audition) -> some View {

@@ -520,6 +520,12 @@ extension AppStore {
         auditions[i].separateArchiveURL = nil
     }
 
+    func setResumeURL(_ url: URL?, for id: Audition.ID) {
+        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[i].resumeURL = url
+        invalidateExport(for: id)
+    }
+
     func setShareLink(_ link: CloudLink.Published, for id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].shareLink = link.url

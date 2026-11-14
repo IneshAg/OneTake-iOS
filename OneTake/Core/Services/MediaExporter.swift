@@ -68,7 +68,7 @@ enum MediaExporter {
         let auditionTakes = takes.filter { $0.auditionID == audition.id && !$0.previousSides && $0.currentSidesRevision == audition.currentSidesRevision }
         for sceneIndex in audition.scenes.indices {
             let sceneTakes = auditionTakes.filter { $0.sceneIndex == sceneIndex }
-            if let chosen = sceneTakes.first(where: \.isCircled), let url = chosen.fileURL {
+            if let chosen = sceneTakes.first(where: \.isCircled) ?? sceneTakes.last, let url = chosen.fileURL {
                 clips.append(Clip(kind: .scene(sceneIndex), label: "Scene \(sceneIndex + 1) · Take \(chosen.number)", url: url, takeNumber: chosen.number))
             }
         }
@@ -203,6 +203,8 @@ enum MediaExporter {
             }
             if let aTrack = try? await asset.loadTracks(withMediaType: .audio).first {
                 try? audioTrack.insertTimeRange(range, of: aTrack, at: cursor)
+            } else {
+                audioTrack.insertEmptyTimeRange(range)
             }
             // "Scene 1 · Take 3" → "Scene 1" in the chapter list.
             let label = clip.label.components(separatedBy: " · ").first ?? clip.label
@@ -210,6 +212,11 @@ enum MediaExporter {
             cursor = CMTimeAdd(cursor, duration)
         }
         guard cursor > .zero else { throw ExportError.nothingToExport }
+
+        // Remove audio track if no clips had audio, so export and player items don't fail on empty tracks
+        if audioTrack.segments.isEmpty || audioTrack.timeRange.duration == .zero {
+            composition.removeTrack(audioTrack)
+        }
 
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
@@ -233,6 +240,7 @@ enum MediaExporter {
         // Export to a scratch file and only replace the deliverable on success, so a cancelled or
         // failed export never destroys the last good one (or races a retry writing the same name).
         let workingURL = outputDir.appendingPathComponent("exporting-\(UUID().uuidString).mp4")
+        try? FileManager.default.removeItem(at: workingURL)
 
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportError.sessionCreationFailed
