@@ -59,12 +59,19 @@ The OneTake design system unifies the visual language, interaction patterns, tok
 
 ## 3. Button Component Matrix
 
-Buttons use `.buttonStyle(.ot(variant, size: size, fullWidth: bool))` or dedicated convenience styles:
+Buttons use `.buttonStyle(.ot(variant, size: size, fullWidth: bool, shape: shape))` or a convenience style. The configured shape controls both the background and the hit-test shape.
+
+### Shapes
+
+- `.squircle` is the default and uses continuous corners sized by the control.
+- `.capsule` uses pill ends. `.otCompact` and `.otCompactPrimary` use this shape.
+- `.rounded(radius)` uses circular corners. Pass `nil` for a radius based on control size.
 
 ### Variants
 - `.primary` (`.otPrimary`): Filled accent background with contrasting white/dark text. Reserved for primary calls-to-action (e.g., "Set up camera", "Continue to slate").
 - `.secondary` (`.otSecondary`): Soft field fill with primary label. Used for secondary actions (e.g., "Retake", "Replace").
-- `.ghost` / `.glass`: Subtle background with ultra-thin material overlay. Used in toolbars, menus, and media overlays.
+- `.tertiary` uses a clear background.
+- `.glass` uses ultra-thin material, with a dedicated fill on camera surfaces.
 - `.destructive`: Red danger fill or text for permanent deletion.
 
 ### Sizes

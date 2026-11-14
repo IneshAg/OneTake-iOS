@@ -20,7 +20,7 @@ struct ReviewStepSpecsView: View {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 // Header
                 VStack(alignment: .leading, spacing: OTSpace.xs) {
-                    Label("Specs & Requirements", systemImage: "list.bullet.clipboard")
+                    Text("Specs & Requirements")
                         .font(.otTitle)
                     Text("Deadlines, required shots, and character instructions.")
                         .font(.otFootnote)
@@ -51,15 +51,18 @@ struct ReviewStepSpecsView: View {
 
                 // Deliverables in flow (Slate & Headshots)
                 VStack(alignment: .leading, spacing: OTSpace.s) {
-                    Label("What to prepare", systemImage: "list.bullet.rectangle")
+                    Text("What to prepare")
                         .font(.otCaption.weight(.medium))
                         .foregroundStyle(OT.labelSecondary)
-                    LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: OTSpace.s) {
+                    VStack(spacing: 0) {
                         deliverableToggle(title: "Slate / intro", icon: "person.text.rectangle", isOptional: $isSlateOptional)
+                        Divider()
                         if asks.contains("Full-body shot") {
                             deliverableToggle(title: "Full-body shot", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                            Divider()
                         } else if asks.contains("Full-body shot with slate") {
                             deliverableToggle(title: "Full-body view in slate", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                            Divider()
                         }
                         deliverableToggle(title: "Headshots", icon: "person.crop.rectangle", isOptional: $isHeadshotOptional)
                     }
@@ -164,29 +167,29 @@ struct ReviewStepSpecsView: View {
     }
 
     private func deliverableToggle(title: String, icon: String, isOptional: Binding<Bool>) -> some View {
-        Button {
-            isOptional.wrappedValue.toggle()
-            Haptics.tick()
-        } label: {
-            VStack(alignment: .leading, spacing: OTSpace.s) {
-                Label(title, systemImage: icon)
-                    .font(.otFootnote.weight(.semibold))
-                    .foregroundStyle(OT.labelPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Text(isOptional.wrappedValue ? "Optional" : "Required")
-                    .font(.otCaption.weight(.bold))
-                    .foregroundStyle(isOptional.wrappedValue ? OT.labelSecondary : OT.accent)
-                    .padding(.horizontal, OTSpace.s)
-                    .padding(.vertical, OTSpace.xs)
-                    .background(isOptional.wrappedValue ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+        let isRequired = Binding(
+            get: { !isOptional.wrappedValue },
+            set: { required in
+                isOptional.wrappedValue = !required
+                Haptics.tick()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(OTSpace.m)
-            .background(OT.surfaceSunken, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+        )
+
+        return Toggle(isOn: isRequired) {
+            VStack(alignment: .leading, spacing: OTSpace.xs) {
+                Label(title, systemImage: icon)
+                    .font(.otSubhead.weight(.medium))
+                    .foregroundStyle(OT.labelPrimary)
+
+                Text(isOptional.wrappedValue ? "Optional" : "Required")
+                    .font(.otFootnote)
+                    .foregroundStyle(isOptional.wrappedValue ? OT.labelSecondary : OT.accent)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(isOptional.wrappedValue ? "optional" : "required"). Tap to change.")
+        .toggleStyle(.switch)
+        .tint(OT.accent)
+        .padding(.vertical, OTSpace.s)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOptional.wrappedValue ? "Optional" : "Required")
     }
 }

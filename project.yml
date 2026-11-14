@@ -22,6 +22,11 @@ targets:
     platform: iOS
     sources:
       - path: OneTake
+        excludes:
+          - SampleCastingFiles
+      - path: OneTake/SampleCastingFiles
+        type: folder
+        buildPhase: resources
       - path: Shared
       - path: OneTake/Core/Models/ScriptElementClassifier.mlmodel
     # iCloud Drive (CloudDocuments) for "Email or link": the exported tape is uploaded to the app's
@@ -163,6 +168,8 @@ schemes:
         OneTake: all
     run:
       config: Debug
+      commandLineArguments:
+        -showOnboarding: true
     test:
       config: Debug
       targets:

@@ -401,32 +401,29 @@ struct MissingDetailsView: View {
                     }
                 }()
 
-                if !suggestions.isEmpty {
-                    KeyboardAutofillBar(
-                        suggestions: suggestions,
-                        onSelect: { selected in
-                            switch focusedField {
-                            case .project:
-                                store.auditionDraft.project = selected
-                            case .role:
-                                store.auditionDraft.role = selected
-                                let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
-                                if !parsed.isEmpty {
-                                    store.auditionDraft.scenes = parsed.count
-                                }
-                                if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
-                                    store.auditionDraft.castingNotes = notes
-                                }
-                            case .castingOffice:
-                                store.auditionDraft.castingOffice = selected
-                            case nil:
-                                break
+                KeyboardAutofillBar(
+                    suggestions: suggestions,
+                    onSelect: { selected in
+                        switch focusedField {
+                        case .project:
+                            store.auditionDraft.project = selected
+                        case .role:
+                            store.auditionDraft.role = selected
+                            let parsed = ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: selected)
+                            if !parsed.isEmpty {
+                                store.auditionDraft.scenes = parsed.count
                             }
+                            if let notes = NoticeParser.extractCharacterDescription(for: selected, in: store.auditionDraft.sourceText) {
+                                store.auditionDraft.castingNotes = notes
+                            }
+                        case .castingOffice:
+                            store.auditionDraft.castingOffice = selected
+                        case nil:
+                            break
                         }
-                    )
-                }
-                Spacer()
-                Button("Done") { focusedField = nil }
+                    },
+                    onDone: { focusedField = nil }
+                )
             }
         }
         .onAppear {

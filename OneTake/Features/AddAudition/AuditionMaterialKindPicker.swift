@@ -6,21 +6,41 @@ import OneTakeUI
 struct AuditionMaterialKindPicker: View {
     @Binding var selected: AuditionMaterialKind
 
+    var compact = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: OTSpace.s) {
-            Picker("Audition Type", selection: $selected) {
-                ForEach(AuditionMaterialKind.allCases) { kind in
-                    Label(kind.shortLabel, systemImage: kind.icon).tag(kind)
+            if compact {
+                HStack {
+                    Text("Audition type")
+                        .font(.otCaption.weight(.medium))
+                        .foregroundStyle(OT.labelSecondary)
+                    Spacer()
+                    picker.labelsHidden()
                 }
-            }
-            .pickerStyle(.menu)
-            .onChange(of: selected) { _, _ in
-                Haptics.tick()
+            } else {
+                picker
             }
 
             Text(selected.description)
                 .font(.otFootnote)
                 .foregroundStyle(OT.labelSecondary)
+        }
+    }
+
+    private var picker: some View {
+        Picker("Audition Type", selection: $selected) {
+            ForEach(AuditionMaterialKind.allCases) { kind in
+                if compact {
+                    Text(kind.shortLabel).tag(kind)
+                } else {
+                    Label(kind.shortLabel, systemImage: kind.icon).tag(kind)
+                }
+            }
+        }
+        .pickerStyle(.menu)
+        .onChange(of: selected) { _, _ in
+            Haptics.tick()
         }
     }
 }

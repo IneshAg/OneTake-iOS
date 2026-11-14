@@ -43,31 +43,16 @@ struct AuditionDetailView: View {
 
                 // Header
                 VStack(alignment: .leading, spacing: OTSpace.xs) {
-                    OTSectionLabel("\(a.resolvedMaterialKind.shortLabel) · \(a.projectType) · reading for \(a.role)" + (a.round.map { " · round \($0)" } ?? ""))
-                    Text(a.project).font(.system(size: 40, weight: .bold)).foregroundStyle(OT.labelPrimary) // ot-lint:allow
-                    HStack(alignment: .firstTextBaseline, spacing: 5) { // ot-lint:allow
-                        let rem = a.dueRemaining
-                        if rem.isPastDue {
-                            Text("0").font(.otNumber).foregroundStyle(OT.due)
-                            Text("mins left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else if rem.days >= 1 {
-                            Text("\(rem.days)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(rem.days == 1 ? "day" : "days").font(.otHeadline).foregroundStyle(OT.due)
-                            if rem.hours > 0 {
-                                Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
-                                Text(rem.hours == 1 ? "hr" : "hrs").font(.otHeadline).foregroundStyle(OT.due)
-                            }
-                            Text("left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else if rem.hours >= 1 {
-                            Text("\(rem.hours)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(rem.hours == 1 ? "hr left" : "hrs left").font(.otHeadline).foregroundStyle(OT.due)
-                        } else {
-                            let mins = max(1, rem.minutes)
-                            Text("\(mins)").font(.otNumber).foregroundStyle(OT.due)
-                            Text(mins == 1 ? "min left" : "mins left").font(.otHeadline).foregroundStyle(OT.due)
-                        }
-                        Text("·  Due \(a.due.otDue)").font(.otCallout).foregroundStyle(OT.labelSecondary)
-                    }
+                    Text(a.project)
+                        .font(.otLargeTitle)
+                        .foregroundStyle(OT.labelPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("\(a.resolvedMaterialKind.shortLabel) · \(a.projectType) · \(a.role)" + (a.round.map { " · Round \($0)" } ?? ""))
+                        .font(.otSubhead)
+                        .foregroundStyle(OT.labelSecondary)
+                    Text(a.dueRemaining.isPastDue ? "Past due · \(a.due.otDue)" : "Due \(a.due.otDue)")
+                        .font(.otFootnote.weight(.medium))
+                        .foregroundStyle(a.dueRemaining.isPastDue ? OT.due : OT.labelSecondary)
                     if !a.asks.isEmpty {
                         HStack(spacing: OTSpace.m) {
                             ForEach(a.asks.prefix(3), id: \.self) { Text($0).font(.otFootnote).foregroundStyle(OT.labelSecondary) }

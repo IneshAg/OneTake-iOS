@@ -8,6 +8,7 @@ struct RouteDestinations: ViewModifier {
         content.navigationDestination(for: Route.self) { route in
             destination(for: route)
                 .hideSystemBars()
+                .modifier(OTSingleStepBackButton())
         }
     }
 
@@ -117,6 +118,23 @@ struct OTInlineRootTitle: ToolbarContent {
             .font(.otLargeTitle)
             .foregroundStyle(OT.labelPrimary)
             .fixedSize()
+    }
+}
+
+private struct OTSingleStepBackButton: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
     }
 }
 

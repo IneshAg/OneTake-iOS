@@ -89,12 +89,42 @@ struct RootTabView: View {
         }
         .fullScreenCover(item: $store.camera) { flow in
             switch flow {
-            case .shoot(let id, let scene, let start): ShootFlow(auditionID: id, initialScene: scene, initialStage: start)
+            case .shoot(let id, let scene, let start):
+                ShootWithSlateSetup(auditionID: id, scene: scene, start: start)
             case .headshot(let auditionID): HeadshotFlow(auditionID: auditionID)
             case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
             case .practiceTake(let pieceID, let displayMode, let recordMode):
                 PracticeTakeView(pieceID: pieceID, initialDisplayMode: displayMode, initialRecordMode: recordMode)
             }
+        }
+    }
+}
+
+/// Offers slate details before the camera opens for a pending required slate.
+private struct ShootWithSlateSetup: View {
+    let auditionID: Audition.ID
+    let scene: Int?
+    let start: CameraFlow.ShootStart
+
+    @Environment(AppStore.self) private var store
+    @AppStorage("slate.hasSeenSetup") private var hasSeenSetup = false
+
+    var body: some View {
+        if !hasSeenSetup,
+           store.slate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let audition = store.audition(auditionID),
+           audition.pieces.contains(where: { $0.kind == .slate && !$0.isOptional && !$0.isDone }) {
+            NavigationStack {
+                SlateDetailsView(onContinue: { hasSeenSetup = true })
+                    .navigationTitle("Set up your slate")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { store.camera = nil }
+                        }
+                    }
+            }
+        } else {
+            ShootFlow(auditionID: auditionID, initialScene: scene, initialStage: start)
         }
     }
 }

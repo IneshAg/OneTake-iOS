@@ -11,14 +11,16 @@ struct ReviewStepScenesView: View {
     let detectedReaderName: String
     @Binding var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan
 
+    @State private var preview: ScriptParser.ScenePortion?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: OTSpace.l) {
                 // Header
                 VStack(alignment: .leading, spacing: OTSpace.xs) {
-                    Label("Scenes & Pages to prepare", systemImage: "doc.text")
+                    Text(portionsArePages ? "Pages to prepare" : "Scenes to prepare")
                         .font(.otTitle)
-                    Text("Choose the relevant \(portionsArePages ? "pages" : "scenes") for \(roleText.isEmpty ? "your role" : roleText).")
+                    Text("Select the material casting asked you to prepare for \(roleText.isEmpty ? "your role" : roleText). Open a preview to check what each section contains.")
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelSecondary)
                 }
@@ -44,60 +46,61 @@ struct ReviewStepScenesView: View {
                     ForEach(portions) { portion in
                         let isSelected = selectedPortionIDs.contains(portion.id)
                         let isForMyRole = portion.characters.contains { $0.caseInsensitiveCompare(roleText) == .orderedSame }
-                        Button {
-                            if isSelected {
-                                selectedPortionIDs.remove(portion.id)
-                            } else {
-                                selectedPortionIDs.insert(portion.id)
-                            }
-                            Haptics.tick()
-                        } label: {
-                            HStack(alignment: .top, spacing: OTSpace.s) {
-                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .font(.otIcon(.m))
-                                    .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
-                                    .padding(.top, OTSpace.xxs)
+                        VStack(alignment: .leading, spacing: OTSpace.xs) {
+                            Button {
+                                if isSelected {
+                                    selectedPortionIDs.remove(portion.id)
+                                } else {
+                                    selectedPortionIDs.insert(portion.id)
+                                }
+                                Haptics.tick()
+                            } label: {
+                                HStack(alignment: .top, spacing: OTSpace.s) {
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .font(.otIcon(.m))
+                                        .foregroundStyle(isSelected ? OT.accent : OT.labelTertiary)
+                                        .padding(.top, OTSpace.xxs)
 
-                                VStack(alignment: .leading, spacing: OTSpace.xs) {
-                                    HStack {
+                                    VStack(alignment: .leading, spacing: OTSpace.xs) {
+                                        Text(portion.pageNumber.map { "Page \($0)" } ?? "Scene \(portion.number)")
+                                            .font(.otCaption)
+                                            .foregroundStyle(OT.labelSecondary)
                                         Text(portion.displayTitle)
                                             .font(.otSubhead.weight(.semibold))
                                             .foregroundStyle(OT.labelPrimary)
-                                        Spacer()
                                         if isForMyRole {
-                                            Text("Matches role")
-                                                .font(.otCaption.weight(.bold))
-                                                .padding(.horizontal, OTSpace.xs)
-                                                .padding(.vertical, OTSpace.xxs)
-                                                .background(OT.accentSoft, in: Capsule())
+                                            Text("Matches your role")
+                                                .font(.otCaption.weight(.semibold))
                                                 .foregroundStyle(OT.accent)
                                         }
-                                    }
-
-                                    if !portion.characters.isEmpty {
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: OTSpace.xs) {
-                                                ForEach(portion.characters.prefix(4), id: \.self) { c in
-                                                    Text(c)
-                                                        .font(.otCaption.weight(.medium))
-                                                        .padding(.horizontal, OTSpace.xs)
-                                                        .padding(.vertical, OTSpace.xxs)
-                                                        .background(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accentSoft : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.xs))
-                                                        .foregroundStyle(c.caseInsensitiveCompare(roleText) == .orderedSame ? OT.accent : OT.labelSecondary)
-                                                }
-                                            }
+                                        let excerpt = portion.rawText.split(whereSeparator: \.isNewline)
+                                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                                            .filter { !$0.isEmpty && $0.caseInsensitiveCompare(portion.heading) != .orderedSame }
+                                            .joined(separator: " ")
+                                        if !excerpt.isEmpty {
+                                            Text(excerpt)
+                                                .font(.otFootnote)
+                                                .foregroundStyle(OT.labelSecondary)
+                                                .lineLimit(2)
                                         }
                                     }
                                 }
+                                .padding(OTSpace.m)
+                                .background(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
+                                        .stroke(isSelected ? OT.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                                )
                             }
-                            .padding(OTSpace.m)
-                            .background(isSelected ? OT.accentSoft.opacity(0.3) : OT.fillField, in: RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)) // ot-lint:allow
-                            .overlay(
-                                RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
-                                    .stroke(isSelected ? OT.accent.opacity(0.5) : Color.clear, lineWidth: 1)
-                            )
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(isSelected ? .isSelected : [])
+                            Button("Preview text") { preview = portion }
+                                .font(.otFootnote.weight(.semibold))
+                                .foregroundStyle(OT.accent)
+                                .accessibilityLabel("Preview \(portion.displayTitle)")
+                                .padding(.horizontal, OTSpace.m)
+                                .padding(.bottom, OTSpace.s)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .otCard(.grouped)
@@ -130,6 +133,29 @@ struct ReviewStepScenesView: View {
             .padding(.horizontal, OTSpace.gutter)
             .padding(.top, OTSpace.m)
             .padding(.bottom, OTSpace.xl)
+        }
+        .sheet(item: $preview) { portion in
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: OTSpace.m) {
+                        Text(portion.displayTitle)
+                            .font(.otTitle)
+                            .accessibilityAddTraits(.isHeader)
+                        Text(portion.rawText)
+                            .font(.otBody)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(OTSpace.gutter)
+                }
+                .navigationTitle("Text preview")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { preview = nil }
+                    }
+                }
+            }
         }
     }
 }

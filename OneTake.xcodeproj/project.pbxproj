@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A721C303A80D3F9A9C334022 /* SampleCastingFiles in Resources */ = {isa = PBXBuildFile; fileRef = A721C303A80D3F9A9C334021 /* SampleCastingFiles */; };
 		004054539E0207BCAF82DA0F /* ZipArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4E80EA17B1825B87E255CC /* ZipArchive.swift */; };
 		019B1B2486C26C25B857896D /* ShootResultOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDCB18B7392B83658F32B11 /* ShootResultOverlays.swift */; };
 		0285ECC3E606FA8F16064597 /* PackageAndSentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65F4B68755B1B159E8F16FB9 /* PackageAndSentTests.swift */; };
@@ -246,6 +247,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A721C303A80D3F9A9C334021 /* SampleCastingFiles */ = {isa = PBXFileReference; lastKnownFileType = folder; path = SampleCastingFiles; sourceTree = "<group>"; };
 		024CA3B657C99FDE7A1ABE2F /* ShootFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShootFlow.swift; sourceTree = "<group>"; };
 		028B032E8486094FD043953F /* OneTake.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OneTake.entitlements; sourceTree = "<group>"; };
 		0295480ECB8F72BC8A672515 /* AppStore+Demo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Demo.swift"; sourceTree = "<group>"; };
@@ -564,6 +566,7 @@
 		5547B660975BFD756B47DBB0 /* OneTake */ = {
 			isa = PBXGroup;
 			children = (
+				A721C303A80D3F9A9C334021 /* SampleCastingFiles */,
 				6E3CCFBC5B55BDFCD0799277 /* Info.plist */,
 				028B032E8486094FD043953F /* OneTake.entitlements */,
 				68E466C1BC17347A5BCED5C9 /* App */,
@@ -1028,6 +1031,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DB7E4A70D9D48951F015A567 /* Assets.xcassets in Resources */,
+				A721C303A80D3F9A9C334022 /* SampleCastingFiles in Resources */,
 				852A74083C95B88C0FAA0680 /* PrivacyInfo.xcprivacy in Resources */,
 				11D2AA7005DE26EC266B9AF4 /* onetake-empty-auditions-illustration.svg in Resources */,
 				B90EF3FBF432130FC88EB68B /* onetake-empty-auditions.svg in Resources */,

@@ -1,8 +1,10 @@
 # OneTake iOS documentation
 
-This file includes the complete project README and documentation, including historical notes and overlapping descriptions. The November 11 audit records the most recent verification included here.
+The current guide covers the refactor, audition workflow, and simulator setup. Dated sections below record earlier implementation and verification, including the project layout at the time.
 
 ## Contents
+
+- [Current workflow and project layout](#current-workflow-and-project-layout)
 
 - [November 11 audit and verification](#november-11-audit-and-verification)
 - [Project overview and setup](#doc-readme)
@@ -18,6 +20,39 @@ This file includes the complete project README and documentation, including hist
 - [Dataset catalog](#doc-docs-research-dataset-catalog)
 - [Dataset collection](#doc-docs-research-dataset-collection)
 - [Pilgrimage research report](#doc-docs-research-pilgrimage-research-report)
+
+## Current workflow and project layout
+
+### Refactor and feature branch changes
+
+| Area | Current behavior |
+|---|---|
+| Auditions | Filter the library by Active, Submitted, or Archived. The audition context menu can archive, restore, mark sent, or undo submission. |
+| Edit Details | Open Project & role, Scenes & requirements, Deadline & submission, Sides & script, or Notes from the edit menu. Scenes & requirements also includes the editable preparation order. |
+| Import and review | Import PDFs, images, plain text, Final Draft (.fdx), Fountain, and Word (.docx). Review Project, Scenes when the import contains selectable portions, and Specs before saving. |
+| Notice and script parsing | PDF geometry preserves line order and word spacing. OCR retries small print with bounded enlargement and retains blank page positions. Page routing separates casting notices from script sides, so dialogue does not supply notice fields such as pay. The local script classifier uses layout and neighboring lines to identify script elements. |
+| Revised sides and reader audio | Revised sides preserve previous takes and move matching reader cues to their updated locations. Current checklist readiness follows the new revision. Reader cue positions use scene-wide indices across characters, and failed retakes preserve the previous recording. |
+| Recording and framing | Recording interruptions can surface recovery controls. An idle interruption does not carry into the next recording. Auto-frame opens a presets menu and can fall back to CPU Vision and Core Image face detection. |
+| Demo mode | Profile → Demo & Testing can seed auditions, playable takes, reader cues, and practice scenes. |
+| Navigation and styling | Root screens use native navigation, toolbar, and search controls. Shared button styles support capsule and rounded shapes. See [OneTakeUI](docs/DESIGN_SYSTEM.md). |
+| Build | The app and extensions target iOS 18 or later. |
+
+The app entry point is in [OneTake/App](OneTake/App). Models, services, and the store are in [OneTake/Core](OneTake/Core). Feature screens are in [OneTake/Features](OneTake/Features). The [OneTakeUI package](Packages/OneTakeUI) provides shared styles and components.
+
+### Local UI updates
+
+These changes are present in the working tree alongside the merged refactor.
+
+- **Onboarding** opens with the filmstrip welcome and a three-page tour with distinct artwork. Swipe or tap **Next** to advance. **Skip** and the final **Get started** both open Auditions. Slate setup is offered when opening the camera for an audition with a pending required slate and no saved slate name.
+- **Simulator testing** uses the Debug Run argument `-showOnboarding` to replay onboarding. Debug simulator builds make the bundled fixtures available through **Add an audition → File → Browse → On My iPhone → OneTake → SampleCastingFiles**.
+- **Project review** puts detected roles beneath **Your role** and uses a compact audition type picker. The keyboard toolbar keeps suggestions beside **Done**.
+- **Scenes review** shows a page or scene number, heading, text excerpt, and a role match when applicable. **Preview text** shows the complete extracted section without changing the selection.
+- **Specs review** uses switches under **What to prepare**. On means Required and off means Optional.
+- **Auditions and audition detail** show a clearable filter pill and a compact due date in place of the large countdown.
+
+### Offline parser and model development
+
+The [Colab scripts](scripts/colab) include a synthetic casting poster corpus builder, an offline evaluator, contextual script classifier training, LoRA training for Needle 3 CQ2 and LFM2.5-VL-450M CQ4, and release publishing. The image corpus pipeline preserves example IDs and wrapped poster text. The VLM pipeline normalizes multimodal prompts, masks labels, and validates input archive and evaluation paths.
 
 ## November 11 audit and verification
 
@@ -69,7 +104,7 @@ and deterministic guidance.
   your lines.
 - **Checklist per audition** — headshot, slate, requested full-body shot (as part of the slate or a separate clip) and one piece per scene, with a
   single "Next" action that opens whatever's next.
-- Edit details, revised sides, callbacks, and filters for Active / Due this week / Sent / All.
+- Edit details, revised sides, callbacks, and filters for Active, Submitted, and Archived.
 
 ### Learn the lines
 - **Prepare** — full lines, first letters, or hide yours (tap to peek), with casting's notes on top.
@@ -851,7 +886,7 @@ Each piece has:
 
 The audition’s `nextPiece` drives the “Next” experience throughout the app. It follows the stored
 piece order; new auditions default to **Headshots → Slate → Scenes**, inserting a separate **Full-body shot** only when the notice asks for a separate head-to-toe clip. If the notice includes full-body framing in the slate, it stays within the slate. Legacy full-length pieces are migrated to the new label.
-Actors can change that order in Edit Details by tapping **Edit** in Flow Order and dragging pieces.
+Actors can change that order under **Edit Details → Scenes & requirements → Flow order** by tapping **Edit** and dragging pieces.
 Optional work can appear in the chosen order while required work remains, but optional pieces do not
 prevent preview once all required pieces are complete.
 

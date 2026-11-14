@@ -2,113 +2,223 @@ import SwiftUI
 import AuthenticationServices
 import UserNotifications
 
-/// 01 Welcome → 03 Your slate (skippable) → straight into the app, as a guest.
+/// Introduces OneTake before entering the app as a guest.
 struct OnboardingFlow: View {
-    enum Step: Hashable { case slate }
+    var onFinish: () -> Void
     @Environment(AppStore.self) private var store
-    @State private var path: [Step] = []
+    @State private var showTour = false
 
     var body: some View {
-        NavigationStack(path: $path) {
-            WelcomeView { path.append(.slate) }
-                .navigationDestination(for: Step.self) { step in
-                    switch step {
-                    case .slate: SlateDetailsView(onBack: { path = [] }, onContinue: { finish() })
-                    }
+        NavigationStack {
+            WelcomeView { showTour = true }
+                .navigationDestination(isPresented: $showTour) {
+                    OnboardingTour(
+                        onFinish: finish
+                    )
                 }
         }
     }
 
     private func finish() {
+        store.tab = .auditions
+        store.auditionsPath.removeAll()
         store.isOnboarded = true
+        store.flushPersistence()
+        onFinish()
     }
 }
 
 // MARK: - 01 Welcome
 
-struct WelcomeView: View {
+private struct WelcomeView: View {
     var onStart: () -> Void
 
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 64.0
+    @ScaledMetric(relativeTo: .title2) private var taglineSize = 24.0
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Label("OneTake", systemImage: "movieclapper.fill")
-                .font(.otHeadline)
-                .foregroundStyle(OT.labelPrimary)
-                .padding(.top, OTSpace.m)
+        VStack(spacing: 6) {
+            Text("OneTake")
+                .font(.system(size: titleSize, weight: .bold)) // ot-lint:allow
+                .tracking(-2)
+                .accessibilityAddTraits(.isHeader)
 
-            ScriptPreviewCard()
-                .padding(.top, OTSpace.l)
-
-            Spacer()
-
-            Text("Your best take,\nevery time.")
-                .font(.system(size: 40, weight: .bold)) // ot-lint:allow
-                .foregroundStyle(OT.labelPrimary)
-            Text("Learn your lines, tape with a real reader, and send it the way casting asks.")
-                .font(.otCallout)
-                .foregroundStyle(OT.labelSecondary)
-                .padding(.top, OTSpace.s)
-
-            Spacer().frame(height: 40) // ot-lint:allow
-
-            Button("Get started", action: onStart)
-                .buttonStyle(.otPrimary)
+            Text("From first take to final cut")
+                .font(.system(size: taglineSize, weight: .bold)) // ot-lint:allow
         }
-        .padding(.horizontal, OTSpace.gutter)
-        .otCanvas()
-        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
-        .navigationBarBackButtonHidden(true)
-    }
-}
-
-private struct ScriptPreviewCard: View {
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: OTSpace.s) {
-                Text("INT. YOUR ROOM — TONIGHT")
-                    .font(.otCaption.weight(.semibold))
-                    .foregroundStyle(OT.labelTertiary)
-                line("YOU", "I got the audition.", mine: true)
-                line("READER", "Great. Send a tape by Friday.", mine: false)
-                line("YOU", "Tonight. I'm ready.", mine: true)
-            }
-            .padding(OTSpace.l)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .otCard(.grouped)
-            .rotationEffect(.degrees(-2))
-
-            Label("SC 1 · TK 1", systemImage: "circle.fill")
-                .font(.otCaption.weight(.bold))
-                .foregroundStyle(.white)
-                .labelStyle(RecLabelStyle())
-                .padding(.horizontal, 10) // ot-lint:allow
-                .padding(.vertical, 6) // ot-lint:allow
-                .background(.black, in: Capsule())
-                .offset(x: 6, y: -12) // ot-lint:allow
-        }
+        .foregroundStyle(.black)
+        .multilineTextAlignment(.center)
         .padding(.horizontal, OTSpace.xl)
-    }
-
-    private func line(_ who: String, _ text: String, mine: Bool) -> some View {
-        VStack(alignment: .leading, spacing: OTSpace.xxs) {
-            Text(who).font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelTertiary)
-            HStack(spacing: OTSpace.s) {
-                if mine { Capsule().fill(OT.accent).frame(width: 3) // ot-lint:allow
-                }
-                Text(text).font(mine ? .otHeadline : .otCallout)
-                    .foregroundStyle(mine ? OT.labelPrimary : OT.labelSecondary)
-            }
-            .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            Button("Continue", action: onStart)
+                .buttonStyle(.otPrimary)
+                .padding(.horizontal, OTSpace.xl)
+                .padding(.bottom, OTSpace.xl)
         }
+        .background {
+            GeometryReader { geometry in
+                Image("OnboardingFilmstrip")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+            }
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+        }
+        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
     }
 }
 
-struct RecLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) { // ot-lint:allow
-            configuration.icon.font(.system(size: 7)) // ot-lint:allow
-                .foregroundStyle(OT.recRed)
-            configuration.title
+// MARK: - Feature tour
+
+private struct OnboardingTour: View {
+    private enum Page: Int, CaseIterable {
+        case auditions, recording, rehearsal
+
+        var image: String {
+            switch self {
+            case .auditions: "OnboardingAuditions"
+            case .recording: "OnboardingRecording"
+            case .rehearsal: "OnboardingRehearsal"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .auditions: "Auditions\ndone right."
+            case .recording: "Your take.\nOn your terms."
+            case .rehearsal: "From first line\nto final take"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .auditions: "Create headshots, slates and scenes with professional tools built for actors"
+            case .recording: "Check your framing, lighting and sound so every take feels studio ready"
+            case .rehearsal: "Rehearse with guided practice designed to make every dialogue feel effortless"
+            }
+        }
+    }
+
+    var onFinish: () -> Void
+    @State private var selection = Page.auditions
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 48.0
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private let canvas = Color(red: 250 / 255, green: 248 / 255, blue: 244 / 255) // ot-lint:allow
+    private let ink = Color(red: 22 / 255, green: 20 / 255, blue: 22 / 255) // ot-lint:allow
+
+    var body: some View {
+        GeometryReader { geometry in
+            let fullHeight = geometry.size.height + geometry.safeAreaInsets.bottom
+            let heroHeight = fullHeight * (dynamicTypeSize.isAccessibilitySize ? 0.40 : 0.57)
+
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Page.allCases, id: \.self) { page in
+                        pageContent(page, heroHeight: heroHeight)
+                            .containerRelativeFrame(.horizontal)
+                            .frame(height: geometry.size.height)
+                            .id(page)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: Binding<Page?>(
+                get: { selection },
+                set: { if let page = $0 { selection = page } }
+            ))
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .topTrailing) {
+            Button("Skip", action: onFinish)
+                .font(.body)
+                .foregroundStyle(.black)
+                .padding(.horizontal, OTSpace.l)
+                .frame(minHeight: OTControlSize.small.hitHeight)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.trailing, OTSpace.xl)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            footer
+                .background(canvas.ignoresSafeArea(edges: .bottom))
+        }
+        .background(canvas.ignoresSafeArea())
+        .environment(\.colorScheme, .light)
+        .toolbar(.hidden, for: .navigationBar) // ot-lint:allow
+    }
+
+    private func pageContent(_ page: Page, heroHeight: CGFloat) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                GeometryReader { geometry in
+                    Image(page.image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: heroHeight)
+                        .clipped()
+                        .overlay(alignment: .bottom) {
+                            LinearGradient(colors: [canvas.opacity(0), canvas],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: 56) // ot-lint:allow
+                        }
+                }
+                .frame(height: heroHeight)
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 26) {
+                    Text(page.title)
+                        .font(.system(size: titleSize, weight: .bold)) // ot-lint:allow
+                        .tracking(-1.6)
+                        .accessibilityAddTraits(.isHeader)
+
+                    Text(page.detail)
+                        .font(.body)
+                }
+                .foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, OTSpace.xl)
+                .padding(.vertical, OTSpace.xl)
+            }
+        }
+        .contentMargins(.top, 0, for: .scrollContent)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(Page.allCases, id: \.self) { page in
+                    Button {
+                        withAnimation { selection = page }
+                    } label: {
+                        Circle()
+                            .fill(ink.opacity(selection == page ? 1 : 0.35))
+                            .frame(width: 8, height: 8)
+                            .frame(width: OTControlSize.small.hitHeight, height: OTControlSize.small.hitHeight)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Page \(page.rawValue + 1) of \(Page.allCases.count)")
+                    .accessibilityAddTraits(selection == page ? .isSelected : [])
+                }
+            }
+
+            Button(selection == .rehearsal ? "Get started" : "Next") {
+                switch selection {
+                case .auditions: withAnimation { selection = .recording }
+                case .recording: withAnimation { selection = .rehearsal }
+                case .rehearsal: onFinish()
+                }
+            }
+            .buttonStyle(.otPrimary)
+            .padding(.horizontal, OTSpace.xl)
+            .padding(.bottom, OTSpace.s)
         }
     }
 }

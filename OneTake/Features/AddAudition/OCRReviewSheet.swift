@@ -34,14 +34,6 @@ struct OCRReviewSheet: View {
             case .requirements: return "Specs"
             }
         }
-
-        var icon: String {
-            switch self {
-            case .project: return "person.text.rectangle"
-            case .scenes: return "doc.text"
-            case .requirements: return "list.bullet.clipboard"
-            }
-        }
     }
 
     private var availableSteps: [ReviewStep] {
@@ -243,28 +235,25 @@ struct OCRReviewSheet: View {
                         }
                     }()
 
-                    if !suggestions.isEmpty {
-                        KeyboardAutofillBar(
-                            suggestions: suggestions,
-                            onSelect: { selected in
-                                switch focusedField {
-                                case .project:
-                                    projectText = selected
-                                case .role:
-                                    roleText = selected
-                                    if let auto = NoticeParser.extractCharacterDescription(for: selected, in: draft.sourceText) {
-                                        castingNotesText = auto
-                                    }
-                                case .castingOffice:
-                                    castingOfficeText = selected
-                                case nil:
-                                    break
+                    KeyboardAutofillBar(
+                        suggestions: suggestions,
+                        onSelect: { selected in
+                            switch focusedField {
+                            case .project:
+                                projectText = selected
+                            case .role:
+                                roleText = selected
+                                if let auto = NoticeParser.extractCharacterDescription(for: selected, in: draft.sourceText) {
+                                    castingNotesText = auto
                                 }
+                            case .castingOffice:
+                                castingOfficeText = selected
+                            case nil:
+                                break
                             }
-                        )
-                    }
-                    Spacer()
-                    Button("Done") { focusedField = nil }
+                        },
+                        onDone: { focusedField = nil }
+                    )
                 }
             }
         }
@@ -281,12 +270,8 @@ struct OCRReviewSheet: View {
                     }
                     Haptics.tick()
                 } label: {
-                    HStack(spacing: OTSpace.xxs) {
-                        Image(systemName: index < currentStepIndex ? "checkmark.circle.fill" : step.icon)
-                            .font(.otIcon(.xs, weight: .bold))
-                        Text(step.shortTitle)
-                            .font(.otCaption.weight(.semibold))
-                    }
+                    Text(step.shortTitle)
+                        .font(.otCaption.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, OTSpace.xs)
                     .background(

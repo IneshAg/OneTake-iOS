@@ -6,6 +6,13 @@ import GoogleSignIn
 @main
 struct OneTakeApp: App {
     @State private var store = AppStore()
+    @State private var replayOnboarding = {
+        #if DEBUG && targetEnvironment(simulator)
+        ProcessInfo.processInfo.arguments.contains("-showOnboarding")
+        #else
+        false
+        #endif
+    }()
     @Environment(\.scenePhase) private var scenePhase
     /// Profile → Appearance: "system" follows the iPhone; "light" / "dark" pin it. Every colour token
     /// has both a light and a dark value, so either works throughout.
@@ -18,16 +25,19 @@ struct OneTakeApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if store.isOnboarded {
+                if store.isOnboarded && !replayOnboarding {
                     RootTabView()
                 } else {
-                    OnboardingFlow()
+                    OnboardingFlow { replayOnboarding = false }
                 }
             }
             .environment(store)
             .tint(OT.accent)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
             .task {
+                #if DEBUG && targetEnvironment(simulator)
+                exposeSampleCastingFiles()
+                #endif
                 if ProcessInfo.processInfo.arguments.contains("-openProfile") {
                     store.showProfile = true
                 }
@@ -74,7 +84,7 @@ struct OneTakeApp: App {
             LiveActivitySync.update(store.auditions)
             // Anything shared to OneTake while it was closed opens Add audition with it — unless the
             // actor is mid-shoot or already adding one; it waits in the inbox until next time.
-            if store.isOnboarded, store.camera == nil, !store.showAddAudition, store.incomingShare == nil,
+            if store.isOnboarded, !replayOnboarding, store.camera == nil, !store.showAddAudition, store.incomingShare == nil,
                let shared = ShareInbox.next() {
                 store.incomingShare = shared
                 store.tab = .auditions
@@ -82,4 +92,28 @@ struct OneTakeApp: App {
             }
         }
     }
+    #if DEBUG && targetEnvironment(simulator)
+    /// Makes the bundled fixtures visible in Files and the audition document picker.
+    private func exposeSampleCastingFiles() {
+        let files = FileManager.default
+        let folder = "SampleCastingFiles"
+        guard let source = Bundle.main.resourceURL?.appendingPathComponent(folder),
+              let documents = files.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let destination = documents.appendingPathComponent(folder, isDirectory: true)
+
+        do {
+            let samples = try files.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+            try files.createDirectory(at: destination, withIntermediateDirectories: true)
+            for sample in samples {
+                let target = destination.appendingPathComponent(sample.lastPathComponent)
+                if !files.fileExists(atPath: target.path) {
+                    try files.copyItem(at: sample, to: target)
+                }
+            }
+        } catch {
+            NSLog("Unable to expose sample casting files: %@", error.localizedDescription)
+        }
+    }
+    #endif
+
 }

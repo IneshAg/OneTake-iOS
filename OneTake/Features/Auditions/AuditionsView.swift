@@ -297,27 +297,30 @@ struct AuditionsView: View {
     }
 
     private var activeFilterBadge: some View {
-        HStack(spacing: OTSpace.xs) {
-            OTChip(
-                "Showing \(selectedTab.rawValue) (\(countFor(selectedTab)))",
-                systemImage: filterSystemImage(for: selectedTab),
-                tint: OT.accent
-            )
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    selectedTab = .active
-                }
-                Haptics.tick()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.otIcon(.s))
-                    .foregroundStyle(OT.labelTertiary)
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                selectedTab = .active
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Reset to Active auditions")
-
-            Spacer()
+            Haptics.tick()
+        } label: {
+            HStack(spacing: OTSpace.s) {
+                Label(selectedTab.rawValue, systemImage: filterSystemImage(for: selectedTab))
+                Image(systemName: "xmark")
+                    .font(.otIcon(.s))
+                    .accessibilityHidden(true)
+            }
+            .font(.otFootnote.weight(.semibold))
+            .foregroundStyle(OT.accent)
+            .padding(.horizontal, OTSpace.m)
+            .padding(.vertical, OTSpace.s)
+            .background(OT.accentSoft, in: Capsule())
+            .frame(minHeight: OTControlSize.small.hitHeight)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear \(selectedTab.rawValue) filter")
+        .accessibilityHint("Shows active auditions")
+        .frame(maxWidth: .infinity, alignment: .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 

@@ -5,33 +5,41 @@ struct KeyboardAutofillBar: View {
     let suggestions: [String]
     let onSelect: (String) -> Void
 
+    let onDone: () -> Void
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: OTSpace.xs) {
-                ForEach(suggestions.prefix(6), id: \.self) { item in
-                    Button {
-                        Haptics.tick()
-                        onSelect(item)
-                    } label: {
-                        HStack(spacing: OTSpace.xs) {
-                            Image(systemName: "sparkles")
-                                .font(.otIcon(.xs))
-                                .foregroundStyle(OT.accent)
-                            Text(item)
-                                .font(.otSubhead)
-                                .foregroundStyle(OT.labelPrimary)
+        HStack(spacing: OTSpace.m) {
+            if suggestions.isEmpty {
+                Spacer()
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: OTSpace.m) {
+                        ForEach(suggestions.prefix(6), id: \.self) { item in
+                            Button {
+                                Haptics.tick()
+                                onSelect(item)
+                            } label: {
+                                Text(item)
+                                    .font(.otSubhead)
+                                    .foregroundStyle(OT.labelPrimary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, OTSpace.xs)
+                                    .frame(minHeight: OTControlSize.small.hitHeight)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, OTSpace.s)
-                        .padding(.vertical, OTSpace.xs)
-                        .background(OT.fillField, in: Capsule()) // ot-lint:allow
-                        .overlay(
-                            Capsule().stroke(OT.separator, lineWidth: 1)
-                        )
                     }
-                    .buttonStyle(.plain)
                 }
+                .scrollIndicators(.hidden)
+
+                Divider()
+                    .frame(height: OTSpace.xl)
             }
-            .padding(.vertical, OTSpace.xxs)
+
+            Button("Done", action: onDone)
+                .font(.otSubhead.weight(.semibold))
+                .fixedSize()
         }
     }
 }
