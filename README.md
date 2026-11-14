@@ -37,7 +37,7 @@ The current guide covers the refactor, audition workflow, and simulator setup. D
 | Navigation and styling | Root screens use native navigation, toolbar, and search controls. Shared button styles support capsule and rounded shapes. See [OneTakeUI](docs/DESIGN_SYSTEM.md). |
 | Build | The app and extensions target iOS 18 or later. |
 
-The app entry point is in [OneTake/App](OneTake/App). Models, services, and the store are in [OneTake/Core](OneTake/Core). Feature screens are in [OneTake/Features](OneTake/Features). The [OneTakeUI package](Packages/OneTakeUI) provides shared styles and components.
+The app entry point is in [OneTake/App](OneTake/App). Models, services, and the store are in [OneTake/Core](OneTake/Core). Feature screens are in [OneTake/Features](OneTake/Features). The [OneTakeUI package](OneTakeUI) provides shared styles and components.
 
 ### Local UI updates
 

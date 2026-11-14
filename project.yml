@@ -12,7 +12,7 @@ settings:
     DEVELOPMENT_TEAM: "W93H964P88"
 packages:
   OneTakeUI:
-    path: Packages/OneTakeUI
+    path: OneTakeUI
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: 8.0.0

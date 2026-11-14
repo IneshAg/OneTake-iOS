@@ -41,9 +41,9 @@ def main():
                 files.append(d)
             continue
         for root, dirs, fnames in os.walk(d):
-            # Exclude Packages/
+            # Exclude OneTakeUI/ and legacy Packages/
             parts = os.path.relpath(root, repo_root).split(os.sep)
-            if "Packages" in parts:
+            if "OneTakeUI" in parts or "Packages" in parts:
                 continue
             for f in fnames:
                 if f.endswith(".swift"):
