@@ -60,7 +60,7 @@ struct HeadshotFlow: View {
                 statusChips
                     .padding(.bottom, OTSpace.xs)
 
-                Text(comparisonPhotos.isEmpty ? guide.message : "Take one more to compare")
+                Text(comparisonPhotos.isEmpty ? guide.message : "Take another photo to compare")
                     .font(.otHeadline).foregroundStyle(guide.aligned ? OT.success : .white)
                 Text(follower.isListening ? "Tap, or say “Now”" : "Voice is off — tap the shutter")
                     .font(.otFootnote).foregroundStyle(.white.opacity(0.7)) // ot-lint:allow
@@ -113,7 +113,8 @@ struct HeadshotFlow: View {
                     photos: comparisonPhotos,
                     selectedIndex: $selectedComparisonPhoto,
                     onKeep: keepSelectedComparisonPhoto,
-                    onRetry: retryComparisonPhoto
+                    onRetry: retryComparisonPhoto,
+                    onTakeAnother: takeAnotherToCompare
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(2)
@@ -403,14 +404,16 @@ struct HeadshotFlow: View {
             if comparisonPhotos.isEmpty, let prior = HeadshotStore.load(key: angle.rawValue, auditionID: auditionID) {
                 comparisonPhotos = [prior, image]
                 selectedComparisonPhoto = 1
-                showingComparison = true
             } else {
                 comparisonPhotos.append(image)
-                if comparisonPhotos.count >= 2 {
-                    selectedComparisonPhoto = comparisonPhotos.count - 1
-                    showingComparison = true
-                } else if voiceGuidanceEnabled {
-                    cameraSpeaker.speak("Good. Take one more so you can compare.", minInterval: 0.1)
+                selectedComparisonPhoto = comparisonPhotos.count - 1
+            }
+            showingComparison = true
+            if voiceGuidanceEnabled {
+                if comparisonPhotos.count > 1 {
+                    cameraSpeaker.speak("Compare your shots and choose the best.", minInterval: 0.1)
+                } else {
+                    cameraSpeaker.speak("Photo captured.", minInterval: 0.1)
                 }
             }
         }
@@ -439,9 +442,17 @@ struct HeadshotFlow: View {
     }
 
     private func retryComparisonPhoto() {
-        if comparisonPhotos.count > 1 { comparisonPhotos = [comparisonPhotos[selectedComparisonPhoto]] }
+        comparisonPhotos.removeAll()
         selectedComparisonPhoto = 0
         showingComparison = false
+        Haptics.tick()
+    }
+
+    private func takeAnotherToCompare() {
+        showingComparison = false
+        if voiceGuidanceEnabled {
+            cameraSpeaker.speak("Take another photo to compare.", minInterval: 0.1)
+        }
         Haptics.tick()
     }
 }
@@ -452,6 +463,7 @@ private struct HeadshotComparisonView: View {
     @Binding var selectedIndex: Int
     let onKeep: () -> Void
     let onRetry: () -> Void
+    var onTakeAnother: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -465,7 +477,7 @@ private struct HeadshotComparisonView: View {
                 }
                 .accessibilityLabel("Return to camera")
                 Spacer()
-                Text("\(title) · \(photos.count) shots")
+                Text("\(title) · \(photos.count == 1 ? "1 shot" : "\(photos.count) shots")")
                     .font(.otHeadline).foregroundStyle(OT.cameraLabel)
                 Spacer()
                 Color.clear.frame(width: 44, height: 44) // ot-lint:allow
@@ -473,40 +485,54 @@ private struct HeadshotComparisonView: View {
             .padding(.horizontal, OTSpace.gutter).padding(.top, OTSpace.s)
 
             VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                Text("Keep the better one").font(.system(size: 22, weight: .semibold)).foregroundStyle(OT.cameraLabel) // ot-lint:allow
-                Text("Compare the headshots side by side").font(.otCallout).foregroundStyle(OT.cameraLabel2)
+                Text(photos.count > 1 ? "Keep the better one" : "Review your shot")
+                    .font(.system(size: 22, weight: .semibold)) // ot-lint:allow
+                    .foregroundStyle(OT.cameraLabel)
+                Text(photos.count > 1 ? "Compare the headshots side by side" : "Keep this photo, or take another if you want to compare.")
+                    .font(.otCallout)
+                    .foregroundStyle(OT.cameraLabel2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, OTSpace.gutter).padding(.top, OTSpace.m).padding(.bottom, OTSpace.m)
 
-            HStack(alignment: .top, spacing: OTSpace.s) {
-                ForEach(photos.indices, id: \.self) { index in
-                    Button { selectedIndex = index } label: {
-                        VStack(spacing: OTSpace.xs) {
-                            Image(uiImage: photos[index])
-                                .resizable().scaledToFill()
-                                .frame(maxWidth: .infinity).frame(height: 219) // ot-lint:allow
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
-                                .overlay(alignment: .topTrailing) {
-                                    Image(systemName: selectedIndex == index ? "checkmark.circle.fill" : "circle")
-                                        .font(.title3.weight(.semibold))
-                                        .foregroundStyle(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : OT.cameraLabel2) // ot-lint:allow
-                                        .padding(OTSpace.s)
-                                }
-                                .overlay(RoundedRectangle(cornerRadius: OTRadius.m).strokeBorder(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : Color.clear, lineWidth: 2)) // ot-lint:allow
-                            Text("Take \(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel)
+            if photos.count > 1 {
+                HStack(alignment: .top, spacing: OTSpace.s) {
+                    ForEach(photos.indices, id: \.self) { index in
+                        Button { selectedIndex = index } label: {
+                            VStack(spacing: OTSpace.xs) {
+                                Image(uiImage: photos[index])
+                                    .resizable().scaledToFill()
+                                    .frame(maxWidth: .infinity).frame(height: 219) // ot-lint:allow
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                                    .overlay(alignment: .topTrailing) {
+                                        Image(systemName: selectedIndex == index ? "checkmark.circle.fill" : "circle")
+                                            .font(.title3.weight(.semibold))
+                                            .foregroundStyle(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : OT.cameraLabel2) // ot-lint:allow
+                                            .padding(OTSpace.s)
+                                    }
+                                    .overlay(RoundedRectangle(cornerRadius: OTRadius.m).strokeBorder(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : Color.clear, lineWidth: 2)) // ot-lint:allow
+                                Text("Take \(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel)
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Select take \(index + 1)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Select take \(index + 1)")
                 }
+                .padding(.horizontal, OTSpace.gutter)
+            } else if let single = photos.first {
+                Image(uiImage: single)
+                    .resizable().scaledToFill()
+                    .frame(height: 260) // ot-lint:allow
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                    .padding(.horizontal, OTSpace.gutter)
             }
-            .padding(.horizontal, OTSpace.gutter)
 
             VStack(alignment: .leading, spacing: OTSpace.xs) {
-                comparisonNote("sun.max", "Compare for soft, even light")
+                comparisonNote("sun.max", "Check for soft, even light")
                 comparisonNote("viewfinder", "Check that your face is centred")
                 comparisonNote("exclamationmark.circle", "Look for a plain background and eye-level camera")
             }
@@ -515,12 +541,20 @@ private struct HeadshotComparisonView: View {
 
             Spacer(minLength: OTSpace.m)
             VStack(spacing: OTSpace.s) {
-                Button("Keep take \(selectedIndex + 1)", action: onKeep)
+                Button(photos.count > 1 ? "Keep take \(selectedIndex + 1)" : "Keep photo", action: onKeep)
                     .buttonStyle(.otPrimary)
-                Button("Try again", action: onRetry)
-                    .font(.otHeadline).foregroundStyle(OT.accent)
-                    .frame(maxWidth: .infinity).frame(height: 52) // ot-lint:allow
-                    .background(Color(red: 0.91, green: 0.85, blue: 0.95), in: Capsule()) // ot-lint:allow
+
+                if photos.count == 1, let onTakeAnother {
+                    Button("Take another to compare", action: onTakeAnother)
+                        .font(.otHeadline).foregroundStyle(OT.accent)
+                        .frame(maxWidth: .infinity).frame(height: 52) // ot-lint:allow
+                        .background(Color(red: 0.91, green: 0.85, blue: 0.95), in: Capsule()) // ot-lint:allow
+                }
+
+                Button(photos.count > 1 ? "Try again" : "Retake", action: onRetry)
+                    .font(.otHeadline).foregroundStyle(photos.count > 1 ? OT.accent : OT.cameraLabel2)
+                    .frame(maxWidth: .infinity).frame(height: photos.count > 1 ? 52 : 44) // ot-lint:allow
+                    .background(photos.count > 1 ? AnyShapeStyle(Color(red: 0.91, green: 0.85, blue: 0.95)) : AnyShapeStyle(Color.clear), in: Capsule()) // ot-lint:allow
             }
             .padding(.horizontal, OTSpace.gutter).padding(.bottom, OTSpace.m)
         }
