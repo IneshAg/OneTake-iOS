@@ -11,6 +11,7 @@ struct AuditionsView: View {
     }
 
     @Environment(AppStore.self) private var store
+    @Environment(\.auditionZoomNamespace) private var auditionZoomNamespace
     @State private var selectedTab: FilterTab = .active
     @State private var pendingDelete: Audition?
 
@@ -98,7 +99,12 @@ struct AuditionsView: View {
     private func auditionRow(for audition: Audition) -> some View {
         VStack(spacing: OTSpace.s) {
             Button { store.push(.auditionDetail(audition.id)) } label: {
-                AuditionCard(audition: audition) { store.continueAudition(audition.id) }
+                if let ns = auditionZoomNamespace {
+                    AuditionCard(audition: audition) { store.continueAudition(audition.id) }
+                        .matchedTransitionSource(id: audition.id, in: ns)
+                } else {
+                    AuditionCard(audition: audition) { store.continueAudition(audition.id) }
+                }
             }
             .buttonStyle(OTPressStyle(.card))
 

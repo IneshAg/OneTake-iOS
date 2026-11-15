@@ -27,6 +27,7 @@ struct AddAuditionFlow: View {
     @State private var processingStatus = "Reading pages and extracting roles…"
     @State private var detents: Set<PresentationDetent> = [.height(315)]
     @State private var selectedDetent: PresentationDetent = .height(315)
+    @Namespace private var reviewMorphNamespace
 
     var body: some View {
         Group {
@@ -40,19 +41,27 @@ struct AddAuditionFlow: View {
                         store.startAuditionDraft(confirmedDraft)
                     }
                 } onDiscard: {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(OTMotion.smooth) {
                         pendingReviewDraft = nil
                         pendingReviewImage = nil
                         detents = [.height(315)]
                         selectedDetent = .height(315)
                     }
                 }
+                .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else if isProcessing {
                 processingView
+                    .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
+                    .transition(.opacity)
             } else {
                 capture
+                    .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
+                    .transition(.opacity)
             }
         }
+        .animation(OTMotion.smooth, value: pendingReviewDraft != nil)
+        .animation(OTMotion.smooth, value: isProcessing)
         .presentationDetents(detents, selection: $selectedDetent)
         .presentationDragIndicator(pendingReviewDraft != nil ? .visible : .hidden)
         .fullScreenCover(isPresented: $showScanner) {
@@ -79,7 +88,7 @@ struct AddAuditionFlow: View {
                         await MainActor.run {
                             isProcessing = false
                             pendingReviewImage = pages.first
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(OTMotion.smooth) {
                                 detents = [.large]
                                 selectedDetent = .large
                                 pendingReviewDraft = draft
@@ -116,7 +125,7 @@ struct AddAuditionFlow: View {
                         await MainActor.run {
                             isProcessing = false
                             pendingReviewImage = pdfPreview
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(OTMotion.smooth) {
                                 detents = [.large]
                                 selectedDetent = .large
                                 pendingReviewDraft = draft
@@ -200,7 +209,7 @@ struct AddAuditionFlow: View {
                     await MainActor.run {
                         isProcessing = false
                         pendingReviewImage = image
-                        withAnimation(.easeInOut(duration: 0.25)) {
+                        withAnimation(OTMotion.smooth) {
                             detents = [.large]
                             selectedDetent = .large
                             pendingReviewDraft = draft
@@ -274,7 +283,7 @@ struct AddAuditionFlow: View {
             await MainActor.run {
                 isProcessing = false
                 pendingReviewImage = images.first
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(OTMotion.smooth) {
                     detents = [.large]
                     selectedDetent = .large
                     pendingReviewDraft = draft
@@ -299,7 +308,7 @@ struct AddAuditionFlow: View {
                 let draft = await NoticeParser.parseAsync(cleaned)
                 await MainActor.run {
                     isProcessing = false
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(OTMotion.smooth) {
                         detents = [.large]
                         selectedDetent = .large
                         pendingReviewDraft = draft

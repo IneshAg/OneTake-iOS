@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearance = "system"
+    @Namespace private var auditionZoomNamespace
 
     /// Search is useful once there are auditions or standalone practice pieces to query.
     private var isSearchAvailable: Bool {
@@ -17,6 +18,7 @@ struct RootTabView: View {
                     AuditionsView()
                         .withRoutes()
                 }
+                .environment(\.auditionZoomNamespace, auditionZoomNamespace)
                 .toolbarVisibility(store.auditionsPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .background(TabBarShower(isVisible: store.auditionsPath.isEmpty))
             }

@@ -190,7 +190,7 @@ struct OCRReviewSheet: View {
                             .foregroundStyle(OT.labelSecondary)
                     } else {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { currentStepIndex = max(0, currentStepIndex - 1) }
+                            withAnimation(OTMotion.snappy) { currentStepIndex = max(0, currentStepIndex - 1) }
                             Haptics.tick()
                         } label: {
                             Label("Back", systemImage: "chevron.left")
@@ -265,7 +265,7 @@ struct OCRReviewSheet: View {
         HStack(spacing: OTSpace.s) {
             ForEach(Array(availableSteps.enumerated()), id: \.offset) { index, step in
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(OTMotion.snappy) {
                         currentStepIndex = index
                     }
                     Haptics.tick()
@@ -307,7 +307,7 @@ struct OCRReviewSheet: View {
             HStack(spacing: OTSpace.s) {
                 if currentStepIndex > 0 {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(OTMotion.snappy) {
                             currentStepIndex -= 1
                         }
                         Haptics.tick()
@@ -318,7 +318,7 @@ struct OCRReviewSheet: View {
                 }
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(OTMotion.snappy) {
                         currentStepIndex = min(currentStepIndex + 1, availableSteps.count - 1)
                     }
                     Haptics.tick()

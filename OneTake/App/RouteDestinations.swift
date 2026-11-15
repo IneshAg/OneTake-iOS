@@ -3,12 +3,36 @@ import OneTakeUI
 
 // MARK: - Route table
 
+private struct AuditionZoomNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    var auditionZoomNamespace: Namespace.ID? {
+        get { self[AuditionZoomNamespaceKey.self] }
+        set { self[AuditionZoomNamespaceKey.self] = newValue }
+    }
+}
+
 struct RouteDestinations: ViewModifier {
+    @Environment(\.auditionZoomNamespace) private var auditionZoomNamespace
+
     func body(content: Content) -> some View {
         content.navigationDestination(for: Route.self) { route in
-            destination(for: route)
-                .hideSystemBars()
-                .modifier(OTSingleStepBackButton())
+            styledDestination(for: route)
+        }
+    }
+
+    @ViewBuilder
+    private func styledDestination(for route: Route) -> some View {
+        let base = destination(for: route)
+            .hideSystemBars()
+            .modifier(OTSingleStepBackButton())
+
+        if case .auditionDetail(let id) = route, let ns = auditionZoomNamespace {
+            base.navigationTransition(.zoom(sourceID: id, in: ns))
+        } else {
+            base
         }
     }
 
