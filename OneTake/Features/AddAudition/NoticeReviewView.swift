@@ -451,18 +451,22 @@ struct NoticeReviewView: View {
                 )
 
                 OTSectionLabel("What to prepare")
-                VStack(alignment: .leading, spacing: OTSpace.m) {
-                    auditionRequirementRow(
+                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                    AuditionDeliverableRow(
                         title: "Slate / introduction",
                         detail: "Self-tape or introduction video, as requested",
                         icon: "person.text.rectangle",
-                        isOptional: $store.auditionDraft.isSlateOptional
+                        isIncluded: $store.auditionDraft.includeSlate,
+                        isOptional: $store.auditionDraft.isSlateOptional,
+                        isInclusionLocked: store.auditionDraft.materialKind == .slateOnly,
+                        lockedNote: "Required for Slate-only auditions"
                     )
                     Divider()
-                    auditionRequirementRow(
+                    AuditionDeliverableRow(
                         title: "Headshot",
                         detail: "A recent headshot or clear photo",
                         icon: "person.crop.rectangle",
+                        isIncluded: $store.auditionDraft.includeHeadshots,
                         isOptional: $store.auditionDraft.isHeadshotOptional
                     )
                 }
@@ -651,7 +655,18 @@ struct NoticeReviewView: View {
             }
             let parsedScenes = (store.auditionDraft.customScenes?.isEmpty == false ? store.auditionDraft.customScenes : nil) ?? ScriptParser.parseScenes(from: store.auditionDraft.sourceText, myRole: store.auditionDraft.role)
             if !parsedScenes.isEmpty { updated.scenes = parsedScenes }
+            updated.materialKind = store.auditionDraft.materialKind
+            updated.asks = store.auditionDraft.asks
+            let rebuilt = store.auditionDraft.makeAudition()
+            updated.pieces = rebuilt.pieces.map { piece in
+                var merged = piece
+                if let prior = updated.pieces.first(where: { $0.kind == piece.kind && ($0.kind != .scene || $0.title == piece.title) }) {
+                    merged.isDone = prior.isDone
+                }
+                return merged
+            }
             store.auditions[idx] = updated
+            store.syncPieces()
             auditionID = existingID
         } else {
             let audition = store.auditionDraft.makeAudition()
@@ -676,33 +691,6 @@ struct NoticeReviewView: View {
     private func requestNotificationsIfFirstAudition() {
         guard store.auditions.count == 1 else { return }
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) }
-    }
-
-    private func auditionRequirementRow(title: String, detail: String, icon: String, isOptional: Binding<Bool>) -> some View {
-        HStack(spacing: OTSpace.m) {
-            Image(systemName: icon)
-                .font(.otIcon(.s))
-                .foregroundStyle(OT.accent)
-                .frame(width: 32, height: 32) // ot-lint:allow
-                .background(OT.accentSoft, in: Circle())
-            VStack(alignment: .leading, spacing: OTSpace.xxs) {
-                Text(title).font(.otSubhead.weight(.semibold)).foregroundStyle(OT.labelPrimary)
-                Text(detail).font(.otCaption).foregroundStyle(OT.labelSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 4)
-            Button(isOptional.wrappedValue ? "Optional" : "Required") {
-                isOptional.wrappedValue.toggle()
-                Haptics.tick()
-            }
-            .font(.otCaption.weight(.bold))
-            .fixedSize()
-            .padding(.horizontal, OTSpace.s)
-            .padding(.vertical, OTSpace.xs)
-            .background(isOptional.wrappedValue ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
-            .foregroundStyle(isOptional.wrappedValue ? OT.labelSecondary : OT.accent)
-            .accessibilityLabel("\(title), \(isOptional.wrappedValue ? "optional" : "required"). Tap to change.")
-        }
-        .frame(minHeight: 48) // ot-lint:allow
     }
 
     private func symbol(for ask: String) -> String {
