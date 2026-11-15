@@ -583,5 +583,79 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(pieces.filter { $0.kind == .scene }.map(\.title), ["Scene 1", "Scene 2"])
         XCTAssertEqual(pieces.last?.detail, "Callback scene")
     }
+
+    func testSpokenLineMatcherIsLineCompletePreventsPrematureSkipAndFinishesAtTail() {
+        let line = "Wait for me near the front door until the rain stops."
+        // Speaking only the first half must NOT complete the line prematurely when pausing mid-speech.
+        let halfTranscript = "wait for me near the front"
+        XCTAssertFalse(
+            SpokenLineMatcher.isLineComplete(lineText: line, transcript: halfTranscript),
+            "Mid-line pause at ~50% coverage must not advance to the next line"
+        )
+
+        // Speaking through the final words completes the line reliably (even the last line).
+        let completedTranscript = "wait for me near front door until rain stops"
+        XCTAssertTrue(
+            SpokenLineMatcher.isLineComplete(lineText: line, transcript: completedTranscript),
+            "Finishing the tail words should mark the line complete"
+        )
+
+        // Very short cues still complete once spoken
+        XCTAssertTrue(SpokenLineMatcher.isLineComplete(lineText: "Come here.", transcript: "come here"))
+        XCTAssertFalse(SpokenLineMatcher.isLineComplete(lineText: "Come here now.", transcript: "come"))
+    }
+
+    func testScriptLineIsLearnedDefaultsFalseWhenMissingInLegacyJSON() throws {
+        let legacyJSON = """
+        {"id":"11111111-1111-1111-1111-111111111111","character":"MAYA","text":"I was waiting.","isMine":true}
+        """
+        let decoded = try JSONDecoder().decode(ScriptLine.self, from: Data(legacyJSON.utf8))
+        XCTAssertFalse(decoded.isLearned)
+
+        var learnedLine = decoded
+        learnedLine.isLearned = true
+        let reencoded = try JSONDecoder().decode(ScriptLine.self, from: try JSONEncoder().encode(learnedLine))
+        XCTAssertTrue(reencoded.isLearned)
+    }
+
+    @MainActor
+    func testAppStoreToggleAndMarkAllLinesLearnedUpdatesCounts() {
+        let store = AppStore()
+        let line1 = ScriptLine(character: "MAYA", text: "First line.", isMine: true)
+        let cue = ScriptLine(character: "SAM", text: "Reader cue.", isMine: false)
+        let line2 = ScriptLine(character: "MAYA", text: "Second line.", isMine: true)
+        let scene = ScriptScene(number: 1, title: "Scene 1", heading: "INT. LIVING ROOM - DAY", lines: [line1, cue, line2])
+        let piece = PracticePiece(
+            title: "Test Scene",
+            detail: "2 lines",
+            linesLearned: 0,
+            linesTotal: 2,
+            character: "MAYA",
+            scene: scene
+        )
+        store.practice = [piece]
+
+        let firstToggle = store.toggleLineLearned(pieceID: piece.id, lineID: line1.id)
+        XCTAssertEqual(firstToggle?.nowLearned, true)
+        XCTAssertEqual(firstToggle?.allLearned, false)
+        XCTAssertEqual(store.practice.first?.linesLearned, 1)
+
+        let secondToggle = store.toggleLineLearned(pieceID: piece.id, lineID: line2.id)
+        XCTAssertEqual(secondToggle?.nowLearned, true)
+        XCTAssertEqual(secondToggle?.allLearned, true)
+        XCTAssertEqual(store.practice.first?.linesLearned, 2)
+
+        store.markAllLinesLearned(pieceID: piece.id, learned: false)
+        XCTAssertEqual(store.practice.first?.linesLearned, 0)
+        XCTAssertEqual(store.practice.first?.scene?.lines.filter(\.isMine).allSatisfy { !$0.isLearned }, true)
+    }
+
+    func testReaderTrackScopePracticeUsesIsolatedFolderFromAudition() {
+        let id = UUID()
+        let auditionURL = ReaderTrackPlayer.url(scope: .audition(id, sceneIndex: 0), line: 0)
+        let practiceURL = ReaderTrackPlayer.url(scope: .practice(id), line: 0)
+        XCTAssertNotEqual(auditionURL, practiceURL)
+        XCTAssertTrue(practiceURL.path.contains("practice-"))
+    }
 }
 
