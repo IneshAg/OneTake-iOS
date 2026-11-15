@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import OneTakeUI
 
 struct PracticeVideoPlayerSheet: View {
     let url: URL
@@ -12,61 +13,52 @@ struct PracticeVideoPlayerSheet: View {
         NavigationStack {
             Group {
                 if isVoiceTake {
-                    ZStack {
-                        LinearGradient(
-                            colors: [Color(red: 0.08, green: 0.06, blue: 0.12), Color(red: 0.04, green: 0.03, blue: 0.06)], // ot-lint:allow
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .ignoresSafeArea()
-
+                    ScrollView {
                         VStack(spacing: OTSpace.xl) {
-                            Spacer()
+                            Spacer(minLength: OTSpace.xl)
 
                             Image(systemName: "waveform.circle.fill")
-                                .font(.system(size: 96)) // ot-lint:allow
+                                .font(.system(size: 84)) // ot-lint:allow
                                 .foregroundStyle(OT.reader)
 
-                            VStack(spacing: 6) { // ot-lint:allow
+                            VStack(spacing: OTSpace.xs) {
                                 Text(sceneTitle)
                                     .font(.otTitle)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(OT.labelPrimary)
                                 Text("Voice rehearsal take")
                                     .font(.otFootnote)
-                                    .foregroundStyle(.white.opacity(0.65))
+                                    .foregroundStyle(OT.labelSecondary)
                             }
 
-                            VideoPlayer(player: player ?? AVPlayer(url: url))
-                                .frame(height: 60) // ot-lint:allow
+                            OTVoicePlayerView(url: url, autoPlay: true)
                                 .padding(.horizontal, OTSpace.gutter)
 
-                            Spacer()
+                            Spacer(minLength: OTSpace.xl)
                         }
                     }
+                    .otCanvas()
                 } else {
                     VideoPlayer(player: player ?? AVPlayer(url: url))
                         .ignoresSafeArea(edges: .bottom)
+                        .background(OT.cameraBg.ignoresSafeArea())
+                        .onAppear {
+                            let p = AVPlayer(url: url)
+                            player = p
+                            p.play()
+                        }
+                        .onDisappear {
+                            player?.pause()
+                            player = nil
+                        }
                 }
             }
-            .background(Color.black.ignoresSafeArea()) // ot-lint:allow
-            .navigationTitle(isVoiceTake ? "Voice rehearsal take" : "Preview take")
+            .navigationTitle(isVoiceTake ? "Play voice" : "Preview take")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
             }
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            let p = AVPlayer(url: url)
-            player = p
-            p.play()
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
         }
     }
 }

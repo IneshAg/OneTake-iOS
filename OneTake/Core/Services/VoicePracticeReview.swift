@@ -42,12 +42,12 @@ enum VoicePracticeReviewAnalyzer {
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeID))
             ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         guard let recognizer, recognizer.isAvailable else { throw ReviewError.unavailable }
-        guard recognizer.supportsOnDeviceRecognition else { throw ReviewError.onDeviceUnavailable }
         let audioURL = try await makeAudioFile(from: url)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         let audioRequest = SFSpeechURLRecognitionRequest(url: audioURL)
         audioRequest.shouldReportPartialResults = false
-        audioRequest.requiresOnDeviceRecognition = true
+        // Prefer on-device recognition when supported, but fall back cleanly rather than blocking voice checks.
+        audioRequest.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         let words = try await transcribe(audioRequest, recognizer: recognizer)
         guard !words.isEmpty else { throw ReviewError.noSpeech }
         return align(words: words, lines: lines)
@@ -221,36 +221,40 @@ struct VoicePracticeReviewView: View {
     let isAnalyzing: Bool
     let errorMessage: String?
     @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer?
+    @State private var seekRequest: TimeInterval?
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Check the recording against your lines. The marks are suggestions; pauses can be intentional.")
+                VStack(alignment: .leading, spacing: OTSpace.l) {
+                    Text("Checks your recorded voice against the script lines. Pauses or ad-libs are highlighted as notes.")
                         .font(.otCallout).foregroundStyle(OT.labelSecondary)
-                    if let player {
-                        VideoPlayer(player: player).frame(height: 150) // ot-lint:allow
-                            .clipShape(RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous))
+                    if let recordingURL {
+                        OTVoicePlayerView(url: recordingURL, seekRequest: $seekRequest)
                     }
                     if isAnalyzing {
                         Label("Listening for words and pauses…", systemImage: "waveform")
                             .font(.otBody).foregroundStyle(OT.accent)
                     } else if let errorMessage {
-                        Text(errorMessage).font(.otCallout).foregroundStyle(OT.labelSecondary)
+                        OTCallout(
+                            systemImage: "waveform.badge.exclamationmark",
+                            title: "Couldn't check automatically",
+                            message: errorMessage,
+                            tint: OT.warning
+                        )
                     } else if reviews.isEmpty {
-                        Text("No actor lines were available to review.").font(.otCallout).foregroundStyle(OT.labelSecondary)
+                        Text("No actor lines were available to check.").font(.otCallout).foregroundStyle(OT.labelSecondary)
                     } else {
                         ForEach(reviews.indices, id: \.self) { index in
                             let item = reviews[index]
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: OTSpace.s) {
                                 HStack(alignment: .top) {
                                     Text("Line \(item.lineIndex + 1)").font(.otCaption.weight(.semibold)).foregroundStyle(OT.labelTertiary)
                                     Spacer()
                                     if let time = item.timestamp {
                                         Button {
-                                            player?.seek(to: CMTime(seconds: max(0, time - 0.7), preferredTimescale: 600))
-                                            player?.play()
+                                            seekRequest = max(0, time - 0.7)
+                                            Haptics.tick()
                                         } label: {
                                             Label(String(format: "%.1fs", time), systemImage: "play.fill")
                                                 .font(.otCaption.monospacedDigit()).foregroundStyle(OT.accent)
@@ -270,7 +274,7 @@ struct VoicePracticeReviewView: View {
                                             .foregroundStyle(item.mark == .matched ? OT.success : OT.warning)
                                     }
                                     Spacer()
-                                    Button(item.dismissed ? "Restore mark" : "Dismiss") { reviews[index].dismissed.toggle() }
+                                    Button(item.dismissed ? "Restore note" : "Dismiss") { reviews[index].dismissed.toggle() }
                                         .font(.otFootnote.weight(.medium)).foregroundStyle(OT.labelTertiary)
                                 }
                             }
@@ -279,15 +283,13 @@ struct VoicePracticeReviewView: View {
                         }
                     }
                 }
-                .padding(OT.gutter)
+                .padding(OTSpace.gutter)
             }
-            .background(OT.bgCanvas)
-            .navigationTitle("Speech review")
+            .otCanvas()
+            .navigationTitle("Voice Checker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.large])
-        .onAppear { if let recordingURL { player = AVPlayer(url: recordingURL) } }
-        .onDisappear { player?.pause() }
     }
 }
