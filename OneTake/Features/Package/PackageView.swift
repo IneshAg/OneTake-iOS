@@ -73,8 +73,12 @@ struct PackageView: View {
                     trimmingClip = nil
                     guard let edited else { return }
                     switch target.kind {
-                    case .slate: store.replaceSlateVideo(for: auditionID, with: edited)
-                    case .fullLength: store.replaceFullLengthVideo(for: auditionID, with: edited)
+                    case .slate:
+                        store.replaceSlateVideo(for: auditionID, with: edited)
+                    case .fullLength:
+                        store.replaceFullLengthVideo(for: auditionID, with: edited)
+                    case .scene(let takeID):
+                        store.replaceTakeFile(takeID, with: edited)
                     }
                     Haptics.success()
                 }
@@ -100,6 +104,7 @@ struct PackageView: View {
                     Text(PackageFormatHelper.totalDurationLabel(a, takes: store.takes)).font(.otHeadline)
                 }
                 TapeStrip(legend: legend)
+                editableClipsSection(a)
 
                 // 1. Deliverable Format (Combined Video, Separate ZIP, Photos, All)
                 OTSectionLabel("Deliverable Format").padding(.top, OTSpace.xs)
@@ -454,6 +459,68 @@ struct PackageView: View {
         LiveActivitySync.setUploadProgress(p, for: a)
     }
 
+    @ViewBuilder
+    private func editableClipsSection(_ a: Audition) -> some View {
+        let targets = packageTrimTargets(for: a)
+        if !targets.isEmpty {
+            OTSectionLabel("Clips on this tape").padding(.top, OTSpace.xs)
+            VStack(spacing: 0) {
+                ForEach(Array(targets.enumerated()), id: \.element.id) { index, target in
+                    HStack(spacing: OTSpace.m) {
+                        Image(systemName: "film")
+                            .foregroundStyle(OT.accent)
+                            .frame(width: 24) // ot-lint:allow
+                        VStack(alignment: .leading, spacing: OTSpace.xxs) {
+                            Text(target.title)
+                                .font(.otBody)
+                                .foregroundStyle(OT.labelPrimary)
+                            Text(target.subtitle)
+                                .font(.otFootnote)
+                                .foregroundStyle(OT.labelTertiary)
+                        }
+                        Spacer()
+                        Button {
+                            trimmingClip = target
+                        } label: {
+                            Label("Trim", systemImage: "scissors")
+                                .font(.otFootnote.weight(.semibold))
+                        }
+                        .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                    }
+                    .padding(.vertical, OTSpace.xs)
+                    if index < targets.count - 1 {
+                        Divider().padding(.leading, 38) // ot-lint:allow
+                    }
+                }
+            }
+            .otCard(.grouped, padding: OTSpace.m)
+        }
+    }
+
+    private func packageTrimTargets(for a: Audition) -> [PackageTrimTarget] {
+        var result: [PackageTrimTarget] = []
+        if let slateURL = a.slateVideoURL, VideoTrimmer.canTrim(slateURL) {
+            result.append(PackageTrimTarget(kind: .slate, title: "Slate", subtitle: "Trim start or end", url: slateURL))
+        }
+        if let fullURL = a.fullLengthVideoURL, VideoTrimmer.canTrim(fullURL) {
+            result.append(PackageTrimTarget(kind: .fullLength, title: "Full-body shot", subtitle: "Trim start or end", url: fullURL))
+        }
+        let auditionTakes = store.takes.filter { $0.auditionID == a.id && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision }
+        for (i, scene) in a.scenes.enumerated() {
+            let sceneTakes = auditionTakes.filter { $0.sceneIndex == i }
+            if let chosen = sceneTakes.first(where: \.isCircled) ?? sceneTakes.last,
+               let url = chosen.fileURL, VideoTrimmer.canTrim(url) {
+                result.append(PackageTrimTarget(
+                    kind: .scene(chosen.id),
+                    title: scene.title,
+                    subtitle: "Take \(chosen.number) · \(Int(chosen.duration))s",
+                    url: url
+                ))
+            }
+        }
+        return result
+    }
+
     private func endUpload() {
         guard reportedProgress >= 0, let a = store.audition(auditionID) else { return }
         reportedProgress = -1
@@ -462,8 +529,20 @@ struct PackageView: View {
 }
 
 private struct PackageTrimTarget: Identifiable {
-    enum Kind: String { case slate, fullLength }
+    enum Kind: Hashable {
+        case slate
+        case fullLength
+        case scene(Take.ID)
+    }
     let kind: Kind
+    let title: String
+    let subtitle: String
     let url: URL
-    var id: String { kind.rawValue }
+    var id: String {
+        switch kind {
+        case .slate: "slate"
+        case .fullLength: "fullLength"
+        case .scene(let id): "scene-\(id.uuidString)"
+        }
+    }
 }

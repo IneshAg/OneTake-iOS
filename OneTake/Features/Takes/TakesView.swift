@@ -54,15 +54,29 @@ struct TakesView: View {
                 PlayerCard(url: current?.fileURL)
                     .padding(.top, OTSpace.xxs)
 
-                if let current, current.originalFileURL != nil {
-                    Button {
-                        store.restoreOriginalTakeFile(current.id)
-                        Haptics.success()
-                    } label: {
-                        Label("Restore original clip", systemImage: "arrow.uturn.backward")
-                            .font(.otFootnote.weight(.semibold))
+                if let current, current.fileURL != nil || current.originalFileURL != nil {
+                    HStack(spacing: OTSpace.s) {
+                        if let fileURL = current.fileURL, VideoTrimmer.canTrim(fileURL) {
+                            Button {
+                                trimming = current
+                            } label: {
+                                Label("Trim clip", systemImage: "scissors")
+                                    .font(.otFootnote.weight(.semibold))
+                            }
+                            .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                        }
+
+                        if current.originalFileURL != nil {
+                            Button {
+                                store.restoreOriginalTakeFile(current.id)
+                                Haptics.success()
+                            } label: {
+                                Label("Restore original clip", systemImage: "arrow.uturn.backward")
+                                    .font(.otFootnote.weight(.semibold))
+                            }
+                            .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
+                        }
                     }
-                    .buttonStyle(.ot(.secondary, size: .small, fullWidth: false))
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {

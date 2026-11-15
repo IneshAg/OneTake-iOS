@@ -6,8 +6,13 @@ struct PracticeVideoPlayerSheet: View {
     let url: URL
     var isVoiceTake: Bool = false
     var sceneTitle: String = "Take"
+    var onTrimmed: ((URL) -> URL?)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var activeURL: URL?
+    @State private var showTrimmer = false
+
+    private var currentURL: URL { activeURL ?? url }
 
     var body: some View {
         NavigationStack {
@@ -30,7 +35,7 @@ struct PracticeVideoPlayerSheet: View {
                                     .foregroundStyle(OT.labelSecondary)
                             }
 
-                            OTVoicePlayerView(url: url, autoPlay: true)
+                            OTVoicePlayerView(url: currentURL, autoPlay: true)
                                 .padding(.horizontal, OTSpace.gutter)
 
                             Spacer(minLength: OTSpace.xl)
@@ -38,11 +43,11 @@ struct PracticeVideoPlayerSheet: View {
                     }
                     .otCanvas()
                 } else {
-                    VideoPlayer(player: player ?? AVPlayer(url: url))
+                    VideoPlayer(player: player ?? AVPlayer(url: currentURL))
                         .ignoresSafeArea(edges: .bottom)
                         .background(OT.cameraBg.ignoresSafeArea())
                         .onAppear {
-                            let p = AVPlayer(url: url)
+                            let p = AVPlayer(url: currentURL)
                             player = p
                             p.play()
                         }
@@ -57,6 +62,29 @@ struct PracticeVideoPlayerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                }
+                if !isVoiceTake && onTrimmed != nil && VideoTrimmer.canTrim(currentURL) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            player?.pause()
+                            showTrimmer = true
+                        } label: {
+                            Label("Trim", systemImage: "scissors")
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showTrimmer) {
+                VideoTrimmer(url: currentURL) { edited in
+                    showTrimmer = false
+                    guard let edited else { return }
+                    let resolved = onTrimmed?(edited) ?? edited
+                    let updated = AVPlayer(url: resolved)
+                    player?.pause()
+                    player = updated
+                    activeURL = resolved
+                    updated.play()
+                    Haptics.success()
                 }
             }
         }

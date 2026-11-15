@@ -696,7 +696,20 @@ struct PracticeTakeView: View {
         }
         .fullScreenCover(isPresented: $showPlayer) {
             if let url = recordedTakeURL {
-                PracticeVideoPlayerSheet(url: url, isVoiceTake: recordMode == .voiceOnly, sceneTitle: sceneTitle)
+                PracticeVideoPlayerSheet(url: url, isVoiceTake: recordMode == .voiceOnly, sceneTitle: sceneTitle) { edited in
+                    guard let piece,
+                          let replaced = MediaStore.persist(edited, as: "take-\(max(1, piece.takesRecorded))-\(UUID().uuidString).mov", in: "practice-\(piece.id.uuidString)") else {
+                        return nil
+                    }
+                    try? FileManager.default.removeItem(at: url)
+                    recordedTakeURL = replaced
+                    Task {
+                        if let secs = try? await AVURLAsset(url: replaced).load(.duration).seconds, secs.isFinite {
+                            await MainActor.run { recordedTakeDuration = Int(secs.rounded()) }
+                        }
+                    }
+                    return replaced
+                }
             }
         }
         .sheet(isPresented: $showVoiceReview) {

@@ -11,6 +11,7 @@ struct AuditionElementReviewView: View {
     @State private var player: AVPlayer?
     @State private var findings: [TapeFinding] = []
     @State private var isChecking = true
+    @State private var showTrimmer = false
 
     private var audition: Audition? { store.audition(auditionID) }
     private var displayTitle: String {
@@ -79,8 +80,40 @@ struct AuditionElementReviewView: View {
         .navigationTitle("Review \(displayTitle)")
         .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
-            Button(actionTitle, action: editThisElement)
-                .buttonStyle(.otPrimary)
+            HStack(spacing: OTSpace.s) {
+                if let url = clipURL, VideoTrimmer.canTrim(url) {
+                    Button {
+                        player?.pause()
+                        showTrimmer = true
+                    } label: {
+                        Label("Trim clip", systemImage: "scissors")
+                    }
+                    .buttonStyle(.otSecondary)
+                }
+
+                Button(actionTitle, action: editThisElement)
+                    .buttonStyle(.otPrimary)
+            }
+        }
+        .sheet(isPresented: $showTrimmer) {
+            if let url = clipURL {
+                VideoTrimmer(url: url) { edited in
+                    showTrimmer = false
+                    guard let edited else { return }
+                    switch element {
+                    case .slate:
+                        store.replaceSlateVideo(for: auditionID, with: edited)
+                    case .fullLength:
+                        store.replaceFullLengthVideo(for: auditionID, with: edited)
+                    case .scene(let index):
+                        let takes = store.takes.filter { $0.auditionID == auditionID && $0.sceneIndex == index }
+                        if let chosen = takes.first(where: \.isCircled) ?? takes.last {
+                            store.replaceTakeFile(chosen.id, with: edited)
+                        }
+                    }
+                    Haptics.success()
+                }
+            }
         }
         .task(id: clipURL) {
             player?.pause()

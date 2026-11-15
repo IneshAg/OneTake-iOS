@@ -15,6 +15,13 @@ struct TapePreviewView: View {
         case clip(MediaExporter.Clip.Kind)
     }
 
+    private struct TrimTarget: Identifiable {
+        let kind: MediaExporter.Clip.Kind
+        let url: URL
+        let takeID: Take.ID?
+        var id: String { url.path }
+    }
+
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
     @State private var tape: MediaExporter.Tape?
@@ -30,6 +37,7 @@ struct TapePreviewView: View {
     /// Selecting a chapter only moves the preview. Editing is an explicit second action, so a tap
     /// never throws the actor out of playback unexpectedly.
     @State private var selectedTarget: PreviewTarget = .headshots
+    @State private var trimmingTarget: TrimTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: OTSpace.l) {
@@ -80,15 +88,65 @@ struct TapePreviewView: View {
                 .buttonStyle(.otPrimary)
                 .disabled(tape == nil)
 
-                Button(changeActionTitle) {
-                    changeSelectedPiece()
+                HStack(spacing: OTSpace.s) {
+                    if let target = selectedTrimTarget {
+                        Button {
+                            player?.pause()
+                            trimmingTarget = target
+                        } label: {
+                            Label("Trim clip", systemImage: "scissors")
+                        }
+                        .buttonStyle(.otSecondary)
+                    }
+
+                    Button(changeActionTitle) {
+                        changeSelectedPiece()
+                    }
+                    .buttonStyle(.otSecondary)
                 }
-                .buttonStyle(.otSecondary)
             }
         }
         // Rebuilt whenever what's on the tape changes (a different circled take, a retake, a trim, or headshots updated).
         .task(id: "\(currentClipURLs)-\(store.headshotVersion)") { await load() }
         .onDisappear { stop() }
+        .sheet(item: $trimmingTarget) { target in
+            VideoTrimmer(url: target.url) { edited in
+                trimmingTarget = nil
+                guard let edited else { return }
+                switch target.kind {
+                case .slate:
+                    store.replaceSlateVideo(for: auditionID, with: edited)
+                case .fullLength:
+                    store.replaceFullLengthVideo(for: auditionID, with: edited)
+                case .scene:
+                    if let takeID = target.takeID {
+                        store.replaceTakeFile(takeID, with: edited)
+                    }
+                }
+                Haptics.success()
+            }
+        }
+    }
+
+    private var selectedTrimTarget: TrimTarget? {
+        guard case .clip(let kind) = selectedTarget,
+              let a = store.audition(auditionID) else { return nil }
+        switch kind {
+        case .slate:
+            guard let url = a.slateVideoURL, VideoTrimmer.canTrim(url) else { return nil }
+            return TrimTarget(kind: .slate, url: url, takeID: nil)
+        case .fullLength:
+            guard let url = a.fullLengthVideoURL, VideoTrimmer.canTrim(url) else { return nil }
+            return TrimTarget(kind: .fullLength, url: url, takeID: nil)
+        case .scene(let index):
+            let auditionTakes = store.takes.filter {
+                $0.auditionID == a.id && !$0.previousSides && $0.currentSidesRevision == a.currentSidesRevision
+            }
+            let sceneTakes = auditionTakes.filter { $0.sceneIndex == index }
+            guard let chosen = sceneTakes.first(where: \.isCircled) ?? sceneTakes.last,
+                  let url = chosen.fileURL, VideoTrimmer.canTrim(url) else { return nil }
+            return TrimTarget(kind: .scene(index), url: url, takeID: chosen.id)
+        }
     }
 
     private var currentClipURLs: [URL] {
