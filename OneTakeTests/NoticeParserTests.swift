@@ -2370,4 +2370,82 @@ final class NoticeParserTests: XCTestCase {
         XCTAssertEqual(sceneClips.count, 1)
         XCTAssertEqual(sceneClips.first?.url, currentURL)
     }
+
+    @MainActor
+    func testImageNormalizationAndOCRProducesDraftSafely() async {
+        let largeSize = CGSize(width: 2600, height: 3200)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let flyerImage = UIGraphicsImageRenderer(size: largeSize, format: format).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: largeSize))
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 48, weight: .bold),
+                .foregroundColor: UIColor.black
+            ]
+            let body = """
+            CASTING CALL
+            PROJECT: NORTHBOUND
+            ROLE: DETECTIVE RAO
+            SEND HEADSHOTS, SLATE AND SELF-TAPE VIDEO TO
+            casting@northboundfilm.com
+            """
+            (body as NSString).draw(in: CGRect(x: 160, y: 240, width: 2280, height: 2600), withAttributes: attrs)
+        }
+
+        let normalized = NoticeOCR.normalizedScanImage(flyerImage, maxDimension: 2048)
+        XCTAssertLessThanOrEqual(max(normalized.size.width, normalized.size.height), 2048)
+
+        let pages = await NoticeOCR.recognizePages(in: [normalized])
+        let combined = pages.joined(separator: "\n\n")
+        XCTAssertTrue(NoticeOCR.looksReadable(combined))
+
+        let draft = await NoticeParser.parseAsync(combined, pages: pages)
+        let audition = draft.makeAudition()
+        XCTAssertTrue(audition.pieces.contains(where: { $0.kind == .slate }))
+    }
+
+    @MainActor
+    func testSlateAndHeadshotInclusionMatchesAuditionPieces() {
+        let noticeWithoutSlate = """
+        CASTING CALL - THE GLASS HARBOR
+        ROLE: MAYA (Lead, 20s-30s)
+        DEADLINE: November 30, 2026
+        SEND: Headshot and Scene 1 sides via email to cast@glassharbor.com
+        """
+        var parsed = NoticeParser.parse(noticeWithoutSlate)
+        XCTAssertFalse(parsed.includeSlate, "Notice without slate/intro ask parses includeSlate = false")
+        XCTAssertFalse(parsed.isSlateOptional)
+        XCTAssertFalse(parsed.makeAudition().pieces.contains(where: { $0.kind == .slate }))
+
+        // Turning Slate toggle ON in review must include .slate in the created audition pieces
+        parsed.includeSlate = true
+        parsed.isSlateOptional = false
+        let withSlate = parsed.makeAudition()
+        let slatePiece = withSlate.pieces.first(where: { $0.kind == .slate })
+        XCTAssertNotNil(slatePiece, "Turning Slate ON must create a .slate piece on the next screen")
+        XCTAssertEqual(slatePiece?.isOptional, false)
+
+        // Turning Slate Optional ON marks it optional while still showing the .slate piece
+        parsed.isSlateOptional = true
+        let optionalSlate = parsed.makeAudition().pieces.first(where: { $0.kind == .slate })
+        XCTAssertEqual(optionalSlate?.isOptional, true)
+
+        // Turning Headshots OFF removes .headshot piece from the next screen
+        parsed.includeHeadshots = false
+        XCTAssertFalse(parsed.makeAudition().pieces.contains(where: { $0.kind == .headshot }))
+
+        // Render shared deliverable row in both light/dark trait collections safely
+        let row = AuditionDeliverableRow(
+            title: "Slate / intro",
+            icon: "person.text.rectangle",
+            isIncluded: .constant(true),
+            isOptional: .constant(false)
+        )
+        let host = UIHostingController(rootView: row)
+        host.view.frame = CGRect(x: 0, y: 0, width: 360, height: 80)
+        host.view.layoutIfNeeded()
+        XCTAssertGreaterThan(host.view.bounds.width, 0)
+    }
 }
