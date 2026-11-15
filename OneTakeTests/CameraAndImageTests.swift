@@ -752,5 +752,64 @@ final class CameraAndImageTests: XCTestCase {
         XCTAssertEqual(camera.lastInterruption?.reason, "Audio device in use by another app")
         XCTAssertTrue(camera.lastInterruption?.hasSavedContent == true)
     }
+
+    @MainActor
+    func testHeadshotPoseGuideRejectsWrongDirectionAndAcceptsAlignedPose() {
+        // User turned right (-45 deg) while app asked for Left profile -> must reject as wrong side!
+        let wrongTurn = CameraController.FaceReading(
+            centerX: 0.5,
+            centerY: 0.45,
+            height: 0.42,
+            yaw: -0.78,
+            predictedPose: .rightProfile,
+            poseConfidence: 0.92,
+            predictedYawDegrees: -48
+        )
+        let wrongResult = HeadshotFlow.evaluatePoseGuide(face: wrongTurn, angle: .left)
+        XCTAssertFalse(wrongResult.aligned)
+        XCTAssertTrue(wrongResult.message.localizedCaseInsensitiveContains("left"))
+
+        // User turned left (+42 deg) while app asked for Left profile -> aligned!
+        let rightTurn = CameraController.FaceReading(
+            centerX: 0.5,
+            centerY: 0.45,
+            height: 0.42,
+            yaw: 0.75,
+            predictedPose: .leftProfile,
+            poseConfidence: 0.91,
+            predictedYawDegrees: 44
+        )
+        let leftResult = HeadshotFlow.evaluatePoseGuide(face: rightTurn, angle: .left)
+        XCTAssertTrue(leftResult.aligned)
+
+        // Front angle rejects strong side profile
+        let frontRejected = HeadshotFlow.evaluatePoseGuide(face: rightTurn, angle: .front)
+        XCTAssertFalse(frontRejected.aligned)
+    }
+
+    func testHeadshotPosePredictorLoadsBundledCoreMLModelAndOutputsValidPose() throws {
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            224,
+            224,
+            kCVPixelFormatType_32ARGB,
+            [
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        XCTAssertEqual(status, kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pixelBuffer)
+
+        let predictor = HeadshotPosePredictor(bundle: Bundle(for: HeadshotPoseClassifier.self))
+        let prediction = predictor.predict(resized224Buffer: buffer)
+        let unwrapped = try XCTUnwrap(prediction, "HeadshotPoseClassifier.mlmodel should load and classify a 224x224 frame")
+        XCTAssertEqual(unwrapped.probabilities.count, 3)
+        XCTAssertGreaterThanOrEqual(unwrapped.yawDegrees, -95.0)
+        XCTAssertLessThanOrEqual(unwrapped.yawDegrees, 95.0)
+        XCTAssertTrue(unwrapped.yawDegrees.isFinite)
+    }
 }
 

@@ -60,6 +60,11 @@ final class CameraController: NSObject {
         var height: CGFloat
         /// Head turn in radians (0 = facing the camera).
         var yaw: Double?
+        /// Classified headshot pose from bundled CoreML `HeadshotPoseClassifier`.
+        var predictedPose: HeadshotPoseLabel? = nil
+        var poseConfidence: Float = 0
+        /// Signed continuous yaw in degrees (-90 = right profile, 0 = front, +90 = left profile).
+        var predictedYawDegrees: Double? = nil
     }
     /// Live face position for headshot alignment. nil = no face found. Only updates when
     /// `wantsFaceGuidance` was set before `configure`.

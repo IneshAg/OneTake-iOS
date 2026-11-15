@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import OneTakeUI
 
 struct HeadshotFlow: View {
     enum Angle: String, CaseIterable { case front = "Front", left = "Left", right = "Right" }
@@ -20,6 +21,7 @@ struct HeadshotFlow: View {
     @State private var comparisonPhotos: [UIImage] = []
     @State private var selectedComparisonPhoto = 1
     @State private var showingComparison = false
+    @State private var milestone: OTMilestoneBannerItem?
 
     var body: some View {
         ZStack {
@@ -70,7 +72,7 @@ struct HeadshotFlow: View {
                         Circle().fill(.white).frame(width: 66, height: 66).overlay(Circle().stroke(.white, lineWidth: 4).frame(width: 78, height: 78)) // ot-lint:allow
                     }
                     .scaleEffect(justCaptured ? 0.88 : 1)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: justCaptured)
+                    .animation(OTMotion.bouncy, value: justCaptured)
                     .accessibilityLabel("Take photo")
 
                     HStack {
@@ -121,6 +123,8 @@ struct HeadshotFlow: View {
             }
         }
         .preferredColorScheme(.dark)
+        .otSurface(.camera)
+        .otMilestoneBanner($milestone)
         .sheet(isPresented: $showMatchGuide) {
             HeadshotReferenceGuideSheet(
                 angle: angle,
@@ -192,9 +196,14 @@ struct HeadshotFlow: View {
             Ellipse()
                 .stroke(guide.aligned ? OT.success : OT.due, lineWidth: guide.aligned ? 3 : 1.5) // ot-lint:allow
                 .frame(width: 200, height: 270) // ot-lint:allow
-                .rotation3DEffect(.degrees(angle == .front ? 0 : 8), axis: (x: 0, y: 1, z: 0))
+                .rotation3DEffect(.degrees(angle == .front ? 0 : (angle == .left ? -14 : 14)), axis: (x: 0, y: 1, z: 0))
 
             HStack {
+                if angle == .left && !guide.aligned {
+                    Image(systemName: "arrow.left.circle.fill")
+                        .font(.otTitle)
+                        .foregroundStyle(OT.prompterGold)
+                }
                 Rectangle()
                     .fill(guide.aligned ? OT.success : OT.due)
                     .frame(width: 32, height: 2) // ot-lint:allow
@@ -202,12 +211,18 @@ struct HeadshotFlow: View {
                 Rectangle()
                     .fill(guide.aligned ? OT.success : OT.due)
                     .frame(width: 32, height: 2) // ot-lint:allow
+                if angle == .right && !guide.aligned {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.otTitle)
+                        .foregroundStyle(OT.prompterGold)
+                }
             }
-            .frame(width: 170) // ot-lint:allow
+            .frame(width: 190) // ot-lint:allow
             .offset(y: -24) // ot-lint:allow
         }
         .offset(x: angle == .left ? -14 : angle == .right ? 14 : 0, y: -20) // ot-lint:allow
-        .animation(.easeOut(duration: 0.15), value: guide.aligned)
+        .animation(OTMotion.snappy, value: guide.aligned)
+        .animation(OTMotion.smooth, value: angle)
     }
 
     private var statusChips: some View {
@@ -235,6 +250,24 @@ struct HeadshotFlow: View {
             .padding(.horizontal, OTSpace.s)
             .frame(height: 24) // ot-lint:allow
             .background(.black.opacity(0.55), in: Capsule()) // ot-lint:allow
+
+            if let pose = camera.face?.predictedPose {
+                let deg = Int((camera.face?.predictedYawDegrees ?? 0).rounded())
+                Text("\(poseChipLabel(pose)) \(deg > 0 ? "+\(deg)" : "\(deg)")°")
+                    .font(.otCaptionStrong.monospacedDigit())
+                    .foregroundStyle(guide.aligned ? OT.success : OT.prompterGold)
+                    .padding(.horizontal, OTSpace.s)
+                    .frame(height: 24) // ot-lint:allow
+                    .background(.black.opacity(0.55), in: Capsule()) // ot-lint:allow
+            }
+        }
+    }
+
+    private func poseChipLabel(_ pose: HeadshotPoseLabel) -> String {
+        switch pose {
+        case .front: "Front"
+        case .leftProfile: "Left"
+        case .rightProfile: "Right"
         }
     }
 
@@ -272,7 +305,16 @@ struct HeadshotFlow: View {
     }
 
     private var guide: (message: String, spoken: String, aligned: Bool) {
-        guard let f = camera.face else {
+        Self.evaluatePoseGuide(face: camera.face, angle: angle)
+    }
+
+    /// Combines CoreML `HeadshotPoseClassifier` predictions (`Front 0°`, `Left +90°`, `Right -90°`)
+    /// with Vision bounding-box framing & signed yaw to give unambiguous directional guidance.
+    static func evaluatePoseGuide(
+        face: CameraController.FaceReading?,
+        angle: Angle
+    ) -> (message: String, spoken: String, aligned: Bool) {
+        guard let f = face else {
             return ("Show your face to the camera", "Step into the frame so your face is visible", false)
         }
         if f.height < 0.20 {
@@ -293,28 +335,40 @@ struct HeadshotFlow: View {
         if f.centerY > 0.58 {
             return ("Tilt the phone down a little", "Tilt the phone down a little", false)
         }
-        let yaw = f.yaw ?? 0
+
+        let yawDegrees = f.predictedYawDegrees ?? (f.yaw.map { $0 * 180.0 / .pi } ?? 0)
         switch angle {
         case .front:
-            if abs(yaw) > 0.25 {
+            if (f.predictedPose == .leftProfile || f.predictedPose == .rightProfile) && f.poseConfidence >= 0.65 {
+                return ("Look straight at the camera", "Look straight at the camera", false)
+            }
+            if abs(yawDegrees) > 15 {
                 return ("Look straight at the camera", "Look straight at the camera", false)
             }
         case .left:
-            if f.yaw != nil && abs(yaw) < 0.25 {
-                return ("Turn your head to your left", "Turn your head to your left", false)
+            if (f.predictedPose == .rightProfile && f.poseConfidence >= 0.55) || yawDegrees < -15 {
+                return ("Wrong side — turn your head LEFT", "Wrong side, turn your head to your left", false)
             }
-            if abs(yaw) > 1.15 {
-                return ("Turn back a little", "Turn back a little", false)
+            let isLeftAligned = (f.predictedPose == .leftProfile && f.poseConfidence >= 0.55) || yawDegrees >= 25
+            if !isLeftAligned {
+                return ("Turn your head to your LEFT", "Turn your head to your left", false)
+            }
+            if abs(yawDegrees) > 105 {
+                return ("Turn back a little", "Turn back slightly toward the camera", false)
             }
         case .right:
-            if f.yaw != nil && abs(yaw) < 0.25 {
-                return ("Turn your head to your right", "Turn your head to your right", false)
+            if (f.predictedPose == .leftProfile && f.poseConfidence >= 0.55) || yawDegrees > 15 {
+                return ("Wrong side — turn your head RIGHT", "Wrong side, turn your head to your right", false)
             }
-            if abs(yaw) > 1.15 {
-                return ("Turn back a little", "Turn back a little", false)
+            let isRightAligned = (f.predictedPose == .rightProfile && f.poseConfidence >= 0.55) || yawDegrees <= -25
+            if !isRightAligned {
+                return ("Turn your head to your RIGHT", "Turn your head to your right", false)
+            }
+            if abs(yawDegrees) > 105 {
+                return ("Turn back a little", "Turn back slightly toward the camera", false)
             }
         }
-        return ("Hold still — that’s it", "Hold still — say Now to shoot", true)
+        return ("Hold still — that's it", "Hold still, say Now to shoot", true)
     }
 
     private var referenceThumbnail: some View {
@@ -426,16 +480,21 @@ struct HeadshotFlow: View {
         store.syncHeadshotPieces()
         comparisonPhotos.removeAll()
         showingComparison = false
-        Haptics.success()
         if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
             let saved = angle.rawValue
             angle = next
             follower.reset()
+            Haptics.stepDone()
+            milestone = OTMilestoneBannerItem(
+                title: "\(saved) headshot saved!",
+                subtitle: "Next: \(next.rawValue) angle"
+            )
             if voiceGuidanceEnabled {
                 let prompt = next == .left ? "\(saved) photo saved. Now turn to your left profile." : "\(saved) photo saved. Now turn to your right profile."
                 cameraSpeaker.speak(prompt, minInterval: 0.1)
             }
         } else {
+            Haptics.celebrate()
             if voiceGuidanceEnabled { cameraSpeaker.speak("All headshots saved!", minInterval: 0.1) }
             dismiss()
         }
@@ -470,27 +529,27 @@ private struct HeadshotComparisonView: View {
             HStack {
                 Button(action: onRetry) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold)) // ot-lint:allow
-                        .foregroundStyle(OT.cameraLabel)
-                        .frame(width: 44, height: 44) // ot-lint:allow
-                        .background(.white.opacity(0.85), in: Circle()) // ot-lint:allow
+                        .font(.otSubhead.weight(.semibold))
+                        .foregroundStyle(OT.labelPrimary)
+                        .frame(width: OT.minTap, height: OT.minTap) // ot-lint:allow
+                        .background(OT.fillField, in: Circle()) // ot-lint:allow
                 }
                 .accessibilityLabel("Return to camera")
                 Spacer()
                 Text("\(title) · \(photos.count == 1 ? "1 shot" : "\(photos.count) shots")")
-                    .font(.otHeadline).foregroundStyle(OT.cameraLabel)
+                    .font(.otHeadline).foregroundStyle(OT.labelPrimary)
                 Spacer()
-                Color.clear.frame(width: 44, height: 44) // ot-lint:allow
+                Color.clear.frame(width: OT.minTap, height: OT.minTap) // ot-lint:allow
             }
             .padding(.horizontal, OTSpace.gutter).padding(.top, OTSpace.s)
 
             VStack(alignment: .leading, spacing: OTSpace.xxs) {
                 Text(photos.count > 1 ? "Keep the better one" : "Review your shot")
-                    .font(.system(size: 22, weight: .semibold)) // ot-lint:allow
-                    .foregroundStyle(OT.cameraLabel)
+                    .font(.otTitle)
+                    .foregroundStyle(OT.labelPrimary)
                 Text(photos.count > 1 ? "Compare the headshots side by side" : "Keep this photo, or take another if you want to compare.")
                     .font(.otCallout)
-                    .foregroundStyle(OT.cameraLabel2)
+                    .foregroundStyle(OT.labelSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, OTSpace.gutter).padding(.top, OTSpace.m).padding(.bottom, OTSpace.m)
@@ -508,11 +567,14 @@ private struct HeadshotComparisonView: View {
                                     .overlay(alignment: .topTrailing) {
                                         Image(systemName: selectedIndex == index ? "checkmark.circle.fill" : "circle")
                                             .font(.title3.weight(.semibold))
-                                            .foregroundStyle(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : OT.cameraLabel2) // ot-lint:allow
+                                            .foregroundStyle(selectedIndex == index ? OT.accent : OT.labelTertiary)
                                             .padding(OTSpace.s)
                                     }
-                                    .overlay(RoundedRectangle(cornerRadius: OTRadius.m).strokeBorder(selectedIndex == index ? Color(red: 0.56, green: 0.38, blue: 0.06) : Color.clear, lineWidth: 2)) // ot-lint:allow
-                                Text("Take \(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.cameraLabel)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: OTRadius.m, style: .continuous)
+                                            .strokeBorder(selectedIndex == index ? OT.accent : Color.clear, lineWidth: 2)
+                                    )
+                                Text("Take \(index + 1)").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.labelPrimary)
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -546,27 +608,24 @@ private struct HeadshotComparisonView: View {
 
                 if photos.count == 1, let onTakeAnother {
                     Button("Take another to compare", action: onTakeAnother)
-                        .font(.otHeadline).foregroundStyle(OT.accent)
-                        .frame(maxWidth: .infinity).frame(height: 52) // ot-lint:allow
-                        .background(Color(red: 0.91, green: 0.85, blue: 0.95), in: Capsule()) // ot-lint:allow
+                        .buttonStyle(.otSecondary)
                 }
 
                 Button(photos.count > 1 ? "Try again" : "Retake", action: onRetry)
-                    .font(.otHeadline).foregroundStyle(photos.count > 1 ? OT.accent : OT.cameraLabel2)
-                    .frame(maxWidth: .infinity).frame(height: photos.count > 1 ? 52 : 44) // ot-lint:allow
-                    .background(photos.count > 1 ? AnyShapeStyle(Color(red: 0.91, green: 0.85, blue: 0.95)) : AnyShapeStyle(Color.clear), in: Capsule()) // ot-lint:allow
+                    .buttonStyle(.ot(.secondary, size: .medium))
             }
             .padding(.horizontal, OTSpace.gutter).padding(.bottom, OTSpace.m)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red: 0.965, green: 0.957, blue: 0.972).ignoresSafeArea()) // ot-lint:allow
+        .otCanvas()
+        .otSurface(.standard)
     }
 
     private func comparisonNote(_ symbol: String, _ text: String) -> some View {
         HStack(spacing: OTSpace.s) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) // ot-lint:allow
+            Image(systemName: symbol).font(.otFootnote.weight(.semibold))
                 .foregroundStyle(symbol == "exclamationmark.circle" ? OT.due : OT.success)
-            Text(text).font(.otFootnote).foregroundStyle(OT.cameraLabel2)
+            Text(text).font(.otFootnote).foregroundStyle(OT.labelSecondary)
         }
     }
 }

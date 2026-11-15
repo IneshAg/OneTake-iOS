@@ -18,11 +18,13 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let poseRequest = wantsBodyPoseGuidance ? VNDetectHumanBodyPoseRequest() : nil
         let handRequest = wantsHandGesture ? VNDetectHumanHandPoseRequest() : nil
         handRequest?.maximumHandCount = 1
-        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: faceBufferIsUpright ? .up : .right, options: [:])
+        let orientation: CGImagePropertyOrientation = faceBufferIsUpright ? .up : .right
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: orientation, options: [:])
         var requests: [VNRequest] = [request]
         if let poseRequest { requests.append(poseRequest) }
         if let handRequest { requests.append(handRequest) }
         try? handler.perform(requests)
+        var usedOrientation = orientation
         var results = request.results ?? []
         if results.isEmpty || (wantsBodyPoseGuidance && (poseRequest?.results?.isEmpty ?? true))
             || (wantsHandGesture && (handRequest?.results?.isEmpty ?? true)) {
@@ -31,14 +33,40 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             let fallbackHandler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: fallbackOrientation, options: [:])
             try? fallbackHandler.perform(requests)
             results = request.results ?? []
+            usedOrientation = fallbackOrientation
         }
+        let posePrediction: HeadshotPosePrediction? = wantsFaceGuidance && faceGuidanceActive
+            ? HeadshotPosePredictor.shared.predict(pixelBuffer: buffer, orientation: usedOrientation)
+            : nil
         let best = results.max {
             $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
         }
-        let reading = best.map {
-            FaceReading(centerX: $0.boundingBox.midX, centerY: 1 - $0.boundingBox.midY,
-                        height: $0.boundingBox.height, yaw: $0.yaw?.doubleValue)
-        }
+        let reading: FaceReading? = {
+            if let best {
+                return FaceReading(
+                    centerX: best.boundingBox.midX,
+                    centerY: 1 - best.boundingBox.midY,
+                    height: best.boundingBox.height,
+                    yaw: best.yaw?.doubleValue ?? posePrediction?.yawRadians,
+                    predictedPose: posePrediction?.pose,
+                    poseConfidence: posePrediction?.confidence ?? 0,
+                    predictedYawDegrees: posePrediction?.yawDegrees
+                )
+            }
+            if let posePrediction, posePrediction.confidence >= 0.65 {
+                // CoreML model can still identify full 90° side profiles when Vision face boxes drop out.
+                return FaceReading(
+                    centerX: 0.5,
+                    centerY: 0.42,
+                    height: 0.34,
+                    yaw: posePrediction.yawRadians,
+                    predictedPose: posePrediction.pose,
+                    poseConfidence: posePrediction.confidence,
+                    predictedYawDegrees: posePrediction.yawDegrees
+                )
+            }
+            return nil
+        }()
         let pose = poseRequest?.results?.first.flatMap { observation -> BodyPoseReading? in
             guard let left = try? observation.recognizedPoint(.leftShoulder),
                   let right = try? observation.recognizedPoint(.rightShoulder),
