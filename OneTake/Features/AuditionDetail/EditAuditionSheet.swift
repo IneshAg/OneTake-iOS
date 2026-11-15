@@ -67,7 +67,7 @@ struct EditAuditionSheet: View {
                             let isProjectEmpty = audition.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             let isRoleEmpty = audition.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             if isProjectEmpty || isRoleEmpty {
-                                withAnimation(.easeInOut(duration: 0.2)) {
+                                withAnimation(OTMotion.snappy) {
                                     showValidationErrors = true
                                     path = [.project]
                                 }

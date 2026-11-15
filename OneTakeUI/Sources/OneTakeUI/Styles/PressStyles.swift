@@ -18,16 +18,17 @@ public struct OTPressStyle: ButtonStyle {
         case .card:
             configuration.label
                 .opacity(configuration.isPressed ? 0.82 : 1.0)
-                .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
+                .animation(OTMotion.snappy, value: configuration.isPressed)
         case .nav:
             configuration.label
                 .opacity(configuration.isPressed ? 0.65 : 1.0)
-                .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+                .animation(OTMotion.snappy, value: configuration.isPressed)
         case .icon:
             configuration.label
                 .opacity(configuration.isPressed ? 0.55 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-                .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+                .animation(OTMotion.snappy, value: configuration.isPressed)
         }
     }
 }

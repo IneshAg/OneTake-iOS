@@ -624,7 +624,7 @@ struct NoticeReviewView: View {
 
     private func saveAudition() {
         guard canSave else {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(OTMotion.snappy) {
                 showValidationErrors = true
             }
             Haptics.warning()

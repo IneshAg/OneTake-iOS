@@ -182,7 +182,7 @@ public struct OTButtonStyle: ButtonStyle {
             }
         }
         .opacity(configuration.isPressed ? 0.75 : (isEnabled ? 1.0 : 0.45))
-        .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+        .animation(OTMotion.snappy, value: configuration.isPressed)
     }
 }
 
