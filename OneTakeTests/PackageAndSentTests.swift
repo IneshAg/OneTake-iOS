@@ -330,5 +330,13 @@ final class PackageAndSentTests: XCTestCase {
         XCTAssertNotEqual(store.audition(audition.id)?.status, .sent)
         XCTAssertNil(store.audition(audition.id)?.sentDate)
     }
+
+    func testDestinationSheetOptionsExcludeRemovedCastingPlatforms() {
+        XCTAssertEqual(Destination.selectableInSheet, [.email, .localFiles, .emailOrLink])
+        XCTAssertFalse(Destination.selectableInSheet.contains(.actorsAccess))
+        XCTAssertFalse(Destination.selectableInSheet.contains(.backstage))
+        XCTAssertFalse(Destination.selectableInSheet.contains(.castingNetworks))
+        XCTAssertFalse(Destination.selectableInSheet.contains(.spotlight))
+    }
 }
 

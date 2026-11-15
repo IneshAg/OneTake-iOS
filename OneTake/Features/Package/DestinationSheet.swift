@@ -14,7 +14,7 @@ struct DestinationSheet: View {
                     let wasChosen = audition.wrappedValue.destinationWasChosen ?? false
                     List {
                     Section("Destination & Submission Method") {
-                        ForEach(Destination.allCases) { d in
+                        ForEach(Destination.selectableInSheet) { d in
                             destinationRow(for: d, isSelected: wasChosen && current == d) {
                                 if current != d { store.clearShareLink(for: auditionID) }
                                 audition.wrappedValue.destination = d

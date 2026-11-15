@@ -316,6 +316,10 @@ enum Destination: String, Codable, CaseIterable, Hashable, Identifiable {
     case emailOrLink = "Email or link"
 
     var id: String { rawValue }
+
+    /// Active destinations presented in the "Where's it going?" submission sheet.
+    static let selectableInSheet: [Destination] = [.email, .localFiles, .emailOrLink]
+
     var spec: String {
         switch self {
         case .actorsAccess:    "H.264 .mp4 · separate clips or full tape · under 500 MB"
