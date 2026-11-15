@@ -10,8 +10,10 @@ struct RecordButton: View {
     var action: () -> Void
     @Environment(\.otSurface) private var otSurface
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var holdProgress: CGFloat = 0
     @State private var isPressed = false
+    @State private var breathe = false
 
     private var ringColor: Color {
         (otSurface == .camera || colorScheme == .dark)
@@ -21,6 +23,13 @@ struct RecordButton: View {
 
     var body: some View {
         ZStack {
+            if isRecording {
+                Circle()
+                    .stroke(OT.recRed.opacity(breathe ? 0.16 : 0.48), lineWidth: 2) // ot-lint:allow
+                    .frame(width: 82, height: 82) // ot-lint:allow
+                    .scaleEffect(breathe ? 1.09 : 0.98)
+            }
+
             Circle()
                 .stroke(ringColor, lineWidth: 3.5) // ot-lint:allow
                 .frame(width: 74, height: 74) // ot-lint:allow
@@ -37,8 +46,20 @@ struct RecordButton: View {
                 .frame(width: isRecording ? 28 : 60, height: isRecording ? 28 : 60) // ot-lint:allow
                 .scaleEffect(isPressed ? 0.92 : 1.0)
         }
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isRecording)
-        .animation(.easeOut(duration: 0.12), value: isPressed)
+        .animation(OTMotion.snappy, value: isRecording)
+        .animation(OTMotion.snappy, value: isPressed)
+        .onChange(of: isRecording) { _, recording in
+            if recording && !reduceMotion {
+                withAnimation(OTMotion.breathe) { breathe = true }
+            } else {
+                withAnimation(OTMotion.snappy) { breathe = false }
+            }
+        }
+        .onAppear {
+            if isRecording && !reduceMotion {
+                withAnimation(OTMotion.breathe) { breathe = true }
+            }
+        }
         .contentShape(Circle())
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

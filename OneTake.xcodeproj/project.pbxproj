@@ -205,6 +205,11 @@
 		FE083DA350754CF63E78F99C /* AuditionActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9676917ACB7373FAB6B00F /* AuditionActivity.swift */; };
 		FE843CC5BA2F61B2C4AB73BD /* PDFGeometryExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CBF56DE6A2AEC93F88C079 /* PDFGeometryExtractor.swift */; };
 		FF2066EC65202B9D46BDB6FA /* ReaderTrackPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEC49289E1EC61B12136CEC /* ReaderTrackPlayer.swift */; };
+		A9B8C7D6E5F4000000000001 /* HeadshotPosePredictor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F4000000000101 /* HeadshotPosePredictor.swift */; };
+		A9B8C7D6E5F4000000000002 /* OTVoicePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F4000000000102 /* OTVoicePlayerView.swift */; };
+		A9B8C7D6E5F4000000000003 /* PracticeRecordingDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F4000000000103 /* PracticeRecordingDock.swift */; };
+		A9B8C7D6E5F4000000000004 /* ScriptTextEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F4000000000104 /* ScriptTextEditSheet.swift */; };
+		A9B8C7D6E5F4000000000005 /* StandaloneReaderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F4000000000105 /* StandaloneReaderSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -442,6 +447,11 @@
 		F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeOptionsView.swift; sourceTree = "<group>"; };
 		FA90EF3CAFB6B7B891958C6F /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		FD2C695DFE3285BEC8084796 /* AppStore+Practice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Practice.swift"; sourceTree = "<group>"; };
+		A9B8C7D6E5F4000000000101 /* HeadshotPosePredictor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadshotPosePredictor.swift; sourceTree = "<group>"; };
+		A9B8C7D6E5F4000000000102 /* OTVoicePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OTVoicePlayerView.swift; sourceTree = "<group>"; };
+		A9B8C7D6E5F4000000000103 /* PracticeRecordingDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeRecordingDock.swift; sourceTree = "<group>"; };
+		A9B8C7D6E5F4000000000104 /* ScriptTextEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptTextEditSheet.swift; sourceTree = "<group>"; };
+		A9B8C7D6E5F4000000000105 /* StandaloneReaderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneReaderSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -721,12 +731,16 @@
 		9BAA5B8FE12DCAC95F1DC8F0 /* Practice */ = {
 			isa = PBXGroup;
 			children = (
+				A9B8C7D6E5F4000000000102 /* OTVoicePlayerView.swift */,
 				F8E2388A62E5EAE4EC7A3D0F /* PracticeOptionsView.swift */,
+				A9B8C7D6E5F4000000000103 /* PracticeRecordingDock.swift */,
 				667B35392F06BE17F7A058ED /* PracticeSetupView.swift */,
 				377B421D266653B466B02FDD /* PracticeTakeView.swift */,
 				C4BDEEC12894F174E3FE004D /* PracticeVideoPlayerSheet.swift */,
 				F6AEEE356E499E1769847F1A /* PracticeView.swift */,
+				A9B8C7D6E5F4000000000104 /* ScriptTextEditSheet.swift */,
 				E4D949B18840549716EBC4B7 /* StandalonePracticeView.swift */,
+				A9B8C7D6E5F4000000000105 /* StandaloneReaderSheet.swift */,
 				C99ECCF92127C243535771BA /* VoiceWaveformBars.swift */,
 			);
 			path = Practice;
@@ -835,6 +849,7 @@
 				4837E566F04BDB97DF56C497 /* CameraGuidanceSpeaker.swift */,
 				11988E0C2B8E0B2AB42E4DB0 /* DemoMediaGenerator.swift */,
 				AFF6200D8A8B211F169BB4E9 /* DocumentScannerView.swift */,
+				A9B8C7D6E5F4000000000101 /* HeadshotPosePredictor.swift */,
 				AE1BF20A65C0E653298E38D5 /* KeepScreenAwake.swift */,
 				376609F267CE6C4D17246645 /* LocalBackup.swift */,
 				4D84E01FBB8E70E40D159423 /* Persistence.swift */,
@@ -1159,6 +1174,7 @@
 				140BD37D610F74BC7C425B06 /* HeadshotFlow.swift in Sources */,
 				A017CACD799BDE3CBDB17233 /* HeadshotImage.swift in Sources */,
 				DDEE23D4B7DB2C3015470D2F /* HeadshotPoseClassifier.mlmodel in Sources */,
+				A9B8C7D6E5F4000000000001 /* HeadshotPosePredictor.swift in Sources */,
 				090E2132074BF3CBB9C5B497 /* HeadshotSlotTile.swift in Sources */,
 				C8B62EDA9BAA04BC65593884 /* HeadshotViewerSheet.swift in Sources */,
 				F536CA3C859277B544B424C9 /* HeadshotsView.swift in Sources */,
@@ -1186,6 +1202,7 @@
 				05FE425E8DF2A8B368185FDB /* OnboardingFlow.swift in Sources */,
 				79265908887FC29123E33E90 /* OneTakeApp.swift in Sources */,
 				7AB370BB64897BD02B0785E3 /* OneTakeUIExports.swift in Sources */,
+				A9B8C7D6E5F4000000000002 /* OTVoicePlayerView.swift in Sources */,
 				FE843CC5BA2F61B2C4AB73BD /* PDFGeometryExtractor.swift in Sources */,
 				BA8DA81A6467676A34AAC0C9 /* PackageFormatSheet.swift in Sources */,
 				EA3DD6F35D3A9FA28EA07DDF /* PackageSheet.swift in Sources */,
@@ -1194,6 +1211,7 @@
 				6FF03F5EDF17FC3651DFB0C8 /* Persistence.swift in Sources */,
 				7CCBABA55A68D8BD8AF21B97 /* PhotoSourceMenu.swift in Sources */,
 				147F8BFD925BA74680A85A71 /* PracticeOptionsView.swift in Sources */,
+				A9B8C7D6E5F4000000000003 /* PracticeRecordingDock.swift in Sources */,
 				A9A48B807BB4350F67146CE8 /* PracticeSetupView.swift in Sources */,
 				76C680E4981D418ADE7304C8 /* PracticeTakeView.swift in Sources */,
 				BC746A1FD8973F64531E9D01 /* PracticeVideoPlayerSheet.swift in Sources */,
@@ -1230,6 +1248,7 @@
 				08F13B9323F641065E7A4866 /* ScriptParser+ThoughtUnits.swift in Sources */,
 				61C7F4868D93DC6DB9C7C491 /* ScriptParser.swift in Sources */,
 				C6C897EDE6D9B09D7DC011A8 /* ScriptReviewAndEditView.swift in Sources */,
+				A9B8C7D6E5F4000000000004 /* ScriptTextEditSheet.swift in Sources */,
 				5D28444FC50205B46A67E5D3 /* ScriptTextEditor.swift in Sources */,
 				818F3531964EBF17555B052F /* SearchView.swift in Sources */,
 				197EC6D70F6160902E817A8E /* SendFailedView.swift in Sources */,
@@ -1248,6 +1267,7 @@
 				1C5C9BDBA6B5666D9AE7EC63 /* SlateStage.swift in Sources */,
 				C41795CA51A09866D4ACB151 /* SpeechFollower.swift in Sources */,
 				B876F12AA6DF9477B20525CB /* StandalonePracticeView.swift in Sources */,
+				A9B8C7D6E5F4000000000005 /* StandaloneReaderSheet.swift in Sources */,
 				E6003447977A075ECA070249 /* StructuredDocumentParsers.swift in Sources */,
 				2D2F07F59468A23CE4085186 /* SubmissionCheckSummary.swift in Sources */,
 				AD904B94C5A09A4C8715C41D /* SubmissionInstructionsCard.swift in Sources */,

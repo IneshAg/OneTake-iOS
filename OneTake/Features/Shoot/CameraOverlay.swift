@@ -23,7 +23,7 @@ extension ShootFlow {
             Spacer()
             HStack(spacing: OTSpace.xs) {
                 if camera.state == .recording {
-                    Circle().fill(OT.recRed).frame(width: 8, height: 8) // ot-lint:allow
+                    RecordingPulseDot()
                 }
                 Text(pillText)
                     .font(.otFootnote.weight(.semibold))
@@ -608,19 +608,39 @@ extension ShootFlow {
             case .slateDone, .saved:
                 Color.clear.frame(height: 78) // ot-lint:allow
             default:
-                VStack(spacing: OTSpace.s) {
-                    if camera.state == .recording || camera.state == .paused {
-                        cameraChoice(camera.state == .paused ? "Resume" : "Pause") {
+                if camera.state == .recording || camera.state == .paused {
+                    HStack(spacing: OTSpace.l) {
+                        Button {
                             camera.state == .paused ? camera.resumeRecording() : camera.pauseRecording()
+                        } label: {
+                            HStack(spacing: OTSpace.xs) {
+                                Image(systemName: camera.state == .paused ? "play.fill" : "pause.fill")
+                                Text(camera.state == .paused ? "Resume" : "Pause")
+                            }
+                            .font(.otSubhead.weight(.semibold))
+                            .foregroundStyle(Color.white) // ot-lint:allow
+                            .padding(.horizontal, OTSpace.l)
+                            .frame(height: 44) // ot-lint:allow
+                            .background(
+                                (camera.state == .paused ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.cameraGlass)),
+                                in: Capsule()
+                            )
                         }
                         .disabled(countdown != nil)
-                    }
-                    RecordButton(isRecording: camera.state == .recording, holdToStop: false) {
-                        switch camera.state {
-                        case .recording: cut()
-                        case .paused: camera.resumeRecording()
-                        default: roll()
+                        .accessibilityLabel(camera.state == .paused ? "Resume recording" : "Pause recording")
+
+                        RecordButton(isRecording: camera.state == .recording || camera.state == .paused, holdToStop: false) {
+                            cut()
                         }
+                    }
+                    .padding(.horizontal, OTSpace.l)
+                    .padding(.vertical, OTSpace.xs)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                    .animation(OTMotion.snappy, value: camera.state)
+                } else {
+                    RecordButton(isRecording: false, holdToStop: false) {
+                        roll()
                     }
                 }
             }
@@ -670,5 +690,24 @@ extension ShootFlow {
                 }
             }
         }
+    }
+}
+
+private struct RecordingPulseDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(OT.recRed)
+            .frame(width: 8, height: 8) // ot-lint:allow
+            .scaleEffect(reduceMotion || !pulsing ? 1.0 : 1.32)
+            .opacity(reduceMotion || !pulsing ? 1.0 : 0.48)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(OTMotion.breathe) {
+                    pulsing = true
+                }
+            }
     }
 }
