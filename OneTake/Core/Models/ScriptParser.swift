@@ -5,36 +5,6 @@ import CoreGraphics
 /// powered by on-device Core ML element classification (`ScriptElementClassifier`) with a deterministic
 /// fallback guardrail for full backward compatibility across all iOS versions.
 enum ScriptParser {
-    /// Casting and audition script archetypes encountered across television, film, commercial, and theater sides.
-    enum ScriptArchetype: String, CaseIterable {
-        case multiRolePacket = "Multi-role casting packet"
-        case screenplay = "Screenplay excerpt"
-        case commercial = "Commercial copy"
-        case stagePlay = "Stage play"
-        case standardDialogue = "Dialogue scene"
-    }
-
-    /// Automatically classifies the structural archetype of the sides document to optimize parsing.
-    static func detectArchetype(in text: String) -> ScriptArchetype {
-        let upper = text.uppercased()
-        if upper.contains("CASTING SIDES") || upper.contains("HOW TO USE THESE SIDES")
-            || upper.contains("THE CHARACTERS IN THIS DOCUMENT")
-            || (upper.contains("SIDE A") && upper.contains("SIDE B")) {
-            return .multiRolePacket
-        }
-        if upper.contains("ANNCR:") || upper.contains("ANNCR ") || upper.contains("V.O.")
-            || (upper.contains("VIDEO:") && upper.contains("AUDIO:")) || upper.contains("COMMERCIAL") {
-            return .commercial
-        }
-        if upper.contains("INT.") || upper.contains("EXT.") || upper.contains("INT/EXT") || upper.contains("(CONT'D)") {
-            return .screenplay
-        }
-        if upper.contains("ACT I") || upper.contains("ACT 1") || upper.contains("SCENE I") || upper.contains("SCENE II") {
-            return .stagePlay
-        }
-        return .standardDialogue
-    }
-
     /// Reclassifies the already parsed dialogue when the actor corrects their role name.
     static func reclassify(_ scenes: [ScriptScene], myRole: String) -> [ScriptScene] {
         let roleName = normalizedName(myRole)
@@ -479,26 +449,6 @@ enum ScriptParser {
         return false
     }
 
-    /// Checks if a line following stage directions/actions is likely dialogue spoken by the active character
-    static func isLikelyDialogueAfterAction(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return false }
-        if trimmed.hasPrefix("-") || trimmed.hasPrefix("–") || trimmed.hasPrefix("—") || trimmed.hasPrefix("\"") || trimmed.hasPrefix("“") {
-            return true
-        }
-        if trimmed.hasSuffix("?") || trimmed.hasSuffix("!") {
-            return true
-        }
-        let lower = trimmed.lowercased()
-        let dialogueWords: Set<String> = [
-            "i", "i'm", "i've", "i'd", "i'll", "you", "you're", "you've", "you'd", "you'll",
-            "me", "my", "myself", "we", "we're", "we've", "us", "our", "why", "what", "how",
-            "where", "when", "who", "hey", "well", "so", "oh", "come", "look", "listen", "no", "yes"
-        ]
-        let tokens = lower.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
-        return tokens.contains(where: { dialogueWords.contains($0) })
-    }
-
     /// Strips recurring watermarks, timestamps, and page numbering headers
     static func isWatermarkOrHeader(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
@@ -723,10 +673,6 @@ enum ScriptParser {
         cueName(raw).uppercased()
             .components(separatedBy: CharacterSet.letters.union(.decimalDigits).inverted)
             .filter { !$0.isEmpty }
-    }
-
-    static func isSameRole(_ cueString: String, _ roleString: String) -> Bool {
-        isSameCharacter(normalizedName(cueString), normalizedName(roleString))
     }
 
     /// Whole-word match, so a cue of "MAYA" matches the role "Maya Kapoor" (and vice versa).

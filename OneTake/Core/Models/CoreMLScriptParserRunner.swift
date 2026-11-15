@@ -13,8 +13,6 @@ public enum ScriptElementClass: String, CaseIterable, Sendable {
     case metadata = "metadata"
 }
 
-public typealias ElementClass = ScriptElementClass
-
 /// Thread-safe cached storage for the underlying v1 `NLModel` and optional v2 contextual `MLModel`.
 private final class ClassifierStorage: @unchecked Sendable {
     private let lock = NSLock()

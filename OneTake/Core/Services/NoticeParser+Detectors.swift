@@ -350,10 +350,6 @@ extension NoticeParser {
         }
     }
 
-    static func detectRole(in text: String) -> String? {
-        detectCandidateRoles(in: text).first
-    }
-
     static func detectLocation(in text: String) -> String? {
         if let v = labeled(["location", "city", "venue", "place", "based in", "shoot location"], in: text) {
             return clean(v).capitalized
@@ -768,9 +764,5 @@ extension NoticeParser {
         }
 
         return (sidesLink, submissionLink)
-    }
-
-    static func detectSidesLink(in text: String) -> String? {
-        detectClassifiedLinks(in: text).sidesLink
     }
 }

@@ -258,10 +258,7 @@ final class ScriptParserTests: XCTestCase {
         You stole my chance to grieve.
         """
 
-        // 1. Archetype check
-        XCTAssertEqual(ScriptParser.detectArchetype(in: pilgrimageDocument), .multiRolePacket)
-
-        // 2. Candidate roles detection
+        // 1. Candidate roles detection
         let characters = ScriptParser.extractCharacters(from: pilgrimageDocument)
         XCTAssertTrue(characters.contains("Noor"))
         XCTAssertTrue(characters.contains("Maryam"))
@@ -305,7 +302,6 @@ final class ScriptParserTests: XCTestCase {
 
         HAMLET. Not a mouse stirring.
         """
-        XCTAssertEqual(ScriptParser.detectArchetype(in: play), .stagePlay)
         let scenes = ScriptParser.parseScenes(from: play, myRole: "Hamlet")
         XCTAssertEqual(scenes.count, 1)
         XCTAssertEqual(scenes[0].lines.filter(\.isMine).count, 2)
@@ -329,7 +325,6 @@ final class ScriptParserTests: XCTestCase {
 
         AUDIO: ANNCR: Drive into the future today.
         """
-        XCTAssertEqual(ScriptParser.detectArchetype(in: commercial), .commercial)
         let scenes = ScriptParser.parseScenes(from: commercial, myRole: "Anncr")
         XCTAssertEqual(scenes.count, 1)
         XCTAssertEqual(scenes[0].lines.count, 3)

@@ -561,38 +561,6 @@ enum OnDeviceIntelligence {
         source.range(of: #"(?i)\b(?:director(?:['’]s)?\s+notes?|acting notes?|tone notes?|what (?:we|i)'?re? looking for|character (?:note|brief|description|background)|role description)\s*[:\-]"#, options: .regularExpression) != nil
     }
 
-    /// Formats and segments sides using Apple Intelligence FoundationModels when available on device (iOS 26+).
-    /// If unavailable or offline, gracefully falls back to the high-precision algorithmic beat divider
-    /// in ScriptParser to seamlessly guarantee natural segmentation on all iPhones.
-    static func formatAndSegmentSides(text: String, character: String) async -> [String]? {
-        let prompt = """
-        You are a professional acting coach and screenplay teleprompter formatter.
-        Your task is to take an actor's monologue or dialogue lines and divide them into natural, deliverable "thought units" (breath beats) for an on-camera audition teleprompter.
-
-        Rules:
-        1. Length: Each beat must be 1 to 2 sentences, between 8 and 22 words long. Never output a giant paragraph.
-        2. Natural Beats: Break at dramatic pauses, full stops (. ! ?), or major clause breaks (—, ;).
-        3. Do not alter, add, or skip the actor's words. Preserve their exact words.
-        4. Remove any stage directions in brackets or parentheses like [speaking on phone] or (beat).
-        5. Output format: Return only the deliverable beats, one beat per line, with no bullet points, no numbering, and no character prefixes.
-
-        Character: \(character)
-        Text:
-        \(text)
-        """
-        if let answer = await respond(to: prompt) {
-            let lines = answer.components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*•0123456789. ").union(.whitespaces)) }
-                .filter { !$0.isEmpty }
-            if lines.count > 1 {
-                return lines
-            }
-        }
-        // Algorithmic thought-unit fallback: 100% offline, guaranteed on all iOS versions
-        let algorithmic = ScriptParser.divideIntoThoughtUnits(text)
-        return algorithmic.count > 1 ? algorithmic : [text]
-    }
-
     /// Runs 100% offline Core ML Apple Neural Engine parsing on a casting notice snippet.
     static func parseNoticeWithCoreML(text: String) async -> NoticeParser.Draft? {
         guard await CoreMLParserRunner.shared.isAvailable else { return nil }
