@@ -14,7 +14,7 @@ struct VoiceWaveformBars: View {
                 RoundedRectangle(cornerRadius: 2, style: .continuous) // ot-lint:allow
                     .fill(isRecording ? OT.reader : Color.white.opacity(0.45)) // ot-lint:allow
                     .frame(width: 3, height: max(4, min(32, baseHeights[i] * factor))) // ot-lint:allow
-                    .animation(.easeInOut(duration: 0.12), value: level)
+                    .animation(OTMotion.snappy, value: level)
             }
         }
     }

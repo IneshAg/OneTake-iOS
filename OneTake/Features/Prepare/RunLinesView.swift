@@ -134,7 +134,7 @@ struct RunLinesView: View {
             .onAppear { speakIfReader(lines) }
             .onChange(of: follower.transcript) { _, transcript in
                 guard !finished, lines[index].isMine,
-                      SpokenLineMatcher.matchedWordIndices(in: lines[index].text, transcript: transcript).count >= SpokenLineMatcher.requiredMatches(for: lines[index].text) else { return }
+                      SpokenLineMatcher.isLineComplete(lineText: lines[index].text, transcript: transcript) else { return }
                 onYourOwn.insert(index)
                 advance(lines)
             }
@@ -154,14 +154,18 @@ struct RunLinesView: View {
         stopReader()
         follower.reset()
         if index + 1 < lines.count {
-            index += 1
+            withAnimation(OTMotion.smooth) {
+                index += 1
+            }
             speakIfReader(lines)
         } else {
-            finished = true
-            reachedEnd = true
+            withAnimation(OTMotion.bouncy) {
+                finished = true
+                reachedEnd = true
+            }
             // Only a complete run updates "lines learned" — a paused one would undercount.
             store.recordRun(auditionID: auditionID, sceneIndex: sceneIndex, linesOnYourOwn: onYourOwn.count)
-            Haptics.success()
+            Haptics.celebrate()
         }
     }
 

@@ -219,7 +219,7 @@ struct SidesPrompterView: View {
                     )
                 )
                 .onChange(of: currentIndex) { _, newIndex in
-                    withAnimation(.spring(response: 0.40, dampingFraction: 0.82)) {
+                    withAnimation(OTMotion.smooth) {
                         proxy.scrollTo("prompter_line_\(newIndex)", anchor: .top)
                     }
                 }

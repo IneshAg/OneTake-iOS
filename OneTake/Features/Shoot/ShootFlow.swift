@@ -167,9 +167,7 @@ struct ShootFlow: View {
                   lines.indices.contains(lineIndex) else { return }
             let line = lines[lineIndex]
             guard line.isMine else { return }
-            let matches = SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: transcript)
-            let required = SpokenLineMatcher.requiredMatches(for: line.text)
-            if matches.count >= required {
+            if SpokenLineMatcher.isLineComplete(lineText: line.text, transcript: transcript) {
                 interpretTalkback(line)
             }
         }
@@ -405,10 +403,10 @@ struct ShootFlow: View {
     func interpretTalkback(_ line: ScriptLine) {
         talkbackTask?.cancel()
         talkbackTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, camera.state == .recording, stage == .scene,
                   sceneLines?.indices.contains(lineIndex) == true,
-                  SpokenLineMatcher.matchedWordIndices(in: line.text, transcript: follower.transcript).count >= SpokenLineMatcher.requiredMatches(for: line.text) else { return }
+                  SpokenLineMatcher.isLineComplete(lineText: line.text, transcript: follower.transcript) else { return }
             timedAdvance?.cancel()
             timedAdvance = nil
             advanceLine()

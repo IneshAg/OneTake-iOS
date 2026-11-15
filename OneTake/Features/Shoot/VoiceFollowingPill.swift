@@ -63,7 +63,7 @@ struct VoiceFollowingPill: View {
         )
         .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+            withAnimation(OTMotion.breathe) {
                 waveAnimating = true
             }
         }

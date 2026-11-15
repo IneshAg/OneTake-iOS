@@ -354,4 +354,45 @@ enum SpokenLineMatcher {
         default: return max(3, Int(Double(count) * 0.50))
         }
     }
+
+    /// Returns `true` only once the actor has spoken enough of the line AND reached its tail tokens,
+    /// preventing teleprompter auto-advance from jumping early if the actor pauses mid-line.
+    static func isLineComplete(lineText: String, transcript: String) -> Bool {
+        let rawTokens = lineText.split(separator: " ").map(String.init)
+        let nonEmptyIndices = rawTokens.indices.filter { !cleanWord(rawTokens[$0]).isEmpty }
+        let count = nonEmptyIndices.count
+        guard count > 0 else { return false }
+
+        let matched = matchedWordIndices(in: lineText, transcript: transcript)
+        if count == 1 {
+            return matched.contains(nonEmptyIndices[0])
+        }
+        if count == 2 {
+            return matched.contains(nonEmptyIndices[1])
+                && matched.count >= 2
+        }
+
+        let minimumRatioCount: Int = {
+            switch count {
+            case 3: return 2
+            case 4...7: return max(3, Int(ceil(Double(count) * 0.72)))
+            default: return max(4, Int(ceil(Double(count) * 0.75)))
+            }
+        }()
+
+        guard matched.count >= minimumRatioCount else { return false }
+
+        // Tail anchor: at least one of the final 2 substantive words must be matched so pausing
+        // after only the opening half of a sentence will not skip to the next line.
+        let tailWindow = nonEmptyIndices.suffix(min(2, count))
+        return tailWindow.contains { matched.contains($0) }
+    }
+
+    /// Normalized completion ratio (`0...1`) for subtle prompter progress feedback.
+    static func completionProgress(for text: String, transcript: String) -> Double {
+        let count = text.split(separator: " ").map { cleanWord($0) }.filter { !$0.isEmpty }.count
+        guard count > 0 else { return 0 }
+        let matchedCount = matchedWordIndices(in: text, transcript: transcript).count
+        return min(1.0, Double(matchedCount) / Double(count))
+    }
 }
