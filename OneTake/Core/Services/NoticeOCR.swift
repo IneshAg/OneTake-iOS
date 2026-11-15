@@ -129,29 +129,33 @@ enum NoticeOCR {
             // inverted passes and merge ONLY non-overlapping missing boxes so clean dark text stays intact.
             let missingContactInfo = !bestResult.contains("@") && !bestResult.lowercased().contains("http")
             if isWeakOCR(bestResult) || missingContactInfo {
-                if let processedImage = enhancedCGImage(secondarySource) {
-                    let processedBoxes = performVisionOCRBoxes(on: processedImage)
-                    let processedText = OCRLayoutReconstructor.reconstruct(boxes: processedBoxes)
-                    if isWeakOCR(bestResult), isBetterOCRResult(processedText, than: bestResult) {
-                        mergedBoxes = processedBoxes
-                        bestResult = processedText
-                    } else if !processedBoxes.isEmpty {
-                        mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: processedBoxes)
-                        bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                autoreleasepool {
+                    if let processedImage = enhancedCGImage(secondarySource) {
+                        let processedBoxes = performVisionOCRBoxes(on: processedImage)
+                        let processedText = OCRLayoutReconstructor.reconstruct(boxes: processedBoxes)
+                        if isWeakOCR(bestResult), isBetterOCRResult(processedText, than: bestResult) {
+                            mergedBoxes = processedBoxes
+                            bestResult = processedText
+                        } else if !processedBoxes.isEmpty {
+                            mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: processedBoxes)
+                            bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                        }
                     }
                 }
             }
 
             if isWeakOCR(bestResult) || !bestResult.contains("@") {
-                if let invertedImage = enhancedCGImage(secondarySource, forceInvert: true) {
-                    let invertedBoxes = performVisionOCRBoxes(on: invertedImage)
-                    let invertedText = OCRLayoutReconstructor.reconstruct(boxes: invertedBoxes)
-                    if isWeakOCR(bestResult), isBetterOCRResult(invertedText, than: bestResult) {
-                        mergedBoxes = invertedBoxes
-                        bestResult = invertedText
-                    } else if !invertedBoxes.isEmpty {
-                        mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: invertedBoxes)
-                        bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                autoreleasepool {
+                    if let invertedImage = enhancedCGImage(secondarySource, forceInvert: true) {
+                        let invertedBoxes = performVisionOCRBoxes(on: invertedImage)
+                        let invertedText = OCRLayoutReconstructor.reconstruct(boxes: invertedBoxes)
+                        if isWeakOCR(bestResult), isBetterOCRResult(invertedText, than: bestResult) {
+                            mergedBoxes = invertedBoxes
+                            bestResult = invertedText
+                        } else if !invertedBoxes.isEmpty {
+                            mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: invertedBoxes)
+                            bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                        }
                     }
                 }
             }
@@ -159,38 +163,44 @@ enum NoticeOCR {
             // If still missing an email/URL, probe the bottom footer strip with local contrast enhancement
             // so small white or low-contrast corner emails aren't drowned out by headline contrast.
             if !bestResult.contains("@") && !bestResult.lowercased().contains("http") {
-                let footerBoxes = recoverFooterContactBoxes(from: cgImage)
-                if !footerBoxes.isEmpty {
-                    mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: footerBoxes)
-                    bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                autoreleasepool {
+                    let footerBoxes = recoverFooterContactBoxes(from: cgImage)
+                    if !footerBoxes.isEmpty {
+                        mergedBoxes = mergeNonOverlappingBoxes(base: mergedBoxes, additions: footerBoxes)
+                        bestResult = OCRLayoutReconstructor.reconstruct(boxes: mergedBoxes)
+                    }
                 }
             }
 
             // Pass 4: Bounded enlargement retry for very small-print flyers if still weak
             if isWeakOCR(bestResult) {
-                let maxBound: CGFloat = 4096
-                let candidateCG: CGImage?
-                if longest < 2500 {
-                    let scale = min(2.0, maxBound / CGFloat(max(longest, 1)))
-                    candidateCG = scaledCGImage(cgImage, scale: scale)
-                } else {
-                    candidateCG = cgImage
-                }
+                autoreleasepool {
+                    let maxBound: CGFloat = 3072
+                    let candidateCG: CGImage?
+                    if longest < 2500 {
+                        let scale = min(2.0, maxBound / CGFloat(max(longest, 1)))
+                        candidateCG = scaledCGImage(cgImage, scale: scale)
+                    } else {
+                        candidateCG = cgImage
+                    }
 
-                if let candidateCG {
-                    let candidateBuilders: [() -> CGImage?] = [
-                        { candidateCG },
-                        { enhancedCGImage(candidateCG) },
-                        { enhancedCGImage(candidateCG, forceInvert: true) }
-                    ]
-                    for buildVariant in candidateBuilders {
-                        guard isWeakOCR(bestResult) else { break }
-                        guard let variant = buildVariant() else { continue }
-                        let variantBoxes = performVisionOCRBoxes(on: variant)
-                        let variantText = OCRLayoutReconstructor.reconstruct(boxes: variantBoxes)
-                        if isBetterOCRResult(variantText, than: bestResult) {
-                            mergedBoxes = variantBoxes
-                            bestResult = variantText
+                    if let candidateCG {
+                        let candidateBuilders: [() -> CGImage?] = [
+                            { candidateCG },
+                            { enhancedCGImage(candidateCG) },
+                            { enhancedCGImage(candidateCG, forceInvert: true) }
+                        ]
+                        for buildVariant in candidateBuilders {
+                            guard isWeakOCR(bestResult) else { break }
+                            autoreleasepool {
+                                guard let variant = buildVariant() else { return }
+                                let variantBoxes = performVisionOCRBoxes(on: variant)
+                                let variantText = OCRLayoutReconstructor.reconstruct(boxes: variantBoxes)
+                                if isBetterOCRResult(variantText, than: bestResult) {
+                                    mergedBoxes = variantBoxes
+                                    bestResult = variantText
+                                }
+                            }
                         }
                     }
                 }
@@ -299,13 +309,19 @@ enum NoticeOCR {
         return ocrScore(candidate) > ocrScore(current)
     }
 
+    private static let sharedCIContext = CIContext(options: [.cacheIntermediates: false])
+
     /// High-quality Core Graphics enlargement for fine-print notices and flyers whose character heights
     /// fall below Apple Vision's character detector threshold.
     private static func scaledCGImage(_ source: CGImage, scale: CGFloat) -> CGImage? {
         guard scale > 1.0 else { return source }
-        let newWidth = Int(CGFloat(source.width) * scale)
-        let newHeight = Int(CGFloat(source.height) * scale)
+        let maxDimension: CGFloat = 3072
+        let clampedScale = min(scale, maxDimension / CGFloat(max(source.width, source.height, 1)))
+        guard clampedScale > 1.0 else { return source }
+        let newWidth = max(1, Int((CGFloat(source.width) * clampedScale).rounded()))
+        let newHeight = max(1, Int((CGFloat(source.height) * clampedScale).rounded()))
         let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         guard let context = CGContext(
             data: nil,
             width: newWidth,
@@ -313,7 +329,7 @@ enum NoticeOCR {
             bitsPerComponent: 8,
             bytesPerRow: 0,
             space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: bitmapInfo
         ) else { return nil }
         context.interpolationQuality = .high
         context.draw(source, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
@@ -328,6 +344,9 @@ enum NoticeOCR {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
             request.usesLanguageCorrection = level == .accurate
+            #if targetEnvironment(simulator)
+            request.usesCPUOnly = true
+            #endif
             // Query Vision for supported recognition languages at runtime
             configureSupportedLanguages(for: request)
             // The image is already drawn upright by `normalizedCGImage`.
@@ -365,7 +384,6 @@ enum NoticeOCR {
     /// Grayscale alone improves recognition by ~10–15% on coloured flyers; dark-background inversion
     /// transforms white-on-dark text into black-on-white text which Apple Vision's neural network resolves best.
     private static func enhancedCGImage(_ source: CGImage, forceInvert: Bool = false) -> CGImage? {
-        let context = CIContext(options: [.useSoftwareRenderer: false])
         var image = CIImage(cgImage: source)
 
         let profile = luminanceProfile(source)
@@ -410,7 +428,7 @@ enum NoticeOCR {
             if let output = filter.outputImage { image = output }
         }
 
-        return context.createCGImage(image, from: image.extent)
+        return sharedCIContext.createCGImage(image, from: image.extent)
     }
 
     private struct LuminanceProfile {
@@ -457,23 +475,27 @@ enum NoticeOCR {
 
     // MARK: - Normalisation
 
-    /// Redraws the image upright at a size Vision handles well. Photos from the camera roll carry an
-    /// EXIF rotation and can be 12 MP+; scans are already upright.
-    private static func normalizedCGImage(_ image: UIImage) -> CGImage? {
+    /// Returns an upright, memory-bounded 8-bit sRGB `UIImage` suitable for holding in review state or passing to OCR.
+    static func normalizedScanImage(_ image: UIImage, maxDimension: CGFloat = 2048) -> UIImage {
         let longest = max(image.size.width, image.size.height)
-        let maxDimension: CGFloat = 2048
+        guard longest > 0, image.size.width > 0, image.size.height > 0 else { return image }
         let scale = longest > maxDimension ? maxDimension / longest : 1
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        guard size.width > 0, size.height > 0 else { return image.cgImage }
+        let size = CGSize(width: max(1, (image.size.width * scale).rounded()), height: max(1, (image.size.height * scale).rounded()))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
-        let redrawn = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+        format.preferredRange = .standard
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
             UIColor.white.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
             image.draw(in: CGRect(origin: .zero, size: size))
         }
-        return redrawn.cgImage ?? image.cgImage
+    }
+
+    /// Redraws the image upright at a size Vision handles well. Photos from the camera roll carry an
+    /// EXIF rotation and can be 12 MP+; scans are already upright.
+    private static func normalizedCGImage(_ image: UIImage) -> CGImage? {
+        normalizedScanImage(image, maxDimension: 2048).cgImage ?? image.cgImage
     }
 
     // MARK: - Readability check

@@ -294,6 +294,7 @@ extension NoticeOCR {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
+        format.preferredRange = .standard
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         return renderer.image { ctx in
             UIColor.white.setFill()
