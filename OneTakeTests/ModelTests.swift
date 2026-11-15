@@ -657,5 +657,43 @@ final class ModelTests: XCTestCase {
         XCTAssertNotEqual(auditionURL, practiceURL)
         XCTAssertTrue(practiceURL.path.contains("practice-"))
     }
+
+    func testHeadshotGuidanceStopsDuringReviewOrMatchGuide() {
+        XCTAssertTrue(HeadshotFlow.shouldSpeakGuidance(
+            voiceGuidanceEnabled: true,
+            cameraReady: true,
+            showingComparison: false,
+            showMatchGuide: false,
+            justCaptured: false
+        ))
+        XCTAssertFalse(HeadshotFlow.shouldSpeakGuidance(
+            voiceGuidanceEnabled: true,
+            cameraReady: true,
+            showingComparison: true,
+            showMatchGuide: false,
+            justCaptured: false
+        ))
+        XCTAssertFalse(HeadshotFlow.shouldSpeakGuidance(
+            voiceGuidanceEnabled: true,
+            cameraReady: true,
+            showingComparison: false,
+            showMatchGuide: true,
+            justCaptured: false
+        ))
+        XCTAssertFalse(HeadshotFlow.shouldSpeakGuidance(
+            voiceGuidanceEnabled: true,
+            cameraReady: true,
+            showingComparison: false,
+            showMatchGuide: false,
+            justCaptured: true
+        ))
+        XCTAssertFalse(HeadshotFlow.shouldSpeakGuidance(
+            voiceGuidanceEnabled: false,
+            cameraReady: true,
+            showingComparison: false,
+            showMatchGuide: false,
+            justCaptured: false
+        ))
+    }
 }
 

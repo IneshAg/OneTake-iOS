@@ -10,7 +10,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let now = Date()
         let minimumInterval = wantsBodyPoseGuidance ? 0.25 : 0.15
-        guard (faceGuidanceActive || wantsHandGesture), now.timeIntervalSince(lastFaceCheck) > minimumInterval,
+        guard faceGuidanceActive,
+              (wantsFaceGuidance || wantsHandGesture),
+              now.timeIntervalSince(lastFaceCheck) > minimumInterval,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFaceCheck = now
         let request = VNDetectFaceRectanglesRequest()

@@ -549,8 +549,16 @@ final class CameraController: NSObject {
     }
 
     func stop() {
+        faceGuidanceActive = false
+        wantsFaceGuidance = false
+        wantsBodyPoseGuidance = false
+        wantsHandGesture = false
+        face = nil
+        bodyPose = nil
+        openPalmDetected = false
         queue.async { [weak self] in self?.session.stopRunning() }
         timer?.invalidate()
+        timer = nil
         audioMeterTimer?.invalidate()
         audioMeterTimer = nil
         audioMeterTimerTarget = nil

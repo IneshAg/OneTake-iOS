@@ -149,19 +149,36 @@ struct HeadshotFlow: View {
             }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2.5))
-                if voiceGuidanceEnabled, camera.state == .ready {
+                if Self.shouldSpeakGuidance(
+                    voiceGuidanceEnabled: voiceGuidanceEnabled,
+                    cameraReady: camera.state == .ready,
+                    showingComparison: showingComparison,
+                    showMatchGuide: showMatchGuide,
+                    justCaptured: justCaptured
+                ) {
                     speakCurrentGuidance()
                 }
             }
         }
         .onChange(of: camera.state) { _, state in
-            if state == .ready, voiceAllowed, !follower.isListening { follower.start() }
+            if state == .ready, voiceAllowed, !follower.isListening, !showingComparison { follower.start() }
         }
         .onChange(of: guide.message) { _, _ in
+            guard !isGuidancePaused else { return }
             speakCurrentGuidance()
+        }
+        .onChange(of: showingComparison) { _, _ in
+            syncGuidanceActiveState()
+        }
+        .onChange(of: showMatchGuide) { _, _ in
+            syncGuidanceActiveState()
+        }
+        .onChange(of: justCaptured) { _, _ in
+            syncGuidanceActiveState()
         }
         .onChange(of: angle) { _, newAngle in
             follower.reset()
+            guard !isGuidancePaused else { return }
             if voiceGuidanceEnabled {
                 let prompt: String
                 switch newAngle {
@@ -291,8 +308,36 @@ struct HeadshotFlow: View {
         }
     }
 
+    private var isGuidancePaused: Bool {
+        showingComparison || showMatchGuide || justCaptured
+    }
+
+    private func syncGuidanceActiveState() {
+        let active = !isGuidancePaused
+        camera.faceGuidanceActive = active
+        if !active {
+            cameraSpeaker.stop()
+        }
+    }
+
+    static func shouldSpeakGuidance(
+        voiceGuidanceEnabled: Bool,
+        cameraReady: Bool,
+        showingComparison: Bool,
+        showMatchGuide: Bool,
+        justCaptured: Bool
+    ) -> Bool {
+        voiceGuidanceEnabled && cameraReady && !showingComparison && !showMatchGuide && !justCaptured
+    }
+
     private func speakCurrentGuidance(immediate: Bool = false) {
-        guard voiceGuidanceEnabled, camera.state == .ready else { return }
+        guard Self.shouldSpeakGuidance(
+            voiceGuidanceEnabled: voiceGuidanceEnabled,
+            cameraReady: camera.state == .ready,
+            showingComparison: showingComparison,
+            showMatchGuide: showMatchGuide,
+            justCaptured: justCaptured
+        ) else { return }
         cameraSpeaker.speak(guide.spoken, minInterval: immediate ? 0.2 : 2.0, repeatInterval: 4.5)
     }
 
@@ -450,10 +495,16 @@ struct HeadshotFlow: View {
     private func capture() {
         guard !justCaptured, !showingComparison else { return }
         justCaptured = true
+        camera.faceGuidanceActive = false
         cameraSpeaker.stop()
         camera.capturePhoto { image in
             justCaptured = false
-            guard let image else { captureFailed = true; Haptics.warning(); return }
+            guard let image else {
+                syncGuidanceActiveState()
+                captureFailed = true
+                Haptics.warning()
+                return
+            }
             Haptics.success()
             if comparisonPhotos.isEmpty, let prior = HeadshotStore.load(key: angle.rawValue, auditionID: auditionID) {
                 comparisonPhotos = [prior, image]
@@ -463,13 +514,7 @@ struct HeadshotFlow: View {
                 selectedComparisonPhoto = comparisonPhotos.count - 1
             }
             showingComparison = true
-            if voiceGuidanceEnabled {
-                if comparisonPhotos.count > 1 {
-                    cameraSpeaker.speak("Compare your shots and choose the best.", minInterval: 0.1)
-                } else {
-                    cameraSpeaker.speak("Photo captured.", minInterval: 0.1)
-                }
-            }
+            syncGuidanceActiveState()
         }
     }
 
@@ -479,9 +524,10 @@ struct HeadshotFlow: View {
         store.headshotVersion += 1
         store.syncHeadshotPieces()
         comparisonPhotos.removeAll()
-        showingComparison = false
         if let next = Angle.allCases.drop(while: { $0 != angle }).dropFirst().first {
             let saved = angle.rawValue
+            showingComparison = false
+            syncGuidanceActiveState()
             angle = next
             follower.reset()
             Haptics.stepDone()
@@ -494,8 +540,14 @@ struct HeadshotFlow: View {
                 cameraSpeaker.speak(prompt, minInterval: 0.1)
             }
         } else {
+            // Stop all capture, voice guidance, and speech recognition immediately before leaving.
+            voiceGuidanceEnabled = false
+            camera.faceGuidanceActive = false
+            cameraSpeaker.stop()
+            camera.stop()
+            follower.stop()
+            showingComparison = false
             Haptics.celebrate()
-            if voiceGuidanceEnabled { cameraSpeaker.speak("All headshots saved!", minInterval: 0.1) }
             dismiss()
         }
     }
