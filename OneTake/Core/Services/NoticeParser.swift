@@ -49,6 +49,7 @@ enum NoticeParser {
         var isFullBodyShotOptional: Bool = false
         var isHeadshotOptional: Bool = false
         var includeSlate: Bool = true
+        var includeFullBodyShot: Bool = true
         var includeHeadshots: Bool = true
         var includeResume: Bool = false
         var resumeURL: URL? = nil
@@ -128,8 +129,9 @@ enum NoticeParser {
                 pieces.append(.init(kind: .slate, title: isSlateOptional ? "Slate (Optional)" : "Slate", detail: slateDetail, isDone: false, isOptional: isSlateOptional && materialKind != .slateOnly))
             }
 
-            if asks.contains("Full-body shot")
-                || (asks.contains("Full-body shot with slate") && !includeSlate) {
+            if includeFullBodyShot
+                && (asks.contains("Full-body shot")
+                    || (asks.contains("Full-body shot with slate") && !includeSlate)) {
                 pieces.append(.init(kind: .fullLength, title: "Full-body shot",
                                     detail: "Head-to-toe video, as requested",
                                     isDone: false, isOptional: isFullBodyShotOptional))
