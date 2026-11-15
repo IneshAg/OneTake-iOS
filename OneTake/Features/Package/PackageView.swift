@@ -387,10 +387,10 @@ struct PackageView: View {
                     exportStage = .finalizing
                     progress = 1.0
                 }
-                try? await Task.sleep(nanoseconds: 350_000_000)
+                try? await Task.sleep(nanoseconds: 850_000_000)
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    Haptics.success()
+                    Haptics.celebrate()
                     phase = .readyToShare
                 }
             } catch is CancellationError {
