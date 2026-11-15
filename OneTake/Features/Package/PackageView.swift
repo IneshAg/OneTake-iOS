@@ -45,7 +45,7 @@ struct PackageView: View {
                 case .sent:    SentView(audition: a, slate: store.slate) { store.popToRoot(); store.tab = .auditions }
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: phase)
+            .animation(OTMotion.smooth, value: phase)
             .onAppear {
                 if a.packageDeliverable == nil, let requiredFormat,
                    let binding = store.binding(for: a.id) {
