@@ -27,7 +27,6 @@ struct AddAuditionFlow: View {
     @State private var processingStatus = "Reading pages and extracting roles…"
     @State private var detents: Set<PresentationDetent> = [.height(315)]
     @State private var selectedDetent: PresentationDetent = .height(315)
-    @Namespace private var reviewMorphNamespace
 
     var body: some View {
         Group {
@@ -48,15 +47,12 @@ struct AddAuditionFlow: View {
                         selectedDetent = .height(315)
                     }
                 }
-                .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else if isProcessing {
                 processingView
-                    .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
                     .transition(.opacity)
             } else {
                 capture
-                    .matchedGeometryEffect(id: "addAuditionContainer", in: reviewMorphNamespace)
                     .transition(.opacity)
             }
         }
@@ -71,6 +67,7 @@ struct AddAuditionFlow: View {
                 isProcessing = true
                 processingTitle = "Scanning \(pages.count) \(pages.count == 1 ? "page" : "pages")…"
                 processingStatus = "Recognizing text and analyzing layout…"
+                let preview = pages.first.map { NoticeOCR.normalizedScanImage($0, maxDimension: 1200) }
                 Task {
                     let pageTexts = await NoticeOCR.recognizePages(in: pages)
                     let text = pageTexts.joined(separator: "\n\n")
@@ -87,7 +84,7 @@ struct AddAuditionFlow: View {
                         try? await Task.sleep(nanoseconds: 300_000_000)
                         await MainActor.run {
                             isProcessing = false
-                            pendingReviewImage = pages.first
+                            pendingReviewImage = preview
                             withAnimation(OTMotion.smooth) {
                                 detents = [.large]
                                 selectedDetent = .large
@@ -183,19 +180,23 @@ struct AddAuditionFlow: View {
         .task { await readSharedNotice() }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
+            photoItem = nil
             isProcessing = true
             processingTitle = "Scanning photo…"
             processingStatus = "Recognizing text and casting notice details…"
             pendingReviewImage = nil
             Task {
-                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let rawImage = UIImage(data: data) else {
                     await MainActor.run {
                         isProcessing = false
                         unreadableNoticeError = true
                     }
                     return
                 }
-                let text = await NoticeOCR.recognizeText(in: [image])
+                let normalized = NoticeOCR.normalizedScanImage(rawImage, maxDimension: 2048)
+                let preview = NoticeOCR.normalizedScanImage(normalized, maxDimension: 1200)
+                let text = await NoticeOCR.recognizeText(in: [normalized])
                 if !NoticeOCR.looksReadable(text) {
                     await MainActor.run {
                         isProcessing = false
@@ -208,7 +209,7 @@ struct AddAuditionFlow: View {
                     let draft = await NoticeParser.parseAsync(text, pages: [text])
                     await MainActor.run {
                         isProcessing = false
-                        pendingReviewImage = image
+                        pendingReviewImage = preview
                         withAnimation(OTMotion.smooth) {
                             detents = [.large]
                             selectedDetent = .large
