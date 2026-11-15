@@ -138,7 +138,6 @@
 		B5D9D80A19A1EEA35E684BE8 /* DocumentPageRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A31E2790CA0A4227A65078 /* DocumentPageRouter.swift */; };
 		B7EC6FF506E9C7EBE4FA1A63 /* AuditionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525B1005F89E4C1A30FD8A25 /* AuditionCard.swift */; };
 		B876F12AA6DF9477B20525CB /* StandalonePracticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D949B18840549716EBC4B7 /* StandalonePracticeView.swift */; };
-		B90EF3FBF432130FC88EB68B /* onetake-empty-auditions.svg in Resources */ = {isa = PBXBuildFile; fileRef = 55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */; };
 		BA8DA81A6467676A34AAC0C9 /* PackageFormatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EABD3AB4243733BEB44E5DA /* PackageFormatSheet.swift */; };
 		BBA8EEA8380F26FC8FA18FE0 /* RevisedSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08A1C6A317A6ED1B2D0C51F /* RevisedSidesSheet.swift */; };
 		BC3BB8EB674D505E7EE08457 /* MediaExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46AF83EB9A69D796BA75699 /* MediaExporterTests.swift */; };
@@ -155,7 +154,6 @@
 		C8B62EDA9BAA04BC65593884 /* HeadshotViewerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A22A9D022EF22FE5AC0D1A6 /* HeadshotViewerSheet.swift */; };
 		CA7E3CDA5A03A4DDF12ADD95 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */; };
 		CADDB513D90479B479E4DC1B /* RecordReaderReviewRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1ED964F77F4BC9E2B71C1B /* RecordReaderReviewRow.swift */; };
-		CBDC53E0BB157E794A4E6C66 /* onetake-empty-auditions.svg in Resources */ = {isa = PBXBuildFile; fileRef = 55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */; };
 		CC432487F936A0B875940CC9 /* PrepareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5090388A967D26CF3672DEA7 /* PrepareView.swift */; };
 		CC565096B88217ED588FE504 /* LocalBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376609F267CE6C4D17246645 /* LocalBackup.swift */; };
 		CC7F6E5FBA04167C68C72C39 /* NoticeParser+Detectors.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3D44D2BF13465D3C9A1425 /* NoticeParser+Detectors.swift */; };
@@ -318,7 +316,6 @@
 		53878A5700DD2BD2F1A0B5A7 /* AddDraftSidesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddDraftSidesSheet.swift; sourceTree = "<group>"; };
 		5441C66F856CEE4732591BFD /* SidesChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidesChip.swift; sourceTree = "<group>"; };
 		54EF3D86C5F7F4163C8558A9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "onetake-empty-auditions.svg"; sourceTree = "<group>"; };
 		5624FC81D606CFB23A77789C /* CameraAndImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraAndImageTests.swift; sourceTree = "<group>"; };
 		5768AF65900CB4D97CF66EF0 /* AuditionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditionsView.swift; sourceTree = "<group>"; };
 		58C2F61BFEFA8B1A3C261E1F /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
@@ -512,7 +509,6 @@
 			children = (
 				0E9676917ACB7373FAB6B00F /* AuditionActivity.swift */,
 				F51EA1BBF1A037F3BF927EE7 /* onetake-empty-auditions-illustration.svg */,
-				55908CE624AAE2AB82F76FD7 /* onetake-empty-auditions.svg */,
 				16243ABA57B2C05206082C6D /* onetake-practice-illustration.svg */,
 				345483DF2D07C4F4A026610E /* ShareInbox.swift */,
 				703B675C2310A2BE104BFF8C /* WidgetSnapshot.swift */,
@@ -1041,7 +1037,6 @@
 				A721C303A80D3F9A9C334022 /* SampleCastingFiles in Resources */,
 				852A74083C95B88C0FAA0680 /* PrivacyInfo.xcprivacy in Resources */,
 				11D2AA7005DE26EC266B9AF4 /* onetake-empty-auditions-illustration.svg in Resources */,
-				B90EF3FBF432130FC88EB68B /* onetake-empty-auditions.svg in Resources */,
 				5CDDECBBECF12B916DFC47D8 /* onetake-practice-illustration.svg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1061,7 +1056,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1592113016E726FE38EC6F6 /* onetake-empty-auditions-illustration.svg in Resources */,
-				CBDC53E0BB157E794A4E6C66 /* onetake-empty-auditions.svg in Resources */,
 				E75FBB7D97E3F0EBD81F1B46 /* onetake-practice-illustration.svg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
