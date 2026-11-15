@@ -655,7 +655,7 @@ enum OnDeviceIntelligence {
 
         // 2. Second Priority: FoundationModels on iOS 26+ (Apple Intelligence)
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable {
             do {
                 let session = LanguageModelSession(instructions: "You are a precise on-device self-tape assistant.")
                 let response = try await session.respond(to: prompt)
