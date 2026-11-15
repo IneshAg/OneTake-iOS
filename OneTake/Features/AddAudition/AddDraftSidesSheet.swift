@@ -376,7 +376,7 @@ struct AddDraftSidesSheet: View {
         #if targetEnvironment(simulator)
         scannerUnavailable = true
         #else
-        showScanner = true
+        if VNDocumentCameraViewController.isSupported { showScanner = true } else { scannerUnavailable = true }
         #endif
     }
 

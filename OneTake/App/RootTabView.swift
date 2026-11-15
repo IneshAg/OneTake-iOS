@@ -1,4 +1,5 @@
 import SwiftUI
+import VisionKit
 
 struct RootTabView: View {
     @Environment(AppStore.self) private var store
@@ -87,7 +88,12 @@ struct RootTabView: View {
             case .shoot(let id, let scene, let start):
                 ShootWithSlateSetup(auditionID: id, scene: scene, start: start)
             case .headshot(let auditionID): HeadshotFlow(auditionID: auditionID)
-            case .scanSides:      DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
+            case .scanSides:
+                if VNDocumentCameraViewController.isSupported {
+                    DocumentScannerView { _ in store.camera = nil }.ignoresSafeArea()
+                } else {
+                    Color.clear.onAppear { store.camera = nil }
+                }
             case .practiceTake(let pieceID, let displayMode, let recordMode):
                 PracticeTakeView(pieceID: pieceID, initialDisplayMode: displayMode, initialRecordMode: recordMode)
             }
