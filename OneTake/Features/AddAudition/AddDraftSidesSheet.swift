@@ -18,6 +18,7 @@ struct AddDraftSidesSheet: View {
     @State private var importError = false
     @State private var importErrorMessage: String?
     @State private var emptyClipboardAlert = false
+    @State private var showScriptEditor = false
 
     private var activeScenes: [ScriptScene] {
         editableScenes
@@ -100,16 +101,23 @@ struct AddDraftSidesSheet: View {
                     .otCard(.grouped)
                 }
 
-                // Script Text Area Card (Clean, centered, beautifully bordered)
+                // Script Text Summary + Dedicated Full-Screen Editor
                 VStack(alignment: .leading, spacing: OTSpace.s) {
                     HStack {
                         Text("SCRIPT TEXT")
                             .font(.otCaption.weight(.semibold))
                             .foregroundStyle(OT.labelSecondary)
                         Spacer()
+                        Button {
+                            showScriptEditor = true
+                        } label: {
+                            Label(text.isEmpty ? "Type script" : "Edit script", systemImage: "square.and.pencil")
+                                .font(.otCaption.weight(.semibold))
+                        }
+                        .buttonStyle(.otCompact)
                         if !text.isEmpty {
                             Button("Clear") {
-                                withAnimation {
+                                withAnimation(OTMotion.snappy) {
                                     text = ""
                                     editableScenes = []
                                 }
@@ -119,37 +127,51 @@ struct AddDraftSidesSheet: View {
                         }
                     }
 
-                    ZStack(alignment: .topLeading) {
-                        if text.isEmpty {
-                            Text("Or type/paste sides directly here...\nCues should be in CAPS (e.g. MAYA) or “Maya: dialogue”.")
-                                .font(.otCallout)
-                                .foregroundStyle(OT.labelTertiary)
-                                .padding(.horizontal, OTSpace.m)
-                                .padding(.vertical, OTSpace.m)
-                                .allowsHitTesting(false)
-                        }
+                    Button {
+                        showScriptEditor = true
+                    } label: {
+                        HStack(alignment: .top, spacing: OTSpace.m) {
+                            Image(systemName: text.isEmpty ? "text.badge.plus" : "doc.text")
+                                .font(.otIcon(.m))
+                                .foregroundStyle(OT.accent)
+                                .padding(.top, OTSpace.xxs)
 
-                        ScriptTextEditor(text: $text)
-                            .frame(minHeight: 140, maxHeight: 220) // ot-lint:allow
-                            .onChange(of: text) { _, newText in
-                                if let snapshot = importedTextSnapshot, newText == snapshot {
-                                    return
-                                }
-                                importedTextSnapshot = nil
-                                sidesParseTask?.cancel()
-                                let role = draft.role
-                                sidesParseTask = Task {
-                                    try? await Task.sleep(for: .milliseconds(220))
-                                    guard !Task.isCancelled else { return }
-                                    let scenes = await Task.detached(priority: .userInitiated) {
-                                        ScriptParser.parseScenes(from: newText, myRole: role)
-                                    }.value
-                                    guard !Task.isCancelled else { return }
-                                    editableScenes = scenes
-                                }
+                            VStack(alignment: .leading, spacing: OTSpace.xs) {
+                                Text(text.isEmpty ? "Open script editor" : "Tap to edit script in full screen")
+                                    .font(.otSubhead.weight(.semibold))
+                                    .foregroundStyle(OT.labelPrimary)
+                                Text(text.isEmpty
+                                     ? "Write or paste sides in a clean, full-height editor."
+                                     : text.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelSecondary)
+                                    .lineLimit(3)
+                                    .multilineTextAlignment(.leading)
                             }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.otCaption.weight(.semibold))
+                                .foregroundStyle(OT.labelTertiary)
+                        }
+                        .padding(OTSpace.m)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .otCard(.grouped, padding: nil)
                     }
-                    .otCard(.grouped)
+                    .buttonStyle(OTPressStyle(.card))
+                }
+                .sheet(isPresented: $showScriptEditor) {
+                    ScriptTextEditSheet(
+                        title: "Edit script text",
+                        roleName: draft.role,
+                        initialText: text
+                    ) { updated in
+                        let cleaned = ScriptParser.cleanPastedText(updated)
+                        importedTextSnapshot = nil
+                        text = cleaned
+                        editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: draft.role)
+                    }
                 }
 
                 // Detected from sides section

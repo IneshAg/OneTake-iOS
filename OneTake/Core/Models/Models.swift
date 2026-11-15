@@ -71,6 +71,34 @@ struct ScriptLine: Identifiable, Hashable, Codable, Sendable {
     var character: String
     var text: String
     var isMine: Bool
+    var isLearned: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case id, character, text, isMine, isLearned
+    }
+
+    init(
+        id: UUID = UUID(),
+        character: String,
+        text: String,
+        isMine: Bool,
+        isLearned: Bool = false
+    ) {
+        self.id = id
+        self.character = character
+        self.text = text
+        self.isMine = isMine
+        self.isLearned = isLearned
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.character = try container.decode(String.self, forKey: .character)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.isMine = try container.decode(Bool.self, forKey: .isMine)
+        self.isLearned = try container.decodeIfPresent(Bool.self, forKey: .isLearned) ?? false
+    }
 
     /// A line consisting of punctuation or stage-direction reaction (e.g. "?", "...", ".", "(pause)", "(scoffs)")
     /// represents a non-verbal expression/reaction beat rather than spoken dialogue.

@@ -19,6 +19,7 @@ struct RevisedSidesSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var importError = false
     @State private var emptyClipboardAlert = false
+    @State private var showScriptEditor = false
 
     private var audition: Audition? {
         store.audition(auditionID)
@@ -116,16 +117,23 @@ struct RevisedSidesSheet: View {
                         .otCard(.inset)
                     }
 
-                    // Script Text Area Card
+                    // Script Text Area Card + Dedicated Full-Screen Editor
                     VStack(alignment: .leading, spacing: OTSpace.s) {
                         HStack {
                             Text(isNewSides ? "SCRIPT TEXT" : "REVISED SIDES TEXT")
                                 .font(.otEyebrow)
                                 .foregroundStyle(OT.labelSecondary)
                             Spacer()
+                            Button {
+                                showScriptEditor = true
+                            } label: {
+                                Label(text.isEmpty ? "Type script" : "Edit script", systemImage: "square.and.pencil")
+                                    .font(.otCaption.weight(.semibold))
+                            }
+                            .buttonStyle(.otCompact)
                             if !text.isEmpty {
                                 Button("Clear") {
-                                    withAnimation {
+                                    withAnimation(OTMotion.snappy) {
                                         text = ""
                                         editableScenes = []
                                     }
@@ -135,23 +143,39 @@ struct RevisedSidesSheet: View {
                             }
                         }
 
-                        ZStack(alignment: .topLeading) {
-                            if text.isEmpty {
-                                Text(isNewSides ? "Or paste or type sides here...\nCues in CAPS (e.g. MAYA) or “Maya: dialogue”." : "Paste the new sides here...")
-                                    .font(.otCallout)
-                                    .foregroundStyle(OT.labelTertiary)
-                                    .padding(.horizontal, OTSpace.m)
-                                    .padding(.vertical, OTSpace.s)
-                                    .allowsHitTesting(false)
-                            }
+                        Button {
+                            showScriptEditor = true
+                        } label: {
+                            HStack(alignment: .top, spacing: OTSpace.m) {
+                                Image(systemName: text.isEmpty ? "text.badge.plus" : "doc.text")
+                                    .font(.otIcon(.m))
+                                    .foregroundStyle(OT.accent)
+                                    .padding(.top, OTSpace.xxs)
 
-                            ScriptTextEditor(text: $text)
-                                .frame(minHeight: 140, maxHeight: 220) // ot-lint:allow
-                                .onChange(of: text) { _, newText in
-                                    editableScenes = ScriptParser.parseScenes(from: newText, myRole: role)
+                                VStack(alignment: .leading, spacing: OTSpace.xs) {
+                                    Text(text.isEmpty ? "Open script editor" : "Tap to edit script in full screen")
+                                        .font(.otSubhead.weight(.semibold))
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text(text.isEmpty
+                                         ? "Write or paste sides in a clean, distraction-free editor."
+                                         : text.trimmingCharacters(in: .whitespacesAndNewlines))
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelSecondary)
+                                        .lineLimit(3)
+                                        .multilineTextAlignment(.leading)
                                 }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
+                            .padding(OTSpace.m)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .otCard(.grouped, padding: nil)
                         }
-                        .otCard(.inset)
+                        .buttonStyle(OTPressStyle(.card))
                     }
 
                     if !text.isEmpty {
@@ -344,6 +368,17 @@ struct RevisedSidesSheet: View {
             }
         }
         .interactiveDismissDisabled(!text.isEmpty)
+        .sheet(isPresented: $showScriptEditor) {
+            ScriptTextEditSheet(
+                title: isNewSides ? "Edit script text" : "Edit revised sides",
+                roleName: role,
+                initialText: text
+            ) { updated in
+                let cleaned = ScriptParser.cleanPastedText(updated)
+                text = cleaned
+                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+            }
+        }
     }
 
     private func pasteFromClipboard(role: String) {

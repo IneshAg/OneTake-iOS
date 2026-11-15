@@ -115,4 +115,93 @@ extension AppStore {
         practice.insert(updated, at: 0)
         persist()
     }
+
+    /// Toggles `isLearned` on an individual line inside a practice piece (and mirrors onto the linked audition scene).
+    /// Returns the new state for that line plus whether every `isMine` line in the scene is now learned.
+    @discardableResult
+    func toggleLineLearned(pieceID: PracticePiece.ID, lineID: ScriptLine.ID) -> (nowLearned: Bool, allLearned: Bool)? {
+        guard let i = practice.firstIndex(where: { $0.id == pieceID }),
+              var scene = practice[i].scene,
+              let lineIdx = scene.lines.firstIndex(where: { $0.id == lineID }),
+              scene.lines[lineIdx].isMine else { return nil }
+
+        scene.lines[lineIdx].isLearned.toggle()
+        let nowLearned = scene.lines[lineIdx].isLearned
+        let mine = scene.lines.filter(\.isMine)
+        let learnedCount = mine.filter(\.isLearned).count
+
+        practice[i].scene = scene
+        practice[i].linesTotal = mine.count
+        practice[i].linesLearned = learnedCount
+
+        if let audID = practice[i].auditionID, let sIdx = practice[i].sceneIndex,
+           let aIdx = auditions.firstIndex(where: { $0.id == audID }),
+           auditions[aIdx].scenes.indices.contains(sIdx) {
+            auditions[aIdx].scenes[sIdx].lines = scene.lines
+        }
+
+        persist()
+        return (nowLearned, !mine.isEmpty && learnedCount == mine.count)
+    }
+
+    /// Marks every `isMine` line inside `pieceID` as learned (or resets them all).
+    func markAllLinesLearned(pieceID: PracticePiece.ID, learned: Bool) {
+        guard let i = practice.firstIndex(where: { $0.id == pieceID }) else { return }
+        if var scene = practice[i].scene {
+            for idx in scene.lines.indices where scene.lines[idx].isMine {
+                scene.lines[idx].isLearned = learned
+            }
+            let mineCount = scene.lines.filter(\.isMine).count
+            practice[i].scene = scene
+            practice[i].linesTotal = mineCount
+            practice[i].linesLearned = learned ? mineCount : 0
+
+            if let audID = practice[i].auditionID, let sIdx = practice[i].sceneIndex,
+               let aIdx = auditions.firstIndex(where: { $0.id == audID }),
+               auditions[aIdx].scenes.indices.contains(sIdx) {
+                auditions[aIdx].scenes[sIdx].lines = scene.lines
+            }
+        } else {
+            practice[i].linesLearned = learned ? practice[i].linesTotal : 0
+        }
+        persist()
+    }
+
+    /// Updates a standalone practice piece's script from raw edited script text, preserving matching `isLearned` flags.
+    func updateStandaloneSceneScript(pieceID: PracticePiece.ID, scriptText: String) {
+        guard let i = practice.firstIndex(where: { $0.id == pieceID }) else { return }
+        let existing = practice[i]
+        let existingLearnedTexts = Set(
+            (existing.scene?.lines ?? [])
+                .filter { $0.isMine && $0.isLearned }
+                .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        )
+        let role = existing.character.isEmpty
+            ? (existing.scene?.lines.first(where: \.isMine)?.character ?? "")
+            : existing.character
+        var parsedScenes = ScriptParser.parseScenes(from: scriptText, myRole: role)
+        var newScene = parsedScenes.first ?? ScriptScene(
+            number: existing.scene?.number ?? 1,
+            title: existing.title,
+            heading: existing.scene?.heading ?? "SCENE",
+            lines: [ScriptLine(character: role.isEmpty ? "You" : role, text: scriptText, isMine: true)]
+        )
+        for idx in newScene.lines.indices where newScene.lines[idx].isMine {
+            let key = newScene.lines[idx].text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if existingLearnedTexts.contains(key) {
+                newScene.lines[idx].isLearned = true
+            }
+        }
+        let mine = newScene.lines.filter(\.isMine)
+        practice[i].scene = newScene
+        practice[i].linesTotal = mine.count
+        practice[i].linesLearned = mine.filter(\.isLearned).count
+
+        if let audID = existing.auditionID, let sIdx = existing.sceneIndex,
+           let aIdx = auditions.firstIndex(where: { $0.id == audID }),
+           auditions[aIdx].scenes.indices.contains(sIdx) {
+            auditions[aIdx].scenes[sIdx] = newScene
+        }
+        persist()
+    }
 }
