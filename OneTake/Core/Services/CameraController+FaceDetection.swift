@@ -20,6 +20,11 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let poseRequest = wantsBodyPoseGuidance ? VNDetectHumanBodyPoseRequest() : nil
         let handRequest = wantsHandGesture ? VNDetectHumanHandPoseRequest() : nil
         handRequest?.maximumHandCount = 1
+        #if targetEnvironment(simulator)
+        request.usesCPUOnly = true
+        poseRequest?.usesCPUOnly = true
+        handRequest?.usesCPUOnly = true
+        #endif
         let orientation: CGImagePropertyOrientation = faceBufferIsUpright ? .up : .right
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: orientation, options: [:])
         var requests: [VNRequest] = [request]

@@ -44,26 +44,30 @@ struct CameraBackground: View {
             ZStack {
                 OT.cameraBg
                 #if targetEnvironment(simulator)
-                ZStack {
-                    LinearGradient(
-                        colors: [Color(white: 0.14), Color(white: 0.08)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 6) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 13)) // ot-lint:allow
-                            Text("SIMULATOR CAMERA")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced)) // ot-lint:allow
+                if controller.hasVideoInput {
+                    CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
+                } else {
+                    ZStack {
+                        LinearGradient(
+                            colors: [Color(white: 0.14), Color(white: 0.08)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 6) {
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 13)) // ot-lint:allow
+                                Text("SIMULATOR CAMERA")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced)) // ot-lint:allow
+                            }
+                            .foregroundStyle(Color.white.opacity(0.18)) // ot-lint:allow
+                            .padding(.bottom, 130) // ot-lint:allow
                         }
-                        .foregroundStyle(Color.white.opacity(0.18)) // ot-lint:allow
-                        .padding(.bottom, 130) // ot-lint:allow
                     }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
                 #else
                 CameraPreview(session: controller.session) { layer in controller.attachPreview(layer) }
                 #endif

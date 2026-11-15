@@ -106,6 +106,19 @@ final class CameraController: NSObject {
     /// new device factor, so repeated zoom taps progress 1× → 1.5× → 2× without getting stuck.
     private var requestedZoomFactor: CGFloat = 1
     private(set) var position: Position = .front
+    private(set) var hasVideoInput = false
+
+    static func preferredVideoDevice(for position: Position) -> AVCaptureDevice? {
+        let devicePosition: AVCaptureDevice.Position = position == .front ? .front : .back
+        if let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: devicePosition) {
+            return camera
+        }
+        #if targetEnvironment(simulator)
+        return AVCaptureDevice.default(for: .video)
+        #else
+        return nil
+        #endif
+    }
 
     /// Keeps recordings, photos and the preview upright however the phone is held. Without it every
     /// clip is written in the sensor's own orientation, so only one way of holding the phone came out
@@ -207,14 +220,17 @@ final class CameraController: NSObject {
             session.beginConfiguration()
             session.inputs.forEach { self.session.removeInput($0) }
 
-            let devicePosition: AVCaptureDevice.Position = position == .front ? .front : .back
             guard
-                let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: devicePosition),
+                let camera = Self.preferredVideoDevice(for: position),
                 let videoInput = try? AVCaptureDeviceInput(device: camera),
                 session.canAddInput(videoInput)
             else {
                 session.commitConfiguration()
-                Task { @MainActor in self.state = .failed("Camera unavailable") }
+                Task { @MainActor in
+                    self.hasVideoInput = false
+                    self.videoDevice = nil
+                    self.state = .failed("Camera unavailable")
+                }
                 return
             }
             session.addInput(videoInput)
@@ -278,8 +294,13 @@ final class CameraController: NSObject {
 
             session.commitConfiguration()
             session.startRunning()
+            #if targetEnvironment(simulator)
+            // AVFCapture's AVCaptureConnection.audioChannels dereferences a null internal ivar on Simulator.
+            let hasAudioMeterConnection = false
+            #else
             let hasAudioMeterConnection = hasAudioInput
                 && !(movieOutput.connection(with: .audio)?.audioChannels.isEmpty ?? true)
+            #endif
 
             Task { @MainActor in
                 self.supportedResolutions = supported
@@ -300,6 +321,7 @@ final class CameraController: NSObject {
             self.setupInterruptionObserver()
             Task { @MainActor in
                 self.videoDevice = camera
+                self.hasVideoInput = true
                 self.updateRotationCoordinator()
                 self.state = .ready
                 self.startAudioMeterPolling()
@@ -309,12 +331,14 @@ final class CameraController: NSObject {
 
     func setResolution(_ resolution: CameraResolution) {
         #if targetEnvironment(simulator)
-        // Simulator has no camera capture device. Keep the requested quality as a usable app
-        // preference so the control remains testable, while making clear that it won't create media.
-        currentResolution = resolution
-        supportedResolutions = CameraResolution.allCases
-        return
-        #else
+        // Simulator usually has no camera capture device. Keep the requested quality as a usable app
+        // preference when no virtual camera input is attached.
+        if !hasVideoInput {
+            currentResolution = resolution
+            supportedResolutions = CameraResolution.allCases
+            return
+        }
+        #endif
         queue.async { [weak self] in
             guard let self else { return }
             session.beginConfiguration()
@@ -329,7 +353,6 @@ final class CameraController: NSObject {
                 }
             }
         }
-        #endif
     }
 
     // MARK: Orientation
@@ -553,6 +576,8 @@ final class CameraController: NSObject {
         wantsFaceGuidance = false
         wantsBodyPoseGuidance = false
         wantsHandGesture = false
+        hasVideoInput = false
+        videoDevice = nil
         face = nil
         bodyPose = nil
         openPalmDetected = false
@@ -581,6 +606,9 @@ final class CameraController: NSObject {
 
     @MainActor
     fileprivate func pollAudioMeter() {
+        #if targetEnvironment(simulator)
+        audioLevel = 0
+        #else
         guard audioMeterAvailable,
               let channel = movieOutput.connection(with: .audio)?.audioChannels.first else {
             audioLevel = 0
@@ -590,6 +618,7 @@ final class CameraController: NSObject {
         let db = max(-60, min(0, channel.averagePowerLevel))
         let level = Float(pow(10, db / 20))
         audioLevel = audioLevel * 0.55 + level * 0.45
+        #endif
     }
 
     // MARK: Recording
@@ -657,10 +686,13 @@ final class CameraController: NSObject {
     /// save anything in that case.
     func capturePhoto(_ completion: @escaping (UIImage?) -> Void) {
         #if targetEnvironment(simulator)
-        // No camera in the Simulator: a plain silhouette lets the flow be exercised there.
-        Haptics.impact(.medium)
-        completion(Self.simulatorPlaceholder)
-        #else
+        if state != .ready || !session.isRunning || photoOutput.connection(with: .video) == nil {
+            // No camera in the Simulator: a plain silhouette lets the flow be exercised there.
+            Haptics.impact(.medium)
+            completion(Self.simulatorPlaceholder)
+            return
+        }
+        #endif
         guard state == .ready, session.isRunning, let connection = photoOutput.connection(with: .video) else {
             completion(nil)
             return
@@ -678,7 +710,6 @@ final class CameraController: NSObject {
             self.photoHandler = nil
             handler(nil)
         }
-        #endif
     }
 
     #if targetEnvironment(simulator)
