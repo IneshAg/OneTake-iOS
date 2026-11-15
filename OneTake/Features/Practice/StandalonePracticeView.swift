@@ -1,4 +1,5 @@
 import SwiftUI
+import OneTakeUI
 
 struct StandalonePracticeView: View {
     let pieceID: PracticePiece.ID?
@@ -10,6 +11,9 @@ struct StandalonePracticeView: View {
     @State private var hiddenGapWords: [ScriptLine.ID: Set<Int>] = [:]
     @State private var samplePiece = PracticeSample.make()
     @State private var savedSampleID: PracticePiece.ID?
+    @State private var showScriptEditor = false
+    @State private var showReaderSheet = false
+    @State private var milestone: OTMilestoneBannerItem?
 
     private var piece: PracticePiece? {
         if let id = savedSampleID ?? pieceID {
@@ -19,6 +23,25 @@ struct StandalonePracticeView: View {
         return nil
     }
     private var scene: ScriptScene? { piece?.scene }
+
+    private var ensuredSavedPieceID: PracticePiece.ID? {
+        if let saved = savedSampleID ?? pieceID { return saved }
+        return nil
+    }
+
+    @discardableResult
+    private func ensurePersistedPiece() -> PracticePiece.ID? {
+        if let saved = savedSampleID ?? pieceID { return saved }
+        guard isSample, let scene else { return nil }
+        let saved = store.addStandalonePracticePiece(
+            title: samplePiece.title,
+            character: samplePiece.character,
+            scene: scene,
+            detail: "Sample scene"
+        )
+        savedSampleID = saved.id
+        return saved.id
+    }
 
     var body: some View {
         ScrollView {
@@ -36,11 +59,81 @@ struct StandalonePracticeView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    let readerLines = scene.lines.filter { !$0.isMine }
+                    if !readerLines.isEmpty {
+                        let scope: ReaderTrackScope? = {
+                            if let audID = piece.auditionID, let sIdx = piece.sceneIndex {
+                                return .audition(audID, sceneIndex: sIdx)
+                            }
+                            if let pid = ensuredSavedPieceID { return .practice(pid) }
+                            return nil
+                        }()
+                        let recordedCues = scope.map { sc in
+                            readerLines.indices.filter {
+                                store.readerTrackVersion >= 0 && ReaderTrackPlayer.hasRecording(scope: sc, line: $0)
+                            }.count
+                        } ?? 0
+                        Button {
+                            _ = ensurePersistedPiece()
+                            showReaderSheet = true
+                        } label: {
+                            OTIconRow(
+                                symbol: recordedCues == readerLines.count ? "waveform.circle.fill" : "person.wave.2.fill",
+                                title: "Another person's voice",
+                                detail: recordedCues == 0
+                                    ? "Record \(readerLines.count) partner cue\(readerLines.count == 1 ? "" : "s")"
+                                    : "\(recordedCues) of \(readerLines.count) cues recorded",
+                                tint: OT.reader
+                            )
+                            .otCard(.grouped)
+                        }
+                        .buttonStyle(OTPressStyle(.card))
+                    }
+
                     ForEach(scene.lines) { line in
                         VStack(alignment: .leading, spacing: OTSpace.xs) {
-                            Text(line.isMine ? "\(line.character) · YOU" : line.character)
-                                .font(.otCaption.weight(.semibold))
-                                .foregroundStyle(line.isMine ? OT.accent : OT.reader)
+                            HStack(spacing: OTSpace.s) {
+                                Text(line.isMine ? "\(line.character) · YOU" : line.character)
+                                    .font(.otCaption.weight(.semibold))
+                                    .foregroundStyle(line.isMine ? OT.accent : OT.reader)
+
+                                Spacer()
+
+                                if line.isMine {
+                                    Button {
+                                        if let targetID = ensurePersistedPiece(),
+                                           let result = store.toggleLineLearned(pieceID: targetID, lineID: line.id) {
+                                            if result.allLearned {
+                                                Haptics.celebrate()
+                                                milestone = OTMilestoneBannerItem(
+                                                    title: "All lines learned!",
+                                                    subtitle: piece.title
+                                                )
+                                            } else if result.nowLearned {
+                                                Haptics.stepDone()
+                                            } else {
+                                                Haptics.tick()
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: OTSpace.xs) {
+                                            Image(systemName: line.isLearned ? "checkmark.circle.fill" : "circle")
+                                                .font(.otSubhead.weight(.semibold))
+                                            Text(line.isLearned ? "Learned" : "Mark learned")
+                                                .font(.otCaption.weight(.semibold))
+                                        }
+                                        .foregroundStyle(line.isLearned ? OT.success : OT.labelTertiary)
+                                        .padding(.horizontal, OTSpace.s)
+                                        .padding(.vertical, OTSpace.xs)
+                                        .background(
+                                            Capsule().fill(line.isLearned ? OT.success.opacity(0.14) : OT.fillField)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .animation(OTMotion.bouncy, value: line.isLearned)
+                                    .accessibilityLabel(line.isLearned ? "Line learned, tap to unmark" : "Mark line as learned")
+                                }
+                            }
 
                             if line.isSilentReactionCue {
                                 SilentReactionCue(cueText: line.text, isMine: line.isMine, inPrompter: false)
@@ -122,7 +215,7 @@ struct StandalonePracticeView: View {
                             Spacer()
                             if activePiece.linesLearned >= activePiece.linesTotal && activePiece.linesTotal > 0 {
                                 Button("Mark unlearned") {
-                                    store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                    store.markAllLinesLearned(pieceID: targetID, learned: false)
                                     samplePiece.linesLearned = 0
                                     Haptics.tick()
                                 }
@@ -131,16 +224,20 @@ struct StandalonePracticeView: View {
                                 HStack(spacing: OTSpace.s) {
                                     if activePiece.linesLearned > 0 {
                                         Button("Reset") {
-                                            store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: 0)
+                                            store.markAllLinesLearned(pieceID: targetID, learned: false)
                                             samplePiece.linesLearned = 0
                                             Haptics.tick()
                                         }
                                         .buttonStyle(.otCompact)
                                     }
                                     Button("Mark lines learned") {
-                                        store.recordStandaloneRun(pieceID: targetID, linesOnYourOwn: activePiece.linesTotal)
+                                        store.markAllLinesLearned(pieceID: targetID, learned: true)
                                         samplePiece.linesLearned = activePiece.linesTotal
-                                        Haptics.success()
+                                        Haptics.celebrate()
+                                        milestone = OTMilestoneBannerItem(
+                                            title: "All lines learned!",
+                                            subtitle: activePiece.title
+                                        )
                                     }
                                     .buttonStyle(.otCompact)
                                 }
@@ -154,16 +251,15 @@ struct StandalonePracticeView: View {
                                 .foregroundStyle(samplePiece.linesLearned >= scene.lines.filter(\.isMine).count ? OT.accent : OT.labelTertiary)
                             Spacer()
                             Button("Mark lines learned") {
-                                let saved = store.addStandalonePracticePiece(
-                                    title: piece.title,
-                                    character: piece.character,
-                                    scene: scene,
-                                    detail: "Sample scene"
-                                )
-                                savedSampleID = saved.id
-                                samplePiece.linesLearned = scene.lines.filter(\.isMine).count
-                                store.recordStandaloneRun(pieceID: saved.id, linesOnYourOwn: scene.lines.filter(\.isMine).count)
-                                Haptics.success()
+                                if let saved = ensurePersistedPiece() {
+                                    store.markAllLinesLearned(pieceID: saved, learned: true)
+                                    samplePiece.linesLearned = scene.lines.filter(\.isMine).count
+                                    Haptics.celebrate()
+                                    milestone = OTMilestoneBannerItem(
+                                        title: "All lines learned!",
+                                        subtitle: piece.title
+                                    )
+                                }
                             }
                             .buttonStyle(.otCompact)
                         }
@@ -178,8 +274,45 @@ struct StandalonePracticeView: View {
             .padding(.bottom, OTSpace.xl)
         }
         .otCanvas()
+        .otMilestoneBanner($milestone)
         .navigationTitle(isSample ? "Sample scene" : "Practice")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") {
+                    showScriptEditor = true
+                }
+            }
+        }
+        .sheet(isPresented: $showScriptEditor) {
+            if let piece, let scene {
+                ScriptTextEditSheet(
+                    title: "Edit script text",
+                    roleName: piece.character,
+                    initialText: formattedScriptText(from: scene)
+                ) { updatedText in
+                    if let targetID = ensurePersistedPiece() {
+                        store.updateStandaloneSceneScript(pieceID: targetID, scriptText: updatedText)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showReaderSheet) {
+            if let pid = ensuredSavedPieceID, let scene {
+                if let audID = piece?.auditionID, let sIdx = piece?.sceneIndex {
+                    NavigationStack {
+                        RecordReaderView(auditionID: audID, sceneIndex: sIdx)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { showReaderSheet = false }
+                                }
+                            }
+                    }
+                } else {
+                    StandaloneReaderSheet(pieceID: pid, scene: scene)
+                }
+            }
+        }
         .otBottomBar {
             HStack(spacing: OTSpace.m) {
                 Button {
@@ -253,6 +386,10 @@ struct StandalonePracticeView: View {
         case .hideMine:
             return revealed.contains(line.id) ? line.text : String(repeating: "• ", count: min(line.text.split(separator: " ").count, 8))
         }
+    }
+
+    private func formattedScriptText(from scene: ScriptScene) -> String {
+        scene.lines.map { "\($0.character.uppercased())\n\($0.text)" }.joined(separator: "\n\n")
     }
 }
 

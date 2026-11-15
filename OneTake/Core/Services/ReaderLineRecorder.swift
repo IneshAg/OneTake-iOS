@@ -51,6 +51,12 @@ final class ReaderLineRecorder {
     @MainActor
     @discardableResult
     func start(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int) -> Bool {
+        start(scope: .audition(auditionID, sceneIndex: sceneIndex), lineIndex: lineIndex)
+    }
+
+    @MainActor
+    @discardableResult
+    func start(scope: ReaderTrackScope, lineIndex: Int) -> Bool {
         guard cueDestination == nil else { return false }
         let session = AVAudioSession.sharedInstance()
         #if !targetEnvironment(simulator)
@@ -70,7 +76,7 @@ final class ReaderLineRecorder {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        let destination = ReaderTrackPlayer.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
+        let destination = ReaderTrackPlayer.url(scope: scope, line: lineIndex)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("reader-cue-\(UUID().uuidString).m4a")
         guard let recorder = try? AVAudioRecorder(url: url, settings: settings) else { return false }
         recorder.isMeteringEnabled = true

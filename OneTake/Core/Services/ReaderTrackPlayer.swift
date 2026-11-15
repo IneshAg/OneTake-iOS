@@ -3,6 +3,34 @@ import AVFoundation
 
 // MARK: - Reader track playback (your own recorded voice only)
 
+enum ReaderTrackScope: Hashable, Sendable {
+    case audition(Audition.ID, sceneIndex: Int)
+    case practice(PracticePiece.ID)
+
+    var storageFolder: String {
+        switch self {
+        case .audition(let id, let sceneIndex):
+            "\(ReaderTrackPlayer.folder)/\(id.uuidString)/scene-\(sceneIndex)"
+        case .practice(let id):
+            "\(ReaderTrackPlayer.folder)/practice-\(id.uuidString)"
+        }
+    }
+
+    var primaryID: UUID {
+        switch self {
+        case .audition(let id, _): id
+        case .practice(let id): id
+        }
+    }
+
+    var sceneIndex: Int {
+        switch self {
+        case .audition(_, let idx): idx
+        case .practice: -1
+        }
+    }
+}
+
 /// Plays the reader lines the actor recorded in "Record Maya". One file per line, saved by RecordReaderView.
 @Observable
 final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
@@ -24,11 +52,70 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     /// Root folder for every reader recording, so size and delete-all can treat it as one unit.
     static let folder = "reader"
 
+    /// One file per reader line, scoped to an audition scene or standalone practice piece.
+    static func url(scope: ReaderTrackScope, line index: Int) -> URL {
+        MediaStore.directory(scope.storageFolder)
+            .appendingPathComponent("line-\(index).m4a")
+    }
+
     /// One file per reader line, scoped to the audition and scene it was recorded for — so one
     /// audition's reader never plays (or overwrites) another's.
     static func url(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> URL {
-        MediaStore.directory("\(folder)/\(auditionID.uuidString)/scene-\(sceneIndex)")
-            .appendingPathComponent("line-\(index).m4a")
+        url(scope: .audition(auditionID, sceneIndex: sceneIndex), line: index)
+    }
+
+    static func hasRecording(scope: ReaderTrackScope, line index: Int) -> Bool {
+        let url = self.url(scope: scope, line: index)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            return (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
+        }
+        if fm.fileExists(atPath: url.standardizedFileURL.path) {
+            return (try? url.standardizedFileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
+        }
+        return false
+    }
+
+    @discardableResult
+    func play(scope: ReaderTrackScope, lineIndex: Int, from time: TimeInterval? = nil, volume: Float = 1) -> Bool {
+        let url = Self.url(scope: scope, line: lineIndex)
+        guard Self.hasRecording(scope: scope, line: lineIndex) else { return false }
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+
+        if let existing = player, currentAuditionID == scope.primaryID, currentSceneIndex == scope.sceneIndex, currentLineIndex == lineIndex {
+            if let startTime = time {
+                existing.currentTime = max(0, min(startTime, existing.duration))
+            }
+            existing.volume = volume
+            if existing.play() {
+                isPlaying = true
+                currentTime = existing.currentTime
+                duration = existing.duration
+                startTimer()
+                return true
+            }
+        }
+
+        stop()
+        guard let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return false }
+        newPlayer.delegate = self
+        newPlayer.volume = volume
+        if let startTime = time {
+            newPlayer.currentTime = max(0, min(startTime, newPlayer.duration))
+        }
+        self.player = newPlayer
+        self.duration = newPlayer.duration
+        self.currentAuditionID = scope.primaryID
+        self.currentSceneIndex = scope.sceneIndex
+        self.currentLineIndex = lineIndex
+
+        if newPlayer.play() {
+            isPlaying = true
+            currentTime = newPlayer.currentTime
+            startTimer()
+            return true
+        }
+        return false
     }
 
     nonisolated static func originalURL(for recordingURL: URL) -> URL {
@@ -61,15 +148,7 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
 
     /// Checks if a valid recording exists for this reader cue.
     static func hasRecording(auditionID: Audition.ID, sceneIndex: Int, line index: Int) -> Bool {
-        let url = self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: index)
-        let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) {
-            return (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
-        }
-        if fm.fileExists(atPath: url.standardizedFileURL.path) {
-            return (try? url.standardizedFileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 1 > 0
-        }
-        return false
+        hasRecording(scope: .audition(auditionID, sceneIndex: sceneIndex), line: index)
     }
 
     /// Returns the duration of a recorded reader cue in seconds.
@@ -85,45 +164,7 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
     /// Plays one recorded reader line from the beginning or a specific start offset.
     @discardableResult
     func play(auditionID: Audition.ID, sceneIndex: Int, lineIndex: Int, from time: TimeInterval? = nil, volume: Float = 1) -> Bool {
-        let url = Self.url(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex)
-        guard Self.hasRecording(auditionID: auditionID, sceneIndex: sceneIndex, line: lineIndex) else { return false }
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
-
-        // Resume or seek within existing player instance if already loaded
-        if let existing = player, currentAuditionID == auditionID, currentSceneIndex == sceneIndex, currentLineIndex == lineIndex {
-            if let startTime = time {
-                existing.currentTime = max(0, min(startTime, existing.duration))
-            }
-            existing.volume = volume
-            if existing.play() {
-                isPlaying = true
-                currentTime = existing.currentTime
-                duration = existing.duration
-                startTimer()
-                return true
-            }
-        }
-
-        stop()
-        guard let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return false }
-        newPlayer.delegate = self
-        newPlayer.volume = volume
-        if let startTime = time {
-            newPlayer.currentTime = max(0, min(startTime, newPlayer.duration))
-        }
-        self.player = newPlayer
-        self.duration = newPlayer.duration
-        self.currentAuditionID = auditionID
-        self.currentSceneIndex = sceneIndex
-        self.currentLineIndex = lineIndex
-
-        if newPlayer.play() {
-            isPlaying = true
-            currentTime = newPlayer.currentTime
-            startTimer()
-            return true
-        }
-        return false
+        play(scope: .audition(auditionID, sceneIndex: sceneIndex), lineIndex: lineIndex, from: time, volume: volume)
     }
 
     func pause() {
