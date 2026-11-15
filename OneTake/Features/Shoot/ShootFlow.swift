@@ -413,13 +413,6 @@ struct ShootFlow: View {
         }
     }
 
-    func replayReaderBeforeCurrent() {
-        guard let lines = sceneLines else { return }
-        let previousReaderCount = lines[..<lineIndex].filter { !$0.isMine }.count
-        guard previousReaderCount > 0 else { return }
-        reader.play(auditionID: auditionID, sceneIndex: sceneIndex, lineIndex: previousReaderCount - 1, volume: readerGain)
-    }
-
     func speakIfReader() {
         guard camera.state == .recording, let lines = sceneLines, lines.indices.contains(lineIndex), !lines[lineIndex].isMine else { return }
         readerAdvance?.cancel()

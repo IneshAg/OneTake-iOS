@@ -5,11 +5,6 @@ struct RootTabView: View {
     @AppStorage("appearance") private var appearance = "system"
     @Namespace private var auditionZoomNamespace
 
-    /// Search is useful once there are auditions or standalone practice pieces to query.
-    private var isSearchAvailable: Bool {
-        !store.auditions.isEmpty || !store.practice.isEmpty
-    }
-
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {

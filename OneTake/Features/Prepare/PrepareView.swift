@@ -220,13 +220,3 @@ struct PrepareView: View {
         return otLineDisplay(line, mode: shared, peeked: peeked == line.id)
     }
 }
-
-struct DotLabelStyle: LabelStyle {
-    var color: Color
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: OTSpace.xxs) {
-            Circle().fill(color).frame(width: 8, height: 8) // ot-lint:allow
-            configuration.title
-        }
-    }
-}

@@ -3,8 +3,6 @@ import OneTakeUI
 
 // MARK: - Sides Teleprompter (mirrors Figma 17_Recording.html / 17.2_RecYourLine.html / 24e_PracticeRecording.html)
 
-typealias TeleprompterView = SidesPrompterView
-
 struct SidesPrompterView: View {
     let lines: [ScriptLine]
     let currentIndex: Int
@@ -20,18 +18,6 @@ struct SidesPrompterView: View {
     var onPrevious: () -> Void = {}
     var onToggleReveal: ((ScriptLine.ID) -> Void)? = nil
     var onCycleSize: (() -> Void)? = nil
-
-    private var currentLine: ScriptLine? {
-        lines.indices.contains(currentIndex) ? lines[currentIndex] : nil
-    }
-
-    private var prevLine: ScriptLine? {
-        currentIndex > 0 && lines.indices.contains(currentIndex - 1) ? lines[currentIndex - 1] : nil
-    }
-
-    private var nextLine: ScriptLine? {
-        currentIndex + 1 < lines.count ? lines[currentIndex + 1] : nil
-    }
 
     private var fontSize: CGFloat {
         switch prompterSize {

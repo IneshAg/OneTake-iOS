@@ -81,24 +81,6 @@ extension View {
     }
 
     @ViewBuilder
-    func showSystemTabBar(isVisible: Bool = true) -> some View {
-        self
-            .toolbarVisibility(isVisible ? .visible : .hidden, for: .tabBar)
-            .toolbar(isVisible ? .visible : .hidden, for: .tabBar)
-            .background(TabBarShower(isVisible: isVisible))
-    }
-
-    @ViewBuilder
-    func applySearch(enabled: Bool, text: Binding<String>) -> some View {
-        if enabled {
-            self.searchable(text: text, prompt: "Search auditions, sides, practice...")
-                .applySearchTabActivation()
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
     func applySearchTabActivation() -> some View {
         // `#available` only guards the runtime; the API also has to exist in the SDK being built
         // with (Xcode 26+). Older toolchains, like CI's Xcode 16, skip it entirely.

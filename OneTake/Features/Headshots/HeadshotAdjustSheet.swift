@@ -21,7 +21,6 @@ struct HeadshotAdjustSheet: View {
     @State private var dragOffset: CGSize = .zero
     @State private var pinchScale: CGFloat = 1.0
     @State private var photoItem: PhotosPickerItem?
-    @State private var isAutoFraming = false
     @State private var saveError = false
 
     /// Display frame dimensions inside the sheet matching slot proportions or selected preset ratio.

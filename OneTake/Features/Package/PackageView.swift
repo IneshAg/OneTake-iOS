@@ -4,7 +4,6 @@ import SwiftUI
 
 struct PackageView: View {
     enum Phase { case review, sending, readyToShare, failed, sent }
-    typealias ExportStage = PackageExportStage
 
     let auditionID: Audition.ID
     @Environment(AppStore.self) private var store
