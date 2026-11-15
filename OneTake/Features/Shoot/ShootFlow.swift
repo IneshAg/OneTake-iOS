@@ -53,6 +53,8 @@ struct ShootFlow: View {
     @State var lastGestureAction = Date.distantPast
     @AppStorage("camera.recordingResolution") var recordingResolution = CameraResolution.hd1080.rawValue
     @State var advanceAfterSceneSave = false
+    @State var pendingVoiceCutTrimAge: TimeInterval?
+    @State var pendingVoiceCutTriggered = false
     @State var deviceOrientation: UIDeviceOrientation = UIDevice.current.orientation
 
     var body: some View {
@@ -160,7 +162,11 @@ struct ShootFlow: View {
             guard voiceCommandsEnabled else { return }
             if (cmd?.word == "action" || cmd?.word == "now"), camera.state == .ready,
                [.slate, .fullLength, .scene].contains(stage) { roll() }
-            if cmd?.word == "cut", camera.state == .recording { cut() }
+            if cmd?.word == "cut", camera.state == .recording {
+                pendingVoiceCutTriggered = true
+                pendingVoiceCutTrimAge = cmd?.audioAgeSeconds
+                cut()
+            }
         }
         .onChange(of: follower.transcript) { _, transcript in
             guard followVoice, stage == .scene, camera.state == .recording, let lines = sceneLines,
@@ -490,12 +496,23 @@ struct ShootFlow: View {
     }
 
     func cut() {
+        let wasVoiceCut = pendingVoiceCutTriggered
+        let voiceTrimAge = pendingVoiceCutTrimAge
+        pendingVoiceCutTriggered = false
+        pendingVoiceCutTrimAge = nil
         Haptics.impact(.medium)
         let cutStage = stage
-        camera.stopRecording { url in saveRecording(url, from: cutStage) }
+        camera.stopRecording { url in
+            saveRecording(url, from: cutStage, trimmedFromVoiceCommand: wasVoiceCut, voiceCommandAgeSeconds: voiceTrimAge)
+        }
     }
 
-    func saveRecording(_ recording: URL?, from cutStage: Stage) {
+    func saveRecording(
+        _ recording: URL?,
+        from cutStage: Stage,
+        trimmedFromVoiceCommand: Bool = false,
+        voiceCommandAgeSeconds: TimeInterval? = nil
+    ) {
         let folder = "audition-\(auditionID.uuidString)"
         let failed = "Nothing was written to this iPhone. Record it again."
         switch cutStage {
@@ -512,12 +529,20 @@ struct ShootFlow: View {
             isAnalyzingSlate = true
             Task {
                 defer { isAnalyzingSlate = false }
+                var baseURL = url
+                if trimmedFromVoiceCommand,
+                   let cutTrimmed = await VideoTrimmer.trimTrailingVoiceCommand(from: url, commandAgeSeconds: voiceCommandAgeSeconds) {
+                    store.replaceSlateVideo(for: auditionID, with: cutTrimmed.url)
+                    if let updatedURL = store.audition(auditionID)?.slateVideoURL {
+                        baseURL = updatedURL
+                    }
+                }
                 let suggestion = await Task.detached(priority: .userInitiated) {
-                    SilenceTrimmer.suggest(for: url)
+                    SilenceTrimmer.suggest(for: baseURL)
                 }.value
                 guard let suggestion,
-                      let trimmed = await SilenceTrimmer.export(suggestion, from: url) else { return }
-                slateTrimReview = SlateTrimReview(original: url, trimmed: trimmed, suggestion: suggestion)
+                      let trimmed = await SilenceTrimmer.export(suggestion, from: baseURL) else { return }
+                slateTrimReview = SlateTrimReview(original: baseURL, trimmed: trimmed, suggestion: suggestion)
             }
         case .fullLength:
             guard let url = MediaStore.persist(recording, as: "fulllength.mov", in: folder) else {
@@ -528,6 +553,12 @@ struct ShootFlow: View {
             store.setFullLengthVideo(url, for: auditionID)
             store.markDone(.fullLength, in: auditionID)
             Haptics.success()
+            if trimmedFromVoiceCommand {
+                Task {
+                    guard let cutTrimmed = await VideoTrimmer.trimTrailingVoiceCommand(from: url, commandAgeSeconds: voiceCommandAgeSeconds) else { return }
+                    store.replaceFullLengthVideo(for: auditionID, with: cutTrimmed.url)
+                }
+            }
             advancePastCameraPiece(.fullLength)
         case .scene:
             let number = store.nextTakeNumber(auditionID: auditionID, sceneIndex: sceneIndex)
@@ -551,6 +582,12 @@ struct ShootFlow: View {
             store.addTake(take)
             takeNumber = number
             Haptics.success()
+            if trimmedFromVoiceCommand {
+                Task {
+                    guard let cutTrimmed = await VideoTrimmer.trimTrailingVoiceCommand(from: url, commandAgeSeconds: voiceCommandAgeSeconds) else { return }
+                    store.replaceTakeFile(takeID, with: cutTrimmed.url)
+                }
+            }
             if advanceAfterSceneSave, let audition = store.audition(auditionID),
                let next = nextUnshotScene(in: audition) {
                 advanceAfterSceneSave = false

@@ -334,4 +334,48 @@ struct VideoTrimmer: View {
             }
         }
     }
+
+    /// Computes the safe trimmed end time (in seconds) when removing a trailing stop voice command
+    /// (e.g. "Cut" / "Stop") from the end of a recorded clip.
+    static func voiceCommandCutoff(
+        clipDuration: Double,
+        commandAgeSeconds: TimeInterval?,
+        safetyPad: TimeInterval = 0.12
+    ) -> Double? {
+        guard clipDuration.isFinite, clipDuration >= 1.2 else { return nil }
+        let rawTrim = (commandAgeSeconds ?? 0.75) + safetyPad
+        let clampedTrim = min(2.2, max(0.35, rawTrim))
+        let targetEnd = clipDuration - clampedTrim
+        guard targetEnd >= 0.5, targetEnd < clipDuration - 0.15 else { return nil }
+        return targetEnd
+    }
+
+    /// Exports a copy of `source` with the trailing spoken stop-command window removed.
+    static func trimTrailingVoiceCommand(
+        from source: URL,
+        commandAgeSeconds: TimeInterval?
+    ) async -> (url: URL, duration: Double)? {
+        let asset = AVURLAsset(url: source)
+        guard let duration = try? await asset.load(.duration).seconds,
+              let cutoff = voiceCommandCutoff(clipDuration: duration, commandAgeSeconds: commandAgeSeconds),
+              let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+            return nil
+        }
+        let outputType: AVFileType = exporter.supportedFileTypes.contains(.mov) ? .mov : .mp4
+        let ext = (outputType == .mov) ? "mov" : "mp4"
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-cut-trim-\(UUID().uuidString).\(ext)")
+        exporter.timeRange = CMTimeRange(
+            start: .zero,
+            duration: CMTime(seconds: cutoff, preferredTimescale: 600)
+        )
+        do {
+            try? FileManager.default.removeItem(at: output)
+            try await exporter.export(to: output, as: outputType)
+            return (output, cutoff)
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            return nil
+        }
+    }
 }

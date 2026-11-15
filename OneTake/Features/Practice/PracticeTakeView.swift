@@ -31,6 +31,8 @@ struct PracticeTakeView: View {
     @State private var rehearsalFinished = false
     @State private var milestone: OTMilestoneBannerItem?
     @State private var breathePulse = false
+    @State private var pendingVoiceCutTriggered = false
+    @State private var pendingVoiceCutTrimAge: TimeInterval?
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
 
@@ -591,6 +593,8 @@ struct PracticeTakeView: View {
                         }
                     },
                     onStopRecording: {
+                        pendingVoiceCutTriggered = false
+                        pendingVoiceCutTrimAge = nil
                         Haptics.impact(.medium)
                         autoAdvanceTask?.cancel()
                         readerPlayer.stop()
@@ -641,6 +645,8 @@ struct PracticeTakeView: View {
                 startPracticeRecording()
             }
             if cmd?.word == "cut", camera.state == .recording || camera.state == .paused {
+                pendingVoiceCutTriggered = true
+                pendingVoiceCutTrimAge = cmd?.audioAgeSeconds
                 Haptics.impact(.medium)
                 autoAdvanceTask?.cancel()
                 readerPlayer.stop()
@@ -650,6 +656,8 @@ struct PracticeTakeView: View {
         .onCameraCaptureEvent { event in
             guard event.phase == .ended else { return }
             if camera.state == .recording || camera.state == .paused {
+                pendingVoiceCutTriggered = false
+                pendingVoiceCutTrimAge = nil
                 Haptics.impact(.medium)
                 autoAdvanceTask?.cancel()
                 readerPlayer.stop()
@@ -662,6 +670,10 @@ struct PracticeTakeView: View {
             guard newState == .ready, let url = camera.lastRecording, let p = piece else { return }
             autoAdvanceTask?.cancel()
             readerPlayer.stop()
+            let wasVoiceCut = pendingVoiceCutTriggered
+            let voiceTrimAge = pendingVoiceCutTrimAge
+            pendingVoiceCutTriggered = false
+            pendingVoiceCutTrimAge = nil
             let number = p.takesRecorded + 1
             recordedTakeDuration = Int(camera.elapsed)
             if let saved = MediaStore.persist(url, as: "take-\(number)-\(UUID().uuidString).mov", in: "practice-\(p.id.uuidString)") {
@@ -672,18 +684,33 @@ struct PracticeTakeView: View {
                     store.recordStandaloneRun(pieceID: p.id, linesOnYourOwn: learned)
                 }
                 recordedTakeURL = saved
-                if recordMode == .voiceOnly, let lines = p.scene?.lines {
+                let shouldAnalyzeVoice = (recordMode == .voiceOnly)
+                let sceneLinesForReview = p.scene?.lines
+                if shouldAnalyzeVoice {
                     // Stop live SpeechFollower microphone tap before running Voice Checker on the saved take.
                     follower.stop()
                     isAnalyzingVoice = true
                     voiceReviewError = nil
                     voiceReview = []
+                }
+                if wasVoiceCut || shouldAnalyzeVoice {
                     Task { @MainActor in
-                        defer { isAnalyzingVoice = false }
-                        do {
-                            voiceReview = try await VoicePracticeReviewAnalyzer.analyze(url: saved, lines: lines)
-                        } catch {
-                            voiceReviewError = "Speech recognition couldn't analyze this take automatically (\(error.localizedDescription)). You can still play and review your voice recording above."
+                        var activeURL = saved
+                        if wasVoiceCut,
+                           let cutTrimmed = await VideoTrimmer.trimTrailingVoiceCommand(from: saved, commandAgeSeconds: voiceTrimAge),
+                           let replaced = MediaStore.persist(cutTrimmed.url, as: "take-\(number)-trimmed-\(UUID().uuidString).mov", in: "practice-\(p.id.uuidString)") {
+                            try? FileManager.default.removeItem(at: saved)
+                            activeURL = replaced
+                            recordedTakeURL = replaced
+                            recordedTakeDuration = Int(cutTrimmed.duration.rounded())
+                        }
+                        if shouldAnalyzeVoice, let lines = sceneLinesForReview {
+                            defer { isAnalyzingVoice = false }
+                            do {
+                                voiceReview = try await VoicePracticeReviewAnalyzer.analyze(url: activeURL, lines: lines)
+                            } catch {
+                                voiceReviewError = "Speech recognition couldn't analyze this take automatically (\(error.localizedDescription)). You can still play and review your voice recording above."
+                            }
                         }
                     }
                 }

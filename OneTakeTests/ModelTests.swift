@@ -695,5 +695,38 @@ final class ModelTests: XCTestCase {
             justCaptured: false
         ))
     }
+
+    func testVoiceCommandCutoffCalculationAndSpeechFollowerTiming() {
+        // Long clip with explicit 0.8s command age + 0.12s pad removes ~0.92s
+        let cutoff = VideoTrimmer.voiceCommandCutoff(clipDuration: 10.0, commandAgeSeconds: 0.8)
+        XCTAssertNotNil(cutoff)
+        if let cutoff {
+            XCTAssertEqual(cutoff, 9.08, accuracy: 0.01)
+        }
+
+        // Very short clip is preserved untouched
+        XCTAssertNil(VideoTrimmer.voiceCommandCutoff(clipDuration: 0.9, commandAgeSeconds: 0.5))
+
+        // Extreme age is clamped so we never slice >2.2s off a take
+        let clamped = VideoTrimmer.voiceCommandCutoff(clipDuration: 8.0, commandAgeSeconds: 6.0)
+        XCTAssertNotNil(clamped)
+        if let clamped {
+            XCTAssertEqual(clamped, 5.8, accuracy: 0.01)
+        }
+    }
+
+    @MainActor
+    func testSpeechFollowerRecordsCommandAudioAgeFromSegmentStart() {
+        let follower = SpeechFollower()
+        let startedAt = Date().addingTimeInterval(-0.65)
+        follower.handle(["action", "i", "am", "ready", "cut"], segmentStartDates: [nil, nil, nil, nil, startedAt])
+        follower.finishCurrentUtterance()
+        XCTAssertEqual(follower.lastCommand?.word, "cut")
+        XCTAssertNotNil(follower.lastCommand?.audioAgeSeconds)
+        if let age = follower.lastCommand?.audioAgeSeconds {
+            XCTAssertGreaterThanOrEqual(age, 0.5)
+            XCTAssertLessThan(age, 2.0)
+        }
+    }
 }
 

@@ -39,8 +39,15 @@ final class SpeechFollower {
     /// A spoken command. Each one is distinct (even the same word twice) so `onChange` fires every time.
     struct Command: Equatable {
         let word: String
+        /// Approximate seconds elapsed since this spoken command started, so trailing stop words
+        /// (such as "Cut" / "Stop") can be trimmed from the end of a recording.
+        let audioAgeSeconds: TimeInterval?
         private let id = UUID()
-        init(word: String) { self.word = word }
+
+        init(word: String, audioAgeSeconds: TimeInterval? = nil) {
+            self.word = word
+            self.audioAgeSeconds = audioAgeSeconds
+        }
     }
 
     private(set) var spokenWordCount = 0
@@ -64,8 +71,10 @@ final class SpeechFollower {
     /// pause or the end of the utterance so dialogue words ("Now listen...") don't misfire.
     private var pendingWord: String?
     private var pendingIndex: Int = -1
+    private var pendingStartDate: Date?
     private var lastFiredIndex: Int = -1
     private var pendingTask: Task<Void, Never>?
+    private var recognitionStartDate: Date?
     private var consecutiveRecognitionErrors = 0
 
     static func canonicalCommand(for raw: String) -> String? {
@@ -192,19 +201,27 @@ final class SpeechFollower {
         request.shouldReportPartialResults = true
         request.contextualStrings = contextualStrings
         self.request = request
+        let requestStart = Date()
+        recognitionStartDate = requestStart
         let generation = self.generation
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let result {
-                let words = result.bestTranscription.segments.map {
+                let segments = result.bestTranscription.segments
+                let words = segments.map {
                     $0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
+                }
+                let startDates: [Date?] = segments.map { segment in
+                    (segment.timestamp > 0 || segment.duration > 0)
+                        ? requestStart.addingTimeInterval(segment.timestamp)
+                        : nil
                 }
                 Task { @MainActor in
                     if !words.isEmpty {
                         self.consecutiveRecognitionErrors = 0
                     }
-                    self.handle(words)
+                    self.handle(words, segmentStartDates: startDates)
                 }
             }
             // Recognition ends on its own — a final result, a long silence, the system's time limit.
@@ -241,6 +258,7 @@ final class SpeechFollower {
         lastFiredIndex = -1
         pendingWord = nil
         pendingIndex = -1
+        pendingStartDate = nil
         pendingTask?.cancel()
         pendingTask = nil
         // Exponential backoff prevents tight error-restart loops.
@@ -253,12 +271,14 @@ final class SpeechFollower {
     @MainActor
     func fireCommand(_ word: String, at index: Int) {
         guard index > lastFiredIndex else { return }
+        let age: TimeInterval? = pendingStartDate.map { max(0.25, Date().timeIntervalSince($0)) }
         lastFiredIndex = index
         pendingWord = nil
         pendingIndex = -1
+        pendingStartDate = nil
         pendingTask?.cancel()
         pendingTask = nil
-        lastCommand = Command(word: word)
+        lastCommand = Command(word: word, audioAgeSeconds: age)
     }
 
     @MainActor
@@ -269,12 +289,13 @@ final class SpeechFollower {
     }
 
     @MainActor
-    func handle(_ words: [String]) {
+    func handle(_ words: [String], segmentStartDates: [Date?]? = nil) {
         if words.count < totalWords || wordOffset >= words.count {
             wordOffset = 0
             lastFiredIndex = -1
             pendingWord = nil
             pendingIndex = -1
+            pendingStartDate = nil
             pendingTask?.cancel()
             pendingTask = nil
         }
@@ -294,6 +315,7 @@ final class SpeechFollower {
                 pendingTask = nil
                 pendingWord = nil
                 pendingIndex = -1
+                pendingStartDate = nil
             }
             return
         }
@@ -301,6 +323,11 @@ final class SpeechFollower {
         // A command word was spoken. Schedule it to fire if no speech continues.
         pendingWord = cmd
         pendingIndex = currentIndex
+        if let dates = segmentStartDates, dates.indices.contains(currentIndex) {
+            pendingStartDate = dates[currentIndex]
+        } else {
+            pendingStartDate = nil
+        }
         pendingTask?.cancel()
         pendingTask = Task { @MainActor [weak self] in
             // Give Speech a little longer to settle on the final word. Shorter pauses made a
@@ -327,6 +354,7 @@ final class SpeechFollower {
         lastFiredIndex = -1
         pendingWord = nil
         pendingIndex = -1
+        pendingStartDate = nil
         pendingTask?.cancel()
         pendingTask = nil
         consecutiveRecognitionErrors = 0
@@ -339,6 +367,7 @@ final class SpeechFollower {
         lastCommand = nil
         pendingWord = nil
         pendingIndex = -1
+        pendingStartDate = nil
         pendingTask?.cancel()
         pendingTask = nil
         lastFiredIndex = -1
