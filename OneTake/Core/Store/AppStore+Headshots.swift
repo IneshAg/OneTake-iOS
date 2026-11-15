@@ -8,9 +8,4 @@ extension AppStore {
     func syncHeadshotPieces() {
         syncPieces()
     }
-
-    /// Notifies views observing headshotVersion to refresh disk headshots.
-    func bumpHeadshotVersion() {
-        headshotVersion += 1
-    }
 }

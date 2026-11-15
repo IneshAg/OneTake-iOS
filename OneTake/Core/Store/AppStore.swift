@@ -128,52 +128,6 @@ final class AppStore {
     /// Pushed onto auditionsPath once the Add sheet has dismissed.
     var pendingRouteAfterAdd: Route?
 
-    /// Loads a complete sample audition ("The Quiet Horizon", role "Maya") with sides, reader cues,
-    /// and required Scene 1, allowing actors to immediately explore rehearsal, filming, and export.
-    func loadSampleAudition() {
-        let sampleSides = """
-        INT. STATION — NIGHT
-
-        MAYA
-        I know the train leaves at six. I just didn't think you'd come.
-
-        READER
-        You asked me to.
-
-        MAYA
-        I asked you to say goodbye.
-
-        READER
-        Is that all you want?
-
-        MAYA
-        No. But it's all I know how to ask for.
-        """
-        var draft = NoticeParser.Draft()
-        draft.project = "The Quiet Horizon"
-        draft.projectType = "Feature Film"
-        draft.role = "Maya"
-        draft.roleSize = "Lead"
-        draft.castingOffice = "Sarah Finn Casting"
-        draft.due = Calendar.current.date(byAdding: .day, value: 3, to: Date()) ?? Date()
-        draft.asks = ["Scene 1 required", "Headshot (optional)"]
-        draft.sourceText = sampleSides
-        draft.destination = .email
-        draft.destinationDetail = "submissions@sarahfinncasting.com"
-        draft.destinationWasDetected = true
-        draft.isHeadshotOptional = true
-        draft.includeHeadshots = true
-        draft.includeSlate = false
-        draft.customScenes = ScriptParser.parseScenes(from: sampleSides, myRole: "Maya")
-        draft.scenes = 1
-
-        let audition = draft.makeAudition()
-        add(audition)
-        isOnboarded = true
-        tab = .auditions
-        auditionsPath = [.auditionDetail(audition.id)]
-    }
-
     // Send state
     var sendProgress: Double = 0
 

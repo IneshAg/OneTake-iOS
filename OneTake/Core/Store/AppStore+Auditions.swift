@@ -245,13 +245,6 @@ extension AppStore {
         if auditions[i].status == .ready { auditions[i].status = .due }
     }
 
-    func updateRole(for id: Audition.ID, to newRole: String) {
-        guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
-        auditions[index].role = newRole
-        reclassifyRole(for: id)
-        readerTracksDidChange()
-    }
-
     func reclassifyRole(for id: Audition.ID) {
         guard let index = auditions.firstIndex(where: { $0.id == id }) else { return }
         if let scriptText = auditions[index].scriptText, !scriptText.isEmpty {
@@ -364,21 +357,6 @@ extension AppStore {
         if auditions[i].isPackageReady { auditions[i].status = .ready }
     }
 
-    func togglePieceOptional(for id: Audition.ID, pieceID: UUID) {
-        guard let index = auditions.firstIndex(where: { $0.id == id }),
-              let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.id == pieceID }) else { return }
-        auditions[index].pieces[pieceIndex].isOptional.toggle()
-        let isOpt = auditions[index].pieces[pieceIndex].isOptional
-        if auditions[index].pieces[pieceIndex].kind == .headshot {
-            auditions[index].pieces[pieceIndex].title = isOpt ? "Headshot (Optional)" : "Headshot"
-        } else if auditions[index].pieces[pieceIndex].kind == .slate {
-            auditions[index].pieces[pieceIndex].title = isOpt ? "Slate (Optional)" : "Slate"
-        }
-        if auditions[index].status != .sent {
-            auditions[index].status = auditions[index].isPackageReady ? .ready : .due
-        }
-    }
-
     func markPieceDone(_ id: Audition.ID, pieceID: UUID, isDone: Bool = true) {
         guard let index = auditions.firstIndex(where: { $0.id == id }),
               let pieceIndex = auditions[index].pieces.firstIndex(where: { $0.id == pieceID }) else { return }
@@ -394,15 +372,6 @@ extension AppStore {
         auditions[i].sentDate = .now
     }
 
-    func markExported(_ id: Audition.ID) {
-        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
-        auditions[i].status = .exported
-    }
-
-    func markSubmitted(_ id: Audition.ID) {
-        markSent(id)
-    }
-
     func unmarkSent(_ id: Audition.ID) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
         auditions[i].sentDate = nil
@@ -414,22 +383,12 @@ extension AppStore {
         syncPieces()
     }
 
-    func unmarkSubmitted(_ id: Audition.ID) {
-        unmarkSent(id)
-    }
-
     /// Circles `take` and un-circles every other take in the *same* audition+scene — scoped, so
     /// circling a take in one audition no longer silently un-circles another audition's send pick.
     func circleOnly(_ take: Take) {
         for i in takes.indices where takes[i].auditionID == take.auditionID && takes[i].sceneIndex == take.sceneIndex {
             takes[i].isCircled = takes[i].id == take.id
         }
-        syncPieces()
-    }
-
-    func setSlateVideo(_ url: URL, for id: Audition.ID) {
-        guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
-        auditions[i].slateVideoURL = url
         syncPieces()
     }
 
@@ -448,14 +407,6 @@ extension AppStore {
               let replacement = moveEditedClip(trimmed, beside: original, stem: "slate-auto-trimmed") else { return }
         auditions[i].slateOriginalVideoURL = original
         auditions[i].slateVideoURL = replacement
-        invalidateExport(for: id)
-    }
-
-    func restoreOriginalSlate(for id: Audition.ID) {
-        guard let i = auditions.firstIndex(where: { $0.id == id }), let original = auditions[i].slateOriginalVideoURL else { return }
-        if let current = auditions[i].slateVideoURL, current != original { try? FileManager.default.removeItem(at: current) }
-        auditions[i].slateVideoURL = original
-        auditions[i].slateOriginalVideoURL = nil
         invalidateExport(for: id)
     }
 
@@ -489,16 +440,6 @@ extension AppStore {
             auditions[i].fullLengthOriginalVideoURL = old
         }
         auditions[i].fullLengthVideoURL = replacement
-        invalidateExport(for: id)
-    }
-
-    func restoreOriginalFullLengthVideo(for id: Audition.ID) {
-        guard let i = auditions.firstIndex(where: { $0.id == id }),
-              let original = auditions[i].fullLengthOriginalVideoURL,
-              FileManager.default.fileExists(atPath: original.path) else { return }
-        if let current = auditions[i].fullLengthVideoURL, current != original { try? FileManager.default.removeItem(at: current) }
-        auditions[i].fullLengthVideoURL = original
-        auditions[i].fullLengthOriginalVideoURL = nil
         invalidateExport(for: id)
     }
 
