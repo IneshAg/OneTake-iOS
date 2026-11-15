@@ -64,6 +64,7 @@ struct OCRReviewSheet: View {
     @State private var isFullBodyShotOptional: Bool
     @State private var isHeadshotOptional: Bool
     @State private var includeSlate: Bool
+    @State private var includeFullBodyShot: Bool
     @State private var includeHeadshots: Bool
     @State private var selectedPortionIDs: Set<String>
     @State private var readerAudioPlan: AddAuditionFlow.ReaderAudioPlan = .recordNow
@@ -122,7 +123,8 @@ struct OCRReviewSheet: View {
         self._isSlateOptional = State(initialValue: draft.isSlateOptional)
         self._isFullBodyShotOptional = State(initialValue: draft.isFullBodyShotOptional)
         self._isHeadshotOptional = State(initialValue: draft.isHeadshotOptional)
-        self._includeSlate = State(initialValue: draft.includeSlate)
+        self._includeSlate = State(initialValue: draft.includeSlate || draft.materialKind == .slateOnly)
+        self._includeFullBodyShot = State(initialValue: draft.includeFullBodyShot)
         self._includeHeadshots = State(initialValue: draft.includeHeadshots)
         self._selectedPortionIDs = State(initialValue: draft.selectedPortionIDs)
     }
@@ -162,8 +164,12 @@ struct OCRReviewSheet: View {
                             hasDueDate: $hasDueDate,
                             dueDate: $dueDate,
                             asks: draft.asks,
+                            materialKind: draft.materialKind,
+                            includeSlate: $includeSlate,
                             isSlateOptional: $isSlateOptional,
+                            includeFullBodyShot: $includeFullBodyShot,
                             isFullBodyShotOptional: $isFullBodyShotOptional,
+                            includeHeadshots: $includeHeadshots,
                             isHeadshotOptional: $isHeadshotOptional,
                             castingNotesText: $castingNotesText,
                             actorNotesText: $actorNotesText,
@@ -359,7 +365,8 @@ struct OCRReviewSheet: View {
         confirmed.isSlateOptional = isSlateOptional
         confirmed.isFullBodyShotOptional = isFullBodyShotOptional
         confirmed.isHeadshotOptional = isHeadshotOptional
-        confirmed.includeSlate = includeSlate
+        confirmed.includeSlate = includeSlate || confirmed.materialKind == .slateOnly
+        confirmed.includeFullBodyShot = includeFullBodyShot
         confirmed.includeHeadshots = includeHeadshots
 
         if !draft.availablePortions.isEmpty {

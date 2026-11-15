@@ -6,8 +6,12 @@ struct ReviewStepSpecsView: View {
     @Binding var hasDueDate: Bool
     @Binding var dueDate: Date
     let asks: [String]
+    let materialKind: AuditionMaterialKind
+    @Binding var includeSlate: Bool
     @Binding var isSlateOptional: Bool
+    @Binding var includeFullBodyShot: Bool
     @Binding var isFullBodyShotOptional: Bool
+    @Binding var includeHeadshots: Bool
     @Binding var isHeadshotOptional: Bool
     @Binding var castingNotesText: String
     @Binding var actorNotesText: String
@@ -55,16 +59,38 @@ struct ReviewStepSpecsView: View {
                         .font(.otCaption.weight(.medium))
                         .foregroundStyle(OT.labelSecondary)
                     VStack(spacing: 0) {
-                        deliverableToggle(title: "Slate / intro", icon: "person.text.rectangle", isOptional: $isSlateOptional)
+                        AuditionDeliverableRow(
+                            title: "Slate / intro",
+                            icon: "person.text.rectangle",
+                            isIncluded: $includeSlate,
+                            isOptional: $isSlateOptional,
+                            isInclusionLocked: materialKind == .slateOnly,
+                            lockedNote: "Required for Slate-only auditions"
+                        )
                         Divider()
                         if asks.contains("Full-body shot") {
-                            deliverableToggle(title: "Full-body shot", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                            AuditionDeliverableRow(
+                                title: "Full-body shot",
+                                icon: "figure.stand",
+                                isIncluded: $includeFullBodyShot,
+                                isOptional: $isFullBodyShotOptional
+                            )
                             Divider()
                         } else if asks.contains("Full-body shot with slate") {
-                            deliverableToggle(title: "Full-body view in slate", icon: "figure.stand", isOptional: $isFullBodyShotOptional)
+                            AuditionDeliverableRow(
+                                title: "Full-body view in slate",
+                                icon: "figure.stand",
+                                isIncluded: $includeFullBodyShot,
+                                isOptional: $isFullBodyShotOptional
+                            )
                             Divider()
                         }
-                        deliverableToggle(title: "Headshots", icon: "person.crop.rectangle", isOptional: $isHeadshotOptional)
+                        AuditionDeliverableRow(
+                            title: "Headshots",
+                            icon: "person.crop.rectangle",
+                            isIncluded: $includeHeadshots,
+                            isOptional: $isHeadshotOptional
+                        )
                     }
                 }
                 .otCard(.grouped)
@@ -165,31 +191,87 @@ struct ReviewStepSpecsView: View {
         if value.contains("slate") { return "person.text.rectangle" }
         return "checkmark"
     }
+}
 
-    private func deliverableToggle(title: String, icon: String, isOptional: Binding<Bool>) -> some View {
-        let isRequired = Binding(
-            get: { !isOptional.wrappedValue },
-            set: { required in
-                isOptional.wrappedValue = !required
-                Haptics.tick()
-            }
-        )
+/// Shared deliverable row used across notice review screens to control both checklist
+/// inclusion and required/optional status consistently.
+struct AuditionDeliverableRow: View {
+    let title: String
+    var detail: String? = nil
+    let icon: String
+    @Binding var isIncluded: Bool
+    @Binding var isOptional: Bool
+    var isInclusionLocked: Bool = false
+    var lockedNote: String? = nil
 
-        return Toggle(isOn: isRequired) {
-            VStack(alignment: .leading, spacing: OTSpace.xs) {
+    private var effectiveIncluded: Bool {
+        isInclusionLocked ? true : isIncluded
+    }
+
+    private var effectiveOptional: Bool {
+        isInclusionLocked ? false : isOptional
+    }
+
+    private var statusText: String {
+        if isInclusionLocked, let lockedNote {
+            return lockedNote
+        }
+        guard effectiveIncluded else {
+            return "Not included in checklist"
+        }
+        return effectiveOptional ? "Included · Optional" : "Included · Required"
+    }
+
+    var body: some View {
+        HStack(spacing: OTSpace.s) {
+            VStack(alignment: .leading, spacing: OTSpace.xxs) {
                 Label(title, systemImage: icon)
                     .font(.otSubhead.weight(.medium))
                     .foregroundStyle(OT.labelPrimary)
 
-                Text(isOptional.wrappedValue ? "Optional" : "Required")
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.otCaption)
+                        .foregroundStyle(OT.labelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(statusText)
                     .font(.otFootnote)
-                    .foregroundStyle(isOptional.wrappedValue ? OT.labelSecondary : OT.accent)
+                    .foregroundStyle(effectiveIncluded && !effectiveOptional ? OT.accent : OT.labelSecondary)
             }
+
+            Spacer(minLength: OTSpace.xs)
+
+            if effectiveIncluded && !isInclusionLocked {
+                Button(effectiveOptional ? "Optional" : "Required") {
+                    isOptional.toggle()
+                    Haptics.tick()
+                }
+                .font(.otCaption.weight(.bold))
+                .fixedSize()
+                .padding(.horizontal, OTSpace.s)
+                .padding(.vertical, OTSpace.xs)
+                .background(effectiveOptional ? OT.surfaceSunken : OT.accentSoft, in: Capsule())
+                .foregroundStyle(effectiveOptional ? OT.labelSecondary : OT.accent)
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(title) status, \(effectiveOptional ? "optional" : "required"). Tap to switch.")
+            }
+
+            Toggle(title, isOn: Binding(
+                get: { effectiveIncluded },
+                set: { newValue in
+                    guard !isInclusionLocked else { return }
+                    isIncluded = newValue
+                    Haptics.tick()
+                }
+            ))
+            .labelsHidden()
+            .tint(OT.accent)
+            .disabled(isInclusionLocked)
         }
-        .toggleStyle(.switch)
-        .tint(OT.accent)
         .padding(.vertical, OTSpace.s)
-        .accessibilityLabel(title)
-        .accessibilityValue(isOptional.wrappedValue ? "Optional" : "Required")
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(statusText)
     }
 }
