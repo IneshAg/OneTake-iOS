@@ -76,11 +76,18 @@ final class ReaderTrackPlayer: NSObject, AVAudioPlayerDelegate {
         return false
     }
 
+    private static let audioSessionQueue = DispatchQueue(label: "onetake.reader.audiosession", qos: .userInitiated)
+
     @discardableResult
     func play(scope: ReaderTrackScope, lineIndex: Int, from time: TimeInterval? = nil, volume: Float = 1) -> Bool {
         let url = Self.url(scope: scope, line: lineIndex)
         guard Self.hasRecording(scope: scope, line: lineIndex) else { return false }
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        let session = AVAudioSession.sharedInstance()
+        if session.category != .playAndRecord {
+            Self.audioSessionQueue.async {
+                try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            }
+        }
 
         if let existing = player, currentAuditionID == scope.primaryID, currentSceneIndex == scope.sceneIndex, currentLineIndex == lineIndex {
             if let startTime = time {

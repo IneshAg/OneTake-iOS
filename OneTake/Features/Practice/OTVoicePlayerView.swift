@@ -113,12 +113,21 @@ struct OTVoicePlayerView: View {
     }
 
     private func setupPlayer() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
-
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         self.player = avPlayer
+
+        Task.detached(priority: .userInitiated) {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+            if autoPlay {
+                await MainActor.run {
+                    if self.player === avPlayer {
+                        self.play()
+                    }
+                }
+            }
+        }
 
         Task {
             if let assetDuration = try? await item.asset.load(.duration) {
@@ -150,10 +159,6 @@ struct OTVoicePlayerView: View {
             isPlaying = false
             currentTime = 0
             avPlayer.seek(to: .zero)
-        }
-
-        if autoPlay {
-            play()
         }
     }
 

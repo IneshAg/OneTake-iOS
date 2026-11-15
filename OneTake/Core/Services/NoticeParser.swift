@@ -195,10 +195,17 @@ enum NoticeParser {
         sourceDocuments: [AuditionSource] = [],
         layoutDocument: LayoutDocument? = nil
     ) async -> Draft {
-        let base = parse(rawText, pages: pages, sourceDocuments: sourceDocuments, layoutDocument: layoutDocument)
+        let base = await Task.detached(priority: .userInitiated) {
+            parse(rawText, pages: pages, sourceDocuments: sourceDocuments, layoutDocument: layoutDocument)
+        }.value
         var refined = await OnDeviceIntelligence.refineDraftWithFoundationModel(base, sourceText: rawText)
         let effectivePages = pages.isEmpty ? (layoutDocument?.reconstructedPages ?? []) : pages
-        populateStructuredNoticeData(&refined, text: refined.sourceText, pages: effectivePages)
+        let finalized = await Task.detached(priority: .userInitiated) {
+            var copy = refined
+            populateStructuredNoticeData(&copy, text: copy.sourceText, pages: effectivePages)
+            return copy
+        }.value
+        refined = finalized
         return refined
     }
 

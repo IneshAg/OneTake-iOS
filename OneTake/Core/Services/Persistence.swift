@@ -182,6 +182,7 @@ enum MediaStore {
         for folder in subfolders {
             try? FileManager.default.removeItem(at: documentsURL.appendingPathComponent(folder, isDirectory: true))
         }
+        HeadshotStore.clearCache()
     }
 }
 
@@ -211,8 +212,30 @@ enum ResumeStore {
 enum HeadshotStore {
 
     /// Headshots are drawn in list rows that re-render often; decoding the JPEG from disk every time
-    /// made scrolling the auditions list do file I/O per card.
+    /// made scrolling the auditions list do file I/O per card. We also remember missing keys so empty
+    /// slots avoid repeated `stat`/`open` syscalls across SwiftUI renders.
     private static let cache = NSCache<NSString, UIImage>()
+    private static let cacheLock = NSLock()
+    private static var missingKeys = Set<NSString>()
+
+    private static func markPresent(_ cKey: NSString) {
+        cacheLock.lock()
+        missingKeys.remove(cKey)
+        cacheLock.unlock()
+    }
+
+    private static func markMissing(_ cKey: NSString) {
+        cacheLock.lock()
+        missingKeys.insert(cKey)
+        cacheLock.unlock()
+    }
+
+    private static func isKnownMissing(_ cKey: NSString) -> Bool {
+        cacheLock.lock()
+        let missing = missingKeys.contains(cKey)
+        cacheLock.unlock()
+        return missing
+    }
 
     private static func cacheKey(key: String, auditionID: UUID?) -> NSString {
         if let auditionID {
@@ -244,10 +267,13 @@ enum HeadshotStore {
     static func save(_ image: UIImage, key: String, auditionID: UUID? = nil) {
         let orig = originalURL(for: key, auditionID: auditionID)
         try? FileManager.default.removeItem(at: orig)
-        write(image, key: key, auditionID: auditionID)
-        if let data = image.jpegData(compressionQuality: 0.9) {
-            try? data.write(to: orig, options: .atomic)
-        }
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+        let target = url(for: key, auditionID: auditionID)
+        try? data.write(to: target, options: .atomic)
+        try? data.write(to: orig, options: .atomic)
+        let cKey = cacheKey(key: key, auditionID: auditionID)
+        cache.setObject(image, forKey: cKey)
+        markPresent(cKey)
     }
 
     /// An edit of the current photo (e.g. auto-framing). Keeps the original capture on the first edit.
@@ -264,7 +290,9 @@ enum HeadshotStore {
         } catch {
             return false
         }
-        cache.setObject(image, forKey: cacheKey(key: key, auditionID: auditionID))
+        let cKey = cacheKey(key: key, auditionID: auditionID)
+        cache.setObject(image, forKey: cKey)
+        markPresent(cKey)
         return true
     }
 
@@ -273,23 +301,26 @@ enum HeadshotStore {
         UIImage(contentsOfFile: originalURL(for: key, auditionID: auditionID).path) ?? load(key: key, auditionID: auditionID)
     }
 
-    private static func write(_ image: UIImage, key: String, auditionID: UUID? = nil) {
-        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
-        let target = url(for: key, auditionID: auditionID)
-        try? data.write(to: target, options: .atomic)
-        cache.setObject(image, forKey: cacheKey(key: key, auditionID: auditionID))
-    }
-
     static func load(key: String, auditionID: UUID? = nil) -> UIImage? {
         let cKey = cacheKey(key: key, auditionID: auditionID)
         if let cached = cache.object(forKey: cKey) { return cached }
-        guard let image = UIImage(contentsOfFile: url(for: key, auditionID: auditionID).path) else { return nil }
+        if isKnownMissing(cKey) { return nil }
+        guard let image = UIImage(contentsOfFile: url(for: key, auditionID: auditionID).path) else {
+            markMissing(cKey)
+            return nil
+        }
         cache.setObject(image, forKey: cKey)
+        markPresent(cKey)
         return image
     }
 
     static func exists(key: String, auditionID: UUID? = nil) -> Bool {
-        FileManager.default.fileExists(atPath: url(for: key, auditionID: auditionID).path)
+        let cKey = cacheKey(key: key, auditionID: auditionID)
+        if cache.object(forKey: cKey) != nil { return true }
+        if isKnownMissing(cKey) { return false }
+        let present = FileManager.default.fileExists(atPath: url(for: key, auditionID: auditionID).path)
+        if !present { markMissing(cKey) }
+        return present
     }
 
     /// The audition headshots that have been taken, in order: front, then left and right profiles.
@@ -316,7 +347,12 @@ enum HeadshotStore {
     }
 
     /// Call after deleting the headshots folder so stale images aren't drawn from memory.
-    static func clearCache() { cache.removeAllObjects() }
+    static func clearCache() {
+        cache.removeAllObjects()
+        cacheLock.lock()
+        missingKeys.removeAll()
+        cacheLock.unlock()
+    }
 
     /// Copies the default profile headshots to an audition so the audition has its own frozen copy.
     static func copyProfileHeadshots(to auditionID: UUID) {
@@ -344,7 +380,9 @@ enum HeadshotStore {
         let fm = FileManager.default
         try? fm.removeItem(at: url(for: key, auditionID: auditionID))
         try? fm.removeItem(at: originalURL(for: key, auditionID: auditionID))
-        cache.removeObject(forKey: cacheKey(key: key, auditionID: auditionID))
+        let cKey = cacheKey(key: key, auditionID: auditionID)
+        cache.removeObject(forKey: cKey)
+        markMissing(cKey)
     }
 
     /// Removes all headshots attached to a specific audition.

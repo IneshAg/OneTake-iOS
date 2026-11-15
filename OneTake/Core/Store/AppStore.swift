@@ -351,7 +351,8 @@ final class AppStore {
         if removedLegacyDemoData || reorderedLegacyPieces { persist() }
     }
 
-    /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke.
+    /// Debounced so rapid edits (typing in a text field) don't hit disk on every keystroke, and
+    /// serialized off the main actor so JSON encoding / file writes never stall scrolling or UI.
     func persist() {
         guard !isLoading else { return }
         saveTask?.cancel()
@@ -359,10 +360,9 @@ final class AppStore {
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                Self.writeSnapshot(snapshot)
-            }
+            Persistence.save(snapshot)
+            WidgetSync.update(snapshot.auditions)
+            Reminders.reschedule(snapshot.auditions)
             await LiveActivitySync.update(snapshot.auditions)
         }
     }
@@ -374,18 +374,12 @@ final class AppStore {
         saveTask?.cancel()
         saveTask = nil
         let snapshot = PersistedState(auditions: auditions, takes: takes, practice: practice, slate: slate, isOnboarded: isOnboarded, account: account)
-        Self.writeSnapshot(snapshot)
+        Persistence.save(snapshot)
+        Reminders.reschedule(snapshot.auditions)
+        WidgetSync.update(snapshot.auditions)
         Task.detached(priority: .utility) {
             await LiveActivitySync.update(snapshot.auditions)
         }
-    }
-
-    @MainActor
-    private static func writeSnapshot(_ snapshot: PersistedState) {
-        Persistence.save(snapshot)
-        // Reminders and widgets follow due dates, progress, status and deletions.
-        Reminders.reschedule(snapshot.auditions)
-        WidgetSync.update(snapshot.auditions)
     }
 
     // MARK: Account
