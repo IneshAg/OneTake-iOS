@@ -512,7 +512,10 @@ struct ShootFlow: View {
             isAnalyzingSlate = true
             Task {
                 defer { isAnalyzingSlate = false }
-                guard let suggestion = SilenceTrimmer.suggest(for: url),
+                let suggestion = await Task.detached(priority: .userInitiated) {
+                    SilenceTrimmer.suggest(for: url)
+                }.value
+                guard let suggestion,
                       let trimmed = await SilenceTrimmer.export(suggestion, from: url) else { return }
                 slateTrimReview = SlateTrimReview(original: url, trimmed: trimmed, suggestion: suggestion)
             }

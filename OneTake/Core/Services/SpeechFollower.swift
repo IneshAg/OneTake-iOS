@@ -47,6 +47,8 @@ final class SpeechFollower {
     private(set) var transcript = ""
     private(set) var lastCommand: Command?
     private(set) var isListening = false
+    @ObservationIgnored private var isStarting = false
+    @ObservationIgnored private let audioSessionQueue = DispatchQueue(label: "onetake.speech.audiosession", qos: .userInitiated)
 
     private let recognizer: SFSpeechRecognizer?
     private let engine = AVAudioEngine()
@@ -64,6 +66,7 @@ final class SpeechFollower {
     private var pendingIndex: Int = -1
     private var lastFiredIndex: Int = -1
     private var pendingTask: Task<Void, Never>?
+    private var consecutiveRecognitionErrors = 0
 
     static func canonicalCommand(for raw: String) -> String? {
         let word = raw.lowercased().trimmingCharacters(in: .punctuationCharacters)
@@ -130,27 +133,39 @@ final class SpeechFollower {
     }
 
     func start() {
-        guard !isListening, let recognizer, recognizer.isAvailable else { return }
-        // The input node only has a usable format once the audio session allows recording. On a
-        // fresh session (Run Lines, drills — no camera has configured it) installing the tap with
-        // that empty format raises an exception.
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try session.setActive(true)
-        } catch { return }
-        guard startEngine() else { return }
-        isListening = true
-
-        // The camera reconfiguring the shared audio session stops the engine; pick it back up.
-        configurationObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            guard let self, self.isListening else { return }
-            self.engine.inputNode.removeTap(onBus: 0)
-            _ = self.startEngine()
+        guard !isListening, !isStarting, let recognizer, recognizer.isAvailable else { return }
+        isStarting = true
+        let startGeneration = generation
+        // Configure and activate AVAudioSession off the main thread to avoid UI hangs.
+        audioSessionQueue.async { [weak self] in
+            let session = AVAudioSession.sharedInstance()
+            let activated: Bool
+            do {
+                try session.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
+                try session.setActive(true)
+                activated = true
+            } catch {
+                activated = false
+            }
+            Task { @MainActor [weak self] in
+                guard let self, self.isStarting, self.generation == startGeneration else { return }
+                self.isStarting = false
+                guard activated, self.startEngine() else { return }
+                self.isListening = true
+                // The camera reconfiguring the shared audio session stops the engine; pick it back up.
+                if let existing = self.configurationObserver {
+                    NotificationCenter.default.removeObserver(existing)
+                }
+                self.configurationObserver = NotificationCenter.default.addObserver(
+                    forName: .AVAudioEngineConfigurationChange, object: self.engine, queue: .main
+                ) { [weak self] _ in
+                    guard let self, self.isListening else { return }
+                    self.engine.inputNode.removeTap(onBus: 0)
+                    _ = self.startEngine()
+                }
+                self.beginRecognition()
+            }
         }
-        beginRecognition()
     }
 
     private func startEngine() -> Bool {
@@ -185,22 +200,38 @@ final class SpeechFollower {
                 let words = result.bestTranscription.segments.map {
                     $0.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
                 }
-                Task { @MainActor in self.handle(words) }
+                Task { @MainActor in
+                    if !words.isEmpty {
+                        self.consecutiveRecognitionErrors = 0
+                    }
+                    self.handle(words)
+                }
             }
             // Recognition ends on its own — a final result, a long silence, the system's time limit.
             // While still meant to be listening, start a fresh one so commands keep working all shoot.
             if error != nil || result?.isFinal == true {
+                let hadError = (error != nil && result == nil)
                 Task { @MainActor in
                     self.finishCurrentUtterance()
-                    await self.restartRecognition(from: generation)
+                    await self.restartRecognition(from: generation, hadError: hadError)
                 }
             }
         }
     }
 
     @MainActor
-    private func restartRecognition(from ended: Int) async {
+    private func restartRecognition(from ended: Int, hadError: Bool = false) async {
         guard isListening, ended == generation else { return }
+        if hadError {
+            consecutiveRecognitionErrors += 1
+            // Avoid infinite high-frequency restart churn when recognition cannot run (e.g. simulator/offline).
+            if consecutiveRecognitionErrors >= 6 {
+                stop()
+                return
+            }
+        } else {
+            consecutiveRecognitionErrors = 0
+        }
         generation += 1
         request?.endAudio()
         task?.cancel()
@@ -212,8 +243,9 @@ final class SpeechFollower {
         pendingIndex = -1
         pendingTask?.cancel()
         pendingTask = nil
-        // Brief pause so an immediately-failing recognizer can't spin.
-        try? await Task.sleep(for: .milliseconds(300))
+        // Exponential backoff prevents tight error-restart loops.
+        let delayMs = min(2_500, 300 * (1 << min(consecutiveRecognitionErrors, 3)))
+        try? await Task.sleep(for: .milliseconds(delayMs))
         guard isListening else { return }
         beginRecognition()
     }
@@ -281,6 +313,7 @@ final class SpeechFollower {
 
     func stop() {
         // Before cancelling, so the cancelled task's callback doesn't restart recognition.
+        isStarting = false
         isListening = false
         generation += 1
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
@@ -296,6 +329,7 @@ final class SpeechFollower {
         pendingIndex = -1
         pendingTask?.cancel()
         pendingTask = nil
+        consecutiveRecognitionErrors = 0
     }
 
     func reset() {
