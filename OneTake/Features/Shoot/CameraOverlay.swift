@@ -393,7 +393,16 @@ extension ShootFlow {
             Toggle(isOn: $gesturesEnabled) {
                 Label("Hand gestures · open palm", systemImage: "hand.raised")
             }
-            Text("Turn on either control or both.")
+            Divider()
+            Button {
+                voiceCommandsEnabled = false
+                gesturesEnabled = false
+                Haptics.tick()
+            } label: {
+                Label("Turn off both", systemImage: "hand.raised.slash")
+            }
+            .disabled(!voiceCommandsEnabled && !gesturesEnabled)
+            Text("Turn on either, both, or turn off both.")
         } label: {
             Image(systemName: "hand.raised.fingers.spread")
                 .font(.system(size: 14, weight: .semibold)) // ot-lint:allow
