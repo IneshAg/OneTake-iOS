@@ -227,12 +227,6 @@ struct AddDraftSidesSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(draft.hasSides ? "Replace" : "Add") {
-                    commitSides()
-                }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
         .otBottomBar {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

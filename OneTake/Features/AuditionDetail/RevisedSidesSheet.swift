@@ -20,9 +20,27 @@ struct RevisedSidesSheet: View {
     @State private var importError = false
     @State private var emptyClipboardAlert = false
     @State private var showScriptEditor = false
+    @State private var selectedRole = ""
 
     private var audition: Audition? {
         store.audition(auditionID)
+    }
+
+    private var effectiveRole: String {
+        let trimmed = selectedRole.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return audition?.role ?? ""
+    }
+
+    private var detectedCharacters: [String] {
+        ScriptParser.extractCharacters(from: text)
+    }
+
+    private var roleNeedsSelection: Bool {
+        guard !detectedCharacters.isEmpty else { return false }
+        let role = effectiveRole.trimmingCharacters(in: .whitespacesAndNewlines)
+        if role.isEmpty || role.caseInsensitiveCompare("Role") == .orderedSame { return true }
+        return !detectedCharacters.contains { $0.caseInsensitiveCompare(role) == .orderedSame }
     }
 
     private var isNewSides: Bool {
@@ -30,8 +48,7 @@ struct RevisedSidesSheet: View {
     }
 
     private var parsed: [ScriptScene] {
-        let role = audition?.role ?? ""
-        return ScriptParser.parseScenes(from: text, myRole: role)
+        ScriptParser.parseScenes(from: text, myRole: effectiveRole)
     }
 
     private var activeScenes: [ScriptScene] {
@@ -49,7 +66,7 @@ struct RevisedSidesSheet: View {
     }
 
     var body: some View {
-        let role = audition?.role ?? ""
+        let role = effectiveRole
         NavigationStack {
             ScrollView {
                 VStack(spacing: OTSpace.m) {
@@ -179,6 +196,9 @@ struct RevisedSidesSheet: View {
                     }
 
                     if !text.isEmpty {
+                        if !detectedCharacters.isEmpty {
+                            roleSelectionCard
+                        }
                         VStack(alignment: .leading, spacing: OTSpace.s) {
                             HStack {
                                 Text("DETECTED SIDES")
@@ -248,8 +268,7 @@ struct RevisedSidesSheet: View {
             .otBottomBar {
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button(isNewSides ? "Add sides" : "Save changes") {
-                        store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
-                        dismiss()
+                        commitSides()
                     }
                     .buttonStyle(.otPrimary)
                     .disabled(activeScenes.isEmpty)
@@ -262,22 +281,15 @@ struct RevisedSidesSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isNewSides ? "Add" : "Save changes") {
-                        store.replaceSides(of: auditionID, with: activeScenes, sourceText: text)
-                        dismiss()
-                        if readerAudioPlan == .recordNow,
-                           let firstScene = activeScenes.indices.first(where: { !activeScenes[$0].lines.filter({ !$0.isMine }).isEmpty }) {
-                            store.push(.reader(auditionID, sceneIndex: firstScene))
-                        }
-                    }
-                }
             }
         }
         .onAppear {
+            if selectedRole.isEmpty, let initialRole = audition?.role, initialRole != "Role" {
+                selectedRole = initialRole
+            }
             if !isNewSides, let existing = audition?.scriptText, !existing.isEmpty {
                 text = existing
-                editableScenes = audition?.scenes ?? ScriptParser.parseScenes(from: existing, myRole: role)
+                editableScenes = audition?.scenes ?? ScriptParser.parseScenes(from: existing, myRole: effectiveRole)
             }
         }
         .alert("Scanning isn't available here", isPresented: $scannerUnavailable) {
@@ -343,13 +355,14 @@ struct RevisedSidesSheet: View {
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
+            photoItems = []
             reading = true
             Task {
                 var images: [UIImage] = []
                 for item in items {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        images.append(image)
+                       let raw = UIImage(data: data) {
+                        images.append(NoticeOCR.normalizedScanImage(raw, maxDimension: 2048))
                     }
                 }
                 guard !images.isEmpty else {
@@ -360,9 +373,8 @@ struct RevisedSidesSheet: View {
                 await MainActor.run {
                     let cleaned = ScriptParser.cleanPastedText(recognized)
                     text = cleaned
-                    editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                    editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: effectiveRole)
                     reading = false
-                    photoItems = []
                     Haptics.success()
                 }
             }
@@ -376,7 +388,80 @@ struct RevisedSidesSheet: View {
             ) { updated in
                 let cleaned = ScriptParser.cleanPastedText(updated)
                 text = cleaned
-                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: role)
+                editableScenes = ScriptParser.parseScenes(from: cleaned, myRole: effectiveRole)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var roleSelectionCard: some View {
+        VStack(alignment: .leading, spacing: OTSpace.s) {
+            HStack {
+                Label("Your role in these sides", systemImage: "person.fill")
+                    .font(.otHeadline)
+                    .foregroundStyle(OT.labelPrimary)
+                Spacer()
+                if roleNeedsSelection {
+                    Text("Select role")
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(OT.due)
+                }
+            }
+            Text(roleNeedsSelection
+                 ? "Tap the character you’re reading for so your lines and reader cues split properly."
+                 : "Reading as \(effectiveRole). Tap another character to switch.")
+                .font(.otFootnote)
+                .foregroundStyle(OT.labelSecondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: OTSpace.s) {
+                    ForEach(detectedCharacters, id: \.self) { character in
+                        let isSelected = character.caseInsensitiveCompare(effectiveRole) == .orderedSame
+                        Button {
+                            selectedRole = character
+                            editableScenes = ScriptParser.parseScenes(from: text, myRole: character)
+                            Haptics.tick()
+                        } label: {
+                            HStack(spacing: OTSpace.xs) {
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .font(.otCaption.weight(.bold))
+                                }
+                                Text(character)
+                                    .lineLimit(1)
+                            }
+                            .font(.otCaption.weight(isSelected ? .bold : .medium))
+                            .foregroundStyle(isSelected ? OT.labelOnAccent : OT.accent)
+                            .padding(.horizontal, OTSpace.m)
+                            .padding(.vertical, OTSpace.xs)
+                            .background(
+                                isSelected ? AnyShapeStyle(OT.accent) : AnyShapeStyle(OT.accentSoft),
+                                in: RoundedRectangle(cornerRadius: OTRadius.s, style: .continuous)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(OTSpace.m)
+        .otCard(.grouped, padding: nil)
+        .overlay(
+            RoundedRectangle(cornerRadius: OTRadius.l, style: .continuous)
+                .strokeBorder(roleNeedsSelection ? OT.due.opacity(0.6) : Color.clear, lineWidth: 1) // ot-lint:allow
+        )
+    }
+
+    private func commitSides() {
+        let scenesToSave = activeScenes
+        let roleToSave = effectiveRole
+        store.replaceSides(of: auditionID, with: scenesToSave, sourceText: text, role: roleToSave)
+        let shouldRecordReader = readerAudioPlan == .recordNow
+        let firstReaderScene = scenesToSave.indices.first(where: { !scenesToSave[$0].lines.filter({ !$0.isMine }).isEmpty })
+        dismiss()
+        if shouldRecordReader, let firstScene = firstReaderScene {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                store.push(.reader(auditionID, sceneIndex: firstScene))
             }
         }
     }
