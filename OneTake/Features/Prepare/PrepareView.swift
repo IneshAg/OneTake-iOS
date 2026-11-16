@@ -18,8 +18,36 @@ struct PrepareView: View {
     @State private var peeked: ScriptLine.ID?
     @State private var showPrompterSettings = false
     @State private var showSides = false
+    @State private var showRolePicker = false
+    @State private var hasPromptedForRole = false
     @AppStorage("prompter.size") private var prompterSize = 1
     @AppStorage("prompter.mirror") private var mirrorPrompter = false
+
+    private func detectedCharacters(in audition: Audition) -> [String] {
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for scene in audition.scenes {
+            for line in scene.lines {
+                let name = line.character.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { continue }
+                if counts[name] == nil { order.append(name) }
+                counts[name, default: 0] += 1
+            }
+        }
+        return order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
+    }
+
+    static func shouldPromptRoleSelection(audition: Audition, scene: ScriptScene) -> Bool {
+        let characters = audition.scenes.flatMap(\.lines)
+            .map { $0.character.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !characters.isEmpty else { return false }
+        let trimmedRole = audition.role.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRole.isEmpty || trimmedRole.caseInsensitiveCompare("Role") == .orderedSame {
+            return true
+        }
+        return !scene.lines.contains(where: \.isMine)
+    }
 
     var body: some View {
         let _ = store.readerTrackVersion
@@ -35,6 +63,27 @@ struct PrepareView: View {
                     .pickerStyle(.segmented)
 
                     HStack {
+                        let characters = detectedCharacters(in: a)
+                        if !characters.isEmpty {
+                            Button {
+                                showRolePicker = true
+                                Haptics.tick()
+                            } label: {
+                                HStack(spacing: OTSpace.xs) {
+                                    Image(systemName: "person.fill")
+                                        .font(.otCaption)
+                                    Text(scene.lines.contains(where: \.isMine) ? "Role: \(a.role)" : "Select your role")
+                                        .font(.otCaption.weight(.semibold))
+                                    Image(systemName: "chevron.down")
+                                        .font(.otCaption)
+                                }
+                                .foregroundStyle(scene.lines.contains(where: \.isMine) ? OT.accent : OT.due)
+                                .padding(.horizontal, OTSpace.m)
+                                .padding(.vertical, OTSpace.xs)
+                                .background(scene.lines.contains(where: \.isMine) ? OT.accentSoft : OT.dueTrack, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
                         Spacer()
                         HStack(spacing: OTSpace.s) {
                             Button {
@@ -158,6 +207,17 @@ struct PrepareView: View {
             .sheet(isPresented: $showPrompterSettings) {
                 PrompterSettingsSheet().presentationDetents([.medium])
             }
+            .sheet(isPresented: $showRolePicker) {
+                roleSelectionSheet(for: a)
+                    .presentationDetents([.medium])
+            }
+            .onAppear {
+                guard !hasPromptedForRole else { return }
+                hasPromptedForRole = true
+                if Self.shouldPromptRoleSelection(audition: a, scene: scene) {
+                    showRolePicker = true
+                }
+            }
         } else {
             // No scenes were read from what was added — say so and offer the fix instead of a blank page.
             ContentUnavailableView {
@@ -208,6 +268,62 @@ struct PrepareView: View {
             }
         }
         .padding(.vertical, OTSpace.xxs)
+    }
+
+    @ViewBuilder
+    private func roleSelectionSheet(for a: Audition) -> some View {
+        let characters = detectedCharacters(in: a)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: OTSpace.m) {
+                    Text("Choose the character you’re playing so your lines highlight and reader cues play in your pauses.")
+                        .font(.otCallout)
+                        .foregroundStyle(OT.labelSecondary)
+
+                    ForEach(characters, id: \.self) { character in
+                        let lineCount = a.scenes.flatMap(\.lines).filter {
+                            $0.character.caseInsensitiveCompare(character) == .orderedSame
+                        }.count
+                        let isSelected = character.caseInsensitiveCompare(a.role) == .orderedSame
+                        Button {
+                            store.updateRole(character, for: a.id)
+                            Haptics.success()
+                            showRolePicker = false
+                        } label: {
+                            HStack(spacing: OTSpace.m) {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "person.circle")
+                                    .font(.otIcon(.m))
+                                    .foregroundStyle(isSelected ? OT.accent : OT.labelSecondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(character)
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    Text("\(lineCount) \(lineCount == 1 ? "line" : "lines") in sides")
+                                        .font(.otFootnote)
+                                        .foregroundStyle(OT.labelSecondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(OTSpace.m)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .otCard(.grouped, padding: nil)
+                        }
+                        .buttonStyle(OTPressStyle(.card))
+                    }
+                }
+                .padding(.horizontal, OTSpace.gutter)
+                .padding(.top, OTSpace.s)
+                .padding(.bottom, OTSpace.xl)
+            }
+            .otCanvas()
+            .navigationTitle("Select your role")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showRolePicker = false }
+                }
+            }
+        }
     }
 
     /// Same transform Practice's First-Letter / Mask & Reveal drills use — implemented once, in `otLineDisplay`.
