@@ -338,5 +338,113 @@ final class PackageAndSentTests: XCTestCase {
         XCTAssertFalse(Destination.selectableInSheet.contains(.castingNetworks))
         XCTAssertFalse(Destination.selectableInSheet.contains(.spotlight))
     }
+
+    @MainActor
+    func testPackageSheetDestinationsAndSyncPiecesPreventFalseCompletion() throws {
+        let store = AppStore()
+        let id = UUID()
+        let scene1 = ScriptScene(
+            number: 1,
+            title: "Scene 1",
+            heading: "INT. OFFICE - DAY",
+            lines: [ScriptLine(character: "ETHAN", text: "I didn't shoot this yet.", isMine: true)],
+            estimatedSeconds: 20
+        )
+        let headshotPiece = Piece(kind: .headshot, title: "Headshot", detail: "Photos", isDone: false)
+        let slatePiece = Piece(kind: .slate, title: "Slate", detail: "Name, height, city", isDone: false)
+        let staleDoneScenePiece = Piece(kind: .scene, title: "Scene 1", detail: "", isDone: true, isOptional: false)
+
+        var audition = Audition(
+            id: id,
+            project: "Ethan",
+            projectType: "Feature film",
+            role: "Ethan",
+            roleSize: "Lead",
+            castingOffice: "",
+            due: .now.addingTimeInterval(86400),
+            asks: ["Headshots"],
+            pieces: [headshotPiece, slatePiece, staleDoneScenePiece],
+            scenes: [scene1],
+            destination: .email,
+            status: .ready
+        )
+        store.auditions = [audition]
+        store.syncPieces()
+
+        let synced = try XCTUnwrap(store.audition(id))
+        let scenePieceAfterSync = try XCTUnwrap(synced.pieces.first(where: { $0.kind == .scene }))
+        XCTAssertFalse(scenePieceAfterSync.isDone, "Unshot required scene must not stay marked done")
+        XCTAssertFalse(synced.isPackageReady)
+        XCTAssertEqual(synced.status, .due)
+
+        // PackageSheet destination checks before and after recording slate
+        XCTAssertEqual(PackageSheet.destination(for: headshotPiece, in: synced, store: store), .headshots(for: id))
+        XCTAssertEqual(PackageSheet.destination(for: slatePiece, in: synced, store: store), .shootSetup(id))
+        XCTAssertEqual(PackageSheet.destination(for: scenePieceAfterSync, in: synced, store: store), .prepare(id, sceneIndex: 0))
+
+        audition.scenes = []
+        XCTAssertNil(PackageSheet.destination(for: scenePieceAfterSync, in: audition, store: store))
+
+        audition.slateVideoURL = URL(fileURLWithPath: "/tmp/slate.mov")
+        XCTAssertEqual(PackageSheet.destination(for: slatePiece, in: audition, store: store), .elementReview(id, element: .slate))
+
+        // Recording a take marks the scene done and fills piece.detail so it never says "not shot yet"
+        let take = Take(
+            number: 1,
+            duration: 12,
+            recordedAt: .now,
+            isCircled: true,
+            notes: [],
+            fileURL: URL(fileURLWithPath: "/tmp/take1.mov"),
+            auditionID: id,
+            sceneIndex: 0
+        )
+        store.addTake(take)
+        let shotScenePiece = try XCTUnwrap(store.audition(id)?.pieces.first(where: { $0.kind == .scene }))
+        XCTAssertTrue(shotScenePiece.isDone)
+        XCTAssertFalse(shotScenePiece.detail.isEmpty)
+        XCTAssertTrue(shotScenePiece.detail.contains("1 take recorded"))
+    }
+
+    @MainActor
+    func testPostCreationSidesPromptRoleSelectionAndReclassify() throws {
+        let store = AppStore()
+        let id = UUID()
+        let audition = Audition(
+            id: id,
+            project: "Northbound",
+            projectType: "Feature film",
+            role: "Role",
+            roleSize: "",
+            castingOffice: "",
+            due: .now.addingTimeInterval(86400),
+            asks: [],
+            pieces: [Piece(kind: .scene, title: "Scene 1", detail: "No sides yet — add them", isDone: false)],
+            scenes: [],
+            destination: .email,
+            status: .due
+        )
+        store.auditions = [audition]
+
+        let script = """
+        INT. STATION - NIGHT
+        ETHAN
+        Did anyone see the train?
+        MAYA
+        Only the conductor.
+        """
+        let parsed = ScriptParser.parseScenes(from: script, myRole: audition.role)
+        store.replaceSides(of: id, with: parsed, sourceText: script)
+
+        let afterSides = try XCTUnwrap(store.audition(id))
+        XCTAssertTrue(PrepareView.shouldPromptRoleSelection(audition: afterSides, scene: afterSides.scenes[0]))
+
+        store.updateRole("ETHAN", for: id)
+        let afterRole = try XCTUnwrap(store.audition(id))
+        XCTAssertEqual(afterRole.role, "ETHAN")
+        XCTAssertFalse(PrepareView.shouldPromptRoleSelection(audition: afterRole, scene: afterRole.scenes[0]))
+        XCTAssertEqual(afterRole.scenes[0].lines.filter(\.isMine).count, 1)
+        XCTAssertEqual(afterRole.scenes[0].lines.filter { !$0.isMine }.count, 1)
+    }
 }
 
