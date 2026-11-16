@@ -102,16 +102,39 @@ extension AppStore {
             let sceneTitles = !auditions[i].scenes.isEmpty
                 ? auditions[i].scenes.map(\.title)
                 : auditions[i].pieces.filter { $0.kind == .scene }.map(\.title)
+            var matchedPieceIndices = Set<Int>()
             for (sceneIndex, title) in sceneTitles.enumerated() {
-                let hasTake = auditionTakes.contains { ($0.sceneIndex ?? 0) == sceneIndex }
+                let sceneTakes = auditionTakes.filter { ($0.sceneIndex ?? 0) == sceneIndex }
+                let hasTake = !sceneTakes.isEmpty
                 for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .scene && auditions[i].pieces[j].title == title {
+                    matchedPieceIndices.insert(j)
                     if hasTake {
                         auditions[i].pieces[j].isDone = true
+                        let circled = sceneTakes.first(where: \.isCircled)
+                        let base = "\(sceneTakes.count) \(sceneTakes.count == 1 ? "take" : "takes") recorded"
+                        let detail = auditions[i].pieces[j].detail
+                        if detail.isEmpty
+                            || detail == "No sides yet — add them"
+                            || detail == "Revised sides"
+                            || detail.contains("take recorded")
+                            || detail.contains("takes recorded") {
+                            auditions[i].pieces[j].detail = circled.map { "\(base) · Take \($0.number) circled" } ?? base
+                        }
                     } else if !auditions[i].pieces[j].isOptional {
                         // Preserve an explicit skip for optional scenes. Required scenes only
                         // count as complete when a take exists.
                         auditions[i].pieces[j].isDone = false
+                        if auditions[i].pieces[j].detail.contains("take recorded")
+                            || auditions[i].pieces[j].detail.contains("takes recorded") {
+                            auditions[i].pieces[j].detail = ""
+                        }
                     }
+                }
+            }
+            // Guard against any stale scene piece whose title no longer matches `sceneTitles`
+            for j in auditions[i].pieces.indices where auditions[i].pieces[j].kind == .scene && !matchedPieceIndices.contains(j) {
+                if !auditions[i].pieces[j].isOptional {
+                    auditions[i].pieces[j].isDone = false
                 }
             }
             if auditions[i].status != .sent && !(auditions[i].status == .exported && auditions[i].exportedFileURL != nil) {
@@ -243,6 +266,14 @@ extension AppStore {
         }
 
         if auditions[i].status == .ready { auditions[i].status = .due }
+    }
+
+    func updateRole(_ newRole: String, for id: Audition.ID) {
+        let trimmed = newRole.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = auditions.firstIndex(where: { $0.id == id }) else { return }
+        auditions[index].role = trimmed
+        reclassifyRole(for: id)
+        syncPieces()
     }
 
     func reclassifyRole(for id: Audition.ID) {

@@ -140,8 +140,11 @@ extension AppStore {
     /// Revised sides: swaps in the new scenes and resets the scene pieces (the old takes stay, but the
     /// new pages need shooting). Intelligently reuses reader audio for unchanged lines, and keeps
     /// earlier takes playable under "Previous sides".
-    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene], sourceText: String? = nil) {
+    func replaceSides(of id: Audition.ID, with scenes: [ScriptScene], sourceText: String? = nil, role: String? = nil) {
         guard let i = auditions.firstIndex(where: { $0.id == id }) else { return }
+        if let trimmedRole = role?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedRole.isEmpty {
+            auditions[i].role = trimmedRole
+        }
         let hadScenes = !auditions[i].scenes.isEmpty
         let oldScenes = auditions[i].scenes
 
@@ -233,5 +236,6 @@ extension AppStore {
             practice[p].linesTotal = scenes[s].lines.filter(\.isMine).count
             practice[p].linesLearned = min(practice[p].linesLearned, practice[p].linesTotal)
         }
+        syncPieces()
     }
 }
