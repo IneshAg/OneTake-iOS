@@ -19,6 +19,26 @@ struct ShootSetupView: View {
     private var shootScene: Int { scene ?? store.sceneToShoot(auditionID) }
     /// Focus/Do Not Disturb can't be read or set by an app, so this one is the actor's own tick.
     @State private var silenced = false
+    @State private var showMissingReaderPrompt = false
+
+    private struct ReaderProgress {
+        var name: String
+        var recorded: Int
+        var total: Int
+    }
+
+    private var readerProgress: ReaderProgress? {
+        _ = store.readerTrackVersion
+        guard let a = store.audition(auditionID), a.scenes.indices.contains(shootScene) else { return nil }
+        let readerLines = a.scenes[shootScene].lines.filter { !$0.isMine }
+        let readerName = readerLines.first?.character.capitalized ?? "Reader"
+        let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
+        guard !specificReaderLines.isEmpty else { return nil }
+        let recorded = specificReaderLines.indices.filter {
+            ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: shootScene, line: $0)
+        }.count
+        return ReaderProgress(name: readerName, recorded: recorded, total: specificReaderLines.count)
+    }
 
     private struct Check {
         var eyebrow: String
@@ -67,19 +87,13 @@ struct ShootSetupView: View {
                                 detail: isHeadset ? "" : "Stay near the phone.", ok: true))
         }
 
-        _ = store.readerTrackVersion
-        if let a = store.audition(auditionID), a.scenes.indices.contains(shootScene) {
-            let readerLines = a.scenes[shootScene].lines.filter { !$0.isMine }
-            let readerName = readerLines.first?.character.capitalized ?? "Reader"
-            let specificReaderLines = readerLines.filter { $0.character.caseInsensitiveCompare(readerName) == .orderedSame }
-            let recorded = specificReaderLines.indices.filter {
-                ReaderTrackPlayer.hasRecording(auditionID: auditionID, sceneIndex: shootScene, line: $0)
-            }.count
-            if !specificReaderLines.isEmpty {
-                checks.append(Check(eyebrow: "Reader", title: "\(recorded) of \(specificReaderLines.count) reader lines recorded",
-                                    detail: recorded == specificReaderLines.count ? "" : "Record the missing lines for playback.",
-                                    ok: recorded == specificReaderLines.count))
-            }
+        if let progress = readerProgress {
+            checks.append(Check(
+                eyebrow: "Reader",
+                title: "\(progress.recorded) of \(progress.total) reader lines recorded",
+                detail: progress.recorded == progress.total ? "" : "Record the missing lines for playback.",
+                ok: progress.recorded == progress.total
+            ))
         }
 
         checks.append(Check(eyebrow: "Interruptions", title: silenced ? "Silenced for this shoot" : "Calls and alerts can cut in",
@@ -102,11 +116,22 @@ struct ShootSetupView: View {
                     .foregroundStyle(OT.labelSecondary)
 
                 VStack(alignment: .leading, spacing: OTSpace.s) {
-                    Text("Hands-free controls")
-                        .font(.otFootnote.weight(.semibold))
+                    HStack {
+                        Text("Hands-free controls")
+                            .font(.otFootnote.weight(.semibold))
+                        Spacer()
+                        Button("Turn off both") {
+                            voiceCommandsEnabled = false
+                            gesturesEnabled = false
+                            Haptics.tick()
+                        }
+                        .font(.otCaption.weight(.semibold))
+                        .foregroundStyle(voiceCommandsEnabled || gesturesEnabled ? OT.accent : OT.labelTertiary)
+                        .disabled(!voiceCommandsEnabled && !gesturesEnabled)
+                    }
                     Toggle("Voice: say Action / Cut", isOn: $voiceCommandsEnabled)
                     Toggle("Gestures: open palm", isOn: $gesturesEnabled)
-                    Text("Choose either control or turn on both. You can change these again in Camera Check.")
+                    Text("Choose either, turn on both, or turn off both. You can change these again in Camera Check.")
                         .font(.otCaption)
                         .foregroundStyle(OT.labelTertiary)
                 }
@@ -160,15 +185,89 @@ struct ShootSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .otBottomBar {
             Button {
-                store.camera = .shoot(auditionID, scene: shootScene)
+                if let progress = readerProgress, progress.recorded < progress.total {
+                    showMissingReaderPrompt = true
+                    Haptics.tick()
+                } else {
+                    store.camera = .shoot(auditionID, scene: shootScene)
+                }
             } label: {
                 Label("Open the camera", systemImage: "camera.fill")
             }
             .buttonStyle(.otPrimary)
         }
+        .sheet(isPresented: $showMissingReaderPrompt) {
+            missingReaderPromptSheet
+                .presentationDetents([.medium])
+        }
         .onAppear {
             if !SpeechFollower.availableEnglishAccents.contains(where: { $0.id == speechRecognitionLocale }) {
                 speechRecognitionLocale = SpeechFollower.defaultAccentIdentifier
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var missingReaderPromptSheet: some View {
+        let progress = readerProgress
+        let missing = (progress?.total ?? 0) - (progress?.recorded ?? 0)
+        let readerName = progress?.name ?? "Reader"
+        NavigationStack {
+            VStack(alignment: .leading, spacing: OTSpace.m) {
+                HStack(spacing: OTSpace.m) {
+                    Image(systemName: "person.wave.2.fill")
+                        .font(.otIcon(.m, weight: .semibold))
+                        .foregroundStyle(OT.reader)
+                        .frame(width: 44, height: 44) // ot-lint:allow
+                        .background(OT.reader.opacity(0.15), in: Circle()) // ot-lint:allow
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(progress?.recorded == 0 ? "Add reader voice?" : "Finish reader voice?")
+                            .font(.otTitle)
+                            .foregroundStyle(OT.labelPrimary)
+                        Text("\(missing) of \(progress?.total ?? 0) \(readerName) cue\(progress?.total == 1 ? "" : "s") missing")
+                            .font(.otSubhead)
+                            .foregroundStyle(OT.labelSecondary)
+                    }
+                }
+
+                Text("Record \(readerName)’s lines in your voice so cues play automatically in your pauses while filming.")
+                    .font(.otBody)
+                    .foregroundStyle(OT.labelSecondary)
+
+                Spacer()
+
+                VStack(spacing: OTSpace.s) {
+                    Button {
+                        showMissingReaderPrompt = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            store.push(.recordReader(auditionID, sceneIndex: shootScene))
+                        }
+                    } label: {
+                        Label("Record reader voice", systemImage: "mic.fill")
+                    }
+                    .buttonStyle(.otPrimary)
+
+                    Button {
+                        showMissingReaderPrompt = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            store.camera = .shoot(auditionID, scene: shootScene)
+                        }
+                    } label: {
+                        Text("Open camera without reader")
+                    }
+                    .buttonStyle(.otSecondary)
+                }
+            }
+            .padding(.horizontal, OTSpace.gutter)
+            .padding(.top, OTSpace.m)
+            .padding(.bottom, OTSpace.l)
+            .otCanvas()
+            .navigationTitle("Reader audio")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showMissingReaderPrompt = false }
+                }
             }
         }
     }
