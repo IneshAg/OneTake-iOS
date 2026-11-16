@@ -10,6 +10,7 @@ struct AuditionDetailView: View {
     @State private var showCallback = false
     @State private var showEdit = false
     @State private var showSides = false
+    @State private var pendingPackagePiece: Piece?
     @State private var showResumePicker = false
     @State private var resumeImportError: String?
 
@@ -184,9 +185,25 @@ struct AuditionDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showPackage) {
-            PackageSheet(auditionID: a.id, onAddSides: { showSides = true })
-                .presentationDetents([.medium, .large])
+        .onAppear {
+            store.syncPieces()
+        }
+        .sheet(isPresented: $showPackage, onDismiss: {
+            if let piece = pendingPackagePiece {
+                pendingPackagePiece = nil
+                if let route = PackageSheet.destination(for: piece, in: store.audition(a.id) ?? a, store: store) {
+                    store.push(route)
+                } else {
+                    showSides = true
+                }
+            }
+        }) {
+            PackageSheet(
+                auditionID: a.id,
+                onAddSides: { showSides = true },
+                onSelectPiece: { pendingPackagePiece = $0 }
+            )
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showCallback) { CallbackSheet(audition: a) }
         .sheet(isPresented: $showEdit) { EditAuditionSheet(auditionID: a.id) }

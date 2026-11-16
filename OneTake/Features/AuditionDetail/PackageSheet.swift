@@ -5,6 +5,7 @@ import SwiftUI
 struct PackageSheet: View {
     let auditionID: Audition.ID
     var onAddSides: (() -> Void)? = nil
+    var onSelectPiece: ((Piece) -> Void)? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
@@ -16,32 +17,51 @@ struct PackageSheet: View {
                         .font(.otFootnote)
                         .foregroundStyle(OT.labelTertiary)
                 ForEach(Array(a.pieces.enumerated()), id: \.element.id) { i, piece in
-                    HStack(spacing: OTSpace.m) {
-                        Button { dismiss(); open(piece, a) } label: {
-                            HStack(spacing: OTSpace.m) {
-                                Image(systemName: piece.isDone ? "checkmark" : piece.kind.symbol)
-                                    .foregroundStyle(piece.isDone ? OT.labelOnAccent : OT.accent)
-                                    .frame(width: 44, height: 44) // ot-lint:allow
-                                    .background(piece.isDone ? OT.accent : OT.accentSoft, in: Circle())
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: OTSpace.xs) {
-                                        Text("\(i + 1)  \(piece.title)").font(.otHeadline)
-                                        if piece.isOptional {
-                                            OTChip("Optional")
-                                        }
-                                    }
-                                    Text(piece.detail.isEmpty ? "not shot yet" : piece.detail).font(.otFootnote).foregroundStyle(OT.labelTertiary)
-                                }
+                    Button {
+                        if let onSelectPiece {
+                            onSelectPiece(piece)
+                            dismiss()
+                        } else {
+                            dismiss()
+                            DispatchQueue.main.async {
+                                open(piece, a)
                             }
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        HStack(spacing: OTSpace.m) {
+                            Image(systemName: piece.isDone ? "checkmark" : piece.kind.symbol)
+                                .foregroundStyle(piece.isDone ? OT.labelOnAccent : OT.accent)
+                                .frame(width: 44, height: 44) // ot-lint:allow
+                                .background(piece.isDone ? OT.accent : OT.accentSoft, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: OTSpace.xs) {
+                                    Text("\(i + 1)  \(piece.title)")
+                                        .font(.otHeadline)
+                                        .foregroundStyle(OT.labelPrimary)
+                                    if piece.isOptional {
+                                        OTChip("Optional")
+                                    }
+                                }
+                                Text(rowDetail(for: piece))
+                                    .font(.otFootnote)
+                                    .foregroundStyle(OT.labelTertiary)
+                            }
 
-                        Spacer()
+                            Spacer()
 
-                        if piece.id == a.nextPiece?.id { Text("Next").font(.otFootnote.weight(.semibold)).foregroundStyle(OT.accent) }
-                        Image(systemName: "chevron.forward").font(.caption).foregroundStyle(OT.labelTertiary)
+                            if piece.id == a.nextPiece?.id {
+                                Text("Next")
+                                    .font(.otFootnote.weight(.semibold))
+                                    .foregroundStyle(OT.accent)
+                            }
+                            Image(systemName: "chevron.forward")
+                                .font(.caption)
+                                .foregroundStyle(OT.labelTertiary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading) // ot-lint:allow
+                        .contentShape(Rectangle())
                     }
-                    .frame(minHeight: 56) // ot-lint:allow
+                    .buttonStyle(.plain)
                 }
                 Spacer()
                 }
@@ -57,19 +77,37 @@ struct PackageSheet: View {
                     }
                 }
             }
+            .onAppear { store.syncPieces() }
+        }
+    }
+
+    private func rowDetail(for piece: Piece) -> String {
+        if !piece.detail.isEmpty { return piece.detail }
+        if piece.isDone {
+            return piece.isOptional ? "Skipped for now" : "Recorded"
+        }
+        return "not shot yet"
+    }
+
+    static func destination(for piece: Piece, in a: Audition, store: AppStore) -> Route? {
+        switch piece.kind {
+        case .headshot:
+            return .headshots(for: a.id)
+        case .slate:
+            return a.slateVideoURL != nil ? .elementReview(a.id, element: .slate) : .shootSetup(a.id)
+        case .fullLength:
+            return a.fullLengthVideoURL != nil ? .elementReview(a.id, element: .fullLength) : .shootSetup(a.id)
+        case .scene:
+            guard !a.scenes.isEmpty else { return nil }
+            return .prepare(a.id, sceneIndex: store.sceneIndex(for: piece, in: a.id))
         }
     }
 
     private func open(_ piece: Piece, _ a: Audition) {
-        switch piece.kind {
-        case .headshot: store.push(.headshots(for: a.id))
-        case .slate, .fullLength: store.push(.shootSetup(a.id))
-        case .scene:
-            if a.scenes.isEmpty {
-                onAddSides?()
-            } else {
-                store.push(.prepare(a.id, sceneIndex: store.sceneIndex(for: piece, in: a.id)))
-            }
+        if let route = Self.destination(for: piece, in: a, store: store) {
+            store.push(route)
+        } else {
+            onAddSides?()
         }
     }
 }
