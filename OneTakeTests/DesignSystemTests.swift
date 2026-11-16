@@ -80,6 +80,18 @@ final class DesignSystemTests: XCTestCase {
     func testHeadshotAngleTitles() {
         XCTAssertEqual(HeadshotAngle.allCases.map(\.title), ["Front", "Left profile", "Right profile"])
     }
+
+    func testAuditionsFilterButtonUsesDecreaseSymbolAndDistinctActiveColor() {
+        XCTAssertEqual(AuditionsView.filterButtonSystemImage, "line.3.horizontal.decrease")
+        let inactiveTint = AuditionsView.filterTint(for: .active)
+        let submittedTint = AuditionsView.filterTint(for: .submitted)
+        let archivedTint = AuditionsView.filterTint(for: .archived)
+        XCTAssertEqual(inactiveTint, OT.labelPrimary)
+        XCTAssertEqual(submittedTint, OT.accent)
+        XCTAssertEqual(archivedTint, OT.accent)
+        XCTAssertNotEqual(inactiveTint, submittedTint)
+        XCTAssertNotEqual(inactiveTint, archivedTint)
+    }
 }
 
 extension UIImage {

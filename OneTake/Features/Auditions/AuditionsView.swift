@@ -281,6 +281,12 @@ struct AuditionsView: View {
         ))
     }
 
+    static let filterButtonSystemImage = "line.3.horizontal.decrease"
+
+    static func filterTint(for tab: FilterTab) -> Color {
+        tab == .active ? OT.labelPrimary : OT.accent
+    }
+
     private var filterMenu: some View {
         Menu {
             Picker("Filter", selection: $selectedTab) {
@@ -294,11 +300,9 @@ struct AuditionsView: View {
                 }
             }
         } label: {
-            Label(
-                "Filter",
-                systemImage: selectedTab == .active ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill"
-            )
+            Label("Filter", systemImage: Self.filterButtonSystemImage)
         }
+        .tint(Self.filterTint(for: selectedTab))
         .accessibilityLabel("Filter auditions. Currently showing \(selectedTab.rawValue)")
     }
 
